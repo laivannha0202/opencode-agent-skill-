@@ -1,10 +1,30 @@
+import { spawnSync } from "node:child_process"
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { installResources } from "../lib/installer.mjs"
 
-const isGlobalInstall =
-  process.env.npm_config_global === "true" ||
-  process.env.npm_config_global === "1"
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
-if (!isGlobalInstall) {
+function isGlobalInstall() {
+  if (process.env.npm_config_global === "true" || process.env.npm_config_global === "1") {
+    return true
+  }
+
+  const result = spawnSync("npm", ["prefix", "-g"], {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  })
+
+  if (result.status !== 0 || !result.stdout) return false
+
+  const globalPrefix = path.resolve(result.stdout.trim())
+  const normalizedRoot = packageRoot.toLowerCase()
+  const normalizedPrefix = globalPrefix.toLowerCase()
+
+  return normalizedRoot.startsWith(normalizedPrefix)
+}
+
+if (!isGlobalInstall()) {
   console.log("[ocskill] Local npm install detected; skipping OpenCode global setup.")
   console.log("[ocskill] Use 'node bin/ocskill.mjs install' to test installation manually.")
   process.exit(0)
