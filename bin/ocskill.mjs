@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
+import os from "node:os"
 import {
   PACKAGE_NAME,
   getConfigDir,
@@ -182,7 +183,7 @@ async function update() {
   }
 
   console.log(`[ocskill] Updating ${PACKAGE_NAME} to latest...`)
-  const code = run("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { cwd: packageRoot })
+  const code = run("npm", ["install", "-g", `${PACKAGE_NAME}@latest`, "--ignore-scripts"], { cwd: os.homedir() })
   if (code !== 0) {
     process.exitCode = code
     return
@@ -215,7 +216,7 @@ async function remove() {
   const code = run(
     "npm",
     ["uninstall", "-g", PACKAGE_NAME, "--ignore-scripts"],
-    { cwd: packageRoot },
+    { cwd: os.homedir() },
   )
   if (code !== 0) process.exitCode = code
 }
