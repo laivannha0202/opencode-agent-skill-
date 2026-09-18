@@ -1,0 +1,45 @@
+{
+  "name": "opencode-universal-engineering-system",
+  "version": "1.0.0",
+  "description": "Model-agnostic universal engineering skills and workflow plugin for OpenCode V2",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src",
+    "global-config/AGENTS.md",
+    "global-config/skills",
+    "global-config/commands",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "bun test",
+    "ci": "bun run typecheck && bun test"
+  },
+  "dependencies": {
+    "@opencode/plugin": "^2.0.4"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.0"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "agent-skills",
+    "coding-agent",
+    "developer-tools"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/laivannha0202/opencode-agent-skill-.git"
+  },
+  "homepage": "https://github.com/laivannha0202/opencode-agent-skill-#readme",
+  "bugs": {
+    "url": "https://github.com/laivannha0202/opencode-agent-skill-/issues"
+  },
+  "license": "MIT"
+}
