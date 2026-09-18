@@ -24,7 +24,7 @@ The project follows Semantic Versioning.
 - Bumped the package release line to 3.0.0 for the intelligence-loop and behavioral-eval release.
 
 ### Fixed
-- `ocskill update` now performs package replacement with lifecycle scripts disabled, then explicitly re-syncs resources from the newly installed CLI.
+- `ocskill update` now checks the published npm version first, refuses accidental downgrades, avoids reinstalling an equal version, performs newer package replacement with lifecycle scripts disabled, then explicitly re-syncs resources from the newly installed CLI.
 - `ocskill update` and `ocskill remove` now run npm from the user home directory instead of from inside the package directory being replaced or removed.
 
 ## [2.1.0] - 2026-09-18
