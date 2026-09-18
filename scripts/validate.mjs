@@ -52,12 +52,22 @@ for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
   }
 }
 
+const agentIDs = new Set()
+for (const entry of await readdir(agentsRoot, { withFileTypes: true })) {
+  if (!entry.isFile() || !entry.name.endsWith(".md")) continue
+  agentIDs.add(`ues-${entry.name.slice(0, -3)}`)
+}
+
 let commands = 0
 for (const entry of await readdir(commandsRoot, { withFileTypes: true })) {
   if (!entry.isFile() || !entry.name.endsWith(".md")) continue
   commands += 1
   const source = await readFile(path.join(commandsRoot, entry.name), "utf8")
   if (!source.includes("description:")) errors.push(`${entry.name}: missing command description`)
+  const agent = source.match(/^agent:\s*([^\r\n]+)/m)?.[1]?.trim()
+  if (agent?.startsWith("ues-") && !agentIDs.has(agent)) {
+    errors.push(`${entry.name}: references missing subagent ${agent}`)
+  }
 }
 
 let agents = 0

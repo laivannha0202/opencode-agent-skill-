@@ -70,3 +70,57 @@ test("installer never overwrites an unmanaged namespaced skill", async () => {
   await module.removeResources()
   assert.equal(await readFile(path.join(target, "SKILL.md"), "utf8"), unmanaged)
 })
+
+
+test("re-sync removes stale managed resources recorded by an older state", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-stale-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?stale=${Date.now()}`)
+  const first = await module.installResources()
+
+  const staleDir = path.join(temp, "skills", "ues-stale-example")
+  const { mkdir, rm } = await import("node:fs/promises")
+  await mkdir(staleDir, { recursive: true })
+  await writeFile(
+    path.join(staleDir, "SKILL.md"),
+    "---\nname: ues-stale-example\ndescription: stale\n---\n\n<!-- managed-by: @laivannha0202/opencode-agent-skill -->\n",
+    "utf8",
+  )
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const state = JSON.parse(await readFile(stateFile, "utf8"))
+  state.skills.push("ues-stale-example")
+  await writeFile(stateFile, JSON.stringify(state, null, 2) + "\n", "utf8")
+
+  await module.installResources()
+
+  await assert.rejects(access(path.join(staleDir, "SKILL.md")))
+  const status = await module.getStatus()
+  assert.equal(status.skillsPresent, first.skills.length)
+
+  await module.removeResources()
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("malformed state never turns into arbitrary managed paths", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-state-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?state=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const state = JSON.parse(await readFile(stateFile, "utf8"))
+  state.skills.push("../../outside")
+  state.commands.push("../outside.md")
+  state.agents.push("not-ues.md")
+  await writeFile(stateFile, JSON.stringify(state, null, 2) + "\n", "utf8")
+
+  const status = await module.getStatus()
+  assert.equal(status.skills.includes("../../outside"), false)
+  assert.equal(status.commands.includes("../outside.md"), false)
+  assert.equal(status.agents.includes("not-ues.md"), false)
+
+  await module.removeResources()
+})

@@ -5,7 +5,9 @@ Public repositories and documentation reviewed for the v2.1 engineering-harness 
 - Alibaba OpenCodeReview: https://github.com/alibaba/open-code-review
 - Open GSD Core: https://github.com/open-gsd/gsd-core
 - Superpowers: https://github.com/obra/superpowers
+- Agent Skills open specification: https://github.com/agentskills/agentskills
 - Anthropic Skills: https://github.com/anthropics/skills
+- OpenAI Agents SDK (repository skill-routing guidance): https://github.com/openai/openai-agents-python
 - NVIDIA Skills: https://github.com/NVIDIA/skills
 - Ruflo / Claude Flow: https://github.com/ruvnet/ruflo
 - OpenCode Skills documentation: https://opencode.ai/docs/skills

@@ -9,7 +9,8 @@ The design was informed by public engineering patterns from:
 - Alibaba OpenCodeReview — deterministic guardrails around file/rule selection combined with an agent for dynamic reasoning and context retrieval; high-signal review over noisy finding volume.
 - Open GSD Core — explicit planning artifacts, resumable state, verification records, checkpoints, and using fresh/isolated context selectively for larger work.
 - Superpowers — root-cause-first debugging, fresh verification before completion claims, pragmatic red-green-refactor discipline, and testing the behavioral effect of skills.
-- Anthropic Agent Skills guidance — progressive disclosure: keep the always-visible description small, put the operational core in SKILL.md, and move deeper material into references that are opened only when needed.
+- Agent Skills open specification and Anthropic guidance — progressive disclosure: keep discovery metadata small, put the operational core in SKILL.md, and move deeper material into references/templates/scripts loaded only when needed.
+- OpenAI Agents SDK repository guidance — route behavior-impacting work through mandatory, focused skills and load only the supporting references needed for the selected route.
 - NVIDIA public skills — coordinator skills that link to phase/reference files and use explicit gates instead of placing every detail in one large prompt.
 - Ruflo/Claude Flow — useful patterns for orchestration and independent agents, while also motivating restraint: multi-agent fan-out is not automatically better and can duplicate work or correlate failures.
 

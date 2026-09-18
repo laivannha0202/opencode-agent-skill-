@@ -90,8 +90,9 @@ async function status() {
 
   if (!result.installed) {
     console.log(`[ocskill] Package version: ${currentVersion}`)
-    console.log("[ocskill] OpenCode resources are not installed.")
+    console.log("[ocskill] OpenCode resources are not installed or state is invalid.")
     console.log(`[ocskill] Expected config: ${result.configDir}`)
+    if (result.stateError) console.log(`[ocskill] State: ${result.stateError}`)
     process.exitCode = 1
     return
   }
@@ -156,6 +157,9 @@ async function remove() {
   console.log(
     `[ocskill] Removed ${removed.skills} skills, ${removed.commands} commands and ${removed.agents} subagents.`,
   )
+  for (const warning of removed.warnings || []) {
+    console.warn(`[ocskill] WARNING: ${warning}`)
+  }
 
   if (!hasCommand("npm")) return
 
