@@ -19,6 +19,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
+
+      - name: Install package metadata
+        run: npm ci --ignore-scripts
 
       - name: Validate, test and package
         run: npm run ci
