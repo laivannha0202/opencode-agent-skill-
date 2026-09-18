@@ -1,11 +1,12 @@
-# Universal Engineering System V2
+# Universal Engineering System
 
-These instructions apply to software-engineering work in every OpenCode workspace.
+These instructions apply to software-engineering work in OpenCode when this npm package is installed.
 
 ## Core behavior
+
 1. Read relevant repository files before editing.
 2. Identify the actual stack and conventions from repository evidence.
-3. Load only skills relevant to the current task; never load every skill mechanically.
+3. Load only the relevant `ues-*` skills for the current task.
 4. For non-trivial work, make a short file-aware plan.
 5. Make the smallest coherent change that fully solves the request.
 6. Preserve unrelated user changes and existing architecture unless redesign is explicitly requested.
@@ -15,43 +16,36 @@ These instructions apply to software-engineering work in every OpenCode workspac
 10. Never claim a command, test, build, deployment, push, or migration succeeded unless it actually succeeded.
 
 ## Automatic skill routing
+
 Typical routing:
-- unfamiliar repo -> repo-explorer
-- multi-file/architectural change -> task-planner + software-architect
-- implementation/refactor -> implementation-engineer
-- bug/crash/build failure -> bug-diagnosis
-- API mismatch -> api-contract
-- database/schema -> database-engineering
-- auth/permissions -> auth-security
-- React -> react-engineering
-- Next.js -> nextjs-engineering
-- React Native -> react-native-engineering
-- Node/Nest -> nodejs-engineering / nestjs-engineering
-- .NET -> dotnet-engineering
-- Java/Spring -> java-spring-engineering
-- Python/Django/FastAPI -> python-engineering / django-engineering / fastapi-engineering
-- Flutter -> flutter-engineering
-- UI/UX -> ui-ux-engineering
-- ecommerce/marketplace -> ecommerce-engineering
-- payment -> payment-engineering
-- Docker/CI/deploy -> devops-engineering
-- Git -> git-safety
-- meaningful edits -> test-verification
-- substantial completed work -> code-review
+
+- unfamiliar repository -> `ues-repo-explorer`
+- multi-file or architectural change -> `ues-task-planner` + `ues-software-architect`
+- implementation or refactor -> `ues-implementation-engineer`
+- bug, crash, or build failure -> `ues-bug-diagnosis`
+- API mismatch -> `ues-api-contract`
+- database/schema -> `ues-database-engineering`
+- auth/permissions -> `ues-auth-security`
+- React -> `ues-react-engineering`
+- Next.js -> `ues-nextjs-engineering`
+- React Native -> `ues-react-native-engineering`
+- Node/Nest -> `ues-nodejs-engineering` / `ues-nestjs-engineering`
+- .NET -> `ues-dotnet-engineering`
+- Java/Spring -> `ues-java-spring-engineering`
+- Python/Django/FastAPI -> `ues-python-engineering` / `ues-django-engineering` / `ues-fastapi-engineering`
+- Flutter -> `ues-flutter-engineering`
+- UI/UX -> `ues-ui-ux-engineering`
+- ecommerce/marketplace -> `ues-ecommerce-engineering`
+- payment -> `ues-payment-engineering`
+- Docker/CI/deploy -> `ues-devops-engineering`
+- Git -> `ues-git-safety`
+- meaningful edits -> `ues-test-verification`
+- substantial completed work -> `ues-code-review`
 
 Combine only genuinely relevant skills.
 
-## Subagent routing
-Use specialist subagents when they clearly help on larger work:
-- architect: design/boundaries
-- debugger: difficult failures
-- tester: independent verification
-- reviewer: final correctness review
-- security-reviewer: auth, permissions, secrets, payments, uploads, exposed APIs
-- ui-reviewer: significant UI/UX changes
-Do not launch them mechanically for tiny changes.
-
 ## Repository discipline
+
 - Never invent files, functions, endpoints, schemas, commands, package versions, or project structure.
 - Prefer search/read over guessing.
 - Follow the project's package manager, formatter, linter, tests, and build scripts.
@@ -60,7 +54,9 @@ Do not launch them mechanically for tiny changes.
 - Preserve lockfile/package-manager conventions.
 
 ## Destructive operations
-Ask before destructive or irreversible actions such as deleting important data, dropping DB objects, force pushing, resetting/cleaning uncommitted work, rewriting history, production deployment, or credential rotation. Never print secrets.
+
+Ask before destructive or irreversible actions such as deleting important data, dropping database objects, force pushing, resetting or cleaning uncommitted work, rewriting history, production deployment, or credential rotation. Never print secrets.
 
 ## Completion standard
+
 A task is complete only when requested behavior is implemented, relevant checks were run when available, failures caused by the change were addressed, the diff was reviewed, and real limitations are stated accurately.
