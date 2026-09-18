@@ -2,8 +2,8 @@
 
 ## Requirements
 
-- OpenCode V2
-- Bun
+- Node.js 20+
+- npm
 - Git
 
 ## Development
@@ -11,35 +11,52 @@
 ```bash
 git clone https://github.com/laivannha0202/opencode-agent-skill-.git
 cd opencode-agent-skill-
-bun install
-bun run ci
+npm install
+npm run ci
+```
+
+A local `npm install` skips global OpenCode installation. Use a temporary config directory when testing the installer manually:
+
+```powershell
+$env:OPENCODE_CONFIG_DIR="$PWD\.tmp-opencode"
+node .\bin\ocskill.mjs install
+node .\bin\ocskill.mjs status
+node .\bin\ocskill.mjs remove --lifecycle
 ```
 
 ## Skill rules
 
-Each skill lives at:
+Each source skill lives at:
 
 ```text
 global-config/skills/<skill-id>/SKILL.md
 ```
 
-The skill ID must match its directory and use lowercase letters, numbers, and single hyphens.
+The source skill ID must match its directory. The npm installer exposes it globally with the `ues-` prefix to avoid overwriting unrelated user skills.
 
-Every skill must include YAML frontmatter with at least:
+Every skill must include:
 
 ```yaml
 ---
 name: skill-id
-description: Clear explanation of when the skill should be used.
+description: Clear explanation of what it does and when to use it.
 ---
 ```
 
-Keep skills focused. Prefer several composable skills over one giant prompt.
+Keep skills focused. Prefer composable skills over one giant prompt.
 
-## Pull requests
+## Before committing
 
-1. Create a branch.
-2. Make the smallest coherent change.
-3. Run `bun run ci`.
-4. Update `CHANGELOG.md` when behavior changes.
-5. Open a pull request describing behavior and verification.
+```bash
+npm run validate
+npm test
+npm pack --dry-run
+```
+
+or simply:
+
+```bash
+npm run ci
+```
+
+Update `CHANGELOG.md` whenever package behavior changes.
