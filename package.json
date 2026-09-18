@@ -10,6 +10,7 @@
     "bin/ocskill.mjs",
     "lib/installer.mjs",
     "lib/ids.mjs",
+    "lib/version.mjs",
     "scripts/install.mjs",
     "scripts/uninstall.mjs",
     "scripts/validate.mjs",
