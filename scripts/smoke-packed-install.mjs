@@ -48,14 +48,19 @@ try {
   assert.equal(tarballs.length, 1, "expected exactly one packed tarball")
   const tarball = path.join(packDir, tarballs[0])
 
-  const install = runNpm(
-    ["install", "-g", tarball, "--ignore-scripts", "--prefix", prefix],
-    {
-      cwd: temp,
-      env: { ...process.env, OPENCODE_CONFIG_DIR: configDir },
-    },
-  )
-  requireSuccess(install, "packed global install")
+  const npmVersion = runNpm(["--version"], { cwd: temp })
+  requireSuccess(npmVersion, "npm --version")
+  const npmMajor = Number.parseInt(npmVersion.stdout.trim().split(".")[0], 10)
+  const installArgs = ["install", "-g", tarball, "--prefix", prefix]
+  if (Number.isFinite(npmMajor) && npmMajor >= 11) {
+    installArgs.push(`--allow-scripts=${packageName}`)
+  }
+
+  const install = runNpm(installArgs, {
+    cwd: temp,
+    env: { ...process.env, OPENCODE_CONFIG_DIR: configDir },
+  })
+  requireSuccess(install, "packed global install with automatic OpenCode sync")
 
   const root = runNpm(["root", "-g", "--prefix", prefix], { cwd: temp })
   requireSuccess(root, "npm root -g")
@@ -77,13 +82,6 @@ try {
   const cli = path.join(packageDir, "bin", "ocskill.mjs")
   const env = { ...process.env, OPENCODE_CONFIG_DIR: configDir }
 
-  const sync = spawnSync(process.execPath, [cli, "install"], {
-    cwd: temp,
-    env,
-    encoding: "utf8",
-  })
-  requireSuccess(sync, "ocskill install from packed copy")
-
   const status = spawnSync(process.execPath, [cli, "status"], {
     cwd: temp,
     env,
@@ -101,7 +99,7 @@ try {
   assert.ok(state.agents.length >= 6)
 
   console.log(
-    `Packed install smoke passed for ${packageName}@${packageJson.version}: ` +
+    `One-command packed install smoke passed for ${packageName}@${packageJson.version}: ` +
       `${state.skills.length} skills, ${state.commands.length} commands, ${state.agents.length} subagents.`,
   )
 } finally {
