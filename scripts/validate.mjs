@@ -2,8 +2,11 @@ import { existsSync } from "node:fs"
 import { readFile, readdir } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { validResourceID } from "../lib/ids.mjs"
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+const root = process.env.UES_BUNDLE_ROOT
+  ? path.resolve(process.env.UES_BUNDLE_ROOT)
+  : path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const skillsRoot = path.join(root, "global-config", "skills")
 const commandsRoot = path.join(root, "global-config", "commands")
 const agentsRoot = path.join(root, "global-config", "agents")
@@ -39,7 +42,7 @@ for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
   if (!name) errors.push(`${entry.name}: missing name`)
   if (!description) errors.push(`${entry.name}: missing description`)
   if (name && name !== entry.name) errors.push(`${entry.name}: frontmatter name must match directory`)
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name)) errors.push(`${entry.name}: invalid skill id`)
+  if (!validResourceID(entry.name)) errors.push(`${entry.name}: invalid skill id`)
   if (ids.has(entry.name)) errors.push(`${entry.name}: duplicate skill id`)
   ids.add(entry.name)
 
@@ -62,6 +65,8 @@ let commands = 0
 for (const entry of await readdir(commandsRoot, { withFileTypes: true })) {
   if (!entry.isFile() || !entry.name.endsWith(".md")) continue
   commands += 1
+  const id = entry.name.slice(0, -3)
+  if (!validResourceID(id)) errors.push(`${entry.name}: invalid command id`)
   const source = await readFile(path.join(commandsRoot, entry.name), "utf8")
   if (!source.includes("description:")) errors.push(`${entry.name}: missing command description`)
   const agent = source.match(/^agent:\s*([^\r\n]+)/m)?.[1]?.trim()
@@ -74,6 +79,8 @@ let agents = 0
 for (const entry of await readdir(agentsRoot, { withFileTypes: true })) {
   if (!entry.isFile() || !entry.name.endsWith(".md")) continue
   agents += 1
+  const id = entry.name.slice(0, -3)
+  if (!validResourceID(id)) errors.push(`${entry.name}: invalid agent id`)
   const source = await readFile(path.join(agentsRoot, entry.name), "utf8")
   if (!source.includes("description:")) errors.push(`${entry.name}: missing agent description`)
   if (!/mode:\s*subagent/.test(source)) errors.push(`${entry.name}: agent must use mode: subagent`)

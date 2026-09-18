@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
@@ -14,6 +14,7 @@ import {
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
+const force = args.includes("--force")
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 function printHelp() {
@@ -21,14 +22,16 @@ function printHelp() {
 OpenCode Universal Engineering System
 
 Usage:
-  ocskill install    Install or re-sync bundled OpenCode resources
-  ocskill status     Show package/resource synchronization status
-  ocskill doctor     Check Node, npm, OpenCode and installed resources
-  ocskill eval       Validate the bundled skill-routing evaluation suite
-  ocskill update     Update the global npm package and re-sync resources
-  ocskill remove     Remove managed resources and uninstall the npm package
-  ocskill version    Show package version
-  ocskill help       Show this help
+  ocskill install [--force]    Install or re-sync bundled OpenCode resources
+  ocskill status               Show package/resource synchronization status
+  ocskill doctor               Check Node, npm, OpenCode and installed resources
+  ocskill eval                 Validate the bundled skill-routing evaluation suite
+  ocskill update               Update the global npm package and re-sync resources
+  ocskill remove [--force]     Remove managed resources and uninstall the npm package
+  ocskill version              Show package version
+  ocskill help                 Show this help
+
+  --force backs up and replaces/removes state owned by another package.
 `)
 }
 
@@ -47,6 +50,24 @@ function quoteCmd(value) {
   return `"${value.replaceAll('"', '""')}"`
 }
 
+function findNodeShimEntry(cmdPath) {
+  const dir = path.dirname(cmdPath)
+
+  if (/^npm(?:\.cmd|\.exe)?$/i.test(path.basename(cmdPath))) {
+    const entry = path.join(dir, "node_modules", "npm", "bin", "npm-cli.js")
+    if (existsSync(entry)) return entry
+  }
+
+  let shim = ""
+  try {
+    shim = readFileSync(cmdPath, "utf8")
+  } catch {}
+  const match = shim.match(/node_modules[\\/][^\s"]+?\.(?:js|mjs)/gi)?.at(-1)
+  if (!match) return null
+  const entry = path.resolve(dir, match)
+  return existsSync(entry) ? entry : null
+}
+
 function run(executable, commandArgs, options = {}) {
   const common = { stdio: "inherit", ...options }
 
@@ -59,6 +80,11 @@ function run(executable, commandArgs, options = {}) {
   if (!resolved) return 127
 
   if (/\.(cmd|bat)$/i.test(resolved)) {
+    const entry = findNodeShimEntry(resolved)
+    if (entry) {
+      const result = spawnSync(process.execPath, [entry, ...commandArgs], common)
+      return result.status ?? 1
+    }
     const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
     const result = spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], common)
     return result.status ?? 1
@@ -74,7 +100,13 @@ function hasCommand(name) {
 }
 
 async function install() {
-  const result = await installResources()
+  const result = await installResources({ force })
+  if (result.stateError) {
+    for (const warning of result.warnings) console.warn(`[ocskill] WARNING: ${warning}`)
+    console.error(`[ocskill] ERROR: ${result.stateError}`)
+    process.exitCode = 1
+    return
+  }
   console.log(`[ocskill] Installed resources for v${result.version}`)
   console.log(`[ocskill] OpenCode config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skills.length}`)
@@ -153,7 +185,15 @@ async function update() {
 }
 
 async function remove() {
-  const removed = await removeResources()
+  const removed = await removeResources({ force })
+  if (removed.stateError) {
+    for (const warning of removed.warnings || []) {
+      console.warn(`[ocskill] WARNING: ${warning}`)
+    }
+    console.error(`[ocskill] ERROR: ${removed.stateError}`)
+    process.exitCode = 1
+    return
+  }
   console.log(
     `[ocskill] Removed ${removed.skills} skills, ${removed.commands} commands and ${removed.agents} subagents.`,
   )

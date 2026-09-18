@@ -99,7 +99,9 @@ ocskill remove
 
 The command first removes only UES-managed OpenCode resources, then uninstalls the global npm package.
 
-Direct npm uninstall is also supported through the package lifecycle when install scripts are allowed:
+Note: run `ocskill remove` rather than relying on a direct `npm uninstall -g`. npm 7 and newer no longer
+run `uninstall`/`preuninstall` lifecycle scripts, so a direct `npm uninstall -g` only removes the package
+and leaves the managed OpenCode resources and `.ues/state.json` behind without any warning.
 
 ```cmd
 npm uninstall -g @laivannha0202/opencode-agent-skill
@@ -108,14 +110,19 @@ npm uninstall -g @laivannha0202/opencode-agent-skill
 ## CLI
 
 ```text
-ocskill install    install/re-sync managed OpenCode resources
-ocskill status     compare package version and installed resource state
-ocskill doctor     check Node, npm, OpenCode and resource synchronization
-ocskill eval       validate the bundled skill-routing evaluation contract
-ocskill update     update npm package and explicitly re-sync resources
-ocskill remove     remove managed resources and uninstall package
-ocskill version    print package version
+ocskill install [--force]    install/re-sync managed OpenCode resources
+ocskill status               compare package version and installed resource state
+ocskill doctor               check Node, npm, OpenCode and resource synchronization
+ocskill eval                 validate the bundled skill-routing evaluation contract
+ocskill update               update npm package and explicitly re-sync resources
+ocskill remove [--force]     remove managed resources and uninstall package
+ocskill version              print package version
 ```
+
+If `~/.config/opencode/.ues/state.json` is owned by another package, install and remove
+refuse to touch it. Use `--force` to take ownership anyway: the existing state file is
+backed up first (next to `.ues` for `remove --force`), then replaced or the managed
+resources are removed. This is the deliberate override for migrations or stale ownership.
 
 ## Process skills added in v2.1
 

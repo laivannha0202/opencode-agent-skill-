@@ -1,8 +1,10 @@
-import test from "node:test"
-import assert from "node:assert/strict"
-import { access, mkdtemp, readFile, writeFile } from "node:fs/promises"
+import { spawnSync } from "node:child_process"
+import { access, cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { fileURLToPath, pathToFileURL } from "node:url"
+import test from "node:test"
+import assert from "node:assert/strict"
 
 test("install and remove are idempotent, recursive and preserve user AGENTS content", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-"))
@@ -123,4 +125,349 @@ test("malformed state never turns into arbitrary managed paths", async () => {
   assert.equal(status.agents.includes("not-ues.md"), false)
 
   await module.removeResources()
+})
+
+test("install and remove never clobber state owned by another package", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-foreign-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?foreign=${Date.now()}`)
+  await module.installResources()
+
+  const foreign = {
+    schemaVersion: 1,
+    package: "@different/vendor-package",
+    version: "1.0.0",
+    skills: [],
+    commands: [],
+    agents: [],
+  }
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const before = JSON.stringify(foreign, null, 2) + "\n"
+  await writeFile(stateFile, before, "utf8")
+
+  const installResult = await module.installResources()
+  assert.equal(await readFile(stateFile, "utf8"), before)
+  assert.equal(installResult.skills.length, 0)
+  assert.ok(installResult.stateError.includes("another package"))
+  assert.ok(installResult.warnings.some((warning) => warning.includes("another package")))
+
+  const removeResult = await module.removeResources()
+  assert.equal(await readFile(stateFile, "utf8"), before)
+  assert.ok(removeResult.stateError.includes("another package"))
+  assert.ok(removeResult.warnings.some((warning) => warning.includes("another package")))
+  assert.match(
+    await readFile(path.join(temp, "AGENTS.md"), "utf8"),
+    /BEGIN OCSKILL UNIVERSAL ENGINEERING SYSTEM/,
+  )
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("legacy UES state without a package field still re-syncs and is re-owned", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-legacy-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?legacy=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const legacy = JSON.parse(await readFile(stateFile, "utf8"))
+  delete legacy.package
+  await writeFile(stateFile, JSON.stringify(legacy, null, 2) + "\n", "utf8")
+
+  const result = await module.installResources()
+  assert.ok(result.skills.length >= 39)
+
+  const reowned = JSON.parse(await readFile(stateFile, "utf8"))
+  assert.equal(reowned.package, module.PACKAGE_NAME)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("installer skips command and agent sources whose IDs are not managed-safe", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-invalid-id-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const bundle = path.join(temp, "bundle")
+  const bundleConfig = path.join(bundle, "global-config")
+  await mkdir(path.join(bundleConfig, "skills"), { recursive: true })
+  await mkdir(path.join(bundleConfig, "commands"), { recursive: true })
+  await mkdir(path.join(bundleConfig, "agents"), { recursive: true })
+
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+  await cp(path.join(repoRoot, "global-config", "AGENTS.md"), path.join(bundleConfig, "AGENTS.md"))
+  await cp(path.join(repoRoot, "package.json"), path.join(bundle, "package.json"))
+  await cp(path.join(repoRoot, "lib"), path.join(bundle, "lib"), { recursive: true })
+
+  await writeFile(path.join(bundleConfig, "commands", "my_cmd.md"), "# bad punctuation\n", "utf8")
+  await writeFile(path.join(bundleConfig, "commands", "good-cmd.md"), "# good command\n", "utf8")
+  await writeFile(path.join(bundleConfig, "agents", "MyAgent.md"), "# bad casing\n", "utf8")
+  await writeFile(path.join(bundleConfig, "agents", "good-agent.md"), "# good agent\n", "utf8")
+
+  const module = await import(
+    `${pathToFileURL(path.join(bundle, "lib", "installer.mjs")).href}?invalid-id=${Date.now()}`,
+  )
+  const result = await module.installResources()
+
+  assert.ok(result.warnings.some((warning) => warning.includes("my_cmd")))
+  assert.ok(result.warnings.some((warning) => warning.includes("MyAgent")))
+  assert.ok(!result.commands.includes("ues-my_cmd.md"))
+  assert.ok(!result.agents.includes("ues-MyAgent.md"))
+  assert.ok(result.commands.includes("ues-good-cmd.md"))
+  assert.ok(result.agents.includes("ues-good-agent.md"))
+
+  await assert.rejects(access(path.join(temp, "commands", "ues-my_cmd.md")))
+  await assert.rejects(access(path.join(temp, "agents", "ues-MyAgent.md")))
+  await access(path.join(temp, "agents", "ues-good-agent.md"))
+
+  const state = JSON.parse(await readFile(path.join(temp, ".ues", "state.json"), "utf8"))
+  assert.ok(!state.commands.includes("ues-my_cmd.md"))
+  assert.ok(!state.agents.includes("ues-MyAgent.md"))
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("validate rejects command and agent sources whose IDs are not managed-safe", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-validate-id-"))
+  const bundleConfig = path.join(temp, "global-config")
+  await mkdir(path.join(bundleConfig, "skills", "valid-skill"), { recursive: true })
+  await mkdir(path.join(bundleConfig, "commands"), { recursive: true })
+  await mkdir(path.join(bundleConfig, "agents"), { recursive: true })
+
+  await writeFile(
+    path.join(bundleConfig, "skills", "valid-skill", "SKILL.md"),
+    "name: valid-skill\ndescription: demo\n",
+    "utf8",
+  )
+  await writeFile(path.join(bundleConfig, "commands", "good-cmd.md"), "# c\ndescription: ok\n", "utf8")
+  await writeFile(path.join(bundleConfig, "commands", "my_cmd.md"), "# c\ndescription: bad\n", "utf8")
+  await writeFile(
+    path.join(bundleConfig, "agents", "good-agent.md"),
+    "# a\ndescription: ok\nmode: subagent\n",
+    "utf8",
+  )
+  await writeFile(
+    path.join(bundleConfig, "agents", "MyAgent.md"),
+    "# a\ndescription: bad\nmode: subagent\n",
+    "utf8",
+  )
+
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+  const run = spawnSync(process.execPath, [path.join(repoRoot, "scripts", "validate.mjs")], {
+    env: { ...process.env, UES_BUNDLE_ROOT: temp },
+    encoding: "utf8",
+    cwd: repoRoot,
+  })
+
+  assert.equal(run.status, 1)
+  assert.match(run.stderr, /invalid command id/)
+  assert.match(run.stderr, /invalid agent id/)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("unreadable state is backed up, never destroyed, by a repeat install", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-invalid-state-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?invalid-state=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const corrupted = "\uFEFF" + JSON.stringify(
+    { package: "@different/vendor-package", version: "1.0.0" },
+    null,
+    2,
+  ) + "\n"
+  await writeFile(stateFile, corrupted, "utf8")
+
+  const result = await module.installResources()
+  assert.ok(result.warnings.some((warning) => warning.includes("Invalid UES state file")))
+  assert.ok(result.warnings.some((warning) => warning.includes("Backed up unreadable state")))
+
+  const backups = (await readdir(path.join(temp, ".ues"))).filter((name) =>
+    /^state\.json\.invalid-\d+$/.test(name),
+  )
+  assert.equal(backups.length, 1)
+  assert.equal(await readFile(path.join(temp, ".ues", backups[0]), "utf8"), corrupted)
+  const rebuilt = JSON.parse(await readFile(stateFile, "utf8"))
+  assert.equal(rebuilt.package, module.PACKAGE_NAME)
+  assert.ok(rebuilt.skills.length >= 39)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("removeResources refuses to modify unreadable state", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-invalid-remove-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?invalid-remove=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const corrupted = "\uFEFF" + JSON.stringify(
+    { package: "@different/vendor-package", version: "1.0.0" },
+    null,
+    2,
+  ) + "\n"
+  await writeFile(stateFile, corrupted, "utf8")
+
+  const result = await module.removeResources()
+  assert.ok(result.stateError.includes("invalid"))
+  assert.equal(result.skills, 0)
+  assert.equal(result.commands, 0)
+  assert.equal(result.agents, 0)
+  assert.equal(await readFile(stateFile, "utf8"), corrupted)
+  assert.match(
+    await readFile(path.join(temp, "AGENTS.md"), "utf8"),
+    /BEGIN OCSKILL UNIVERSAL ENGINEERING SYSTEM/,
+  )
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("lifecycle scripts fail loudly and preserve state when it belongs to another package", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-lifecycle-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?lifecycle=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const foreign = JSON.stringify(
+    { schemaVersion: 1, package: "@different/vendor-package", version: "1.0.0", skills: [], commands: [], agents: [] },
+    null,
+    2,
+  ) + "\n"
+  await writeFile(stateFile, foreign, "utf8")
+
+  const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+  const installRun = spawnSync(
+    process.execPath,
+    [path.join(repoRoot, "scripts", "install.mjs")],
+    { env: { ...process.env, OPENCODE_CONFIG_DIR: temp, npm_config_global: "true" }, encoding: "utf8" },
+  )
+  assert.equal(installRun.status, 1)
+  assert.match(installRun.stderr, /State belongs to another package/)
+  assert.equal(await readFile(stateFile, "utf8"), foreign)
+
+  const uninstallRun = spawnSync(
+    process.execPath,
+    [path.join(repoRoot, "scripts", "uninstall.mjs")],
+    { env: { ...process.env, OPENCODE_CONFIG_DIR: temp }, encoding: "utf8" },
+  )
+  assert.equal(uninstallRun.status, 1)
+  assert.match(uninstallRun.stderr, /State belongs to another package/)
+  assert.equal(await readFile(stateFile, "utf8"), foreign)
+  assert.match(
+    await readFile(path.join(temp, "AGENTS.md"), "utf8"),
+    /BEGIN OCSKILL UNIVERSAL ENGINEERING SYSTEM/,
+  )
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("install --force backs up and re-owns state belonging to another package", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-force-install-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?force-install=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const foreign = JSON.stringify(
+    { schemaVersion: 1, package: "@different/vendor-package", version: "1.0.0", skills: [], commands: [], agents: [] },
+    null,
+    2,
+  ) + "\n"
+  await writeFile(stateFile, foreign, "utf8")
+
+  const result = await module.installResources({ force: true })
+  assert.equal(result.stateError, undefined)
+  assert.ok(result.warnings.some((warning) => warning.includes("re-owning")))
+
+  const backup = (await readdir(path.join(temp, ".ues"))).find((name) =>
+    /^state\.json\.foreign-\d+$/.test(name),
+  )
+  assert.ok(backup)
+  assert.equal(await readFile(path.join(temp, ".ues", backup), "utf8"), foreign)
+
+  const reowned = JSON.parse(await readFile(stateFile, "utf8"))
+  assert.equal(reowned.package, module.PACKAGE_NAME)
+  assert.ok(reowned.skills.length >= 39)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("remove --force cleans managed resources even when state belongs to another package", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-force-remove-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?force-remove=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const foreign = JSON.stringify(
+    { schemaVersion: 1, package: "@different/vendor-package", version: "1.0.0", skills: [], commands: [], agents: [] },
+    null,
+    2,
+  ) + "\n"
+  await writeFile(stateFile, foreign, "utf8")
+
+  await access(path.join(temp, "skills", "ues-engineering-orchestrator"))
+
+  const result = await module.removeResources({ force: true })
+  assert.equal(result.stateError, undefined)
+  assert.ok(result.skills >= 39)
+  assert.ok(result.agents >= 5)
+  assert.ok(
+    result.warnings.some((warning) => warning.includes("Backed up state before forced remove")),
+  )
+
+  const backup = (await readdir(temp)).find((name) =>
+    /^state\.foreign-\d+\.backup\.json$/.test(name),
+  )
+  assert.ok(backup)
+  assert.equal(await readFile(path.join(temp, backup), "utf8"), foreign)
+
+  await assert.rejects(access(path.join(temp, "skills", "ues-engineering-orchestrator")))
+  await assert.rejects(access(path.join(temp, ".ues", "state.json")))
+  let agents = ""
+  try {
+    agents = await readFile(path.join(temp, "AGENTS.md"), "utf8")
+  } catch {}
+  assert.doesNotMatch(agents, /BEGIN OCSKILL UNIVERSAL ENGINEERING SYSTEM/)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
+test("remove --force handles foreign state with no resource directories", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-force-remove-empty-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const foreign = JSON.stringify(
+    { schemaVersion: 1, package: "@different/vendor-package", version: "1.0.0", skills: [], commands: [], agents: [] },
+    null,
+    2,
+  ) + "\n"
+  await mkdir(path.join(temp, ".ues"), { recursive: true })
+  await writeFile(stateFile, foreign, "utf8")
+
+  const module = await import(`../lib/installer.mjs?force-remove-empty=${Date.now()}`)
+  const result = await module.removeResources({ force: true })
+  assert.equal(result.stateError, undefined)
+  assert.ok(
+    result.warnings.some((warning) => warning.includes("Backed up state before forced remove")),
+  )
+
+  const backup = (await readdir(temp)).find((name) =>
+    /^state\.foreign-\d+\.backup\.json$/.test(name),
+  )
+  assert.ok(backup)
+  assert.equal(await readFile(path.join(temp, backup), "utf8"), foreign)
+  await assert.rejects(access(path.join(temp, ".ues", "state.json")))
+
+  await rm(temp, { recursive: true, force: true })
 })

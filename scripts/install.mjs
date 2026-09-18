@@ -38,6 +38,13 @@ if (!isGlobalInstall()) {
 
 try {
   const result = await installResources()
+  if (result.stateError) {
+    for (const warning of result.warnings) {
+      console.warn(`[ocskill] WARNING: ${warning}`)
+    }
+    console.error(`[ocskill] ERROR: ${result.stateError}`)
+    process.exit(1)
+  }
   console.log(`[ocskill] Installed resources for v${result.version}`)
   console.log(`[ocskill] OpenCode config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skills.length}`)
