@@ -6,24 +6,43 @@ Describe the requested outcome in one paragraph.
 
 ## Acceptance criteria
 
-- [ ] Observable requirement
+- [ ] Observable requirement and current status.
+
+## Confirmed facts
+
+- Fact — evidence: path/symbol/command/output.
+
+## Assumptions
+
+- Assumption — confidence: low/medium/high — verify by: cheapest concrete check.
+
+## System map
+
+- Entry point:
+- Producers:
+- Consumers:
+- Contracts / persisted state:
 
 ## Decisions
 
-- Decision and reason
+- Decision — reason/evidence — alternatives rejected if material.
 
-## Completed
+## Rejected hypotheses
 
-- Work unit and relevant files
+- Hypothesis — evidence that disproved it.
+
+## Changed files
+
+- Path — why it changed.
 
 ## Verification evidence
 
-- Command/check, result, and when it was run
+- Check/command — result — run order/time if useful.
 
 ## Blockers / risks
 
-- Current blocker or known risk
+- Current blocker, unresolved critic finding, or known risk.
 
 ## Next action
 
-One concrete resumable next step.
+Exactly one concrete resumable next step.

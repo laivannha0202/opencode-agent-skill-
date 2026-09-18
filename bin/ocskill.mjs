@@ -25,7 +25,8 @@ Usage:
   ocskill install [--force]    Install or re-sync bundled OpenCode resources
   ocskill status               Show package/resource synchronization status
   ocskill doctor               Check Node, npm, OpenCode and installed resources
-  ocskill eval                 Validate the bundled skill-routing evaluation suite
+  ocskill eval                 Validate the bundled static skill-routing suite
+  ocskill eval-live [options]  Run baseline-vs-UES live behavioral evals
   ocskill update               Update the global npm package and re-sync resources
   ocskill remove [--force]     Remove managed resources and uninstall the npm package
   ocskill version              Show package version
@@ -165,6 +166,14 @@ async function evaluate() {
   if (code !== 0) process.exitCode = code
 }
 
+async function evaluateLive() {
+  const code = run(
+    process.execPath,
+    [path.join(packageRoot, "scripts", "eval-live.mjs"), ...args.slice(1)],
+  )
+  if (code !== 0) process.exitCode = code
+}
+
 async function update() {
   if (!hasCommand("npm")) {
     console.error("[ocskill] npm is required to update this global package.")
@@ -225,6 +234,9 @@ switch (command) {
   case "eval":
   case "evals":
     await evaluate()
+    break
+  case "eval-live":
+    await evaluateLive()
     break
   case "update":
     await update()

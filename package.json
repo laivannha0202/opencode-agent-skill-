@@ -14,6 +14,7 @@
     "scripts/uninstall.mjs",
     "scripts/validate.mjs",
     "scripts/eval-skills.mjs",
+    "scripts/eval-live.mjs",
     "global-config/AGENTS.md",
     "global-config/commands/",
     "global-config/agents/",
@@ -31,7 +32,8 @@
     "ci": "npm run validate && npm run evals && npm test && npm pack --dry-run",
     "postinstall": "node scripts/install.mjs",
     "preuninstall": "node scripts/uninstall.mjs",
-    "prepublishOnly": "npm run ci"
+    "prepublishOnly": "npm run ci",
+    "evals:live": "node scripts/eval-live.mjs"
   },
   "keywords": [
     "opencode",

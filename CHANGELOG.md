@@ -4,6 +4,21 @@ All notable changes to this project are documented here.
 
 The project follows Semantic Versioning.
 
+## [Unreleased]
+
+### Added
+- Live baseline-vs-UES behavioral evaluation harness with isolated OpenCode configs, executable fixtures, hidden graders, multi-trial support, and JSON traces.
+- Independent `ues-critic` subagent and `/ues-critique` command for evidence-grounded falsification before completion.
+- Evaluator/repair orchestration reference with bounded critic-repair-reverify cycles.
+- Context-ledger guidance that separates confirmed facts, assumptions, rejected hypotheses, decisions, and fresh verification evidence.
+- Structured output contracts for architecture, debugging, research, review, critic, and verification subagents.
+- Trace schema documentation for live benchmark results.
+
+### Changed
+- Long-task state now preserves rejected hypotheses and evidence so resumed work does not repeat disproved approaches.
+- Completion gates now require substantial/high-risk changes to resolve or explicitly surface evidence-backed blocking critic findings.
+- Installer tests now require the expanded command/subagent catalog and progressive-disclosure references.
+
 ## [2.1.0] - 2026-09-18
 
 ### Added

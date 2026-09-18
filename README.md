@@ -4,11 +4,11 @@ A model-agnostic engineering workflow for OpenCode, distributed as a global npm 
 
 UES does not turn Big Pickle, GPT, Claude, Gemini, or another model into a different model. It improves the engineering harness around the selected model: context selection, skill routing, planning, root-cause debugging, research verification, impact analysis, testing, independent review, and evidence-based completion.
 
-## What v2.1 installs
+## What the current package installs
 
 - **39 engineering skills**
-- **8 slash commands**
-- **5 optional read-only/analysis subagents**
+- **9 slash commands**
+- **6 optional read-only/analysis subagents**
 - a managed global engineering workflow in OpenCode's `AGENTS.md`
 - installation state used by `ocskill status` and safe uninstall
 
@@ -27,6 +27,12 @@ verification failure
   -> root-cause diagnosis
   -> smallest evidence-backed fix
   -> re-verify
+
+substantial/high-risk success
+  -> independent critic
+  -> evidence-backed repair if needed
+  -> re-verify
+  -> finish
 ```
 
 ## Install
@@ -65,12 +71,12 @@ ocskill doctor
 ocskill status
 ```
 
-A synchronized v2.1 install reports package/resource versions plus:
+A synchronized install reports package/resource versions plus:
 
 ```text
 Skills: 39/39
-Commands: 8/8
-Subagents: 5/5
+Commands: 9/9
+Subagents: 6/6
 Workflow: OK
 ```
 
@@ -113,7 +119,8 @@ npm uninstall -g @laivannha0202/opencode-agent-skill
 ocskill install [--force]    install/re-sync managed OpenCode resources
 ocskill status               compare package version and installed resource state
 ocskill doctor               check Node, npm, OpenCode and resource synchronization
-ocskill eval                 validate the bundled skill-routing evaluation contract
+ocskill eval                 validate the bundled static skill-routing contract
+ocskill eval-live [options]  run baseline-vs-UES live behavioral evals
 ocskill update               update npm package and explicitly re-sync resources
 ocskill remove [--force]     remove managed resources and uninstall package
 ocskill version              print package version
@@ -148,6 +155,7 @@ Existing debugging, planning, repository exploration, dependency, review, and ve
 /ues-verify
 /ues-research
 /ues-audit
+/ues-critique
 ```
 
 The analysis commands route to focused subagents where appropriate.
@@ -161,6 +169,7 @@ ues-architect
 ues-debugger
 ues-researcher
 ues-reviewer
+ues-critic
 ues-verifier
 ```
 
@@ -202,13 +211,27 @@ Detailed orchestration rules are split into supporting files under each skill's 
 
 ## Evaluation
 
+Static catalog/routing validation remains fast and deterministic:
+
 ```cmd
 npm run evals
 ```
 
-The repository currently contains a static routing contract with representative engineering requests. It verifies catalog/routing consistency but is **not** a model benchmark and does not claim GPT-5.6-equivalent intelligence.
+The repository also includes a live behavioral harness that runs the same executable coding task with an isolated baseline config and with UES, then scores both using an external hidden grader:
 
-See [docs/EVALS.md](docs/EVALS.md).
+```cmd
+npm run evals:live -- --model provider/model --trials 3
+```
+
+or after installation:
+
+```cmd
+ocskill eval-live --model provider/model --trials 3
+```
+
+Live results are written to the gitignored `.ues-evals/` directory. This measures harness impact on tested tasks; it does **not** claim that one base model becomes another model.
+
+See [docs/EVALS.md](docs/EVALS.md) and [docs/TRACE-SCHEMA.md](docs/TRACE-SCHEMA.md).
 
 ## Development
 

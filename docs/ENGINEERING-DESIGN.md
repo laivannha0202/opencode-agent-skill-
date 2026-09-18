@@ -40,17 +40,23 @@ Failures feed a diagnosis loop. UES discourages piling patches onto an unproven 
 
 ### Selective subagents
 
-Five read-only/analysis-oriented subagents provide independent context for architecture, debugging, research, review, and verification. They are optional. The parent Build agent remains responsible for integration and final claims.
+Six read-only/analysis-oriented subagents provide independent context for architecture, debugging, research, review, adversarial criticism, and verification. They are optional. The parent Build agent remains responsible for integration and final claims.
+
+Subagent outputs use stable evidence-oriented sections so the parent receives facts, assumptions, findings, risks, and verification requirements without having to reconstruct them from free-form essays.
+
+### Evaluator-repair loop
+
+For substantial or high-risk changes, UES adds a bounded falsification loop after implementation and focused verification. An independent critic challenges assumptions and searches for concrete counterexamples. Only evidence-backed blocking findings trigger repair; affected checks are rerun and a second critic pass is used only when the repair changed risky behavior. After two repair cycles, the workflow returns to root-cause or architecture analysis instead of churning.
 
 ### Resumable long work
 
-Long tasks can use a compact project state template when persistence is genuinely useful. It records decisions, completed work, verification evidence, blockers, and one resumable next action without copying the whole conversation into the repository.
+Long tasks can use a compact project state template when persistence is genuinely useful. The state is a context ledger rather than a transcript: confirmed facts, assumptions, rejected hypotheses, decisions, system boundaries, completed work, verification evidence, blockers, and one resumable next action. Recording rejected hypotheses prevents resumed sessions from repeating disproved approaches.
 
 ### Skill maintenance evals
 
 The repository includes a routing-eval contract with representative prompts and expected focused skill sets. This prevents renamed/deleted skills and uncontrolled routing growth from silently breaking the pack.
 
-The current eval is static validation, not a claim about model accuracy. A live model benchmark should score actual task outcomes separately.
+Static validation remains the deterministic catalog contract. A separate live benchmark now runs executable tasks through OpenCode with isolated baseline and UES configs and grades the resulting repository state using graders outside the task workspace. Multiple trials are supported because agent runs are nondeterministic. The benchmark measures harness impact on tested workloads rather than claiming model equivalence.
 
 ## What UES deliberately avoids
 

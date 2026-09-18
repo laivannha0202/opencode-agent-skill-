@@ -1,8 +1,12 @@
 ---
 name: nextjs-engineering
-description: Work on Next.js apps including App/Pages Router, server/client components, routes, caching, data fetching, metadata, and deployment behavior.
+description: Work on Next.js apps with version-aware App/Pages Router boundaries, server/client components, routes/actions, caching, data fetching, metadata, images, and deployment behavior.
 ---
 
-# Nextjs Engineering
+# Next.js Engineering
 
-Detect Next.js version/router. Respect server/client boundaries, route handlers/server actions, caching/revalidation, runtime constraints, environment exposure, metadata/layout and static/image conventions. Do not add use client broadly to bypass design problems. Verify build/type checks.
+Detect Next.js version, App vs Pages Router, runtime target, package manager, deployment adapter, and existing data/cache conventions before changing code.
+
+Preserve server/client boundaries. Do not spread `use client` to bypass architecture problems. Treat caching/revalidation, route handlers/server actions, environment exposure, cookies/headers, metadata, static generation, image behavior, and edge/node runtime differences as explicit contracts.
+
+Read [workflow.md](references/workflow.md) for version-sensitive routing/data rules, cache diagnosis, security boundaries, and verification.

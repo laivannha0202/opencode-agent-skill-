@@ -1,6 +1,10 @@
-# Skill routing evals
+# UES evaluations
 
-UES ships `evals/routing.json` as a maintenance contract for representative engineering requests.
+UES has two evaluation layers because catalog correctness and agent correctness are different problems.
+
+## 1. Static routing contract
+
+`evals/routing.json` is a deterministic maintenance contract for representative engineering requests.
 
 Run:
 
@@ -8,30 +12,61 @@ Run:
 npm run evals
 ```
 
-or, after global installation:
+or:
 
 ```bash
 ocskill eval
 ```
 
-The validator checks that:
+It checks scenario shape, valid skill IDs, focused routing expectations, and coverage of core process skills. It catches packaging/catalog drift without spending model tokens.
 
-- scenarios are uniquely named
-- each scenario has a real request and at least one expected skill
-- expected skill IDs exist
-- routing stays focused instead of selecting an excessive number of skills
-- core process skills such as orchestration, debugging, research verification, and verification are exercised
+It does **not** prove that a model selected the right skill or solved a coding task.
 
-## What this eval does not prove
+## 2. Live behavioral benchmark
 
-This is a static routing contract. It does not call a language model and does not measure whether Big Pickle, GPT, Claude, Gemini, or another model actually selected the expected skill or solved a coding task correctly.
+`scripts/eval-live.mjs` runs executable coding tasks through OpenCode in isolated temporary workspaces.
 
-A future live benchmark should score:
-- skill-trigger precision/recall
-- task completion correctness
+For each task it can run:
+- **baseline** — the selected model with an isolated empty OpenCode config
+- **ues** — the same model/task with the current repository's UES resources installed into an isolated config
+
+The task workspace is copied from `evals/live/fixtures/`. The grader lives outside that workspace so success is determined by independent behavior checks rather than the agent's narrative.
+
+Example:
+
+```bash
+npm run evals:live -- --model anthropic/claude-sonnet-4-5 --variant high --trials 3
+```
+
+or after global installation:
+
+```bash
+ocskill eval-live --model anthropic/claude-sonnet-4-5 --variant high --trials 3
+```
+
+Useful filters:
+
+```bash
+npm run evals:live -- --model openai/gpt-5.2 --task js-discount-regression --mode ues
+```
+
+Requirements:
+- OpenCode CLI available as `opencode`
+- provider credentials already available to OpenCode/environment
+- a valid `provider/model`
+
+Live result JSON is written under `.ues-evals/` and is intentionally gitignored. See `docs/TRACE-SCHEMA.md`.
+
+## What to score
+
+Grow the live suite around observable outcomes:
+- hidden grader/task correctness
 - regression rate
-- verification quality
-- token/tool-call cost
 - recovery from injected failures
+- acceptance-criteria coverage
+- verification quality
+- elapsed time
+- token/tool-call cost when stable telemetry is available
+- baseline vs UES pass rate over multiple trials
 
-Static contract checks stay useful even after live evaluation is added because they catch packaging and catalog drift deterministically.
+Do not claim GPT/Claude equivalence from one fixture or one passing trial. The benchmark measures whether this harness improves the selected model on the tested engineering workload.

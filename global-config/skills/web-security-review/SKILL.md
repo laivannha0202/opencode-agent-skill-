@@ -1,8 +1,10 @@
 ---
 name: web-security-review
-description: Review web apps for concrete security risks including injection, XSS, access control, SSRF, unsafe uploads, secrets, and dangerous execution.
+description: Review web applications for reachable, evidence-backed security risks including injection, XSS, broken access control, CSRF, SSRF, traversal, unsafe uploads, secrets, deserialization, and dangerous execution.
 ---
 
 # Web Security Review
 
-Focus on reachable risks supported by code evidence: injection, XSS, broken access control/IDOR, CSRF where applicable, SSRF, path traversal, unsafe uploads, secret leakage, insecure deserialization and dangerous shell execution. Prioritize exploitability and impact; do not invent vulnerabilities.
+Prioritize exploitability and concrete data/control flow. Start from attacker-controlled inputs and trace them to sensitive sinks or authorization decisions. Do not report a vulnerability from a risky-looking function name alone.
+
+Read [workflow.md](references/workflow.md) for source-to-sink analysis, access-control review, SSRF/upload/path checks, false-positive discipline and security verification.

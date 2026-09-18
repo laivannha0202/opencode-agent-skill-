@@ -1,8 +1,12 @@
 ---
 name: payment-engineering
-description: Implement/review payments safely including trusted amounts, provider webhooks, idempotency, order states, retries, and reconciliation.
+description: Implement and review payments as high-integrity state machines with trusted amounts, provider webhooks, idempotency, retries, reconciliation, and order/payment separation.
 ---
 
 # Payment Engineering
 
-Treat payments as high-integrity state machines. Verify server-side amount calculation, webhook signature validation, idempotency, duplicate/out-of-order events, order/payment state separation, retries/failures and secret isolation. Never mark paid solely from a client redirect.
+Never trust client-calculated amount or a browser redirect as proof of payment. Model payment and order state transitions explicitly and assume provider events can be duplicated, delayed, retried, or arrive out of order.
+
+Verify server-side pricing, webhook authenticity, idempotency keys/event identity, atomic state transitions, retry behavior, refund/cancel paths, reconciliation and secret isolation.
+
+Read [workflow.md](references/workflow.md) for state-machine invariants, webhook handling, idempotency, failure injection and verification.
