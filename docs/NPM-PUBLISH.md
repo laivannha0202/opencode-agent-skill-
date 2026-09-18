@@ -22,10 +22,10 @@ npm publish --access public
 After the first successful publish, users can install with:
 
 ```cmd
-npm install -g @laivannha0202/opencode-agent-skill
+npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-The normal global install uses the package `postinstall` to synchronize UES into OpenCode. If a user's npm policy blocks lifecycle scripts, they can follow installation with `ocskill install`, or explicitly allow this package's lifecycle scripts when their npm version supports that option.
+Current npm versions require install-time lifecycle scripts to be explicitly approved for global installs. The approved `postinstall` synchronizes UES into OpenCode, so this is the intended one-command installation path. Older npm versions that predate package-specific approval can use the same command without `--allow-scripts`. If lifecycle scripts are skipped, follow with `ocskill install`.
 
 ## GitHub Actions publishing
 
@@ -57,8 +57,7 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --ignore-scripts
-ocskill install
+npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-The packed-install smoke test enforces this real-copy behavior in CI.
+The packed-install smoke test enforces both the real-copy behavior and automatic OpenCode synchronization in CI.
