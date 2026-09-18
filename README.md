@@ -37,24 +37,30 @@ substantial/high-risk success
 
 ## Install
 
-Install the published npm package globally:
+For current npm versions, use the global install with explicit lifecycle approval:
+
+```cmd
+npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
+```
+
+That is the intended one-command install. npm copies the published package into its global package directory, then the approved `postinstall` synchronizes the bundled UES resources into the user's OpenCode config. Start a new OpenCode session after installation.
+
+On older npm versions that do not implement package-specific script approval, the equivalent command is:
 
 ```cmd
 npm install -g @laivannha0202/opencode-agent-skill
 ```
 
-The package's `postinstall` synchronizes the bundled UES resources into the user's OpenCode config, so on npm installations that permit lifecycle scripts this is the only install command required. Start a new OpenCode session after installation.
-
-On npm versions/configurations that block lifecycle scripts, the CLI is still installed but OpenCode synchronization can be skipped. In that case run:
+If lifecycle scripts are blocked or intentionally skipped, the CLI can still be synchronized manually:
 
 ```cmd
 ocskill install
 ```
 
-If the npm version supports package-specific script allowlisting, the lifecycle can be explicitly allowed:
+To persist approval for future global installs/updates on npm versions that support it:
 
 ```cmd
-npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
+npm config set allow-scripts=@laivannha0202/opencode-agent-skill --location=user
 ```
 
 ### Testing a local source checkout
@@ -65,11 +71,10 @@ Use the packed tarball instead:
 
 ```cmd
 npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --ignore-scripts
-ocskill install
+npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-This mirrors the published-package layout: npm stores a real package copy in the global npm directory and `ocskill install` copies the managed resources into OpenCode.
+This mirrors the published-package layout: npm stores a real package copy in the global npm directory and the approved postinstall copies the managed resources into OpenCode.
 
 ## Check installation
 
