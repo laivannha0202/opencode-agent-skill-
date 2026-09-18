@@ -1,102 +1,122 @@
 # OpenCode Universal Engineering System
 
-## One-command Python wrapper
-
-If you prefer one Python entry point, the repository also includes `manage.py`.
-It delegates lifecycle operations to OpenCode's official plugin CLI rather than
-copying configuration files manually.
-
-```powershell
-python manage.py doctor
-python manage.py install
-python manage.py status
-python manage.py check
-python manage.py update
-python manage.py remove
-```
-
-For repository development:
-
-```powershell
-python manage.py dev
-python manage.py ci
-```
-
-The direct `opencode plugin ...` commands documented below remain the source of truth.
-
-A model-agnostic engineering workflow plugin for **OpenCode V2**.
-
-It registers a reusable catalog of engineering skills, adds namespaced workflow commands, and injects a disciplined engineering workflow into the built-in **Build** agent. The selected model remains your choice.
+Universal engineering Agent Skills for OpenCode, packaged as a normal global npm CLI.
 
 ## Install
 
-Install globally from GitHub:
+Once the package is published to npm, a new user installs everything with one command:
 
-```bash
-opencode plugin add github:laivannha0202/opencode-agent-skill-
+```powershell
+npm install -g @laivannha0202/opencode-agent-skill
 ```
 
-Then verify:
+The npm `postinstall` automatically installs the managed OpenCode resources into:
 
-```bash
-opencode plugin list
-opencode plugin check
+```text
+~/.config/opencode/
+├── AGENTS.md
+├── skills/
+│   ├── ues-repo-explorer/
+│   ├── ues-bug-diagnosis/
+│   ├── ues-react-native-engineering/
+│   └── ...
+├── commands/
+│   ├── ues-fix.md
+│   ├── ues-feature.md
+│   ├── ues-review.md
+│   └── ues-audit.md
+└── .ues/
+    └── state.json
 ```
 
-OpenCode manages the plugin in its global configuration. No manual copying into `.config/opencode` is required.
+Restart OpenCode or open a new session after installation.
 
-## Update
+### Install directly from GitHub before npm publication
 
-Check whether package plugins have updates:
+The repository can be tested immediately without publishing first:
 
-```bash
-opencode plugin check
+```powershell
+npm install -g github:laivannha0202/opencode-agent-skill-
 ```
 
-Update this plugin:
+That also exposes the `ocskill` command and runs the same installer.
 
-```bash
-opencode plugin update github:laivannha0202/opencode-agent-skill-
+## CLI
+
+```powershell
+ocskill status
+ocskill doctor
+ocskill install
+ocskill update
+ocskill remove
+ocskill version
 ```
 
-Or update every outdated package plugin:
+### What each command does
 
-```bash
-opencode plugin update
+- `ocskill install` — installs or re-syncs this package's managed skills, commands and workflow.
+- `ocskill status` — checks installed skill/command counts and the managed workflow.
+- `ocskill doctor` — checks Node, npm, OpenCode and installation state.
+- `ocskill update` — installs the latest npm release globally.
+- `ocskill remove` — uninstalls the global npm package; npm's uninstall lifecycle removes only resources managed by this package.
+- `ocskill version` — prints the package version.
+
+## Normal npm lifecycle
+
+Install:
+
+```powershell
+npm install -g @laivannha0202/opencode-agent-skill
 ```
 
-## Remove
+Update:
 
-```bash
-opencode plugin remove github:laivannha0202/opencode-agent-skill-
+```powershell
+npm update -g @laivannha0202/opencode-agent-skill
 ```
 
-Because skills, commands, and Build workflow changes are registered by the plugin at runtime, removing the plugin removes those registrations as well. The plugin does not copy its assets into each project.
+or:
 
-## What it adds
+```powershell
+ocskill update
+```
 
-### Engineering skills
+Uninstall:
 
-The package ships focused skills for areas such as:
+```powershell
+npm uninstall -g @laivannha0202/opencode-agent-skill
+```
 
-- repository exploration and planning
-- implementation and debugging
-- testing and code review
-- Git safety
-- API and database work
-- authentication and security
-- React, Next.js, React Native, Vue, Angular
-- Node.js, NestJS, .NET, Java/Spring
-- Python, Django, FastAPI, Flutter
-- UI/UX and accessibility
-- ecommerce, payments, uploads, search
-- Docker, CI/CD, DevOps and documentation
+The package uses safe managed markers and a state file. Uninstall removes only files created by this package and removes only its own managed block from an existing global `AGENTS.md`.
 
-Skills are registered with OpenCode and can be autoinvoked when relevant. Existing project/user skills with the same ID are respected rather than overwritten.
+If npm lifecycle scripts are disabled with `--ignore-scripts`, run:
 
-### Commands
+```powershell
+ocskill install
+```
 
-The plugin registers namespaced commands to avoid collisions:
+manually after installation.
+
+## OpenCode usage
+
+Keep using the normal **Build** agent and whichever model you choose.
+
+The global workflow instructs Build to select only relevant `ues-*` skills, for example:
+
+```text
+request
+  -> inspect repository
+  -> identify stack
+  -> load relevant ues-* skills
+  -> plan when needed
+  -> implement
+  -> verify
+  -> review
+  -> fix failures
+  -> done
+```
+
+Available convenience commands:
 
 ```text
 /ues-fix
@@ -105,107 +125,87 @@ The plugin registers namespaced commands to avoid collisions:
 /ues-audit
 ```
 
-### Build workflow
+The package does not change Big Pickle, GPT, Claude, Gemini, or any other model into another model. It provides reusable engineering workflows to the model selected in OpenCode.
 
-By default the plugin augments the built-in `build` agent with a workflow that encourages:
+## Included areas
 
-```text
-read repository
-→ identify stack and constraints
-→ load only relevant skills
-→ plan non-trivial work
-→ implement
-→ verify
-→ review
-→ fix verification failures
-→ finish
-```
+The package currently includes 33 focused skills covering:
 
-It does **not** replace your selected model and does not pretend one model is another.
-
-## Configuration
-
-OpenCode supports plugin options. Example:
-
-```jsonc
-{
-  "$schema": "https://opencode.ai/config.json",
-  "plugins": [
-    {
-      "package": "github:laivannha0202/opencode-agent-skill-",
-      "options": {
-        "injectBuildWorkflow": true,
-        "commandPrefix": "ues",
-        "agents": ["build"]
-      }
-    }
-  ]
-}
-```
-
-Options:
-
-- `injectBuildWorkflow`: set to `false` to register skills/commands without augmenting agent context.
-- `commandPrefix`: command prefix; defaults to `ues`.
-- `agents`: agent IDs that receive the engineering workflow; defaults to `["build"]`.
+- repository exploration, planning, architecture and implementation
+- debugging, testing, review and Git safety
+- dependencies, APIs, databases, authentication and security
+- performance, accessibility and UI/UX
+- React, Next.js, React Native and other frontend/mobile stacks
+- Node.js, NestJS, .NET, Java/Spring, Python, Django and FastAPI
+- Flutter
+- ecommerce, payments, file uploads and search
+- Docker, CI/CD, DevOps and documentation
 
 ## Development
 
 Requirements:
 
-- OpenCode V2
-- Bun
+- Node.js 20+
+- npm
 - Git
 
-```bash
+Clone and test:
+
+```powershell
 git clone https://github.com/laivannha0202/opencode-agent-skill-.git
 cd opencode-agent-skill-
-bun install
-bun run ci
+npm install
+npm run ci
 ```
 
-Validate packaged assets:
+Local `npm install` deliberately does **not** modify the user's global OpenCode configuration. Automatic resource installation only runs for a global npm install.
 
-```bash
-bun run validate
+Useful scripts:
+
+```powershell
+npm run validate
+npm test
+npm run ci
+npm pack --dry-run
 ```
 
-Run tests and type checking:
+## Publish to npm
 
-```bash
-bun run ci
-```
-
-## Release process
-
-This repository uses Semantic Versioning.
-
-1. Update `CHANGELOG.md`.
-2. Update `version` in `package.json`.
-3. Run `bun run ci`.
-4. Merge through a pull request.
-5. Tag the release, for example `v1.0.0`.
-6. Users on an unpinned Git source can check/update through the OpenCode plugin CLI.
-
-## Repository layout
+The package name is:
 
 ```text
-.
-├── src/
-│   ├── index.ts
-│   └── assets.ts
-├── global-config/
-│   ├── AGENTS.md
-│   ├── commands/
-│   └── skills/
-├── test/
-├── .github/workflows/
-├── package.json
-├── tsconfig.json
-├── CHANGELOG.md
-├── CONTRIBUTING.md
-└── LICENSE
+@laivannha0202/opencode-agent-skill
 ```
+
+Before the first publish, the npm account or organization must own the `@laivannha0202` scope.
+
+Manual first publish:
+
+```powershell
+npm login
+npm run ci
+npm publish --access public
+```
+
+The repository also contains `.github/workflows/publish.yml`. Add an npm automation token to the GitHub repository secret named `NPM_TOKEN`; after that a `v*` tag or manual Publish npm workflow can publish releases.
+
+## Release flow
+
+1. Change the version in `package.json`.
+2. Update `CHANGELOG.md`.
+3. Run `npm run ci`.
+4. Commit to `main`.
+5. Tag the release, for example `v2.0.0`.
+6. Publish through GitHub Actions or `npm publish --access public`.
+
+## Safety
+
+- Existing unrelated global skills are not deleted.
+- Existing command files with the same managed target name are not overwritten unless they contain this package's managed marker.
+- Existing `AGENTS.md` content is preserved.
+- Reinstall is idempotent.
+- Uninstall removes only this package's managed resources.
+- Set `OPENCODE_CONFIG_DIR` to test against an alternate OpenCode config directory.
 
 ## License
 
