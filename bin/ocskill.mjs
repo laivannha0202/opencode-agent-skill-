@@ -12,6 +12,7 @@ import {
   installResources,
   removeResources,
 } from "../lib/installer.mjs"
+import { compareVersions } from "../lib/version.mjs"
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
@@ -101,6 +102,32 @@ function hasCommand(name) {
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0
 }
 
+function runCapture(executable, commandArgs, options = {}) {
+  const common = { encoding: "utf8", ...options }
+
+  if (process.platform !== "win32") {
+    return spawnSync(executable, commandArgs, common)
+  }
+
+  const resolved = findWindowsCommand(executable)
+  if (!resolved) return { status: 127, stdout: "", stderr: `Command not found: ${executable}` }
+
+  if (/\.(cmd|bat)$/i.test(resolved)) {
+    const entry = findNodeShimEntry(resolved)
+    if (entry) return spawnSync(process.execPath, [entry, ...commandArgs], common)
+
+    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
+    return spawnSync(
+      process.env.ComSpec || "cmd.exe",
+      ["/d", "/s", "/c", line],
+      common,
+    )
+  }
+
+  return spawnSync(resolved, commandArgs, common)
+}
+
+
 async function install() {
   const result = await installResources({ force })
   if (result.stateError) {
@@ -182,8 +209,54 @@ async function update() {
     return
   }
 
-  console.log(`[ocskill] Updating ${PACKAGE_NAME} to latest...`)
-  const code = run("npm", ["install", "-g", `${PACKAGE_NAME}@latest`, "--ignore-scripts"], { cwd: os.homedir() })
+  const currentVersion = await getPackageVersion()
+  const lookup = runCapture(
+    "npm",
+    ["view", PACKAGE_NAME, "version", "--json"],
+    { cwd: os.homedir() },
+  )
+
+  if (lookup.status !== 0) {
+    console.error("[ocskill] Could not determine the latest published npm version; refusing an unsafe self-update.")
+    if (lookup.stderr?.trim()) console.error(lookup.stderr.trim())
+    process.exitCode = lookup.status ?? 1
+    return
+  }
+
+  let latestVersion
+  try {
+    latestVersion = JSON.parse(lookup.stdout.trim())
+  } catch {
+    latestVersion = null
+  }
+
+  if (typeof latestVersion !== "string") {
+    console.error("[ocskill] npm returned an invalid latest version; refusing an unsafe self-update.")
+    process.exitCode = 1
+    return
+  }
+
+  const compared = compareVersions(latestVersion, currentVersion)
+  if (compared < 0) {
+    console.error(
+      `[ocskill] Registry latest is v${latestVersion}, older than installed v${currentVersion}; refusing downgrade.`,
+    )
+    process.exitCode = 1
+    return
+  }
+
+  if (compared === 0) {
+    console.log(`[ocskill] Already on latest npm version v${currentVersion}; re-syncing current resources.`)
+    await install()
+    return
+  }
+
+  console.log(`[ocskill] Updating ${PACKAGE_NAME} from v${currentVersion} to v${latestVersion}...`)
+  const code = run(
+    "npm",
+    ["install", "-g", `${PACKAGE_NAME}@${latestVersion}`, "--ignore-scripts"],
+    { cwd: os.homedir() },
+  )
   if (code !== 0) {
     process.exitCode = code
     return
