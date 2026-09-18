@@ -42,7 +42,7 @@ Then either:
 2. Update `CHANGELOG.md`.
 3. Run `npm run ci` locally. CI includes `npm run smoke:pack`, which packs the project, installs the tarball into an isolated global npm prefix, verifies that install is not linked back to the source checkout, and checks resource synchronization.
 4. For a manual release-like test, run `npm pack`, install the resulting `.tgz` rather than `npm install -g .`, and verify `ocskill install`, `ocskill status`, and `ocskill remove`.
-5. Confirm `ocskill update` against a published test/current version when update behavior changed.
+5. Confirm `ocskill update` against a published test/current version when update behavior changed, including the equal-version no-op/re-sync path and the older-registry downgrade refusal.
 6. Commit and push.
 7. Create and push the matching `vX.Y.Z` tag.
 8. Confirm the Publish npm workflow succeeds.
