@@ -100,7 +100,7 @@ After npm publication:
 ocskill update
 ```
 
-`ocskill update` installs the latest global npm package with lifecycle scripts disabled for the self-update step, then explicitly launches the newly installed CLI to re-sync OpenCode resources. This avoids depending on postinstall while the package is replacing itself.
+`ocskill update` first checks the npm registry version. It refuses to replace a newer local/development build with an older published version, treats an equal version as already current, and only installs when the registry version is newer. Package replacement runs with lifecycle scripts disabled, then the newly installed CLI explicitly re-syncs OpenCode resources.
 
 You can also use npm directly and then sync:
 
