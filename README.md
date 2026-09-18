@@ -1,5 +1,29 @@
 # OpenCode Universal Engineering System
 
+## One-command Python wrapper
+
+If you prefer one Python entry point, the repository also includes `manage.py`.
+It delegates lifecycle operations to OpenCode's official plugin CLI rather than
+copying configuration files manually.
+
+```powershell
+python manage.py doctor
+python manage.py install
+python manage.py status
+python manage.py check
+python manage.py update
+python manage.py remove
+```
+
+For repository development:
+
+```powershell
+python manage.py dev
+python manage.py ci
+```
+
+The direct `opencode plugin ...` commands documented below remain the source of truth.
+
 A model-agnostic engineering workflow plugin for **OpenCode V2**.
 
 It registers a reusable catalog of engineering skills, adds namespaced workflow commands, and injects a disciplined engineering workflow into the built-in **Build** agent. The selected model remains your choice.
