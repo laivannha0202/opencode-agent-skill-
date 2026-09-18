@@ -89,6 +89,31 @@ Domain routing remains specific:
 - Use supporting files inside skills only when their section is needed.
 - Do not repeatedly reread unchanged large files unless new evidence requires it.
 
+## Reasoning-state discipline
+
+For complex, ambiguous, or interruption-prone work, maintain a compact reasoning ledger rather than relying on conversational memory:
+
+- confirmed facts with repository/runtime evidence
+- assumptions with confidence and a concrete way to verify them
+- rejected hypotheses with the evidence that disproved them
+- architecture/implementation decisions and material alternatives
+- acceptance-criteria status, changed files, fresh verification, unresolved risks, and one next action
+
+Do not store hidden chain-of-thought. Preserve actionable evidence and decisions. Use `ues-long-task-state` when this state must survive context compaction or another session.
+
+## Critic and repair discipline
+
+For substantial or high-risk behavior changes, verification is followed by an independent falsification pass:
+
+1. self-check the diff against observable acceptance criteria
+2. run fresh behavior-matched verification
+3. ask `ues-critic` or `ues-reviewer` to challenge assumptions and search for concrete counterexamples
+4. repair only evidence-backed blocking findings
+5. rerun affected verification
+6. repeat the critic pass only when the repair materially changed risky behavior
+
+Bound this loop to at most two repair cycles before returning to root-cause/architecture analysis. Do not churn code to satisfy speculative feedback. Unresolved blocking findings must be fixed or surfaced explicitly.
+
 ## Subagent discipline
 
 OpenCode may expose these installed read-only or analysis-oriented subagents:
@@ -97,6 +122,7 @@ OpenCode may expose these installed read-only or analysis-oriented subagents:
 - `ues-debugger`
 - `ues-researcher`
 - `ues-reviewer`
+- `ues-critic`
 - `ues-verifier`
 
 Use them selectively for independent analysis that benefits from isolated context. Keep trivial work inline. Never run concurrent agents that edit the same working tree. Treat subagent output as evidence to verify, not authority. The parent remains responsible for final integration and claims.
@@ -119,8 +145,8 @@ Before saying a task is complete:
 3. Read the actual output and exit status.
 4. Re-test the original failure/acceptance criterion, not only compilation.
 5. Inspect the final diff for accidental changes and regressions.
-6. Run or request an independent review for substantial/high-risk work.
-7. Report exactly what passed, failed, or was not run.
+6. Run or request an independent review/critic pass for substantial or high-risk work and resolve evidence-backed blocking findings.
+7. Report exactly what passed, failed, was repaired, or was not run.
 
 Never claim a command, test, build, deployment, migration, push, or release succeeded unless it actually did.
 
@@ -130,4 +156,4 @@ Ask before destructive or irreversible actions such as deleting important data, 
 
 ## Completion standard
 
-A task is complete only when requested behavior is implemented, acceptance criteria are addressed, relevant verification has fresh evidence, the final diff has been reviewed, and any remaining limitations are stated accurately.
+A task is complete only when requested behavior is implemented, acceptance criteria are addressed, relevant verification has fresh evidence, the final diff has been reviewed, no known blocking critic finding is being hidden, and any remaining limitations are stated accurately.

@@ -17,8 +17,8 @@ test("install and remove are idempotent, recursive and preserve user AGENTS cont
 
   const first = await module.installResources()
   assert.ok(first.skills.length >= 39)
-  assert.ok(first.commands.length >= 8)
-  assert.ok(first.agents.length >= 5)
+  assert.ok(first.commands.length >= 9)
+  assert.ok(first.agents.length >= 6)
 
   await access(
     path.join(
@@ -27,6 +27,24 @@ test("install and remove are idempotent, recursive and preserve user AGENTS cont
       "ues-engineering-orchestrator",
       "references",
       "routing.md",
+    ),
+  )
+  await access(
+    path.join(
+      temp,
+      "skills",
+      "ues-engineering-orchestrator",
+      "references",
+      "evaluator-loop.md",
+    ),
+  )
+  await access(
+    path.join(
+      temp,
+      "skills",
+      "ues-long-task-state",
+      "references",
+      "context-ledger.md",
     ),
   )
 

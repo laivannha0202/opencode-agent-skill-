@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "description": "Executable coding-agent benchmark tasks. Each task is copied into an isolated workspace and graded outside that workspace.",
+  "tasks": [
+    {
+      "id": "js-discount-regression",
+      "fixture": "fixtures/js-regression",
+      "prompt": "Fix the exported calculateDiscount(price, percent) behavior. Percent is a percentage from 0 through 100, so 20 means a 20% discount. Preserve the public function name. Reject non-finite price/percent values with TypeError and percentages outside 0..100 with RangeError. Add or improve focused tests if useful. Do not change the requested semantics just to satisfy an existing implementation.",
+      "grader": "graders/js-regression.mjs"
+    }
+  ]
+}

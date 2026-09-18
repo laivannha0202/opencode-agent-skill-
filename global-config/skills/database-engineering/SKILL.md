@@ -1,8 +1,12 @@
 ---
 name: database-engineering
-description: Design and modify databases, schemas, indexes, migrations, queries, ORM models, transactions, and data integrity safely.
+description: Design and modify schemas, migrations, indexes, queries, ORM models, transactions, and data integrity with compatibility, rollback, and existing-data safety.
 ---
 
 # Database Engineering
 
-Inspect existing DB/ORM conventions. Check constraints, migration/rollback risk, indexes for real queries, transaction boundaries, nullability/defaults, cascade behavior, N+1/query count and compatibility with existing data. Never destructively transform important data without explicit intent and migration strategy.
+Inspect the actual database/ORM, migration history, production-relevant query patterns, and existing data assumptions before editing.
+
+Treat schema constraints, nullability/defaults, foreign keys/cascades, uniqueness, transactions, locking/concurrency, indexes, migration ordering, data backfill and rollback as explicit invariants. Do not infer migration safety from compilation.
+
+Read [workflow.md](references/workflow.md) for expand/contract migrations, query/index analysis, transaction boundaries, data backfills, and verification.
