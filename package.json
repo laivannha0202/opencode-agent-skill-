@@ -17,7 +17,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "ci": "bun run typecheck && bun test"
+    "ci": "bun run validate && bun run typecheck && bun test",
+    "validate": "bun run scripts/validate.ts"
   },
   "dependencies": {
     "@opencode/plugin": "^2.0.4"
@@ -41,5 +42,6 @@
   "bugs": {
     "url": "https://github.com/laivannha0202/opencode-agent-skill-/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "main": "./src/index.ts"
 }
