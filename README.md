@@ -71,7 +71,7 @@ ocskill doctor
 ocskill status
 ```
 
-A synchronized v2.1 install reports package/resource versions plus:
+A synchronized install reports package/resource versions plus:
 
 ```text
 Skills: 39/39
@@ -119,7 +119,8 @@ npm uninstall -g @laivannha0202/opencode-agent-skill
 ocskill install [--force]    install/re-sync managed OpenCode resources
 ocskill status               compare package version and installed resource state
 ocskill doctor               check Node, npm, OpenCode and resource synchronization
-ocskill eval                 validate the bundled skill-routing evaluation contract
+ocskill eval                 validate the bundled static skill-routing contract
+ocskill eval-live [options]  run baseline-vs-UES live behavioral evals
 ocskill update               update npm package and explicitly re-sync resources
 ocskill remove [--force]     remove managed resources and uninstall package
 ocskill version              print package version
@@ -154,6 +155,7 @@ Existing debugging, planning, repository exploration, dependency, review, and ve
 /ues-verify
 /ues-research
 /ues-audit
+/ues-critique
 ```
 
 The analysis commands route to focused subagents where appropriate.
@@ -167,6 +169,7 @@ ues-architect
 ues-debugger
 ues-researcher
 ues-reviewer
+ues-critic
 ues-verifier
 ```
 
