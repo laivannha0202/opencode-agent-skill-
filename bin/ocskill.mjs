@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
@@ -13,7 +14,6 @@ import {
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
-const lifecycle = args.includes("--lifecycle")
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 function printHelp() {
@@ -21,71 +21,115 @@ function printHelp() {
 OpenCode Universal Engineering System
 
 Usage:
-  ocskill install    Install/sync bundled skills into OpenCode
-  ocskill status     Show installed resource status
-  ocskill doctor     Check Node, npm, OpenCode and install state
-  ocskill update     Update the global npm package to latest
-  ocskill remove     Uninstall the global npm package
+  ocskill install    Install or re-sync bundled OpenCode resources
+  ocskill status     Show package/resource synchronization status
+  ocskill doctor     Check Node, npm, OpenCode and installed resources
+  ocskill eval       Validate the bundled skill-routing evaluation suite
+  ocskill update     Update the global npm package and re-sync resources
+  ocskill remove     Remove managed resources and uninstall the npm package
   ocskill version    Show package version
   ocskill help       Show this help
 `)
 }
 
-function run(command, commandArgs, options = {}) {
-  const result = spawnSync(command, commandArgs, {
-    stdio: "inherit",
-    shell: process.platform === "win32",
-    ...options,
-  })
+function findWindowsCommand(name) {
+  if (path.isAbsolute(name) && existsSync(name)) return name
+
+  const result = spawnSync("where", [name], { encoding: "utf8" })
+  if (result.status !== 0 || !result.stdout) return null
+
+  const matches = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  return matches.find((item) => /\.(cmd|bat)$/i.test(item)) || matches[0] || null
+}
+
+function quoteCmd(value) {
+  if (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(value)) return value
+  return `"${value.replaceAll('"', '""')}"`
+}
+
+function run(executable, commandArgs, options = {}) {
+  const common = { stdio: "inherit", ...options }
+
+  if (process.platform !== "win32") {
+    const result = spawnSync(executable, commandArgs, common)
+    return result.status ?? 1
+  }
+
+  const resolved = findWindowsCommand(executable)
+  if (!resolved) return 127
+
+  if (/\.(cmd|bat)$/i.test(resolved)) {
+    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
+    const result = spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], common)
+    return result.status ?? 1
+  }
+
+  const result = spawnSync(resolved, commandArgs, common)
   return result.status ?? 1
 }
 
 function hasCommand(name) {
-  const checker = process.platform === "win32" ? "where" : "which"
-  return spawnSync(checker, [name], { stdio: "ignore" }).status === 0
+  if (process.platform === "win32") return findWindowsCommand(name) !== null
+  return spawnSync("which", [name], { stdio: "ignore" }).status === 0
 }
 
 async function install() {
-  if (lifecycle && process.env.npm_config_global !== "true") {
-    console.log("[ocskill] Local npm install detected; skipping global OpenCode setup.")
-    return
-  }
-
   const result = await installResources()
-  console.log(`[ocskill] Installed v${result.version}`)
+  console.log(`[ocskill] Installed resources for v${result.version}`)
   console.log(`[ocskill] OpenCode config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skills.length}`)
   console.log(`[ocskill] Commands: ${result.commands.length}`)
+  console.log(`[ocskill] Subagents: ${result.agents.length}`)
   for (const warning of result.warnings) console.warn(`[ocskill] WARNING: ${warning}`)
-  console.log("[ocskill] Restart OpenCode or start a new session.")
+  console.log("[ocskill] Start a new OpenCode session to pick up workflow changes.")
 }
 
 async function status() {
+  const currentVersion = await getPackageVersion()
   const result = await getStatus()
+
   if (!result.installed) {
-    console.log("[ocskill] Not installed in OpenCode.")
+    console.log(`[ocskill] Package version: ${currentVersion}`)
+    console.log("[ocskill] OpenCode resources are not installed.")
     console.log(`[ocskill] Expected config: ${result.configDir}`)
     process.exitCode = 1
     return
   }
 
-  console.log(`[ocskill] Package version: ${result.version}`)
+  const synced = result.version === currentVersion
+  console.log(`[ocskill] Package version: ${currentVersion}`)
+  console.log(`[ocskill] Resource version: ${result.version}`)
+  console.log(`[ocskill] Sync: ${synced ? "OK" : "OUTDATED - run ocskill install"}`)
   console.log(`[ocskill] Config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skillsPresent}/${result.skills.length}`)
   console.log(`[ocskill] Commands: ${result.commandsPresent}/${result.commands.length}`)
+  console.log(`[ocskill] Subagents: ${result.agentsPresent}/${(result.agents || []).length}`)
   console.log(`[ocskill] Workflow: ${result.workflowPresent ? "OK" : "MISSING"}`)
+
+  if (!synced ||
+      result.skillsPresent !== result.skills.length ||
+      result.commandsPresent !== result.commands.length ||
+      result.agentsPresent !== (result.agents || []).length ||
+      !result.workflowPresent) {
+    process.exitCode = 1
+  }
 }
 
 async function doctor() {
   console.log("OpenCode Universal Engineering System - doctor")
-  console.log(`Package: ${PACKAGE_NAME}`)
-  console.log(`Version: ${await getPackageVersion()}`)
-  console.log(`Node:    ${process.version}`)
-  console.log(`Config:  ${getConfigDir()}`)
-  console.log(`npm:     ${hasCommand("npm") ? "OK" : "MISSING"}`)
-  console.log(`OpenCode:${hasCommand("opencode") ? " OK" : " MISSING"}`)
+  console.log(`Package:  ${PACKAGE_NAME}`)
+  console.log(`Version:  ${await getPackageVersion()}`)
+  console.log(`Node:     ${process.version}`)
+  console.log(`Config:   ${getConfigDir()}`)
+  console.log(`npm:      ${hasCommand("npm") ? "OK" : "MISSING"}`)
+  console.log(`OpenCode: ${hasCommand("opencode") ? "OK" : "MISSING"}`)
   if (hasCommand("opencode")) run("opencode", ["--version"])
   await status()
+}
+
+async function evaluate() {
+  const code = run(process.execPath, [path.join(packageRoot, "scripts", "eval-skills.mjs")])
+  if (code !== 0) process.exitCode = code
 }
 
 async function update() {
@@ -94,26 +138,32 @@ async function update() {
     process.exitCode = 1
     return
   }
+
   console.log(`[ocskill] Updating ${PACKAGE_NAME} to latest...`)
   const code = run("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { cwd: packageRoot })
-  if (code !== 0) process.exitCode = code
+  if (code !== 0) {
+    process.exitCode = code
+    return
+  }
+
+  console.log("[ocskill] Re-syncing resources after update...")
+  const syncCode = run("ocskill", ["install"])
+  if (syncCode !== 0) process.exitCode = syncCode
 }
 
 async function remove() {
-  if (lifecycle) {
-    const result = await removeResources()
-    console.log(`[ocskill] Removed ${result.skills} skills and ${result.commands} commands.`)
-    return
-  }
+  const removed = await removeResources()
+  console.log(
+    `[ocskill] Removed ${removed.skills} skills, ${removed.commands} commands and ${removed.agents} subagents.`,
+  )
 
-  if (!hasCommand("npm")) {
-    console.error("[ocskill] npm is required to uninstall the global package.")
-    process.exitCode = 1
-    return
-  }
+  if (!hasCommand("npm")) return
 
-  console.log(`[ocskill] Uninstalling ${PACKAGE_NAME}...`)
-  const code = run("npm", ["uninstall", "-g", PACKAGE_NAME], { cwd: packageRoot })
+  const code = run(
+    "npm",
+    ["uninstall", "-g", PACKAGE_NAME, "--ignore-scripts"],
+    { cwd: packageRoot },
+  )
   if (code !== 0) process.exitCode = code
 }
 
@@ -127,6 +177,10 @@ switch (command) {
     break
   case "doctor":
     await doctor()
+    break
+  case "eval":
+  case "evals":
+    await evaluate()
     break
   case "update":
     await update()

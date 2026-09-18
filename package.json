@@ -1,7 +1,7 @@
 {
   "name": "@laivannha0202/opencode-agent-skill",
-  "version": "2.0.1",
-  "description": "Universal engineering agent skills pack for OpenCode with one-command npm installation",
+  "version": "2.1.0",
+  "description": "Model-agnostic engineering workflow, skills, subagents and verification gates for OpenCode",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs"
@@ -12,17 +12,22 @@
     "scripts/install.mjs",
     "scripts/uninstall.mjs",
     "scripts/validate.mjs",
+    "scripts/eval-skills.mjs",
     "global-config/AGENTS.md",
     "global-config/commands/",
+    "global-config/agents/",
     "global-config/skills/",
+    "evals/",
+    "docs/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
     "validate": "node scripts/validate.mjs",
+    "evals": "node scripts/eval-skills.mjs",
     "test": "node --test test/*.test.mjs",
-    "ci": "npm run validate && npm test && npm pack --dry-run",
+    "ci": "npm run validate && npm run evals && npm test && npm pack --dry-run",
     "postinstall": "node scripts/install.mjs",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run ci"
@@ -32,11 +37,10 @@
     "agent-skills",
     "coding-agent",
     "developer-tools",
-    "react",
-    "react-native",
-    "dotnet",
-    "java",
-    "python"
+    "engineering-workflow",
+    "code-review",
+    "debugging",
+    "verification"
   ],
   "engines": {
     "node": ">=20"

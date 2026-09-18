@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "description": "Static routing contract for representative engineering requests. This validates expected skill IDs and keeps routing focused; it is not an LLM benchmark.",
+  "scenarios": [
+    {
+      "name": "unknown-repository-feature",
+      "prompt": "Add a small feature to an unfamiliar repository and follow its existing conventions.",
+      "expect": ["repo-explorer", "implementation-engineer", "test-verification"]
+    },
+    {
+      "name": "cross-module-feature",
+      "prompt": "Implement a feature touching API, service, persistence, and tests.",
+      "expect": ["engineering-orchestrator", "task-planner", "change-impact-analysis", "implementation-engineer", "test-verification"]
+    },
+    {
+      "name": "runtime-regression",
+      "prompt": "A previously working endpoint now crashes after a refactor. Find and fix the root cause.",
+      "expect": ["bug-diagnosis", "test-driven-development", "test-verification"]
+    },
+    {
+      "name": "dependency-version-uncertainty",
+      "prompt": "Upgrade a library but first verify the current official API and compatible package version.",
+      "expect": ["dependency-management", "research-verification", "test-verification"]
+    },
+    {
+      "name": "public-api-change",
+      "prompt": "Change a public REST response contract used by multiple clients.",
+      "expect": ["api-contract", "change-impact-analysis", "task-planner", "test-verification"]
+    },
+    {
+      "name": "database-migration",
+      "prompt": "Add a database migration and update the application code that depends on the new schema.",
+      "expect": ["database-engineering", "change-impact-analysis", "task-planner", "test-verification"]
+    },
+    {
+      "name": "authentication-change",
+      "prompt": "Change role permissions for an authenticated endpoint.",
+      "expect": ["auth-security", "change-impact-analysis", "test-verification"]
+    },
+    {
+      "name": "large-repo-investigation",
+      "prompt": "Understand a large monorepo without loading unrelated code into context.",
+      "expect": ["repo-explorer", "context-engineering"]
+    },
+    {
+      "name": "long-running-migration",
+      "prompt": "Plan a risky multi-session migration that may need to be paused and resumed.",
+      "expect": ["engineering-orchestrator", "long-task-state", "task-planner", "change-impact-analysis"]
+    },
+    {
+      "name": "react-native-bug",
+      "prompt": "Fix a React Native screen regression and add a focused regression test.",
+      "expect": ["react-native-engineering", "bug-diagnosis", "test-driven-development", "test-verification"]
+    },
+    {
+      "name": "ci-pipeline-failure",
+      "prompt": "GitHub Actions fails while local tests pass. Diagnose the CI environment difference.",
+      "expect": ["devops-engineering", "bug-diagnosis", "test-verification"]
+    },
+    {
+      "name": "release-review",
+      "prompt": "Review the completed change for correctness and prove it is ready to release.",
+      "expect": ["code-review", "test-verification", "git-safety"]
+    },
+    {
+      "name": "new-behavior-tdd",
+      "prompt": "Add a behavior change in a repository that already has a fast unit test suite.",
+      "expect": ["test-driven-development", "implementation-engineer", "test-verification"]
+    },
+    {
+      "name": "current-framework-docs",
+      "prompt": "The framework API may have changed recently. Check primary documentation before editing.",
+      "expect": ["research-verification", "repo-explorer"]
+    },
+    {
+      "name": "payment-flow-change",
+      "prompt": "Modify checkout payment handling without breaking retries or idempotency.",
+      "expect": ["payment-engineering", "change-impact-analysis", "test-verification"]
+    },
+    {
+      "name": "security-audit",
+      "prompt": "Audit a web authentication flow for exploitable vulnerabilities and false positives.",
+      "expect": ["web-security-review", "auth-security", "code-review"]
+    }
+  ]
+}

@@ -1,8 +1,18 @@
 ---
 name: task-planner
-description: Create a concrete implementation plan for multi-file, architectural, ambiguous, migration, or risky coding work.
+description: Create an executable, file-aware plan for multi-file, architectural, ambiguous, migration, or risky coding work with acceptance criteria, dependencies, risks, and verification.
 ---
 
 # Task Planner
 
-Define the required outcome. Separate required behavior from optional improvements. Inspect relevant code before finalizing the plan. Order steps by dependency and name real files/modules when known. Include verification and flag destructive/breaking actions. Keep the plan short and executable.
+Build the plan from repository evidence, not generic architecture guesses.
+
+Include:
+- required outcome and observable acceptance criteria
+- relevant existing files, interfaces, and the nearest working analogue
+- ordered implementation steps with real dependencies
+- compatibility, migration, and rollback concerns where applicable
+- explicit verification for each risky boundary
+- user decisions or destructive actions that require approval
+
+Keep steps small enough to verify but large enough to be meaningful. Separate required work from optional cleanup. Re-plan when new evidence invalidates an assumption rather than forcing execution through a stale plan.

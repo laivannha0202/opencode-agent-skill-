@@ -5,23 +5,29 @@ import { installResources } from "../lib/installer.mjs"
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
+function npmGlobalPrefix() {
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      process.env.ComSpec || "cmd.exe",
+      ["/d", "/s", "/c", "npm prefix -g"],
+      { encoding: "utf8" },
+    )
+    return result.status === 0 ? result.stdout?.trim() : null
+  }
+
+  const result = spawnSync("npm", ["prefix", "-g"], { encoding: "utf8" })
+  return result.status === 0 ? result.stdout?.trim() : null
+}
+
 function isGlobalInstall() {
   if (process.env.npm_config_global === "true" || process.env.npm_config_global === "1") {
     return true
   }
 
-  const result = spawnSync("npm", ["prefix", "-g"], {
-    encoding: "utf8",
-    shell: process.platform === "win32",
-  })
+  const prefix = npmGlobalPrefix()
+  if (!prefix) return false
 
-  if (result.status !== 0 || !result.stdout) return false
-
-  const globalPrefix = path.resolve(result.stdout.trim())
-  const normalizedRoot = packageRoot.toLowerCase()
-  const normalizedPrefix = globalPrefix.toLowerCase()
-
-  return normalizedRoot.startsWith(normalizedPrefix)
+  return packageRoot.toLowerCase().startsWith(path.resolve(prefix).toLowerCase())
 }
 
 if (!isGlobalInstall()) {
@@ -32,14 +38,15 @@ if (!isGlobalInstall()) {
 
 try {
   const result = await installResources()
-  console.log(`[ocskill] Installed v${result.version}`)
+  console.log(`[ocskill] Installed resources for v${result.version}`)
   console.log(`[ocskill] OpenCode config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skills.length}`)
   console.log(`[ocskill] Commands: ${result.commands.length}`)
+  console.log(`[ocskill] Subagents: ${result.agents.length}`)
   for (const warning of result.warnings) {
     console.warn(`[ocskill] WARNING: ${warning}`)
   }
-  console.log("[ocskill] Restart OpenCode or start a new session.")
+  console.log("[ocskill] Start a new OpenCode session to pick up workflow changes.")
 } catch (error) {
   console.error("[ocskill] Installation failed.")
   console.error(error instanceof Error ? error.stack : error)

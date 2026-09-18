@@ -15,14 +15,7 @@ npm install
 npm run ci
 ```
 
-A local `npm install` skips global OpenCode installation. Use a temporary config directory when testing the installer manually:
-
-```powershell
-$env:OPENCODE_CONFIG_DIR="$PWD\.tmp-opencode"
-node .\bin\ocskill.mjs install
-node .\bin\ocskill.mjs status
-node .\bin\ocskill.mjs remove --lifecycle
-```
+A local `npm install` skips global OpenCode installation.
 
 ## Skill rules
 
@@ -32,31 +25,34 @@ Each source skill lives at:
 global-config/skills/<skill-id>/SKILL.md
 ```
 
-The source skill ID must match its directory. The npm installer exposes it globally with the `ues-` prefix to avoid overwriting unrelated user skills.
+The source skill ID must match its directory. The installer exposes it globally with the `ues-` prefix.
 
-Every skill must include:
+Every skill needs frontmatter with at least `name` and `description`.
 
-```yaml
----
-name: skill-id
-description: Clear explanation of what it does and when to use it.
----
+Keep the main `SKILL.md` focused. Put deep procedures, tables, and templates under the skill's own `references/`, `templates/`, or `scripts/` directory and link to them from `SKILL.md` only where useful.
+
+## Commands and subagents
+
+Commands live under `global-config/commands/`.
+
+Subagents live under `global-config/agents/`, must use `mode: subagent`, and should default to read-only/analysis behavior unless a strong reason requires editing.
+
+## Routing evals
+
+When adding or renaming process skills, update `evals/routing.json`.
+
+```bash
+npm run evals
 ```
 
-Keep skills focused. Prefer composable skills over one giant prompt.
+The routing suite is a static catalog contract, not a model-quality benchmark.
 
 ## Before committing
 
 ```bash
-npm run validate
-npm test
-npm pack --dry-run
-```
-
-or simply:
-
-```bash
 npm run ci
 ```
+
+This validates skills/commands/subagents and local references, validates routing scenarios, runs Node tests, and checks the npm tarball.
 
 Update `CHANGELOG.md` whenever package behavior changes.

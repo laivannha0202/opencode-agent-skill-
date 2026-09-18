@@ -1,4 +1,8 @@
 ---
-description: Review current changes without editing
+description: Independently review the current change for material correctness, security, compatibility, regression, and verification issues.
+agent: ues-reviewer
 ---
-Review $ARGUMENTS (or current changes when omitted) using code-review and relevant specialist skills. Report material findings in severity order with practical fixes. Do not edit.
+
+Review the current repository changes. If arguments narrow the target, honor them: $ARGUMENTS
+
+Use the principles of `ues-code-review`. Read the diff and enough surrounding context to validate each finding. Prefer a few high-signal issues over speculative volume. Do not edit files unless the user explicitly asks for fixes after the review.

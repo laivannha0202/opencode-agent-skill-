@@ -1,8 +1,17 @@
 ---
 name: repo-explorer
-description: Inspect unfamiliar repositories before changes; locate architecture, entry points, dependencies, data flow, tests, and conventions.
+description: Inspect unfamiliar repositories efficiently before changes by locating instructions, stack, entry points, nearest analogues, dependencies, data flow, tests, and conventions without inventing structure.
 ---
 
 # Repo Explorer
 
-Read instructions/manifests first. Inspect only relevant tree depth. Locate entry points, routes/services/state/data/tests/build scripts. Search exact symbols/errors/text from the request. Trace imports/callers only as far as needed. Identify likely files, constraints and risky assumptions before editing. Never invent paths or framework behavior that can be verified.
+Read applicable instructions and manifests first.
+
+Then:
+1. locate the task's exact entry point, symbol, route, error, or configuration
+2. find the nearest working analogue in the same repository
+3. trace direct imports, callers, and data flow only as far as needed
+4. identify tests, fixtures, build scripts, generated-code rules, and package boundaries
+5. note repository conventions and risky assumptions before editing
+
+Prefer exact search, shallow tree views, and relevant line ranges over recursive dumps. If the repository is large, load `ues-context-engineering`. Do not invent paths, framework behavior, or architecture that can be verified.

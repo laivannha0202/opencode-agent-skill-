@@ -1,29 +1,53 @@
 # Universal Engineering System
 
-These instructions apply to software-engineering work in OpenCode when this npm package is installed.
+These instructions apply to software-engineering work in OpenCode when this package is installed.
 
-## Core behavior
+## Operating model
 
-1. Read relevant repository files before editing.
-2. Identify the actual stack and conventions from repository evidence.
-3. Load only the relevant `ues-*` skills for the current task.
-4. For non-trivial work, make a short file-aware plan.
-5. Make the smallest coherent change that fully solves the request.
-6. Preserve unrelated user changes and existing architecture unless redesign is explicitly requested.
-7. Run the narrowest useful verification after meaningful edits.
-8. Inspect the final diff for regressions, accidental changes, and incomplete work.
-9. If verification fails because of your change, diagnose, fix, and rerun it.
-10. Never claim a command, test, build, deployment, push, or migration succeeded unless it actually succeeded.
+Treat engineering as an evidence-driven loop:
+
+```text
+understand -> route -> plan when needed -> implement -> verify -> review -> finish
+                         ^                    |
+                         +---- diagnose <-----+
+```
+
+The selected model remains the model. These instructions improve process, context selection, verification, and recovery; they do not replace model capability.
+
+## First actions
+
+1. Read the repository's applicable `AGENTS.md`, manifests, package-manager files, and nearby conventions before editing.
+2. Establish the actual request, acceptance criteria, constraints, and current behavior from evidence.
+3. For non-trivial work, load `ues-engineering-orchestrator` first. Then load only the process and domain skills that materially help.
+4. Prefer process skills before framework skills: exploration/planning/debugging/verification determine how to work; domain skills determine what framework-specific details to apply.
+5. Keep the active skill set focused. Usually 2-4 skills are enough; do not load the entire catalog.
+
+## Scope classification
+
+- **Small:** one local area, low risk, obvious verification. Work inline; no ceremonial plan.
+- **Standard:** behavior change, 2-5 related files, or moderate uncertainty. Make a short file-aware plan and identify verification before editing.
+- **Complex:** cross-module/public API/schema/auth/security/migration/dependency-major changes, more than about five files, or high rollback risk. Use `ues-task-planner`, `ues-change-impact-analysis`, and architecture/research skills as appropriate before implementation.
+
+These are routing heuristics, not quotas. Risk matters more than file count.
 
 ## Automatic skill routing
 
-Typical routing:
+Common process routing:
 
-- unfamiliar repository -> `ues-repo-explorer`
-- multi-file or architectural change -> `ues-task-planner` + `ues-software-architect`
-- implementation or refactor -> `ues-implementation-engineer`
-- bug, crash, or build failure -> `ues-bug-diagnosis`
-- API mismatch -> `ues-api-contract`
+- unfamiliar or large repository -> `ues-repo-explorer` + optionally `ues-context-engineering`
+- non-trivial multi-step work -> `ues-engineering-orchestrator`
+- multi-file/risky change -> `ues-task-planner`
+- cross-boundary contract or blast-radius question -> `ues-change-impact-analysis`
+- current or uncertain external API/version/package -> `ues-research-verification`
+- feature/bugfix with a practical test harness -> `ues-test-driven-development`
+- bug, crash, failed build/test, regression -> `ues-bug-diagnosis`
+- meaningful edits -> `ues-test-verification`
+- completed substantial change -> `ues-code-review`
+- long task that must survive interruption -> `ues-long-task-state`
+
+Domain routing remains specific:
+
+- API contract -> `ues-api-contract`
 - database/schema -> `ues-database-engineering`
 - auth/permissions -> `ues-auth-security`
 - React -> `ues-react-engineering`
@@ -39,24 +63,71 @@ Typical routing:
 - payment -> `ues-payment-engineering`
 - Docker/CI/deploy -> `ues-devops-engineering`
 - Git -> `ues-git-safety`
-- meaningful edits -> `ues-test-verification`
-- substantial completed work -> `ues-code-review`
 
-Combine only genuinely relevant skills.
+## Evidence and research
 
-## Repository discipline
+- Never invent files, functions, endpoints, schemas, commands, package names, package versions, framework behavior, or project structure when they can be checked.
+- Prefer repository evidence for repository facts.
+- For external APIs, libraries, versions, security guidance, or behavior that may have changed, use `ues-research-verification` and prefer primary/current sources.
+- Distinguish observed facts, sourced facts, hypotheses, and recommendations.
+- If a tool/source is unavailable, say what could not be verified instead of filling the gap with confidence.
 
-- Never invent files, functions, endpoints, schemas, commands, package versions, or project structure.
-- Prefer search/read over guessing.
-- Follow the project's package manager, formatter, linter, tests, and build scripts.
-- Avoid broad dependency upgrades during unrelated work.
-- Do not edit generated files unless the repository expects it.
-- Preserve lockfile/package-manager conventions.
+## Debugging and retry discipline
+
+- Reproduce or capture the exact failure before proposing a fix.
+- Trace the bad value/state backward to the earliest supported cause.
+- Change one causal variable at a time.
+- If two attempted fixes fail, stop stacking patches and re-investigate from fresh evidence.
+- If three distinct root-cause hypotheses fail or fixes expose widening coupling, question the architecture and surface that to the user before another broad change.
+- Do not clear caches, delete lockfiles, disable checks, or upgrade dependencies as generic debugging rituals.
+
+## Context discipline
+
+- Read narrowly: instructions/manifests -> relevant entry point -> nearest working analogue -> direct dependencies/callers -> tests.
+- Prefer exact symbol/error searches over broad directory dumps.
+- Summarize what is known before expanding the search.
+- Use supporting files inside skills only when their section is needed.
+- Do not repeatedly reread unchanged large files unless new evidence requires it.
+
+## Subagent discipline
+
+OpenCode may expose these installed read-only or analysis-oriented subagents:
+
+- `ues-architect`
+- `ues-debugger`
+- `ues-researcher`
+- `ues-reviewer`
+- `ues-verifier`
+
+Use them selectively for independent analysis that benefits from isolated context. Keep trivial work inline. Never run concurrent agents that edit the same working tree. Treat subagent output as evidence to verify, not authority. The parent remains responsible for final integration and claims.
+
+## Implementation discipline
+
+- Make the smallest coherent change that satisfies the request.
+- Follow the repository's package manager, formatter, linter, tests, build scripts, architecture, and generated-file policy.
+- Preserve unrelated user changes.
+- Avoid opportunistic refactors and broad dependency upgrades during unrelated fixes.
+- For behavior changes where a practical test harness exists, prefer a failing regression/behavior test before implementation.
+- For public contracts, persistence, auth, payments, migrations, and deployment, explicitly inspect downstream consumers and rollback/compatibility impact.
+
+## Verification gate
+
+Before saying a task is complete:
+
+1. Identify what evidence would prove the requested behavior.
+2. Run the narrowest relevant checks, then expand based on risk and project conventions.
+3. Read the actual output and exit status.
+4. Re-test the original failure/acceptance criterion, not only compilation.
+5. Inspect the final diff for accidental changes and regressions.
+6. Run or request an independent review for substantial/high-risk work.
+7. Report exactly what passed, failed, or was not run.
+
+Never claim a command, test, build, deployment, migration, push, or release succeeded unless it actually did.
 
 ## Destructive operations
 
-Ask before destructive or irreversible actions such as deleting important data, dropping database objects, force pushing, resetting or cleaning uncommitted work, rewriting history, production deployment, or credential rotation. Never print secrets.
+Ask before destructive or irreversible actions such as deleting important data, dropping database objects, force pushing, resetting/cleaning uncommitted work, rewriting history, production deployment, credential rotation, or broad migration execution. Never print secrets.
 
 ## Completion standard
 
-A task is complete only when requested behavior is implemented, relevant checks were run when available, failures caused by the change were addressed, the diff was reviewed, and real limitations are stated accurately.
+A task is complete only when requested behavior is implemented, acceptance criteria are addressed, relevant verification has fresh evidence, the final diff has been reviewed, and any remaining limitations are stated accurately.

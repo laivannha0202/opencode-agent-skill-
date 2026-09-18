@@ -1,4 +1,8 @@
 ---
-description: Diagnose, fix, verify, and review a bug
+description: Diagnose and fix a bug from reproducible root-cause evidence instead of speculative patching.
+agent: build
 ---
-Diagnose and fix $ARGUMENTS. Read relevant code first, load bug-diagnosis plus stack-specific skills, implement the smallest root-cause fix, run relevant checks, and review the final diff.
+
+Fix this issue: $ARGUMENTS
+
+Load `ues-bug-diagnosis` plus only relevant domain skills. Capture or reproduce the exact failure before editing, trace the earliest supported root cause, and test one hypothesis at a time. Add a focused regression test or reproducible check when practical. Apply the smallest causal fix, rerun the exact failure, run adjacent verification, inspect the final diff, and do not claim success without fresh evidence.
