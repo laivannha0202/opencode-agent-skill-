@@ -236,7 +236,16 @@ async function update() {
     return
   }
 
-  const compared = compareVersions(latestVersion, currentVersion)
+  let compared
+  try {
+    compared = compareVersions(latestVersion, currentVersion)
+  } catch (error) {
+    console.error("[ocskill] npm returned a version that could not be compared safely; refusing update.")
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+    return
+  }
+
   if (compared < 0) {
     console.error(
       `[ocskill] Registry latest is v${latestVersion}, older than installed v${currentVersion}; refusing downgrade.`,
