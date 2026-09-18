@@ -32,6 +32,11 @@ function findWindowsCommand(name) {
   return matches.find((item) => /\.(exe|cmd|bat)$/i.test(item)) || matches[0] || null
 }
 
+function quoteCmd(value) {
+  if (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(value)) return value
+  return '"' + value.replaceAll('"', '""') + '"'
+}
+
 function findNodeShimEntry(cmdPath) {
   const dir = path.dirname(cmdPath)
   let shim = ""
@@ -59,6 +64,13 @@ function runCommand(executable, commandArgs, options = {}) {
   if (/\.(cmd|bat)$/i.test(resolved)) {
     const entry = findNodeShimEntry(resolved)
     if (entry) return spawnSync(process.execPath, [entry, ...commandArgs], options)
+
+    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
+    return spawnSync(
+      process.env.ComSpec || "cmd.exe",
+      ["/d", "/s", "/c", line],
+      options,
+    )
   }
 
   return spawnSync(resolved, commandArgs, options)
@@ -78,7 +90,7 @@ const requestedMode = argValue("--mode", "both")
 const keep = hasArg("--keep")
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--keep]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--output-dir path] [--keep]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -104,8 +116,11 @@ if (tasks.length === 0) {
 }
 
 const modes = requestedMode === "both" ? ["baseline", "ues"] : [requestedMode]
+const invocationDir = process.cwd()
 const runRoot = await mkdtemp(path.join(os.tmpdir(), "ues-live-eval-"))
-const resultDir = path.join(root, ".ues-evals")
+const resultDir = path.resolve(
+  argValue("--output-dir", path.join(invocationDir, ".ues-evals")),
+)
 await mkdir(resultDir, { recursive: true })
 
 const results = []
@@ -117,10 +132,17 @@ try {
       for (let trial = 1; trial <= trials; trial += 1) {
         const isolatedRoot = path.join(runRoot, task.id + "-" + mode + "-" + trial)
         const workspace = path.join(isolatedRoot, "workspace")
-        const xdgRoot = path.join(isolatedRoot, "xdg")
+        const isolatedHome = path.join(isolatedRoot, "home")
+        const xdgRoot = path.join(isolatedHome, ".config")
         const configDir = path.join(xdgRoot, "opencode")
+        const dataRoot = path.join(isolatedRoot, "data")
+        const cacheRoot = path.join(isolatedRoot, "cache")
+        const stateRoot = path.join(isolatedRoot, "state")
 
         await mkdir(configDir, { recursive: true })
+        await mkdir(dataRoot, { recursive: true })
+        await mkdir(cacheRoot, { recursive: true })
+        await mkdir(stateRoot, { recursive: true })
         await cp(path.join(liveRoot, task.fixture), workspace, { recursive: true })
 
         if (mode === "ues") {
@@ -133,8 +155,14 @@ try {
 
         const childEnv = {
           ...process.env,
+          HOME: isolatedHome,
+          USERPROFILE: isolatedHome,
           OPENCODE_CONFIG_DIR: configDir,
           XDG_CONFIG_HOME: xdgRoot,
+          XDG_DATA_HOME: dataRoot,
+          XDG_CACHE_HOME: cacheRoot,
+          XDG_STATE_HOME: stateRoot,
+          OPENCODE_DISABLE_AUTOUPDATE: "true",
         }
 
         const opencodeArgs = [
