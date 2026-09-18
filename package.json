@@ -1,25 +1,30 @@
 {
   "name": "@laivannha0202/opencode-agent-skill",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "Universal engineering agent skills pack for OpenCode with one-command npm installation",
   "type": "module",
   "bin": {
-    "ocskill": "./bin/ocskill.mjs"
+    "ocskill": "bin/ocskill.mjs"
   },
   "files": [
-    "bin",
-    "lib",
-    "global-config",
+    "bin/ocskill.mjs",
+    "lib/installer.mjs",
+    "scripts/install.mjs",
+    "scripts/uninstall.mjs",
+    "scripts/validate.mjs",
+    "global-config/AGENTS.md",
+    "global-config/commands/",
+    "global-config/skills/",
     "README.md",
     "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
-    "validate": "node ./scripts/validate.mjs",
-    "test": "node --test ./test/*.test.mjs",
+    "validate": "node scripts/validate.mjs",
+    "test": "node --test test/*.test.mjs",
     "ci": "npm run validate && npm test && npm pack --dry-run",
-    "postinstall": "node ./bin/ocskill.mjs install --lifecycle",
-    "preuninstall": "node ./bin/ocskill.mjs remove --lifecycle",
+    "postinstall": "node scripts/install.mjs",
+    "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run ci"
   },
   "keywords": [
