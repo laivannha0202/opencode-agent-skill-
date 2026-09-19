@@ -114,7 +114,7 @@ try {
   assert.doesNotMatch(reviewer, /^permission:/m)
 
   for (const name of ["ues-codebase-mapper.md", "ues-plan-checker.md", "ues-executor.md", "ues-integration-verifier.md"]) {
-    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V6 subagent " + name)
+    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V7.7 subagent " + name)
   }
   const executor = await readFile(path.join(configDir, "agents", "ues-executor.md"), "utf8")
   assert.match(executor, /permissions:/)
@@ -132,7 +132,7 @@ try {
   const planFile = path.join(temp, "PLAN.json")
   await writeFile(planFile, JSON.stringify({
     schemaVersion: 1,
-    goal: "Packed V6 smoke",
+    goal: "Packed V7.7 smoke",
     tasks: [{
       id: "T1",
       title: "Smoke",
@@ -153,7 +153,7 @@ try {
   requireSuccess(graph, "ocskill task-graph from packed copy")
   assert.match(graph.stdout, /"valid": true/)
 
-  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V6 work smoke"], {
+  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V7.7 work smoke"], {
     cwd: temp,
     env,
     encoding: "utf8",
@@ -206,7 +206,15 @@ try {
   })
   requireSuccess(workStart, "ocskill work start from packed copy")
 
-  const workComplete = spawnSync(process.execPath, [cli, "work", "complete", "packed-smoke", "T1", temp, "--evidence", "node --version => PASS"], {
+  const workCheck = spawnSync(process.execPath, [cli, "work", "check", "packed-smoke", "T1", temp, "--", process.execPath, "--version"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workCheck, "ocskill work check from packed copy")
+  assert.match(workCheck.stdout, /"passed": true/)
+
+  const workComplete = spawnSync(process.execPath, [cli, "work", "complete", "packed-smoke", "T1", temp, "--evidence", "structured receipt PASS"], {
     cwd: temp,
     env,
     encoding: "utf8",
@@ -220,6 +228,13 @@ try {
   })
   assert.notEqual(finalizeBeforeVerify.status, 0)
   assert.match(finalizeBeforeVerify.stderr, /recorded integration PASS/)
+
+  const integrationCheck = spawnSync(process.execPath, [cli, "work", "check", "packed-smoke", "__integration__", temp, "--", process.execPath, "--version"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(integrationCheck, "ocskill integration check from packed copy")
 
   const workVerify = spawnSync(process.execPath, [cli, "work", "verify-integration", "packed-smoke", temp, "--verdict", "PASS", "--evidence", "packed integration PASS"], {
     cwd: temp,
