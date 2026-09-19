@@ -106,7 +106,7 @@ try {
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
 
-  const inspect = spawnSync(process.execPath, [cli, "inspect", workspace ?? temp], {
+  const inspect = spawnSync(process.execPath, [cli, "inspect", temp], {
     cwd: temp,
     env,
     encoding: "utf8",
