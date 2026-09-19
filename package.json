@@ -1,7 +1,7 @@
 {
   "name": "@laivannha0202/opencode-agent-skill",
-  "version": "4.0.0",
-  "description": "Model-agnostic engineering workflow, skills, subagents and verification gates for OpenCode",
+  "version": "6.0.0",
+  "description": "Model-agnostic long-horizon engineering workflow, skills, fresh-context subagents, deterministic tooling and verification gates for OpenCode",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs"
@@ -23,7 +23,7 @@
     "evals": "node scripts/eval-skills.mjs",
     "evals:live:validate": "node scripts/validate-live-suite.mjs",
     "test": "node --test test/*.test.mjs",
-    "ci": "npm run syntax && npm run validate && npm run evals && npm run evals:live:validate && npm test && npm pack --dry-run && npm run smoke:pack",
+    "ci": "npm run syntax && npm run validate && npm run evals && npm run evals:router && npm run evals:live:validate && npm run evals:long:validate && npm test && npm pack --dry-run && npm run smoke:pack",
     "postinstall": "node scripts/install.mjs",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run ci",
@@ -35,7 +35,10 @@
     "inspect:impact": "node scripts/impact-map.mjs",
     "inspect:evidence": "node scripts/collect-evidence.mjs",
     "inspect:git": "node scripts/check-working-tree.mjs",
-    "evals:report": "node scripts/eval-report.mjs"
+    "evals:report": "node scripts/eval-report.mjs",
+    "evals:router": "node scripts/eval-router.mjs",
+    "evals:long:validate": "node scripts/validate-live-suite.mjs --suite long",
+    "evals:long": "node scripts/eval-live.mjs --suite long"
   },
   "keywords": [
     "opencode",

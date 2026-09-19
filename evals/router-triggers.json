@@ -1,0 +1,1238 @@
+{
+  "version": 2,
+  "description": "Deterministic V2 router precision/recall matrix with 120 positive, negative and ambiguous cases across long-task and core engineering domains.",
+  "cases": [
+    {
+      "id": "auth-regression",
+      "prompt": "Fix an auth permission regression where another tenant can edit this resource.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "payment-webhook",
+      "prompt": "Fix duplicate payment webhook processing and verify idempotency.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "react-native",
+      "prompt": "Fix this React Native Android Metro regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-react-engineering",
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "next-app-router",
+      "prompt": "Implement a Next.js App Router server component feature.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "react-hook",
+      "prompt": "Fix this React useEffect stale closure bug.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "database-migration",
+      "prompt": "Implement a database schema migration with rollback compatibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "api-contract",
+      "prompt": "Change a public API response schema without breaking consumers.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-api-contract",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-database-engineering"
+      ]
+    },
+    {
+      "id": "dependency-current",
+      "prompt": "Check the current package version compatibility and release notes before upgrading this dependency.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-research-verification"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "devops",
+      "prompt": "Debug the GitHub Actions CI pipeline and Docker deployment.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "performance",
+      "prompt": "Investigate a slow endpoint with high latency and an N+1 query.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "accessibility",
+      "prompt": "Audit keyboard navigation and screen reader labels for accessibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "upload",
+      "prompt": "Implement secure multipart file upload to object storage.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "ecommerce",
+      "prompt": "Implement marketplace inventory and cart behavior for checkout.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "long-repo",
+      "prompt": "Implement a large task across the whole repository with many files and make it resumable after interruption.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "long-cross-module",
+      "prompt": "Refactor all cross-module integration code as a long-running multi-file task.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "repo-search",
+      "prompt": "Find the repository function that formats product labels.",
+      "include": [
+        "ues-repo-explorer"
+      ],
+      "exclude": [
+        "ues-engineering-orchestrator"
+      ]
+    },
+    {
+      "id": "plain-review",
+      "prompt": "Please review this code.",
+      "include": [
+        "ues-engineering-orchestrator"
+      ],
+      "exclude": [
+        "ues-bug-diagnosis"
+      ]
+    },
+    {
+      "id": "non-code-smalltalk",
+      "prompt": "Hello, how are you today?",
+      "include": [],
+      "exclude": [
+        "ues-engineering-orchestrator",
+        "ues-repo-explorer"
+      ]
+    },
+    {
+      "id": "math",
+      "prompt": "What is 17 times 19?",
+      "include": [],
+      "exclude": [
+        "ues-engineering-orchestrator",
+        "ues-repo-explorer"
+      ]
+    },
+    {
+      "id": "auth-not-payment",
+      "prompt": "Review role and tenant authorization boundaries.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "payment-not-auth",
+      "prompt": "Review checkout refund payment state transitions.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "rn-not-react",
+      "prompt": "Implement iOS safe area behavior in React Native.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-react-engineering"
+      ]
+    },
+    {
+      "id": "next-not-rn",
+      "prompt": "Fix a Next.js cache invalidation bug in App Router.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "security-auth",
+      "prompt": "Audit authorization and IDOR security in tenant endpoints.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-auth-01",
+      "prompt": "Fix a tenant authorization bug where editors can update another tenant.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-02",
+      "prompt": "Debug role permission checks that allow forbidden admin actions.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-03",
+      "prompt": "Audit IDOR authorization on organization resources.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-04",
+      "prompt": "Fix authentication session permission regression for suspended users.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-05",
+      "prompt": "Review tenant role boundaries before changing access control.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-06",
+      "prompt": "Investigate a token permission bug across account tenants.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-07",
+      "prompt": "Fix authorization so members cannot edit resources they do not own.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-auth-08",
+      "prompt": "Audit security around role-based access and tenant isolation.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "matrix-payment-01",
+      "prompt": "Fix checkout payment idempotency when retries duplicate a charge.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-02",
+      "prompt": "Debug a refund state transition regression in billing.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-03",
+      "prompt": "Review webhook payment processing for duplicate delivery.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-04",
+      "prompt": "Fix payment retry behavior so one order cannot charge twice.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-05",
+      "prompt": "Audit checkout billing state transitions and reconciliation.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-06",
+      "prompt": "Investigate a broken payment webhook ordering issue.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-07",
+      "prompt": "Fix idempotency for repeated successful payment events.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-payment-08",
+      "prompt": "Review refund and payment state-machine compatibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "matrix-database-01",
+      "prompt": "Implement a database schema migration for a new order column.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-02",
+      "prompt": "Fix a SQL transaction regression that loses updates.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-03",
+      "prompt": "Review a migration and rollback plan for existing rows.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-04",
+      "prompt": "Debug a slow database query before adding an index.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-05",
+      "prompt": "Implement schema changes while preserving backward compatibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-06",
+      "prompt": "Audit transaction boundaries around inventory updates.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-07",
+      "prompt": "Fix a migration that breaks old database rows.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-database-08",
+      "prompt": "Review SQL schema impact across data consumers.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-react-native-01",
+      "prompt": "Fix a React Native Android build regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-02",
+      "prompt": "Debug Expo iOS navigation behavior.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-03",
+      "prompt": "Implement React Native safe-area behavior on Android and iOS.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-04",
+      "prompt": "Fix Metro bundler errors in a React Native app.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-05",
+      "prompt": "Investigate a Gradle failure in the mobile app.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-06",
+      "prompt": "Fix an Xcode build issue for React Native.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-07",
+      "prompt": "Implement Expo platform-specific behavior.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-native-08",
+      "prompt": "Debug Android native module integration in React Native.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-01",
+      "prompt": "Fix a Next.js App Router cache regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-02",
+      "prompt": "Implement a Next.js server component feature.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-03",
+      "prompt": "Debug App Router route behavior in Next.js.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-04",
+      "prompt": "Review Next.js server component data fetching.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-05",
+      "prompt": "Fix NextJS App Router invalidation logic.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-06",
+      "prompt": "Implement server component metadata in Next.js.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-07",
+      "prompt": "Debug a Next.js route handler regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-next-08",
+      "prompt": "Review App Router behavior before a refactor.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-01",
+      "prompt": "Fix a React useEffect race condition.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-02",
+      "prompt": "Debug a stale React hook closure.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-03",
+      "prompt": "Implement a React component state feature.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-04",
+      "prompt": "Review useState behavior in a React component.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-05",
+      "prompt": "Fix React component re-render regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-06",
+      "prompt": "Debug a hook dependency issue in useEffect.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-07",
+      "prompt": "Implement reusable React component behavior.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-react-08",
+      "prompt": "Review React hook state synchronization.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "matrix-devops-01",
+      "prompt": "Fix a GitHub Actions CI pipeline failure.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-02",
+      "prompt": "Debug Docker deployment health checks.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-03",
+      "prompt": "Implement a Kubernetes deployment pipeline change.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-04",
+      "prompt": "Review CI/CD behavior before production deploy.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-05",
+      "prompt": "Fix a container build regression in GitHub Actions.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-06",
+      "prompt": "Debug deployment configuration in Docker.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-07",
+      "prompt": "Audit Kubernetes rollout and CI pipeline behavior.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-devops-08",
+      "prompt": "Implement a safe container deployment workflow.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-01",
+      "prompt": "Investigate a slow API endpoint with high latency.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-02",
+      "prompt": "Fix an N+1 performance regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-03",
+      "prompt": "Audit a memory leak in the service.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-04",
+      "prompt": "Investigate bundle size growth after a feature.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-05",
+      "prompt": "Fix slow database-backed endpoint performance.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-06",
+      "prompt": "Review latency hotspots before optimizing.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-07",
+      "prompt": "Investigate a memory leak under repeated requests.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-performance-08",
+      "prompt": "Fix performance regression caused by excessive rendering.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-01",
+      "prompt": "Audit keyboard navigation accessibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-02",
+      "prompt": "Fix screen reader labels in the form.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-03",
+      "prompt": "Implement ARIA behavior for an accessible dialog.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-04",
+      "prompt": "Review a11y focus handling in the UI.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-05",
+      "prompt": "Fix accessibility regression for keyboard users.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-06",
+      "prompt": "Audit screen reader semantics across the page.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-07",
+      "prompt": "Implement accessible focus management.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-accessibility-08",
+      "prompt": "Review ARIA and keyboard navigation behavior.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-01",
+      "prompt": "Implement secure multipart file upload.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-02",
+      "prompt": "Fix an object storage upload regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-03",
+      "prompt": "Audit file upload validation and storage.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-04",
+      "prompt": "Debug multipart upload failures.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-05",
+      "prompt": "Implement image file upload to object storage.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-06",
+      "prompt": "Fix upload path handling for user files.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-07",
+      "prompt": "Review file upload behavior before changing storage.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-upload-08",
+      "prompt": "Audit multipart upload security and validation.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-01",
+      "prompt": "Implement marketplace cart inventory behavior.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-02",
+      "prompt": "Fix ecommerce order inventory reservation.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-03",
+      "prompt": "Review catalog and checkout behavior in the marketplace.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-04",
+      "prompt": "Debug cart inventory regression for an order.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-05",
+      "prompt": "Implement marketplace seller catalog changes.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-06",
+      "prompt": "Fix order checkout inventory consistency.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-07",
+      "prompt": "Audit ecommerce cart and catalog interactions.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-ecommerce-08",
+      "prompt": "Review marketplace inventory behavior before refactoring.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-01",
+      "prompt": "Implement a large task across the entire repository and make it resumable.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-02",
+      "prompt": "Refactor all cross-module services as a long-running multi-file change.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-03",
+      "prompt": "Fix a big task across the whole project with durable resume state.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-04",
+      "prompt": "Implement a multi-file feature that spans the entire repo and may be interrupted.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-05",
+      "prompt": "Review and refactor all integration modules as a long-running task.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-06",
+      "prompt": "Migrate all repository modules in a resumable multi-file workflow.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-07",
+      "prompt": "Implement a whole-project cross-module change with persistent task state.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "matrix-long-08",
+      "prompt": "Resume this work across many files and keep a durable execution plan.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    }
+  ]
+}

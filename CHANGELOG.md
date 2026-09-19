@@ -6,6 +6,37 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [6.0.0] - 2026-09-19
+
+### Added
+- Durable long-horizon work engine under `.ues-work/<slug>/` with SPEC, machine-readable PLAN/STATE/EVIDENCE, task briefs and reports.
+- Four long-horizon roles: `ues-codebase-mapper`, `ues-plan-checker`, editable `ues-executor`, and `ues-integration-verifier`.
+- `/ues-run` and `/ues-resume` commands.
+- Deterministic `repo-graph`, `review-scope`, `verification-plan`, `task-graph`, `context-pack`, and `ocskill work` commands.
+- Dependency-safe DAG waves with conservative declared-file overlap serialization.
+- Machine-enforced plan approval through `ocskill work approve-plan`.
+- Machine-enforced integration verdict through `ocskill work verify-integration`.
+- Workspace fingerprint gate that invalidates finalization when code changes after integration PASS.
+- Per-work-item lock and atomic state/evidence writes for parallel-safe durable state updates.
+- OpenCode V2 `ues.dispatch_task` runtime tool that creates a fresh executor session and applies configured attempt-based model escalation.
+- Configurable light/standard/heavy model tiers and role mappings.
+- V2 permission safety gate for forceful Git, publish, destructive file/database and deployment commands.
+- 120-case V2 router trigger evaluation.
+- Five long-horizon behavioral tasks, including a combined 15-source-file integration task.
+
+### Changed
+- Package version is 6.0.0 and release documentation now describes 39 skills, 11 commands and 10 subagents.
+- Long-suite UES runs count as PASS only when both the hidden grader and durable orchestration state pass.
+- Long-task completion now requires independent plan approval, per-task fresh evidence, integration PASS, and an unchanged post-verification workspace.
+- `.ues-work/` is git-ignored because it is runtime execution state.
+- V2 runtime context guidance now prefers fresh `ues.dispatch_task` execution for approved tasks.
+
+### Fixed
+- Prevented concurrent `STATE.json` / `EVIDENCE.json` lost updates during safe-wave completion.
+- `ocskill model-policy` now resolves against the user's persisted model-tier configuration instead of the default empty policy.
+- Safety detection now recognizes short-form `git push -f`.
+
+
 ## [4.0.0] - 2026-09-19
 
 ### Added

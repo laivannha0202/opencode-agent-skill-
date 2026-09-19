@@ -5,3 +5,4 @@ Thumbs.db
 .env.*
 !.env.example
 .ues-evals/
+.ues-work/

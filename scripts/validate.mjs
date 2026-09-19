@@ -88,17 +88,31 @@ for (const entry of await readdir(agentsRoot, { withFileTypes: true })) {
 }
 
 if (ids.size < 39) errors.push(`expected at least 39 skills, found ${ids.size}`)
-if (commands < 9) errors.push(`expected at least 9 commands, found ${commands}`)
-if (agents < 6) errors.push(`expected at least 6 subagents, found ${agents}`)
+if (commands < 11) errors.push(`expected at least 11 commands, found ${commands}`)
+if (agents < 10) errors.push(`expected at least 10 subagents, found ${agents}`)
 
 const routerIndex = path.join(pluginsRoot, "ues-router", "index.js")
 const routerCore = path.join(pluginsRoot, "ues-router", "router.js")
+const routerSafety = path.join(pluginsRoot, "ues-router", "safety.js")
 if (!existsSync(routerIndex)) errors.push("missing OpenCode v2 router plugin entrypoint")
 if (!existsSync(routerCore)) errors.push("missing OpenCode v2 router core")
+if (!existsSync(routerSafety)) errors.push("missing OpenCode v2 safety gate")
 if (existsSync(routerIndex)) {
   const source = await readFile(routerIndex, "utf8")
   if (!source.includes('id: "ues-router"')) errors.push("v2 router plugin must declare stable id ues-router")
   if (!source.includes('ctx.session.hook("prompt"')) errors.push("v2 router plugin must register prompt admission hook")
+  if (!source.includes('ctx.session.hook("context"')) errors.push("v2 router plugin must register context guardrail hook")
+  if (!source.includes('ctx.permission.hook("evaluate"')) errors.push("v2 router plugin must register permission safety hook")
+  if (!source.includes("ctx.tool.transform")) errors.push("v2 router plugin must register UES helper tools")
+  if (!source.includes('name: "dispatch_task"')) errors.push("v2 router plugin must expose fresh-context task dispatch")
+  if (!source.includes("ctx.session.create")) errors.push("v2 task dispatch must create a fresh session")
+  if (!source.includes("ctx.session.switchAgent")) errors.push("v2 task dispatch must select ues-executor")
+  if (!source.includes("ctx.session.switchModel")) errors.push("v2 task dispatch must support configured model escalation")
+  if (!source.includes("ctx.session.wait")) errors.push("v2 task dispatch must wait for executor completion")
+}
+
+for (const name of ["codebase-mapper.md","plan-checker.md","executor.md","integration-verifier.md"]) {
+  if (!existsSync(path.join(agentsRoot, name))) errors.push(`missing V6 subagent ${name}`)
 }
 
 if (errors.length) {

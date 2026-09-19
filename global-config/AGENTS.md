@@ -30,16 +30,22 @@ When the `ocskill` CLI is available, prefer deterministic repository evidence be
 - `ocskill impact <symbol-or-term> [dir]` — bounded path/content impact search
 - `ocskill evidence [dir]` — stack + verification + Git evidence snapshot
 - `ocskill working-tree [dir]` — branch, HEAD and uncommitted-change state
+- `ocskill repo-graph [dir]` — bounded source import graph and coupling hotspots
+- `ocskill review-scope [base] [dir]` — deterministic changed-file coverage and risk hints
+- `ocskill verification-plan [dir]` — project-native verification recommendations
+- `ocskill task-graph <PLAN.json>` — validate dependencies and compute safe execution waves
+- `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff for a fresh executor
 
 These helpers are evidence accelerators, not substitutes for reading the exact affected code. Use repository-native search/tools when they provide more precise symbol/call-graph information.
 
-On OpenCode v2, UES may install a managed runtime router that preselects at most a small focused set of relevant skills from the incoming prompt. Treat router selections as hints: keep useful skills, load deeper references only when needed, and do not assume a routed skill proves anything about the repository.
+On OpenCode v2, UES may install a managed runtime router that preselects at most a small focused set of relevant skills from the incoming prompt. The V2 plugin also upgrades destructive/high-impact shell actions such as forceful Git history operations, publishing, infrastructure destruction, or destructive SQL to an explicit permission prompt. Treat router selections as hints: keep useful skills, load deeper references only when needed, and do not assume a routed skill proves anything about the repository.
 
 ## Scope classification
 
 - **Small:** one local area, low risk, obvious verification. Work inline; no ceremonial plan.
 - **Standard:** behavior change, 2-5 related files, or moderate uncertainty. Make a short file-aware plan and identify verification before editing.
 - **Complex:** cross-module/public API/schema/auth/security/migration/dependency-major changes, more than about five files, or high rollback risk. Use `ues-task-planner`, `ues-change-impact-analysis`, and architecture/research skills as appropriate before implementation.
+- **Long-horizon:** many dependent work units, interruption/compaction risk, or work expected to outlive one context. When the user explicitly selects the long workflow (for example `/ues-run`), use durable `.ues-work/<slug>/` state, an independent plan gate, fresh task executors, dependency-safe waves, and final integration verification.
 
 These are routing heuristics, not quotas. Risk matters more than file count.
 
@@ -114,6 +120,24 @@ For complex, ambiguous, or interruption-prone work, maintain a compact reasoning
 
 Do not store hidden chain-of-thought. Preserve actionable evidence and decisions. Use `ues-long-task-state` when this state must survive context compaction or another session.
 
+## Long-horizon execution discipline
+
+For explicit long-running/autonomous work, do not ask one context to remember the whole implementation.
+
+1. Map the relevant repository surface with deterministic evidence and `ues-codebase-mapper` when useful.
+2. Persist observable requirements in `.ues-work/<slug>/SPEC.md`.
+3. Create a machine-checkable `PLAN.json` and validate it with `ocskill task-graph`.
+4. Ask `ues-plan-checker` to challenge the plan before edits begin. Record PASS with `ocskill work approve-plan`; `work start` is blocked until this happens.
+5. Execute each approved task in a fresh `ues-executor` context. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
+6. Inspect each child diff and mark task completion only with fresh evidence using `ocskill work complete`; record failures with `ocskill work fail`.
+7. Parallelize only dependency-safe tasks with non-overlapping declared files and genuinely independent write surfaces. UES serializes durable state writes but cannot make conflicting source edits safe.
+8. On resume, trust durable state plus current Git evidence over conversational memory.
+9. After all tasks complete, run `ues-integration-verifier` against cross-task contracts and end-to-end acceptance criteria, then persist its actual verdict with `ocskill work verify-integration`.
+10. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
+11. Merge/push/publish/deploy remain external side effects and require explicit user intent.
+
+Use `ocskill model-policy <role> --attempt N` when configured model tiers exist. Escalate only after diagnosis/fresh context; never use a stronger model as a substitute for missing evidence.
+
 ## Critic and repair discipline
 
 For substantial or high-risk behavior changes, verification is followed by an independent falsification pass:
@@ -129,16 +153,20 @@ Bound this loop to at most two repair cycles before returning to root-cause/arch
 
 ## Subagent discipline
 
-OpenCode may expose these installed read-only or analysis-oriented subagents:
+OpenCode may expose these installed subagents:
 
-- `ues-architect`
-- `ues-debugger`
-- `ues-researcher`
-- `ues-reviewer`
-- `ues-critic`
-- `ues-verifier`
+- `ues-codebase-mapper` — read-only mapping for large/unfamiliar repositories
+- `ues-architect` — read-only architecture/change-impact analysis
+- `ues-plan-checker` — read-only independent plan gate
+- `ues-executor` — fresh-context implementation of exactly one approved task
+- `ues-debugger` — read-only root-cause analysis
+- `ues-researcher` — read-only current-source research
+- `ues-reviewer` — read-only final/diff review
+- `ues-critic` — read-only adversarial falsification
+- `ues-verifier` — read-only task/acceptance verification
+- `ues-integration-verifier` — read-only cross-task/end-to-end verification
 
-Use them selectively for independent analysis that benefits from isolated context. Keep trivial work inline. Never run concurrent agents that edit the same working tree. Treat subagent output as evidence to verify, not authority. The parent remains responsible for final integration and claims.
+Use them selectively. Keep trivial work inline. The editable `ues-executor` must not launch child agents or broaden its task silently. Never allow concurrent executors to edit overlapping files in one working tree. Treat every subagent report as evidence to inspect, not authority. The parent remains responsible for orchestration, integration and final claims.
 
 ## Implementation discipline
 

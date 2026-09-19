@@ -16,3 +16,6 @@ Include:
 - user decisions or destructive actions that require approval
 
 Keep steps small enough to verify but large enough to be meaningful. Separate required work from optional cleanup. Re-plan when new evidence invalidates an assumption rather than forcing execution through a stale plan.
+
+For persistent long-horizon execution, emit a machine-checkable `PLAN.json` and read [plan-schema.md](references/plan-schema.md). Validate it with `ocskill task-graph` and an independent `ues-plan-checker` before any executor edits files.
+

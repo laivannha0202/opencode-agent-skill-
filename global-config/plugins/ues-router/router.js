@@ -10,6 +10,12 @@ export function routeSkills(text, maxSkills = 4) {
   const nonTrivial = value.length > 220 || risky.test(value) || /(implement|feature|refactor|fix|debug|investigate|review|audit|bug|regression|failing|failure|error|exception|broken)/.test(value)
 
   if (nonTrivial) add(routed, "ues-engineering-orchestrator")
+  const longHorizon = value.length > 700 || /(large task|big task|long[- ]running|multi[- ]file|cross[- ]module|whole (?:repo|repository|project)|entire (?:repo|repository|project)|full refactor|refactor all|migrate all|resume this work)/.test(value)
+  if (longHorizon) {
+    add(routed, "ues-engineering-orchestrator")
+    add(routed, "ues-long-task-state")
+    add(routed, "ues-task-planner")
+  }
   if (/(bug|crash|regression|failing|failure|error|exception|broken|debug)/.test(value)) add(routed, "ues-bug-diagnosis")
   if (/(latest|current docs|documentation|release notes|version compatibility|dependency|package version|api changed)/.test(value)) add(routed, "ues-research-verification")
 

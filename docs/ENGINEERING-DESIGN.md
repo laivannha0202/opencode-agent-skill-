@@ -1,167 +1,158 @@
 # UES engineering design
 
-Version 4 evolves UES from a prompt/skill collection into a measured engineering harness with deterministic evidence helpers, progressive-disclosure domain workflows, executable behavioral evaluation, and OpenCode-version-aware runtime integration.
+UES 6 evolves the project from an engineering workflow harness into a **long-horizon execution engine** designed to reduce context pressure on coding models.
 
-The selected model is still the selected model. UES improves the process around it; it does not claim that prompts or plugins turn one base model into another.
+The selected model remains the selected model. UES improves orchestration, evidence, task boundaries, state persistence and verification; it does not claim model equivalence.
 
-## Design principles
+## Core design
+
+### Thin orchestrator, durable artifacts, fresh workers
+
+For long work:
+
+```text
+main/orchestrator
+  ↓
+SPEC + PLAN + STATE
+  ↓
+fresh executor per approved task
+  ↓
+task report + evidence
+  ↓
+integration verifier
+```
+
+Conversation history is not the source of truth. Durable artifacts are.
 
 ### Deterministic facts before probabilistic reasoning
 
-Repository facts that are cheap to compute should not depend on the model guessing them. V4 adds dependency-free helpers for stack detection, test-command discovery, repository mapping, bounded impact search, evidence collection, and Git working-tree inspection.
+UES moves cheap/reliable work into code:
 
-The model still reads the exact affected code and reasons about architecture; deterministic helpers reduce avoidable context use and hallucinated setup assumptions.
+- stack/test-command discovery
+- repository import graph
+- bounded impact search
+- Git state
+- changed-file review coverage
+- risk hints
+- verification recommendations
+- task dependency validation
+- safe-wave scheduling
+- persistent work state
+- completion gates
 
-### Progressive disclosure instead of prompt volume
+Models still reason about semantics and read affected code.
 
-The global workflow stays compact and routes to a small skill set. Main `SKILL.md` files contain the operational core; deeper framework/domain behavior lives in `references/` and is loaded only when needed.
+### Progressive disclosure
 
-V4 deepens previously short workflows without increasing the 39-skill catalog simply to appear more capable.
+The catalog remains 39 skills. UES prefers a small active skill set and loads deeper references only when needed.
 
-### Risk-aware routing
+### Hard gates, not reminders
 
-Small changes remain inline. Standard changes get concise planning and verification. Public contracts, persistence, auth/security, payments, migrations, deployment, and other high-risk work add impact analysis, compatibility/rollback thinking, and independent review when useful.
+Three V6 gates are machine-enforced:
 
-OpenCode 2.x can also use the managed UES router plugin. The plugin adds a bounded set of relevant skill IDs during prompt admission. It is intentionally conservative: routing is a hint that improves skill availability, not proof about repository state.
+1. imported plans are not executable until plan-checker PASS is recorded;
+2. durable mutations are serialized with a per-work-item lock and atomic replacement;
+3. finalization requires integration PASS and an unchanged workspace fingerprint.
 
-### Evidence-driven completion
+These checks do not depend on a model remembering an instruction.
 
-Completion claims require evidence matched to the claim:
-- behavior tests for behavior
-- provider/consumer checks for contracts
-- negative authorization cases for permissions
-- migration/data evidence for persistence
-- representative measurements for performance
-- actual command output and exit status for builds/tests/releases
-
-An agent report is not independent proof.
-
-### Root-cause and bounded repair
-
-Verification failures feed diagnosis rather than patch stacking. Repeated failed fixes trigger a fresh investigation and eventually architecture re-evaluation.
-
-For substantial/high-risk changes, a critic/reviewer can attempt to falsify assumptions. Only evidence-backed blocking findings trigger repair, and critic-repair cycles are bounded to avoid churn.
-
-### Structured resumable state
-
-Long tasks can preserve confirmed facts, assumptions, rejected hypotheses, decisions, system boundaries, changed files, verification evidence, blockers, and one next action.
-
-The ledger is not a chain-of-thought transcript. It preserves actionable engineering state so a resumed session does not repeat disproved work.
-
-## Deterministic tooling layer
-
-V4 adds:
+## Long-task state model
 
 ```text
-ocskill inspect
-ocskill detect-stack
-ocskill detect-tests
-ocskill impact
-ocskill evidence
-ocskill working-tree
+.ues-work/<slug>/
+  SPEC.md
+  PLAN.json
+  STATE.json
+  EVIDENCE.json
+  tasks/
+  reports/
 ```
 
-These helpers are read-only and use Node built-ins. Broad scans are bounded and common dependency/build directories are skipped.
+The state contains operational facts only: task status, attempts, decisions, blockers, approvals and evidence. It is not chain-of-thought.
 
-They intentionally do not pretend to be semantic language servers. A text impact hit is a lead that still needs exact caller/contract inspection.
+`PLAN.json` is validated for task IDs, dependencies, cycles, acceptance criteria, verification and risk. Safe waves serialize overlapping or unknown declared file scopes.
 
-## OpenCode compatibility layer
+## Fresh-context execution
 
-UES detects the installed OpenCode major during resource synchronization.
+On OpenCode V2, the managed plugin exposes `ues.dispatch_task`.
 
-For OpenCode 1.x, it preserves the existing compatible agent format and does not install a V2-only plugin.
+It:
 
-For OpenCode 2.x, it converts UES-managed subagents to the native ordered `permissions` frontmatter shape and installs a managed global plugin under the documented global plugin discovery directory. The plugin uses the V2 prompt-admission hook to add selected skills through the normal skill-resolution path.
+1. calls the state engine to start one ready task;
+2. obtains the bounded context pack;
+3. resolves the configured model tier for the executor attempt;
+4. creates a fresh OpenCode session;
+5. switches to `ues-executor`;
+6. optionally switches to the configured model;
+7. prompts exactly the approved task;
+8. waits and returns child-session context.
 
-Only UES-managed files are rewritten or removed when the detected major changes.
+The parent is still responsible for inspecting the child diff and recording completion/failure evidence.
 
-See [OPENCODE-COMPAT.md](OPENCODE-COMPAT.md).
+## Model escalation
+
+Roles map to `light`, `standard`, or `heavy`. Attempt number can raise a role one tier up to the configured cap. Model IDs are always user-configured; UES never invents provider/model identifiers.
+
+Escalation follows evidence, not panic:
+
+```text
+attempt 1 fails
+→ diagnose
+→ fresh retry
+→ stronger tier if configured
+→ repeated causal failure
+→ re-plan / architecture review
+```
+
+## OpenCode runtime
+
+### V1
+
+Uses compatible file-based skills, commands and agents. V2-only plugin behavior is not installed.
+
+### V2
+
+The managed plugin uses current V2 domains for:
+
+- prompt admission skill routing
+- model-context guardrails
+- permission evaluation
+- custom tools
+- fresh session creation
+- agent/model switching
+- session waiting
+
+Only UES-managed resources are rewritten/removed.
 
 ## Evaluation architecture
 
-UES separates three different questions.
+UES separates:
 
-### Catalog/routing contract
+1. **static skill contract** — 34 scenarios covering the 39-skill catalog;
+2. **V2 router precision matrix** — 120 required-route/negative-guard cases;
+3. **standard live benchmark** — 20 executable hidden-graded tasks;
+4. **long-horizon benchmark** — 5 tasks, including one 15-source-file integration workload.
 
-`evals/routing.json` has 34 representative prompts and requires every installed skill to be covered while keeping each expected route small.
+For long-suite UES mode, final behavior alone is insufficient. A PASS also requires a completed durable work item with plan approval, at least two tasks, attempted/completed task records, integration PASS and finalization evidence.
 
-This proves catalog consistency, not model performance.
+This prevents a strong model from bypassing the architecture and still being counted as proof that the long-horizon engine worked.
 
-### Benchmark integrity
+## Package lifecycle and release safety
 
-`npm run evals:live:validate` executes every hidden grader against the intentionally broken starting fixture. A grader must reject the broken state with an assertion failure.
+npm owns package installation. UES owns only its marked/namespaced OpenCode resources.
 
-This prevents false confidence from a grader that accidentally passes without a repair or crashes because the benchmark itself is invalid.
+CI validates syntax, resource contracts, routing, hidden graders, unit tests, package contents and packed global installation. Update logic resolves npm's explicit `latest` tag and refuses accidental downgrade.
 
-### Behavioral benchmark
+## Deliberate limits
 
-The live harness runs the same task/model as:
-- isolated baseline
-- isolated UES
+UES deliberately avoids:
 
-V4 contains 20 executable tasks across correctness, authorization, API/data contracts, payments, security, frontend state, dependency compatibility, and multi-file change.
-
-Results include grader outcome, duration, changed files and best-effort tool/skill/subagent/token/cost telemetry. `ocskill eval-report` aggregates baseline-vs-UES outcomes across result files.
-
-The hidden grader remains the primary correctness signal; telemetry helps explain efficiency and behavior but is not treated as ground truth when the upstream JSON event format omits data.
-
-## Authentication isolation in live evals
-
-Baseline validity requires preventing a supposedly empty run from reading the user's installed UES configuration. V4 continues to isolate HOME, USERPROFILE, XDG config/data/cache/state, and `OPENCODE_CONFIG_DIR`.
-
-The default `--auth env-only` relies only on provider credentials already supplied through the environment. Optional `--auth current` copies only OpenCode's current auth file into the isolated data root; it does not copy the user's OpenCode config.
-
-## Package lifecycle
-
-npm owns package installation/versioning. UES owns only its namespaced and marked OpenCode resources.
-
-The installer records:
-- package/resource version
-- detected OpenCode major
-- managed skills
-- managed commands
-- managed subagents
-- managed V2 plugins
-
-Re-sync is idempotent. Unmanaged collisions are preserved. Foreign/corrupt state is not overwritten silently.
-
-The packed-install smoke test installs the generated tarball into an isolated global npm prefix, forces the V2 compatibility path, verifies the package is a real copy instead of a source junction, checks native V2 agent syntax and the managed router, and runs the packed CLI.
-
-## Update safety
-
-Self-update uses npm's explicit `latest` dist-tag rather than ambiguous package metadata. If `npm view package@latest version` is unavailable, UES falls back to `npm dist-tag ls`.
-
-The updater:
-- refuses a published version older than the installed build
-- re-syncs without reinstalling when equal
-- uses lifecycle-disabled package replacement for a newer version
-- invokes the newly installed CLI to synchronize resources
-
-This specifically protects against stale registry metadata such as the observed case where an unqualified version query returned 2.1.0 while the `latest` tag already pointed to 3.0.0.
-
-## Selective subagents
-
-Six analysis-oriented subagents remain intentionally sufficient:
-- architect
-- debugger
-- researcher
-- reviewer
-- critic
-- verifier
-
-V4 does not add agents merely to increase count. Independent context is useful for falsification and verification; broad multi-agent fan-out can duplicate work and correlate errors.
-
-## What UES deliberately avoids
-
-- loading all skills for every request
+- hundreds of agents/tools
+- loading every skill
 - treating keyword routing as truth
-- default agent swarms
-- hidden chain-of-thought logging
-- declaring success from compilation alone
-- generic cache deletion or dependency upgrades as debugging rituals
-- broad rewrites when an incremental seam satisfies the requirement
-- claiming general model equivalence from a small benchmark
+- hidden chain-of-thought storage
+- automatic merge/push/publish/deploy
+- claiming success without fresh evidence
+- claiming that one benchmark proves general model equivalence
 
-## Research inputs
-
-The design is informed by public engineering-agent patterns and current OpenCode/npm documentation listed in [RESEARCH-SOURCES.md](RESEARCH-SOURCES.md). UES does not vendor those projects; it implements its own model-agnostic workflow.
+The target is a small number of strong control loops: correct context, small tasks, durable state, deterministic checks and independent verification.

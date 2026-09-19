@@ -1,61 +1,88 @@
-# Deterministic evidence tools
+# Deterministic evidence and execution tools
 
-UES 4 adds small dependency-free repository inspection tools. They reduce work that should not depend on model guessing.
+UES 6 uses dependency-light Node helpers for work that should not rely on a model guessing or remembering it.
 
-## Repository map
+## Repository evidence
 
 ```cmd
 ocskill inspect .
-```
-
-Reports:
-- detected stack/framework markers
-- package manager
-- important root files
-- top-level entries
-- workspace declarations
-- project-native verification commands
-
-## Stack and test commands
-
-```cmd
 ocskill detect-stack .
 ocskill detect-tests .
-```
-
-These are useful when the repository is unfamiliar or the selected model is weak at environment discovery.
-
-## Impact search
-
-```cmd
 ocskill impact calculateOrderTotal .
-```
-
-Searches a bounded set of source/config/document files while skipping common dependency/build directories. It returns matching paths and a few matching lines. It is a fast impact hint, not a semantic call graph; important consumers still need exact inspection.
-
-## Evidence snapshot
-
-```cmd
 ocskill evidence .
-```
-
-Combines stack, likely verification commands, important files/workspaces and Git state into one machine-readable JSON snapshot.
-
-## Working tree
-
-```cmd
 ocskill working-tree .
 ```
 
-Reports Git branch, HEAD, clean/dirty state and porcelain changes without modifying the repository.
+These identify stack/package manager, project-native checks, bounded impact hits and Git state.
 
-## Design constraints
+## Repository graph
 
-The helpers:
-- use Node built-ins only
-- do not install dependencies
-- do not modify the target repository
-- bound file scanning and skip common dependency/build directories
-- return JSON so agents and scripts can consume the evidence consistently
+```cmd
+ocskill repo-graph .
+```
 
-They complement repository-native symbol search, language servers, tests and build tools rather than replacing them.
+Builds a bounded import graph, local edges, external import frequencies and coupling hotspots. It is not a full language server/call graph.
+
+## Review scope
+
+```cmd
+ocskill review-scope main .
+```
+
+Enumerates changed files and deterministic risk hints for persistence/schema, auth/security, payments, public interfaces, dependencies and delivery/infrastructure.
+
+`coverageRequired` lets a reviewer account for every changed file instead of relying on memory.
+
+## Verification plan
+
+```cmd
+ocskill verification-plan .
+```
+
+Combines project-native commands, working-tree evidence and changed-file risk into recommended checks plus risk-specific acceptance prompts.
+
+## Task graph
+
+```cmd
+ocskill task-graph PLAN.json
+```
+
+Validates plan shape/dependencies/cycles and computes topological and safe waves. Same-wave tasks with overlapping/unknown declared files are serialized.
+
+## Durable work state
+
+```cmd
+ocskill work init <slug> . --goal "..."
+ocskill work plan <slug> PLAN.json .
+ocskill work approve-plan <slug> . --evidence "..."
+ocskill work start <slug> T1 .
+ocskill work complete <slug> T1 . --evidence "..."
+ocskill work fail <slug> T1 . --reason "..."
+ocskill work verify-integration <slug> . --verdict PASS --evidence "..."
+ocskill work finalize <slug> . --evidence "..."
+ocskill work resume <slug> .
+```
+
+State/evidence writes use a per-item lock and atomic replacement.
+
+## Context pack
+
+```cmd
+ocskill context-pack <slug> <task> .
+```
+
+Returns only the task, bounded spec, dependency reports, decisions, blockers and current task state required for a fresh executor.
+
+## Runtime dispatch on OpenCode V2
+
+The managed plugin exposes `ues.dispatch_task`, which combines `work start`, context pack, model policy and a fresh OpenCode executor session.
+
+## Constraints
+
+These helpers:
+
+- do not replace reading exact affected code
+- do not pretend text/import scans are complete semantic analysis
+- do not auto-merge/push/publish/deploy
+- preserve unrelated user work
+- use JSON outputs where machine consumption matters
