@@ -5,7 +5,7 @@ description: Map the blast radius of cross-module, public-contract, schema, auth
 
 # Change Impact Analysis
 
-For changes that cross a boundary, identify both producers and consumers.
+For changes that cross a boundary, identify both producers and consumers. If `ocskill` is available, use `ocskill impact <term>` as a bounded evidence pass, then validate important matches with exact repository reads/callers.
 
 Map:
 - entry point and changed contract
