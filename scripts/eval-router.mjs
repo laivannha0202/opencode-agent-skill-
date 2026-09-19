@@ -34,7 +34,7 @@ if (failures.length) {
   console.error("Router trigger evaluation failed:")
   for (const failure of failures) console.error("- " + failure)
   console.error("Recall: " + (recall * 100).toFixed(1) + "%")
-  console.error("Negative precision: " + (specificity * 100).toFixed(1) + "%")
+  console.error("Negative guard accuracy: " + (specificity * 100).toFixed(1) + "%")
   process.exit(1)
 }
 
