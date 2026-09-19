@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { installResources } from "../lib/installer.mjs"
 import { copyCurrentOpenCodeAuth } from "../lib/eval-auth.mjs"
 import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
+import { buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -165,6 +166,12 @@ if (probe.status !== 0) {
   console.error(excerpt(probe.stderr || probe.stdout))
   process.exit(2)
 }
+const opencodeVersion = String(probe.stdout || probe.stderr || "").trim()
+const parsedOpenCodeMajor = parseOpenCodeMajor(opencodeVersion)
+const opencodeMajor = parsedOpenCodeMajor ?? 1
+if (parsedOpenCodeMajor === null) {
+  console.warn("[eval] could not parse OpenCode version; using the conservative OpenCode 1.x invocation.")
+}
 
 if (!["live", "long"].includes(suiteName)) {
   console.error("--suite must be live or long")
@@ -237,21 +244,13 @@ try {
           OPENCODE_DISABLE_AUTOUPDATE: "true",
         }
 
-        const opencodeArgs = [
-          "run",
-          "--standalone",
-          "--format",
-          "json",
-          "--auto",
-          "--agent",
-          "build",
-          "--model",
+        const opencodeArgs = buildOpenCodeRunArgs({
+          major: opencodeMajor,
           model,
-          "--dir",
           workspace,
-        ]
-        if (variant) opencodeArgs.push("--variant", variant)
-        opencodeArgs.push(task.prompt)
+          variant,
+          prompt: task.prompt,
+        })
 
         const started = Date.now()
         const agentRun = runCommand("opencode", opencodeArgs, {
@@ -292,6 +291,8 @@ try {
           graderExit: graderRun.status,
           durationMs,
           authMode,
+          opencodeVersion,
+          opencodeMajor,
           telemetry,
           changedFiles,
           orchestration,
@@ -346,6 +347,8 @@ await writeFile(
       trials,
       taskFilter: taskFilter || null,
       authMode,
+      opencodeVersion,
+      opencodeMajor,
       modes,
       summary,
       results,
