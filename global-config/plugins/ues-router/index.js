@@ -61,6 +61,17 @@ function modelRef(value) {
   }
 }
 
+function freshSessionRuntimeAvailable(ctx) {
+  return Boolean(
+    ctx?.session &&
+    typeof ctx.session.create === "function" &&
+    typeof ctx.session.switchAgent === "function" &&
+    typeof ctx.session.prompt === "function" &&
+    typeof ctx.session.wait === "function" &&
+    typeof ctx.session.context === "function"
+  )
+}
+
 function messageExcerpt(messages) {
   const value = Array.isArray(messages) ? messages.slice(-6) : messages
   const text = JSON.stringify(value)
@@ -122,7 +133,7 @@ export default Plugin.define({
           content: runOcskill(["context-pack", input.slug, input.task, projectRoot], projectRoot),
         }),
       })
-      editor.add({
+      if (freshSessionRuntimeAvailable(ctx)) editor.add({
         name: "dispatch_task",
         description: "Start one approved UES task and execute it in a fresh ues-executor session, applying configured attempt-based model escalation when available. The parent must inspect the diff and record completion evidence separately.",
         input: {
@@ -137,9 +148,32 @@ export default Plugin.define({
         options: { namespace: "ues", codemode: true },
         execute: async (input, tool) => {
           await tool.progress({ status: "starting fresh UES executor" })
-          const started = runOcskillJSON(["work", "start", input.slug, input.task, projectRoot], projectRoot)
+          const started = runOcskillJSON([
+            "work", "start", input.slug, input.task, projectRoot,
+            "--session", "opencode-parent",
+          ], projectRoot)
           const attempt = started?.record?.attempts || 1
-          const policy = runOcskillJSON(["model-policy", "executor", "--attempt", String(attempt)], projectRoot)
+          const runId = started?.record?.runId
+          const contextBytes = JSON.stringify(started.contextPack || {}).length
+          const fileCount = started?.contextPack?.contextManifest?.declaredFiles?.length || 0
+          const policy = runOcskillJSON([
+            "model-policy", "executor",
+            "--attempt", String(attempt),
+            "--risk", String(started?.task?.risk || "medium"),
+            "--files", String(fileCount),
+            "--context-bytes", String(contextBytes),
+            ...(started?.record?.lastFailure ? ["--failure", String(started.record.lastFailure)] : []),
+          ], projectRoot)
+
+          const heartbeat = setInterval(() => {
+            try {
+              if (runId) runOcskill([
+                "work", "heartbeat", input.slug, input.task, projectRoot,
+                "--run-id", runId,
+              ], projectRoot)
+            } catch {}
+          }, 30_000)
+          heartbeat.unref?.()
 
           try {
             const created = await ctx.session.create({ title: "UES " + input.slug + " " + input.task })
@@ -153,7 +187,9 @@ export default Plugin.define({
               sessionID: created.id,
               text:
                 "Implement exactly this approved UES task in the current repository. " +
-                "Do not broaden scope or launch child agents. Run the declared verification and return the executor report.\n\n" +
+                "Do not broaden scope or launch child agents. " +
+                "Run declared verification through 'ocskill work check " + input.slug + " " + input.task + " " + projectRoot + " -- <command> [args...]' so UES records a structured receipt. " +
+                "Return the executor report only after verification.\n\n" +
                 JSON.stringify(started.contextPack, null, 2),
             })
             await ctx.session.wait({ sessionID: created.id })
@@ -163,19 +199,26 @@ export default Plugin.define({
                 sessionID: created.id,
                 task: input.task,
                 attempt,
+                runId,
                 model: policy,
                 messages: messageExcerpt(messages),
-                next: "Inspect the child diff and verification, then call ocskill work complete or fail.",
+                next: "Inspect the child diff and structured receipt, then call ocskill work complete or fail with this runId.",
               }, null, 2),
             }
           } catch (error) {
             try {
               runOcskill(
-                ["work", "fail", input.slug, input.task, projectRoot, "--reason", "fresh executor failed: " + String(error?.message || error)],
+                [
+                  "work", "fail", input.slug, input.task, projectRoot,
+                  "--reason", "fresh executor failed: " + String(error?.message || error),
+                  ...(runId ? ["--run-id", runId] : []),
+                ],
                 projectRoot,
               )
             } catch {}
             throw error
+          } finally {
+            clearInterval(heartbeat)
           }
         },
       })
@@ -185,7 +228,7 @@ export default Plugin.define({
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES V6 runtime: for long tasks trust durable .ues-work state over conversation memory, obey plan/integration machine gates, prefer fresh ues.dispatch_task execution, require fresh verification before completion, and ask before destructive/external side effects.",
+        text: "UES V7.7 runtime: trust durable .ues-work state, task leases and structured receipts over conversational memory; use bounded context manifests, adaptive model policy, fresh execution when runtime capabilities exist, integration gates, and explicit approval for destructive/external side effects.",
       })
     })
 
