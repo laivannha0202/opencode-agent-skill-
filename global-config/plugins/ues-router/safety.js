@@ -1,5 +1,5 @@
 const RULES = [
-  { id: "git-force", pattern: /\bgit\s+(?:push\b[^\n]*--force(?:-with-lease)?|reset\s+--hard|clean\s+-[^\n]*f)/i },
+  { id: "git-force", pattern: /\bgit\s+(?:push\b[^\n]*(?:--force(?:-with-lease)?|(?:^|\s)-f(?:\s|$))|reset\s+--hard|clean\s+-[^\n]*f)/i },
   { id: "history-rewrite", pattern: /\bgit\s+(?:rebase\b|filter-branch\b|filter-repo\b)/i },
   { id: "publish", pattern: /\b(?:npm\s+publish|pnpm\s+publish|yarn\s+npm\s+publish)\b/i },
   { id: "destructive-files", pattern: /(?:^|[;&|]\s*)(?:rm\s+-[^\n]*r[^\n]*f|rmdir\s+\/s|del\s+\/s|remove-item\b[^\n]*-recurse[^\n]*-force)/i },
