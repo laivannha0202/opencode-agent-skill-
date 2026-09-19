@@ -1,75 +1,59 @@
-# OpenCode Universal Engineering System
+# OpenCode Universal Engineering System (UES)
 
-A model-agnostic engineering harness for OpenCode, distributed as a global npm package.
+**UES 4.0.0** là bộ workflow kỹ thuật, skill, subagent và công cụ kiểm chứng dành cho OpenCode.
 
-UES does not turn one base model into another. It improves the selected model's engineering process with focused skill routing, deterministic repository evidence, planning, root-cause debugging, current-source research, impact analysis, tests, independent verification, adversarial criticism, bounded repair, and measurable behavioral evals.
+Mục tiêu của UES không phải biến một model thành model khác. UES giúp model đang dùng làm việc theo quy trình kỹ thuật chặt chẽ hơn: hiểu repository trước khi sửa, chọn đúng skill, lập kế hoạch khi cần, tìm nguyên nhân gốc, kiểm tra phạm vi ảnh hưởng, xác minh bằng bằng chứng mới, review độc lập và chỉ kết luận khi có đủ evidence.
 
-## What V4 installs
+## UES 4.0.0 có gì?
 
 - **39 engineering skills**
 - **9 slash commands**
-- **6 read-only/analysis subagents**
-- a managed global engineering workflow in OpenCode's `AGENTS.md`
-- managed install state under `.ues/`
-- on **OpenCode 2.x**, a managed runtime router plugin that can preselect a small relevant skill set
+- **6 subagents** chuyên phân tích/kiểm chứng
+- workflow chung được đồng bộ vào OpenCode qua `AGENTS.md`
+- bộ công cụ CLI `ocskill` để kiểm tra repository, impact, Git state và benchmark
+- **34 routing scenarios** bao phủ đủ 39 skill
+- **20 live hidden-graded benchmark tasks**
+- hỗ trợ **OpenCode 1.x và 2.x**
+- OpenCode 2.x có thêm **UES Router plugin** để tự chọn một nhóm skill phù hợp
 
-The core loop is:
+Luồng làm việc chính:
 
 ```text
-understand
-  -> deterministic evidence
-  -> focused routing
-  -> plan when risk warrants it
-  -> implement
-  -> verify with fresh evidence
-  -> critic/reviewer when useful
-  -> bounded repair
-  -> finish
+hiểu yêu cầu
+  -> thu thập bằng chứng
+  -> chọn skill phù hợp
+  -> lập kế hoạch nếu cần
+  -> triển khai
+  -> kiểm chứng
+  -> review / critic khi cần
+  -> sửa có giới hạn
+  -> hoàn tất
 ```
 
-## Install
+---
 
-For npm versions with package-specific lifecycle approval:
+## Cài đặt
+
+Với npm hiện đại có cơ chế cho phép lifecycle script theo package:
 
 ```cmd
 npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-The approved `postinstall` copies the published package into npm's global package directory and synchronizes the managed UES resources into the user's OpenCode config.
-
-On older npm versions:
-
-```cmd
-npm install -g @laivannha0202/opencode-agent-skill
-```
-
-If lifecycle scripts are blocked or intentionally skipped:
-
-```cmd
-ocskill install
-```
-
-Then start a new OpenCode session.
-
-### Do not test a release with `npm install -g .`
-
-A local global install may create a symlink/junction back to the source checkout. If that checkout is on a temporary or RAM disk, the global CLI can break after the source disappears.
-
-Use a packed tarball for release-like testing:
-
-```cmd
-npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-4.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
-```
-
-## Verify installation
+Sau đó kiểm tra:
 
 ```cmd
 ocskill status
 ocskill doctor
 ```
 
-A synchronized install reports:
+Nếu npm không chạy `postinstall`, đồng bộ thủ công:
+
+```cmd
+ocskill install
+```
+
+Kết quả đồng bộ đúng sẽ có dạng:
 
 ```text
 Package version: 4.0.0
@@ -81,176 +65,341 @@ Subagents: 6/6
 Workflow: OK
 ```
 
-On OpenCode 2.x it also reports the managed router plugin.
+> Sau khi cài hoặc cập nhật UES, nên mở **OpenCode session mới** để workflow mới được nạp đầy đủ.
 
-## CLI
+---
+
+# Bảng công cụ UES
+
+## 1. Subagent — dùng để làm gì?
+
+Các subagent này chủ yếu là **read-only / analysis-oriented**. Chúng không tự ý sửa code. Agent chính vẫn chịu trách nhiệm triển khai và kết luận cuối cùng.
+
+| Subagent | Công dụng | Nên dùng khi nào | Slash command liên quan |
+|---|---|---|---|
+| `ues-architect` | Phân tích kiến trúc, boundary, data flow, interface, blast radius, migration và trade-off | Trước thay đổi lớn, nhiều module, schema/API/auth hoặc khi chưa rõ nên thiết kế theo hướng nào | `/ues-plan` |
+| `ues-debugger` | Điều tra nguyên nhân gốc của bug, test fail, build fail, crash hoặc regression | Khi có lỗi và muốn tìm **root cause** trước khi sửa | `/ues-debug` |
+| `ues-researcher` | Kiểm tra package/API/version/docs hiện tại bằng nguồn phù hợp với version repository | Khi không chắc API mới, package version, breaking change, framework behavior | `/ues-research` |
+| `ues-reviewer` | Review diff để tìm lỗi thực tế về correctness, security, compatibility, race, regression và thiếu verification | Sau khi code đã sửa xong, trước khi kết luận hoàn tất | `/ues-review` |
+| `ues-critic` | Cố tình “bẻ” giải pháp bằng counterexample, challenge assumption và tìm edge case có thể phá implementation | Với thay đổi quan trọng/rủi ro cao trước khi chốt | `/ues-critique` |
+| `ues-verifier` | Chạy/đánh giá verification độc lập theo acceptance criteria, test, build, status và diff | Khi cần chứng minh công việc thật sự đúng, không chỉ “có vẻ đúng” | `/ues-verify` |
+
+### Ví dụ nhanh với subagent
+
+Nếu bạn muốn thiết kế một feature lớn trước khi code:
 
 ```text
-ocskill install [--force]    install/re-sync managed OpenCode resources
-ocskill status               compare package/resource synchronization state
-ocskill doctor               check Node, npm, OpenCode and UES resources
-ocskill eval                 validate the static routing contract
-ocskill eval-live [options]  run executable baseline-vs-UES behavioral evals
-ocskill eval-report [paths]  aggregate pass-rate/tool/token/cost telemetry
-
-ocskill inspect [dir]        deterministic repository/stack/test-command map
-ocskill impact <query> [dir] bounded likely-impact search
-ocskill evidence [dir]       collect stack, test-command and Git evidence
-ocskill working-tree [dir]   report branch/HEAD/dirty state
-ocskill detect-stack [dir]   report stack/package-manager evidence
-ocskill detect-tests [dir]   report likely project-native verification commands
-
-ocskill router status        show OpenCode V2 router state
-ocskill router on|off        enable/disable automatic V2 routing
-ocskill router on --max 3    set maximum automatically selected skills
-
-ocskill update               update from npm latest and re-sync
-ocskill remove [--force]     remove managed resources and uninstall package
-ocskill version              print package version
+/ues-plan Thiết kế chức năng thanh toán nhiều nhà bán hàng, chỉ lập kế hoạch và chỉ ra các file cần sửa.
 ```
 
-## Deterministic evidence before model guessing
+Nếu gặp bug khó:
 
-When `ocskill` is available, UES can cheaply establish repository facts before the model reads broadly:
+```text
+/ues-debug Điều tra vì sao đơn hàng bị trừ tồn kho hai lần khi webhook payment retry.
+```
+
+Nếu vừa sửa xong và muốn kiểm tra độc lập:
+
+```text
+/ues-review Kiểm tra toàn bộ thay đổi hiện tại, ưu tiên lỗi logic và regression.
+/ues-verify Xác minh các acceptance criteria và chạy các test phù hợp.
+/ues-critique Tìm counterexample có thể làm giải pháp hiện tại sai.
+```
+
+---
+
+## 2. Slash commands
+
+Khi được cài vào OpenCode, command nguồn sẽ mang prefix `ues-`.
+
+| Lệnh | Agent sử dụng | Công dụng |
+|---|---|---|
+| `/ues-feature` | `build` | Triển khai feature theo repository, chọn skill cần thiết, kiểm chứng và review |
+| `/ues-fix` | `build` | Tìm root cause rồi sửa bug bằng thay đổi nhỏ nhất có thể |
+| `/ues-plan` | `ues-architect` | Lập kế hoạch implementation-ready mà không sửa code |
+| `/ues-debug` | `ues-debugger` | Điều tra lỗi, build fail, test fail, crash, regression |
+| `/ues-research` | `ues-researcher` | Kiểm tra API/package/version/docs hiện hành |
+| `/ues-review` | `ues-reviewer` | Review code/diff độc lập |
+| `/ues-verify` | `ues-verifier` | Chứng minh acceptance criteria bằng evidence mới |
+| `/ues-critique` | `ues-critic` | Tìm assumption sai, edge case và counterexample |
+| `/ues-audit` | `build` | Audit một repository/khu vực về architecture, correctness, security, performance và verification |
+
+### Chọn command theo tình huống
+
+| Bạn muốn làm gì? | Dùng |
+|---|---|
+| Làm feature mới | `/ues-feature ...` |
+| Sửa bug | `/ues-fix ...` |
+| Chỉ muốn lập kế hoạch, chưa sửa code | `/ues-plan ...` |
+| Chưa biết nguyên nhân lỗi | `/ues-debug ...` |
+| Không chắc docs/API/package hiện tại | `/ues-research ...` |
+| Muốn review thay đổi vừa làm | `/ues-review ...` |
+| Muốn kiểm chứng bằng test/build/evidence | `/ues-verify ...` |
+| Muốn tìm edge case khó trước khi chốt | `/ues-critique ...` |
+| Muốn audit toàn repository | `/ues-audit ...` |
+
+---
+
+## 3. Các skill quy trình và kiểm chứng
+
+UES không nạp toàn bộ 39 skill cùng lúc. Thông thường chỉ cần khoảng **2–4 skill phù hợp nhất**.
+
+| Skill | Công dụng |
+|---|---|
+| `ues-engineering-orchestrator` | Điều phối task không đơn giản: scope, routing skill, plan, delegation, verification, critic và repair loop |
+| `ues-repo-explorer` | Khám phá repository lạ: stack, entry point, dependency, analogue, test và convention |
+| `ues-context-engineering` | Giữ context gọn trong repository lớn; tránh đọc file lan man/lặp lại |
+| `ues-task-planner` | Tạo kế hoạch file-aware cho task nhiều file, migration hoặc thay đổi rủi ro |
+| `ues-change-impact-analysis` | Xác định blast radius, producer/consumer và phạm vi ảnh hưởng trước khi sửa |
+| `ues-bug-diagnosis` | Tái hiện lỗi, tìm root cause và loại bỏ giả thuyết sai trước khi patch |
+| `ues-test-driven-development` | Red → Green → Refactor khi repository có test harness phù hợp |
+| `ues-test-verification` | Chứng minh kết quả bằng test, typecheck, lint, build, reproduction và diff |
+| `ues-code-review` | Review lỗi thực tế thay vì style noise |
+| `ues-research-verification` | Xác minh API/package/version/framework hiện tại bằng nguồn phù hợp |
+| `ues-long-task-state` | Lưu facts, assumptions, rejected hypotheses, decisions, progress và next action cho task dài |
+| `ues-git-safety` | Bảo vệ working tree, diff, staging, commit và tránh thao tác Git phá dữ liệu |
+| `ues-implementation-engineer` | Triển khai feature/refactor theo architecture, compatibility, types và test |
+| `ues-software-architect` | Phân tích boundary, module, interface, migration và trade-off kiến trúc |
+| `ues-documentation-engineering` | Viết docs khớp với code, command, config và API thật |
+| `ues-dependency-management` | Nâng/thay dependency an toàn, kiểm tra compatibility, peer/runtime và lockfile |
+| `ues-performance-engineering` | Điều tra performance dựa trên measurement: DB, render, network, memory, cache, bundle |
+
+---
+
+## 4. Skill framework/domain
+
+| Skill | Dùng cho |
+|---|---|
+| `ues-react-engineering` | React, hooks, component, state, form, rendering, test |
+| `ues-nextjs-engineering` | Next.js App/Pages Router, server/client component, route/action, cache, metadata |
+| `ues-react-native-engineering` | React Native/Expo, Android/iOS, navigation, native module, build/platform issue |
+| `ues-nodejs-engineering` | Node.js service/tooling, async, module, process lifecycle, API |
+| `ues-nestjs-engineering` | NestJS module, controller, provider, DTO, guard, interceptor |
+| `ues-python-engineering` | Python project, packaging, typing, async, tests và environment |
+| `ues-django-engineering` | Django/DRF, ORM, model, migration, permission, view, form |
+| `ues-fastapi-engineering` | FastAPI, Pydantic, dependency, async endpoint, OpenAPI |
+| `ues-dotnet-engineering` | .NET/ASP.NET Core, EF Core, DI, API, auth, async |
+| `ues-java-spring-engineering` | Java/Spring Boot, controller, service, JPA, transaction, security |
+| `ues-flutter-engineering` | Flutter/Dart, widget, state, navigation, async và platform behavior |
+| `ues-database-engineering` | Schema, migration, index, query, ORM, transaction và data integrity |
+| `ues-rest-api-design` | REST resource, method, status, pagination, error, versioning, idempotency |
+| `ues-api-contract` | Đồng bộ frontend/backend/DTO/schema/client/validation/error contract |
+| `ues-auth-security` | Authentication, authorization, role, permission, token, session, secret |
+| `ues-web-security-review` | XSS, injection, access control, CSRF, SSRF, traversal, upload, secret |
+| `ues-payment-engineering` | Payment state machine, webhook, idempotency, retry, reconciliation |
+| `ues-ecommerce-engineering` | Marketplace, catalog, seller, inventory, cart, checkout, order, pricing |
+| `ues-file-upload-engineering` | Upload file/image, validation, path, storage, cleanup, permission |
+| `ues-devops-engineering` | Docker, CI/CD, deployment, health check, config, logging |
+| `ues-ui-ux-engineering` | UI production, form, responsive, loading/empty/error state, consistency |
+| `ues-accessibility` | Keyboard, focus, semantic, label, screen reader, touch target |
+
+---
+
+# Công cụ CLI `ocskill`
+
+Các lệnh dưới đây chạy bên ngoài OpenCode và hữu ích để kiểm tra package hoặc repository.
+
+| Lệnh | Công dụng | Ví dụ |
+|---|---|---|
+| `ocskill install` | Cài/re-sync resource UES vào OpenCode | `ocskill install` |
+| `ocskill status` | Kiểm tra package và resource có đồng bộ không | `ocskill status` |
+| `ocskill doctor` | Kiểm tra Node, npm, OpenCode và resource UES | `ocskill doctor` |
+| `ocskill update` | Kiểm tra npm `latest`, chống downgrade và re-sync | `ocskill update` |
+| `ocskill remove` | Gỡ resource UES và package theo workflow an toàn | `ocskill remove` |
+| `ocskill version` | In version UES | `ocskill version` |
+| `ocskill inspect [dir]` | Map repository, stack, package manager và test command | `ocskill inspect .` |
+| `ocskill detect-stack [dir]` | Chỉ nhận diện stack/package manager | `ocskill detect-stack .` |
+| `ocskill detect-tests [dir]` | Tìm test/lint/build command từ project | `ocskill detect-tests .` |
+| `ocskill impact <query> [dir]` | Tìm file/line có khả năng bị ảnh hưởng bởi symbol hoặc keyword | `ocskill impact routeSkills .` |
+| `ocskill evidence [dir]` | Thu thập stack + verification + Git evidence trong một JSON | `ocskill evidence .` |
+| `ocskill working-tree [dir]` | Xem branch, HEAD, clean/dirty và thay đổi Git | `ocskill working-tree .` |
+| `ocskill eval` | Kiểm tra static routing contract | `ocskill eval` |
+| `ocskill eval-live ...` | Chạy benchmark model thật: baseline vs UES | `ocskill eval-live --model provider/model --trials 3` |
+| `ocskill eval-report [paths]` | Tổng hợp pass-rate, tool, token, cost từ live eval | `ocskill eval-report .ues-evals` |
+| `ocskill router status` | Xem trạng thái UES Router trên OpenCode 2.x | `ocskill router status` |
+| `ocskill router on/off` | Bật/tắt auto routing trên OpenCode 2.x | `ocskill router off` |
+| `ocskill router on --max N` | Giới hạn số skill được router tự chọn, từ 1 đến 6 | `ocskill router on --max 3` |
+
+## Ví dụ dùng các CLI tool mới
+
+Xem UES hiểu repository hiện tại như thế nào:
 
 ```cmd
 ocskill inspect .
+```
+
+Tìm các vị trí liên quan tới một function/symbol:
+
+```cmd
 ocskill impact calculateOrderTotal .
+```
+
+Lấy nhanh stack, test command và Git state:
+
+```cmd
 ocskill evidence .
+```
+
+Kiểm tra working tree trước khi agent sửa code:
+
+```cmd
 ocskill working-tree .
 ```
 
-The helpers use Node built-ins only, do not modify the target repository, skip common dependency/build directories, bound broad scans, and return JSON.
+---
 
-They are not semantic call-graph or language-server replacements; important matches still need exact code inspection.
+# OpenCode 1.x và 2.x
 
-See [Deterministic evidence tools](docs/DETERMINISTIC-TOOLS.md).
+UES tự phát hiện major version của OpenCode khi đồng bộ resource.
 
-## OpenCode 1.x and 2.x
+### OpenCode 1.x
 
-UES detects the OpenCode major during synchronization.
+- dùng agent permission format tương thích V1
+- không cài V2 runtime router
+- 39 skill, 9 command, 6 subagent vẫn hoạt động
 
-**OpenCode 1.x**
-- installs existing V1-compatible agent permission frontmatter
-- does not install the V2 router plugin
+### OpenCode 2.x
 
-**OpenCode 2.x**
-- installs native ordered `permissions` frontmatter for managed subagents
-- installs `~/.config/opencode/plugins/ues-router/index.js`
-- keeps router preferences in `.ues/router.json`
-- uses the V2 prompt-admission hook to add at most a focused skill set
+- dùng native ordered `permissions`
+- cài managed plugin:
+  `~/.config/opencode/plugins/ues-router/`
+- lưu config router trong:
+  `.ues/router.json`
+- router tự chọn một nhóm skill phù hợp trước khi model bắt đầu xử lý
 
-After upgrading OpenCode from V1 to V2, run:
+Sau khi nâng OpenCode từ V1 lên V2:
 
 ```cmd
 ocskill install
+ocskill router status
 ```
 
-See [OpenCode compatibility](docs/OPENCODE-COMPAT.md).
+Router mặc định chọn tối đa **4 skill**. Có thể thay đổi:
 
-## Skill routing
+```cmd
+ocskill router on --max 3
+```
 
-UES deliberately avoids loading all 39 skills.
+Xem chi tiết: [OpenCode compatibility](docs/OPENCODE-COMPAT.md).
 
-Typical routes:
+---
+
+# Cách UES chọn skill
+
+UES cố tình **không nạp toàn bộ 39 skill**.
+
+Ví dụ:
 
 ```text
-unfamiliar repository
-  -> repo-explorer
-  -> context-engineering only when useful
-  -> domain skill
+repository lạ
+  -> ues-repo-explorer
+  -> ues-context-engineering nếu cần
+  -> domain skill phù hợp
 
-bug/regression
-  -> bug-diagnosis
+bug / regression
+  -> ues-bug-diagnosis
   -> domain skill
-  -> test-driven-development when practical
-  -> test-verification
+  -> ues-test-driven-development nếu phù hợp
+  -> ues-test-verification
 
-public API/schema/auth/payment change
-  -> engineering-orchestrator
-  -> change-impact-analysis / task-planner as warranted
+API / schema / auth / payment thay đổi
+  -> ues-engineering-orchestrator
+  -> ues-change-impact-analysis
   -> domain skill
-  -> test-verification
-  -> reviewer/critic for high risk
+  -> ues-test-verification
+  -> ues-reviewer / ues-critic nếu rủi ro cao
 
-uncertain current dependency/API
-  -> research-verification
-  -> relevant framework/dependency skill
+không chắc API/package/version hiện tại
+  -> ues-research-verification
+  -> framework/dependency skill liên quan
 ```
 
-On OpenCode 2.x, the managed router can preselect a maximum number of relevant skills from the incoming prompt. Router selection is a hint, not evidence or authority.
+---
 
-## Progressive disclosure
+# Benchmark và kiểm chứng
 
-The main `SKILL.md` files stay compact. Deeper domain behavior lives under each skill's `references/` or `templates/` directory and is loaded only when needed.
-
-V4 deepens previously short workflows for accessibility, DevOps, Django, documentation, .NET, ecommerce, FastAPI, uploads, Flutter, Git safety, implementation, Java/Spring, NestJS, performance, Python, REST API design, architecture, and UI/UX.
-
-## Subagents
-
-UES installs:
-
-```text
-ues-architect
-ues-debugger
-ues-researcher
-ues-reviewer
-ues-critic
-ues-verifier
-```
-
-They are selective read-only/analysis helpers. The parent Build agent remains responsible for implementation, integration and final completion claims.
-
-## Evaluation
-
-Static routing validation now has **34 scenarios covering every skill**:
+## Static routing
 
 ```cmd
 npm run evals
 ```
 
-The executable live suite has **20 hidden-graded tasks**:
+Hiện V4 có:
+
+```text
+34 routing scenarios
+39/39 skills được bao phủ
+```
+
+## Kiểm tra hidden grader
 
 ```cmd
 npm run evals:live:validate
+```
+
+Hiện có **20 executable tasks** và mỗi broken fixture bắt buộc phải bị hidden grader phát hiện.
+
+## Benchmark model thật
+
+```cmd
 ocskill eval-live --model provider/model --trials 3
 ```
 
-Default live runs fully isolate OpenCode config/home/data and use environment credentials. To copy only the current OpenCode auth file into the isolated runs:
+Nếu OpenCode đã đăng nhập provider bằng `/connect`:
 
 ```cmd
 ocskill eval-live --model provider/model --auth current --trials 3
 ```
 
-Aggregate results:
+So sánh:
+
+```text
+cùng model + cùng task
+
+baseline
+vs
+UES
+```
+
+Tổng hợp kết quả:
 
 ```cmd
 ocskill eval-report .ues-evals
 ```
 
-Traces include correctness, duration, workspace changes, and best-effort tool/skill/subagent/token/cost telemetry. They do not collect hidden chain-of-thought.
+Trace có thể ghi nhận pass/fail, thời gian, file thay đổi và best-effort telemetry về tool, skill, subagent, token và cost. UES không thu thập hidden chain-of-thought.
 
-See [Evaluation](docs/EVALS.md) and [Trace schema](docs/TRACE-SCHEMA.md).
+Xem thêm: [Evaluation](docs/EVALS.md) và [Trace schema](docs/TRACE-SCHEMA.md).
 
-## Update
+---
+
+# Cập nhật
 
 ```cmd
 ocskill update
 ```
 
-V4 resolves the explicit npm `latest` dist-tag, falls back to `npm dist-tag ls` if needed, refuses downgrades, skips equal-version replacement, and re-syncs resources explicitly after a real update.
+UES 4 đọc explicit npm `latest` dist-tag và có fallback sang `npm dist-tag ls`. Nếu registry trả version cũ hơn version đang cài, updater sẽ từ chối downgrade.
 
-## Uninstall
+---
+
+# Gỡ cài đặt
 
 ```cmd
 ocskill remove
 ```
 
-Use `ocskill remove` rather than direct npm uninstall when you also want managed OpenCode resources cleaned up.
+Nên dùng `ocskill remove` thay vì chỉ `npm uninstall -g` nếu muốn dọn luôn resource UES trong OpenCode.
 
-## Development
+---
 
-Requirements: Node.js 20+, npm, Git.
+# Phát triển và test package
+
+Yêu cầu:
+
+- Node.js 20+
+- npm
+- Git
 
 ```cmd
 git clone https://github.com/laivannha0202/opencode-agent-skill-.git
@@ -259,41 +408,56 @@ npm install
 npm run ci
 ```
 
-V4 CI runs:
+Pipeline `npm run ci` của V4 gồm:
 
 ```text
-JavaScript syntax checks
--> skill/command/subagent validation
--> 34-scenario full-catalog routing contract
--> 20-task hidden-grader integrity validation
+JavaScript syntax check
+-> validate skill / command / subagent
+-> 34-scenario routing validation
+-> 20-task hidden-grader validation
 -> Node unit/integration tests
 -> npm pack --dry-run
--> packed one-command install smoke using the OpenCode V2 path
+-> packed install smoke test
 ```
 
-A local `npm install` deliberately skips global OpenCode setup.
+### Không dùng `npm install -g .` để mô phỏng release
 
-## Safety
+Cài global trực tiếp từ folder có thể tạo symlink/junction về source checkout. Nếu source nằm trên RAM Disk hoặc folder tạm, package global có thể hỏng khi folder biến mất.
 
-- UES-managed resources use the `ues-` namespace
-- unmanaged collisions are preserved instead of overwritten
-- installer state ownership is checked before install/remove
-- re-sync is idempotent and removes only stale managed resources
-- V2 router files are managed and removed safely when no longer applicable
-- destructive repository operations still require explicit user intent
-- current external API/version claims should be verified rather than invented
-- benchmark traces record observable outcomes, not hidden reasoning
+Test release giống npm thật bằng:
 
-## Documentation
+```cmd
+npm pack
+npm install -g .\laivannha0202-opencode-agent-skill-4.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+```
 
-- [Engineering design](docs/ENGINEERING-DESIGN.md)
-- [OpenCode compatibility](docs/OPENCODE-COMPAT.md)
+---
+
+# Nguyên tắc an toàn
+
+- Resource UES dùng namespace `ues-`.
+- Không tự ý ghi đè resource unmanaged trùng tên.
+- Chỉ xóa stale resource được UES quản lý.
+- Giữ nguyên thay đổi không liên quan của người dùng.
+- Không force push/reset/clean hoặc thao tác phá dữ liệu nếu chưa có yêu cầu rõ ràng.
+- Không bịa file, function, API, package version hoặc kết quả test.
+- Không tuyên bố test/build/release thành công nếu chưa có evidence thực tế.
+- Với auth, payment, migration, schema, public API và deployment, phải kiểm tra impact và compatibility kỹ hơn.
+
+---
+
+# Tài liệu chi tiết
+
+- [Thiết kế kỹ thuật](docs/ENGINEERING-DESIGN.md)
+- [Tương thích OpenCode](docs/OPENCODE-COMPAT.md)
 - [Deterministic evidence tools](docs/DETERMINISTIC-TOOLS.md)
 - [Evaluation](docs/EVALS.md)
 - [Trace schema](docs/TRACE-SCHEMA.md)
-- [npm publishing](docs/NPM-PUBLISH.md)
-- [Research sources](docs/RESEARCH-SOURCES.md)
+- [Publish npm](docs/NPM-PUBLISH.md)
+- [Nguồn nghiên cứu](docs/RESEARCH-SOURCES.md)
 
-## License
+---
+
+# License
 
 MIT
