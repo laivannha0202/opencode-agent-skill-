@@ -6,6 +6,33 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-19
+
+### Added
+- OpenCode 1.x/2.x compatibility detection with managed V2-native agent permission frontmatter.
+- Optional OpenCode V2 runtime skill router installed as a managed global plugin, with `ocskill router on|off|status --max N` controls.
+- Dependency-free deterministic repository helpers: stack detection, test-command detection, repository map, impact search, evidence snapshot, and working-tree inspection.
+- `ocskill inspect`, `ocskill impact`, `ocskill evidence`, `ocskill working-tree`, `ocskill detect-stack`, and `ocskill detect-tests`.
+- Twenty executable hidden-graded live benchmark tasks across correctness, auth, contracts, data, payments, security, frontend state, dependency compatibility, and multi-file changes.
+- Live benchmark authentication modes: isolated environment credentials by default and optional current OpenCode auth-file copy.
+- Best-effort OpenCode JSONL telemetry for tool calls, loaded skills, subagents, tokens, cost, and changed workspace files.
+- `ocskill eval-report` / `npm run evals:report` for baseline-vs-UES pass-rate and efficiency aggregation.
+- Live-suite integrity validation and broad JavaScript syntax validation in `npm run ci`.
+- Progressive-disclosure workflow references for 18 previously shallow domain/process skills.
+- OpenCode compatibility and deterministic-tool documentation.
+
+### Changed
+- Static routing evaluation now contains 34 scenarios and requires every installed skill to be represented at least once.
+- Packed-install smoke testing now forces the OpenCode V2 compatibility path, checks native permissions, validates the managed router plugin, and exercises the packed `ocskill inspect` command.
+- Core workflow guidance now prefers deterministic evidence helpers before broad model-driven repository exploration.
+- Installer state schema records the detected OpenCode major and managed plugin resources.
+- Package contents now publish the complete `lib/`, `scripts/`, and `global-config/` trees required by V4.
+
+### Fixed
+- `ocskill update` now resolves the explicit npm `latest` dist-tag with `npm view package@latest version` and falls back to `npm dist-tag ls`, avoiding stale untagged package metadata such as the observed 2.1.0/3.0.0 mismatch.
+- Managed V2 router resources are removed safely when uninstalling or re-syncing back to an OpenCode 1.x environment.
+
+
 ## [3.0.0] - 2026-09-19
 
 ### Added
