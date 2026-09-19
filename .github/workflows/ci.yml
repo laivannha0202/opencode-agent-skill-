@@ -9,48 +9,6 @@ permissions:
   contents: read
 
 jobs:
-  diag-runner:
-    name: diagnostic (runner)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Runner
-        run: echo runner-ok
-
-  diag-checkout:
-    name: diagnostic (checkout)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Checkout complete
-        run: echo checkout-ok
-
-  diag-node:
-    name: diagnostic (node)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js without cache
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: Node
-        run: node --version
-
-  diag-npm:
-    name: diagnostic (npm-ci)
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-      - name: Setup Node.js without cache
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-      - name: npm ci
-        run: npm ci --ignore-scripts
-
   static:
     name: static (${{ matrix.check }})
     strategy:
