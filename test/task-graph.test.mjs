@@ -59,3 +59,21 @@ test("task graph rejects cycles and missing verification", () => {
   assert.ok(result.errors.some((item) => item.includes("verification")))
   assert.ok(result.errors.some((item) => item.includes("dependency cycle")))
 })
+
+
+test("safe waves allow shared read-only scope but serialize write/read conflicts", async () => {
+  const { computeSafeWaves } = await import("../lib/task-graph.mjs")
+  const readOnly = {
+    schemaVersion: 1,
+    goal: "read sharing",
+    tasks: [
+      { id: "A", title: "A", summary: "read", files: { read: ["src/shared.js"] }, dependsOn: [], acceptance: ["a"], verification: ["check"], risk: "low" },
+      { id: "B", title: "B", summary: "read", files: { read: ["src/shared.js"] }, dependsOn: [], acceptance: ["b"], verification: ["check"], risk: "low" },
+    ],
+  }
+  assert.deepEqual(computeSafeWaves(readOnly).waves[0], ["A", "B"])
+
+  const writeRead = structuredClone(readOnly)
+  writeRead.tasks[0].files = { modify: ["src/shared.js"] }
+  assert.equal(computeSafeWaves(writeRead).waves[0].length, 1)
+})
