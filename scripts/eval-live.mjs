@@ -101,7 +101,16 @@ async function inspectLongOrchestration(workspace) {
         readFile(path.join(dir, "EVIDENCE.json"), "utf8").then(JSON.parse),
       ])
       const tasks = Object.values(state.tasks || {})
-      const evidenceTasks = new Set((evidence.entries || []).map((item) => item.task))
+      const entries = evidence.entries || []
+      const evidenceTasks = new Set(entries.map((item) => item.task))
+      const planTaskIDs = new Set((plan.tasks || []).map((task) => task.id))
+      const structuredTaskEvidence = entries.filter((entry) =>
+        planTaskIDs.has(entry.task) &&
+        entry.evidenceStrength === "structured" &&
+        Array.isArray(entry.verificationReceipts) &&
+        entry.verificationReceipts.some((receipt) => receipt?.passed),
+      ).length
+      const integrationEntry = entries.find((entry) => entry.task === "__integration_verification__")
       const item = {
         slug: entry.name,
         taskCount: Array.isArray(plan.tasks) ? plan.tasks.length : 0,
@@ -110,6 +119,11 @@ async function inspectLongOrchestration(workspace) {
         completedTasks: tasks.filter((task) => task.status === "completed").length,
         integrationPassed: state.integrationVerification?.status === "PASS",
         integrationEvidence: evidenceTasks.has("__integration_verification__"),
+        structuredTaskEvidence,
+        integrationStructured:
+          integrationEntry?.evidenceStrength === "structured" &&
+          Array.isArray(integrationEntry?.verificationReceipts) &&
+          integrationEntry.verificationReceipts.some((receipt) => receipt?.passed),
         finalizedEvidence: evidenceTasks.has("__integration__"),
         completed: state.status === "completed",
       }
@@ -120,6 +134,8 @@ async function inspectLongOrchestration(workspace) {
         item.completedTasks === item.taskCount &&
         item.integrationPassed &&
         item.integrationEvidence &&
+        item.structuredTaskEvidence === item.taskCount &&
+        item.integrationStructured &&
         item.finalizedEvidence &&
         item.completed
       items.push(item)
