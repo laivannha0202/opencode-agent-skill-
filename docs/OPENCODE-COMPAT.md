@@ -1,68 +1,92 @@
 # OpenCode compatibility
 
-UES 4 supports both the installed OpenCode 1.x line and OpenCode 2.x with one npm package.
+UES 6 ships one npm package for OpenCode 1.x and 2.x, while only enabling V2-native runtime features when V2 is detected.
 
 ## Detection
 
-During resource synchronization, UES reads `opencode --version`. Tests and controlled environments may override detection with:
+During resource sync, UES reads:
+
+```text
+opencode --version
+```
+
+Tests may override with:
 
 ```text
 UES_OPENCODE_MAJOR=1
 UES_OPENCODE_MAJOR=2
 ```
 
-The detected major is recorded in `~/.config/opencode/.ues/state.json`.
+The detected major is recorded in the managed state.
 
 ## OpenCode 1.x
 
 UES installs:
 
-- namespaced skills under `skills/ues-*/`
-- namespaced commands under `commands/ues-*.md`
-- six subagents under `agents/ues-*.md` using the V1 `permission` frontmatter shape
-- the managed UES block in global `AGENTS.md`
+- 39 namespaced skills
+- 11 namespaced commands
+- 10 namespaced subagents using compatible V1 `permission` frontmatter
+- managed global `AGENTS.md` block
 
-The V2 runtime router plugin is not installed.
+The V2 runtime plugin is not installed.
+
+Durable CLI state, task DAG, plan/integration gates and model-policy configuration remain available. V2-specific automatic fresh-session dispatch is unavailable.
 
 ## OpenCode 2.x
 
-OpenCode 2 keeps file-based skills, commands and agent definitions compatible, while its native permission schema uses an ordered `permissions` list and its plugin API is different from V1.
+UES converts managed agent permission frontmatter to V2 ordered `permissions` and installs:
 
-UES therefore:
+```text
+<global-config>/plugins/ues-router/
+```
 
-- installs the same skill and command resources
-- converts the managed subagents to native V2 `permissions` frontmatter
-- installs `plugins/ues-router/index.js` under the global OpenCode config
-- creates `.ues/router.json` with `enabled: true` and `maxSkills: 4` when no router preference exists
+The plugin provides:
 
-The router uses the V2 prompt-admission hook to add a small focused set of relevant UES skill IDs. It does not load every skill and does not replace model judgment.
+- prompt-admission skill routing
+- long-task context guardrails
+- permission safety evaluation
+- read-only durable-state/task-graph/context-pack tools
+- `ues.dispatch_task` fresh executor runtime
 
-Control it with:
+`ues.dispatch_task` uses V2 session APIs to create a fresh session, select `ues-executor`, optionally switch to the configured model tier, prompt one approved task and wait for completion.
+
+## Router control
 
 ```cmd
 ocskill router status
-ocskill router off
 ocskill router on
 ocskill router on --max 3
+ocskill router off
 ```
 
-Supported `--max` values are 1 through 6; the default is 4.
+Default maximum is 4 selected skills; supported range is 1–6.
+
+## Model routing
+
+```cmd
+ocskill models status
+ocskill models on
+ocskill models set standard provider/model
+ocskill models set heavy provider/strong-model
+```
+
+Re-run `ocskill install` after changing static managed-agent model frontmatter. Runtime `ues.dispatch_task` also reads the current model policy for attempt-based executor escalation.
 
 ## Upgrading OpenCode
 
-After upgrading from V1 to V2, run:
+After moving between V1/V2 lines:
 
 ```cmd
 ocskill install
 ocskill status
 ```
 
-The installer rewrites only UES-managed agent files into the appropriate syntax and adds/removes the managed router as required. Switching back to V1 removes the managed V2 router and restores V1 agent permission syntax without touching unrelated user plugins.
+Only UES-managed resources are rewritten/removed. Unrelated user plugins/resources are preserved.
 
 ## Primary references
 
-- https://opencode.ai/v2/docs/migrate-v1
+- https://opencode.ai/v2/docs/build/plugins
+- https://opencode.ai/v2/docs/build/plugins/migrate-v1
 - https://opencode.ai/v2/docs/permissions
 - https://opencode.ai/v2/docs/plugins
-- https://opencode.ai/v2/docs/build/plugins
 - https://opencode.ai/v2/docs/skills
