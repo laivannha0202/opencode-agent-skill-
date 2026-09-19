@@ -13,8 +13,8 @@ const errors = []
 const names = new Set()
 const referenced = new Set()
 
-if (!Array.isArray(suite.scenarios) || suite.scenarios.length < 12) {
-  errors.push("routing suite must contain at least 12 scenarios")
+if (!Array.isArray(suite.scenarios) || suite.scenarios.length < 30) {
+  errors.push("routing suite must contain at least 30 scenarios")
 }
 
 for (const scenario of suite.scenarios || []) {
@@ -54,6 +54,10 @@ if (!referenced.has("test-verification")) {
 }
 if (!referenced.has("research-verification")) {
   errors.push("routing suite must exercise research-verification")
+}
+
+for (const id of [...skillIDs].sort()) {
+  if (!referenced.has(id)) errors.push(`routing suite does not exercise skill ${id}`)
 }
 
 if (errors.length) {
