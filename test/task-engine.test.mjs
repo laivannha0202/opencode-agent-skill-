@@ -4,10 +4,13 @@ import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import {
+  addBlocker,
   completeTask,
   failTask,
+  finalizeWork,
   importPlan,
   initWork,
+  resolveBlocker,
   resumeWork,
   startTask,
   workStatus,
@@ -100,3 +103,50 @@ test("work completion requires fresh evidence", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("work finalization requires every task, no blockers, and fresh integration evidence", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-finalize-"))
+  try {
+    await initWork(root, "finalize-gate", "Finalize gate")
+    const plan = {
+      ...fixturePlan,
+      goal: "Finalize gate",
+      tasks: [fixturePlan.tasks[0]],
+    }
+    const planFile = path.join(root, "plan.json")
+    await writeFile(planFile, JSON.stringify(plan), "utf8")
+    await importPlan(root, "finalize-gate", planFile)
+
+    await assert.rejects(
+      finalizeWork(root, "finalize-gate", "integration passed"),
+      /incomplete tasks/,
+    )
+
+    await startTask(root, "finalize-gate", "T1")
+    await completeTask(root, "finalize-gate", "T1", {
+      evidence: "unit test passed",
+    })
+
+    await addBlocker(root, "finalize-gate", "manual integration environment unavailable")
+    await assert.rejects(
+      finalizeWork(root, "finalize-gate", "integration passed"),
+      /blockers remain/,
+    )
+    await resolveBlocker(root, "finalize-gate", "manual integration environment unavailable")
+
+    await assert.rejects(
+      finalizeWork(root, "finalize-gate", ""),
+      /fresh integration evidence/,
+    )
+
+    const finalized = await finalizeWork(root, "finalize-gate", "end-to-end verification passed")
+    assert.equal(finalized.state.status, "completed")
+    assert.equal(finalized.evidence.task, "__integration__")
+
+    const status = await workStatus(root, "finalize-gate")
+    assert.equal(status.status, "completed")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
