@@ -1,0 +1,262 @@
+{
+  "version": 1,
+  "description": "Deterministic V2 router trigger precision/recall cases, including negative and ambiguous prompts.",
+  "cases": [
+    {
+      "id": "auth-regression",
+      "prompt": "Fix an auth permission regression where another tenant can edit this resource.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "payment-webhook",
+      "prompt": "Fix duplicate payment webhook processing and verify idempotency.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "react-native",
+      "prompt": "Fix this React Native Android Metro regression.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-react-engineering",
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "next-app-router",
+      "prompt": "Implement a Next.js App Router server component feature.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "react-hook",
+      "prompt": "Fix this React useEffect stale closure bug.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-react-engineering"
+      ],
+      "exclude": [
+        "ues-nextjs-engineering"
+      ]
+    },
+    {
+      "id": "database-migration",
+      "prompt": "Implement a database schema migration with rollback compatibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-database-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "api-contract",
+      "prompt": "Change a public API response schema without breaking consumers.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-api-contract",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-database-engineering"
+      ]
+    },
+    {
+      "id": "dependency-current",
+      "prompt": "Check the current package version compatibility and release notes before upgrading this dependency.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-research-verification"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "devops",
+      "prompt": "Debug the GitHub Actions CI pipeline and Docker deployment.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-devops-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "performance",
+      "prompt": "Investigate a slow endpoint with high latency and an N+1 query.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-performance-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "accessibility",
+      "prompt": "Audit keyboard navigation and screen reader labels for accessibility.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-accessibility"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "upload",
+      "prompt": "Implement secure multipart file upload to object storage.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-file-upload-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "ecommerce",
+      "prompt": "Implement marketplace inventory and cart behavior for checkout.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-ecommerce-engineering"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "long-repo",
+      "prompt": "Implement a large task across the whole repository with many files and make it resumable after interruption.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "long-cross-module",
+      "prompt": "Refactor all cross-module integration code as a long-running multi-file task.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-long-task-state",
+        "ues-task-planner"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "repo-search",
+      "prompt": "Find the repository function that formats product labels.",
+      "include": [
+        "ues-repo-explorer"
+      ],
+      "exclude": [
+        "ues-engineering-orchestrator"
+      ]
+    },
+    {
+      "id": "plain-review",
+      "prompt": "Please review this code.",
+      "include": [
+        "ues-engineering-orchestrator"
+      ],
+      "exclude": [
+        "ues-bug-diagnosis"
+      ]
+    },
+    {
+      "id": "non-code-smalltalk",
+      "prompt": "Hello, how are you today?",
+      "include": [],
+      "exclude": [
+        "ues-engineering-orchestrator",
+        "ues-repo-explorer"
+      ]
+    },
+    {
+      "id": "math",
+      "prompt": "What is 17 times 19?",
+      "include": [],
+      "exclude": [
+        "ues-engineering-orchestrator",
+        "ues-repo-explorer"
+      ]
+    },
+    {
+      "id": "auth-not-payment",
+      "prompt": "Review role and tenant authorization boundaries.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "payment-not-auth",
+      "prompt": "Review checkout refund payment state transitions.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-payment-engineering",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": [
+        "ues-auth-security"
+      ]
+    },
+    {
+      "id": "rn-not-react",
+      "prompt": "Implement iOS safe area behavior in React Native.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-react-native-engineering"
+      ],
+      "exclude": [
+        "ues-react-engineering"
+      ]
+    },
+    {
+      "id": "next-not-rn",
+      "prompt": "Fix a Next.js cache invalidation bug in App Router.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-bug-diagnosis",
+        "ues-nextjs-engineering"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "security-auth",
+      "prompt": "Audit authorization and IDOR security in tenant endpoints.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-auth-security",
+        "ues-change-impact-analysis"
+      ],
+      "exclude": []
+    }
+  ]
+}
