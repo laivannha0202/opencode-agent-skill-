@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import { existsSync } from "node:fs"
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -95,17 +95,27 @@ try {
   assert.equal(state.package, packageName)
   assert.equal(state.version, packageJson.version)
   assert.ok(state.skills.length >= 39)
-  assert.ok(state.commands.length >= 9)
-  assert.ok(state.agents.length >= 6)
+  assert.ok(state.commands.length >= 11)
+  assert.ok(state.agents.length >= 10)
   assert.equal(state.openCodeMajor, 2)
   assert.deepEqual(state.plugins, ["ues-router/index.js"])
 
   const routerPlugin = path.join(configDir, "plugins", "ues-router", "index.js")
   assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "router.js")), "v2 router helper was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "safety.js")), "v2 router safety gate was not installed from packed package")
   const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
+
+  for (const name of ["ues-codebase-mapper.md", "ues-plan-checker.md", "ues-executor.md", "ues-integration-verifier.md"]) {
+    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V6 subagent " + name)
+  }
+  const executor = await readFile(path.join(configDir, "agents", "ues-executor.md"), "utf8")
+  assert.match(executor, /permissions:/)
+  assert.match(executor, /action: subagent/)
+  assert.match(executor, /effect: deny/)
+  assert.doesNotMatch(executor, /^permission:/m)
 
   const inspect = spawnSync(process.execPath, [cli, "inspect", temp], {
     cwd: temp,
@@ -113,6 +123,61 @@ try {
     encoding: "utf8",
   })
   requireSuccess(inspect, "ocskill inspect from packed copy")
+
+  const planFile = path.join(temp, "PLAN.json")
+  await writeFile(planFile, JSON.stringify({
+    schemaVersion: 1,
+    goal: "Packed V6 smoke",
+    tasks: [{
+      id: "T1",
+      title: "Smoke",
+      summary: "Validate packed task graph",
+      files: { modify: ["README.md"] },
+      dependsOn: [],
+      acceptance: ["Task graph is valid"],
+      verification: ["node --version"],
+      risk: "low",
+    }],
+  }, null, 2) + "\n", "utf8")
+
+  const graph = spawnSync(process.execPath, [cli, "task-graph", planFile], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(graph, "ocskill task-graph from packed copy")
+  assert.match(graph.stdout, /"valid": true/)
+
+  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V6 work smoke"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workInit, "ocskill work init from packed copy")
+
+  const workPlan = spawnSync(process.execPath, [cli, "work", "plan", "packed-smoke", planFile, temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workPlan, "ocskill work plan from packed copy")
+
+  const workStatus = spawnSync(process.execPath, [cli, "work", "status", "packed-smoke", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workStatus, "ocskill work status from packed copy")
+  assert.match(workStatus.stdout, /"ready": \[/)
+  assert.match(workStatus.stdout, /"T1"/)
+
+  const modelStatus = spawnSync(process.execPath, [cli, "models", "status"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(modelStatus, "ocskill models status from packed copy")
+  assert.match(modelStatus.stdout, /"enabled": false/)
 
   console.log(
     `One-command packed install smoke passed for ${packageName}@${packageJson.version}: ` +
