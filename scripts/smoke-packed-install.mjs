@@ -104,6 +104,11 @@ try {
   assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "router.js")), "v2 router helper was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "safety.js")), "v2 router safety gate was not installed from packed package")
+  const routerSource = await readFile(routerPlugin, "utf8")
+  assert.match(routerSource, /name: "dispatch_task"/)
+  assert.match(routerSource, /ctx\.session\.create/)
+  assert.match(routerSource, /ctx\.session\.switchAgent/)
+  assert.match(routerSource, /ctx\.session\.switchModel/)
   const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
@@ -162,14 +167,74 @@ try {
   })
   requireSuccess(workPlan, "ocskill work plan from packed copy")
 
+  const workStatusBeforeApproval = spawnSync(process.execPath, [cli, "work", "status", "packed-smoke", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workStatusBeforeApproval, "ocskill work status before approval from packed copy")
+  assert.match(workStatusBeforeApproval.stdout, /"status": "awaiting-plan-approval"/)
+  assert.match(workStatusBeforeApproval.stdout, /"ready": \[\]/)
+
+  const workStartBeforeApproval = spawnSync(process.execPath, [cli, "work", "start", "packed-smoke", "T1", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  assert.notEqual(workStartBeforeApproval.status, 0)
+  assert.match(workStartBeforeApproval.stderr, /plan is not approved/)
+
+  const workApprove = spawnSync(process.execPath, [cli, "work", "approve-plan", "packed-smoke", temp, "--evidence", "packed plan checker PASS"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workApprove, "ocskill work approve-plan from packed copy")
+
   const workStatus = spawnSync(process.execPath, [cli, "work", "status", "packed-smoke", temp], {
     cwd: temp,
     env,
     encoding: "utf8",
   })
-  requireSuccess(workStatus, "ocskill work status from packed copy")
-  assert.match(workStatus.stdout, /"ready": \[/)
+  requireSuccess(workStatus, "ocskill work status after approval from packed copy")
   assert.match(workStatus.stdout, /"T1"/)
+
+  const workStart = spawnSync(process.execPath, [cli, "work", "start", "packed-smoke", "T1", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workStart, "ocskill work start from packed copy")
+
+  const workComplete = spawnSync(process.execPath, [cli, "work", "complete", "packed-smoke", "T1", temp, "--evidence", "node --version => PASS"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workComplete, "ocskill work complete from packed copy")
+
+  const finalizeBeforeVerify = spawnSync(process.execPath, [cli, "work", "finalize", "packed-smoke", temp, "--evidence", "should fail"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  assert.notEqual(finalizeBeforeVerify.status, 0)
+  assert.match(finalizeBeforeVerify.stderr, /recorded integration PASS/)
+
+  const workVerify = spawnSync(process.execPath, [cli, "work", "verify-integration", "packed-smoke", temp, "--verdict", "PASS", "--evidence", "packed integration PASS"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workVerify, "ocskill work verify-integration from packed copy")
+
+  const workFinalize = spawnSync(process.execPath, [cli, "work", "finalize", "packed-smoke", temp, "--evidence", "packed final acceptance PASS"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workFinalize, "ocskill work finalize from packed copy")
+  assert.match(workFinalize.stdout, /"status": "completed"/)
 
   const modelStatus = spawnSync(process.execPath, [cli, "models", "status"], {
     cwd: temp,
@@ -178,6 +243,21 @@ try {
   })
   requireSuccess(modelStatus, "ocskill models status from packed copy")
   assert.match(modelStatus.stdout, /"enabled": false/)
+
+  const modelSet = spawnSync(process.execPath, [cli, "models", "set", "standard", "provider/mid"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(modelSet, "ocskill models set from packed copy")
+
+  const modelPolicy = spawnSync(process.execPath, [cli, "model-policy", "executor", "--attempt", "1"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(modelPolicy, "ocskill model-policy from packed copy")
+  assert.match(modelPolicy.stdout, /"model": "provider\/mid"/)
 
   console.log(
     `One-command packed install smoke passed for ${packageName}@${packageJson.version}: ` +
