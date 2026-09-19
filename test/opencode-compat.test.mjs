@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { adaptAgentForOpenCode, buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
+import { adaptAgentForOpenCode, buildOpenCodeRunArgs, capabilitiesFromHelp, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 
 test("OpenCode version parsing accepts normal CLI versions", () => {
   assert.equal(parseOpenCodeMajor("1.18.31"), 1)
@@ -55,4 +55,29 @@ test("live eval invocation keeps standalone for OpenCode 2.x and newer", () => {
 
   assert.deepEqual(args.slice(0, 3), ["run", "--standalone", "--format"])
   assert.deepEqual(args.slice(-3), ["--variant", "high", "task"])
+})
+
+
+test("capability probing wins over version guesses for standalone support", () => {
+  const caps = capabilitiesFromHelp("1.18.31", "Usage: opencode run [--standalone] [--format json] [--agent build] [--model x] [--dir .]")
+  assert.equal(caps.major, 1)
+  assert.equal(caps.supportsStandalone, true)
+  const args = buildOpenCodeRunArgs({
+    major: 1,
+    capabilities: caps,
+    model: "provider/model",
+    workspace: "/repo",
+    prompt: "task",
+  })
+  assert.equal(args.includes("--standalone"), true)
+
+  const v2WithoutFlag = capabilitiesFromHelp("2.0.0", "Usage: opencode run --format json --agent build --model x --dir .")
+  const conservative = buildOpenCodeRunArgs({
+    major: 2,
+    capabilities: v2WithoutFlag,
+    model: "provider/model",
+    workspace: "/repo",
+    prompt: "task",
+  })
+  assert.equal(conservative.includes("--standalone"), false)
 })
