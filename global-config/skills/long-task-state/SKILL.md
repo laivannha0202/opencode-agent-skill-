@@ -7,9 +7,9 @@ description: Preserve confirmed facts, assumptions, rejected hypotheses, decisio
 
 Use for work likely to span many steps, context compaction, or multiple sessions.
 
-Prefer session-native task tracking for ordinary work. If persistent repository state would materially help, ask before adding a project-level `.ues/` directory.
+Prefer session-native task tracking for ordinary work. For an explicitly requested long-horizon run (for example `/ues-run`), use the deterministic `.ues-work/<slug>/` workspace managed by `ocskill work`. For ad-hoc persistence outside that explicit workflow, ask before adding repository-level state.
 
-When persistence is appropriate, keep one concise `.ues/STATE.md` using [STATE.md](templates/STATE.md). Treat it as a **context ledger**, not a transcript.
+The V6 long-horizon workspace keeps `SPEC.md`, `PLAN.json`, `STATE.json`, `EVIDENCE.json`, task briefs, and reports. For smaller persistent notes that do not need task execution state, the concise [STATE.md](templates/STATE.md) ledger remains suitable.
 
 Update it only at meaningful boundaries:
 - acceptance criteria changed
