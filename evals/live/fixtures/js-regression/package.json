@@ -1,8 +1,0 @@
-{
-  "name": "ues-live-eval-js-discount-regression",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test"
-  }
-}
