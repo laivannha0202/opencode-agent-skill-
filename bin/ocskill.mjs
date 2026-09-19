@@ -39,6 +39,7 @@ Usage:
   ocskill doctor               Check Node, npm, OpenCode and installed resources
   ocskill eval                 Validate the bundled static skill-routing suite
   ocskill eval-live [options]  Run baseline-vs-UES live behavioral evals
+  ocskill eval-report [paths]  Aggregate live eval pass-rate/cost/tool telemetry
   ocskill inspect [dir]        Deterministic repository/stack/test-command map
   ocskill impact <query> [dir] Search likely impact paths and matching lines
   ocskill evidence [dir]       Collect stack, verification and Git evidence
@@ -227,6 +228,14 @@ function printJson(value) {
   console.log(JSON.stringify(value, null, 2))
 }
 
+async function evaluateReport() {
+  const code = run(
+    process.execPath,
+    [path.join(packageRoot, "scripts", "eval-report.mjs"), ...args.slice(1)],
+  )
+  if (code !== 0) process.exitCode = code
+}
+
 async function inspectRepository() {
   printJson(await repoMap(args[1] || process.cwd()))
 }
@@ -394,6 +403,9 @@ switch (command) {
     break
   case "eval-live":
     await evaluateLive()
+    break
+  case "eval-report":
+    await evaluateReport()
     break
   case "inspect":
     await inspectRepository()
