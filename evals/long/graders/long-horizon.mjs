@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import path from "node:path"
-import { pathToFileURL } from "node:url"
+import { spawnSync } from "node:child_process"
+import { fileURLToPath, pathToFileURL } from "node:url"
 
 const workspace = process.env.UES_EVAL_WORKSPACE
 const task = process.env.UES_EVAL_TASK
@@ -174,6 +175,30 @@ switch (task) {
 
     const invalid = handleProductUpdate({ product, patch: { unknown: true } })
     assert.deepEqual(invalid, { status: 400, body: { error: { code: "VALIDATION", message: "Invalid request" } } })
+    break
+  }
+
+  case "long-full-system-integration": {
+    const graderFile = fileURLToPath(import.meta.url)
+    const subtasks = [
+      "long-checkout-integration",
+      "long-tenant-security-integration",
+      "long-user-contract-migration",
+      "long-product-race-cache",
+    ]
+    for (const subtask of subtasks) {
+      const run = spawnSync(process.execPath, [graderFile], {
+        cwd: workspace,
+        env: { ...process.env, UES_EVAL_WORKSPACE: workspace, UES_EVAL_TASK: subtask },
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+      })
+      assert.equal(
+        run.status,
+        0,
+        subtask + " failed inside full-system grader:\n" + (run.stderr || run.stdout || ""),
+      )
+    }
     break
   }
 
