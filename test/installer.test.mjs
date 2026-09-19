@@ -508,6 +508,7 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
 
     const plugin = await readFile(path.join(temp, "plugins", "ues-router", "index.js"), "utf8")
     assert.match(plugin, /managed-by: @laivannha0202\/opencode-agent-skill/)
+    await access(path.join(temp, "plugins", "ues-router", "router.js"))
 
     const router = JSON.parse(await readFile(path.join(temp, ".ues", "router.json"), "utf8"))
     assert.deepEqual(router, { enabled: true, maxSkills: 4 })
@@ -539,6 +540,27 @@ test("switching from OpenCode v2 to v1 removes only the managed router and resto
     const reviewer = await readFile(path.join(temp, "agents", "ues-reviewer.md"), "utf8")
     assert.match(reviewer, /^permission:/m)
     assert.doesNotMatch(reviewer, /^permissions:/m)
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
+test("installer preserves an unmanaged OpenCode v2 router plugin directory", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-v2-plugin-collision-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  try {
+    const pluginDir = path.join(temp, "plugins", "ues-router")
+    await mkdir(pluginDir, { recursive: true })
+    await writeFile(path.join(pluginDir, "custom.txt"), "keep me\n", "utf8")
+
+    const module = await import(`../lib/installer.mjs?v2-plugin-collision=${Date.now()}`)
+    const result = await module.installResources({ openCodeMajor: 2 })
+
+    assert.deepEqual(result.plugins, [])
+    assert.ok(result.warnings.some((warning) => warning.includes("unmanaged plugin directory")))
+    assert.equal(await readFile(path.join(pluginDir, "custom.txt"), "utf8"), "keep me\n")
+    await assert.rejects(access(path.join(pluginDir, "index.js")))
   } finally {
     await rm(temp, { recursive: true, force: true })
   }
