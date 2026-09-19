@@ -1,12 +1,126 @@
 {
-  "version": 1,
-  "description": "Executable coding-agent benchmark tasks. Each task is copied into an isolated workspace and graded outside that workspace.",
+  "version": 2,
+  "description": "Executable multi-domain coding-agent benchmark tasks. Each task runs in an isolated workspace and is graded outside the workspace.",
   "tasks": [
     {
       "id": "js-discount-regression",
-      "fixture": "fixtures/js-regression",
-      "prompt": "Fix the exported calculateDiscount(price, percent) behavior. Percent is a percentage from 0 through 100, so 20 means a 20% discount. Preserve the public function name. Reject non-finite price/percent values with TypeError and percentages outside 0..100 with RangeError. Add or improve focused tests if useful. Do not change the requested semantics just to satisfy an existing implementation.",
-      "grader": "graders/js-regression.mjs"
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix calculateDiscount(price, percent) in src/discount.mjs. Percent is 0..100, so 20 means a 20% discount. Reject non-finite/non-number price or percent with TypeError and percent outside 0..100 with RangeError. Preserve the export and do not weaken the requested semantics.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "auth-resource-ownership",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix canEditResource(user, resource) in src/authz.mjs. Missing inputs deny. Suspended users always deny. Admin users may edit any non-missing resource. Non-admin users may edit only when user.id equals resource.ownerId AND user.tenantId equals resource.tenantId. Return a boolean and do not mutate inputs.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "api-pagination-contract",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix paginate(items, options) in src/pagination.mjs. pages are 1-indexed; defaults are page=1 and pageSize=10. items must be an array. page/pageSize must be positive integers. Return {items,total,page,pageSize,totalPages}; out-of-range pages return an empty items array. Use TypeError for wrong types and RangeError for invalid numeric ranges.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "inventory-reservation",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix reserveStock(stock, quantity) in src/inventory.mjs. Both values must be finite integers; stock must be >=0 and quantity must be >0. Throw TypeError for non-number/non-finite/non-integer values and RangeError for invalid ranges or insufficient stock. Return remaining stock without mutating external state.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "payment-idempotency",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix applyPaymentEvent(order, event) in src/payment.mjs. Do not mutate order. Duplicate event.id values already in order.processedEvents must be idempotent. A new event must have a non-empty id. For status='succeeded', amountCents and currency must exactly match order.totalCents/order.currency or throw RangeError, then mark status paid. Failed events must not mark paid. Record each new event id exactly once.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "webhook-ordering",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix advancePaymentState(state, event) in src/webhook.mjs. Ignore duplicate/stale events whose integer sequence <= state.lastSequence. Newer events must follow legal transitions pending->authorized|failed, authorized->paid|failed, paid->refunded; same-status newer events are allowed. Illegal transitions throw RangeError. Return a new state and never mutate inputs.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "secure-file-upload",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix validateUpload(file, options) in src/upload.mjs. file must have name/type/size. Reject names containing path separators, '..', or NUL. size must be a finite non-negative integer no larger than options.maxBytes. type must be in options.allowedTypes. Throw TypeError for malformed inputs and RangeError for size violations; return true when valid.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "path-traversal-defense",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix safeJoin(root, userPath) in src/path-safe.mjs. Return the absolute resolved path only when userPath is a non-empty relative path that stays inside root. Reject absolute paths, traversal outside root, and NUL with RangeError; wrong argument types use TypeError. The check must be cross-platform.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "stable-api-errors",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix toHttpError(error) in src/api-errors.mjs. Map codes VALIDATION->400, FORBIDDEN->403, NOT_FOUND->404, CONFLICT->409 and unknown/missing->500. Return {status,body:{error:{code,message}}}. Unknown errors must expose code INTERNAL and message 'Internal server error'; never expose stack or arbitrary extra fields.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "http-retry-policy",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix shouldRetry({status,attempt,maxAttempts}) in src/retry.mjs. attempt and maxAttempts are positive integers and status is an integer HTTP status. Retry only while attempt < maxAttempts and status is 408, 429, or 500..599. Return false for other statuses. Invalid input types/ranges should throw TypeError or RangeError appropriately.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "dedupe-stable-order",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix dedupeById(items) in src/dedupe.mjs. items must be an array of objects with non-null id. Preserve the first occurrence of each id and original order, do not mutate inputs, and treat numeric 1 and string '1' as distinct ids. Malformed items throw TypeError.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "legacy-user-migration",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix migrateUsers(rows) in src/migration.mjs. Return new objects without mutating rows. If firstName/lastName already exist, preserve them and remove legacy fullName. Otherwise split trimmed fullName on whitespace: first token -> firstName, remaining tokens -> lastName; an empty/missing fullName becomes empty strings. Preserve unrelated fields.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "money-integer-invariants",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix orderTotal(lines) in src/money.mjs. Each line uses integer unitPriceCents>=0, integer quantity>0, optional integer discountCents>=0. Line total is unitPriceCents*quantity-discountCents and may not go below zero. Return an integer cent total. Malformed numeric types use TypeError; invalid ranges use RangeError.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "sql-sort-allowlist",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix buildSort(sort) in src/query-sort.mjs. Accept an object {field,direction}. field allowlist: createdAt->created_at, name->name, price->price_cents. direction accepts asc/desc case-insensitively. Return exactly 'ORDER BY <mapped-column> <ASC|DESC>'. Reject all other values with RangeError and malformed input with TypeError; never interpolate arbitrary field text.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "react-stale-request",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix reducer in src/react-state.mjs for request races. start sets requestId, loading=true, error=null. success/error actions apply only when action.requestId equals current state.requestId; stale completions return the unchanged state object. Matching success sets data and loading=false/error=null; matching error sets error and loading=false. Unknown actions return state.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "react-native-keyboard-offset",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix keyboardOffset(platform, safeAreaTop, headerHeight) in src/rn-platform.mjs. platform must be 'ios' or 'android'; offsets must be finite non-negative numbers. iOS returns safeAreaTop+headerHeight; Android returns headerHeight. Invalid types use TypeError and invalid ranges/platform use RangeError.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "dependency-caret-range",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix satisfiesCaret(version, range) in src/dependency.mjs for stable numeric semver x.y.z and caret ranges ^x.y.z. ^1.2.3 allows >=1.2.3 and <2.0.0; ^0.2.3 allows >=0.2.3 and <0.3.0; ^0.0.3 allows only 0.0.3. Return false for malformed versions/ranges instead of throwing.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "strict-env-boolean",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix readBooleanEnv(value, fallback=false) in src/config.mjs. undefined/null/empty-string use Boolean(fallback). Boolean inputs return themselves. Case-insensitive trimmed strings true/1/yes/on => true and false/0/no/off => false. Any other value throws TypeError.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "cache-invalidation-tags",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Fix tagsForProductMutation(product) in src/cache-tags.mjs. product must contain a non-empty id. Return unique tags in this order: 'products', 'product:<id>', then optional 'category:<categoryId>' and 'seller:<sellerId>' when those values are non-null/non-empty. Do not emit undefined/empty tags and do not mutate product.",
+      "grader": "graders/engineering-bench.mjs"
+    },
+    {
+      "id": "multi-file-contract-compatibility",
+      "fixture": "fixtures/engineering-bench",
+      "prompt": "Repair the user serialization contract across src/contract-producer.mjs and src/contract-consumer.mjs. serializeUser must preserve id and legacy name while also exposing displayName, using user.displayName when non-empty otherwise falling back to name. userLabel must prefer the serialized displayName but remain compatible with name. Do not remove the legacy name field.",
+      "grader": "graders/engineering-bench.mjs"
     }
   ]
 }
