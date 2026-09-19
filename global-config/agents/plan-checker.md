@@ -40,4 +40,4 @@ Persistence, auth, payment, public API, deployment, destructive or migration con
 ## Required revisions
 Only blocking changes required before execution.
 
-A PASS means the plan is executable, not that implementation is correct.
+A PASS means the plan is executable, not that implementation is correct. The parent must persist a genuine PASS with `ocskill work approve-plan <slug> . --evidence <summary>`; do not approve a plan that you returned as REVISE.
