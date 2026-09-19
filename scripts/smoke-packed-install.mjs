@@ -102,6 +102,7 @@ try {
 
   const routerPlugin = path.join(configDir, "plugins", "ues-router", "index.js")
   assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "router.js")), "v2 router helper was not installed from packed package")
   const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
