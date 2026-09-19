@@ -59,3 +59,33 @@ test("resume-style long-horizon prompts always include the orchestrator", () => 
   assert.ok(routed.includes("ues-long-task-state"))
   assert.ok(routed.includes("ues-task-planner"))
 })
+
+
+test("router distinguishes webhook from React hooks and diagnoses fixes", () => {
+  const routed = routeSkills(
+    "Fix duplicate payment webhook processing and verify idempotency.",
+    6,
+  )
+  assert.ok(routed.includes("ues-bug-diagnosis"))
+  assert.ok(routed.includes("ues-payment-engineering"))
+  assert.ok(routed.includes("ues-change-impact-analysis"))
+  assert.ok(!routed.includes("ues-react-engineering"))
+})
+
+test("router does not treat public API response schema as a database schema", () => {
+  const routed = routeSkills(
+    "Change a public API response schema without breaking consumers.",
+    6,
+  )
+  assert.ok(routed.includes("ues-api-contract"))
+  assert.ok(routed.includes("ues-change-impact-analysis"))
+  assert.ok(!routed.includes("ues-database-engineering"))
+})
+
+test("router recognizes accessible focus management", () => {
+  const routed = routeSkills(
+    "Implement accessible focus management.",
+    6,
+  )
+  assert.ok(routed.includes("ues-accessibility"))
+})
