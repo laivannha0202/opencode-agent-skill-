@@ -26,12 +26,15 @@ import {
 import { buildRepoGraph } from "../lib/repo-graph.mjs"
 import { analyzePlan } from "../lib/task-graph.mjs"
 import {
+  addBlocker,
   addDecision,
   completeTask,
   contextPack,
   failTask,
+  finalizeWork,
   importPlan,
   initWork,
+  resolveBlocker,
   resumeWork,
   startTask,
   workStatus,
@@ -89,6 +92,8 @@ Usage:
     ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>]
     ocskill work fail <slug> <task-id> [dir] --reason <text>
     ocskill work decision <slug> [dir] --text <decision>
+    ocskill work block|unblock <slug> [dir] --text <blocker>
+    ocskill work finalize <slug> [dir] --evidence <integration-evidence>
 
   Model routing:
     ocskill models status
@@ -363,7 +368,7 @@ async function workControl() {
   const action = args[1]
   const slug = args[2]
   if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|start|complete|fail|decision> <slug> ...")
+    console.error("Usage: ocskill work <init|plan|status|resume|start|complete|fail|decision|block|unblock|finalize> <slug> ...")
     process.exitCode = 2
     return
   }
@@ -421,6 +426,21 @@ async function workControl() {
     if (action === "decision") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
       printJson(await addDecision(root, slug, optionValue("--text")))
+      return
+    }
+    if (action === "block") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await addBlocker(root, slug, optionValue("--text")))
+      return
+    }
+    if (action === "unblock") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await resolveBlocker(root, slug, optionValue("--text")))
+      return
+    }
+    if (action === "finalize") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await finalizeWork(root, slug, optionValue("--evidence")))
       return
     }
 
