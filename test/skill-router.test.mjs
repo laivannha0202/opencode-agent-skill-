@@ -36,3 +36,15 @@ test("v2 router caps automatic skills and falls back to repo exploration", () =>
   assert.equal(routed.length, 3)
   assert.deepEqual(routeSkills("Find the repository function that formats labels.", 4), ["ues-repo-explorer"])
 })
+
+test("v2 router adds persistent planning skills for explicit long-horizon work", () => {
+  assert.deepEqual(
+    routeSkills("Implement a large task across the whole repository with many files and keep it resumable.", 4),
+    [
+      "ues-engineering-orchestrator",
+      "ues-long-task-state",
+      "ues-task-planner",
+    ],
+  )
+})
+
