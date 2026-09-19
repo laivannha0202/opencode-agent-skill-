@@ -16,6 +16,7 @@ Required workflow:
 6. Use `ocskill task-graph` and execute only ready dependency-safe tasks. For each task, run `ocskill work start`, dispatch a fresh `ues-executor`, inspect its changes/evidence, then record completion with `ocskill work complete`. Independent tasks may run in parallel only when the safe-wave analysis and working-tree isolation make that safe.
 7. On executor failure, record it with `ocskill work fail`, diagnose from fresh evidence, and escalate/re-plan rather than stacking patches.
 8. After all tasks complete, dispatch `ues-integration-verifier`, then use reviewer/critic when risk warrants it.
-9. Re-run affected verification, inspect final diff/status, and report only evidence-backed completion.
+9. When integration verification passes and no blockers remain, persist the final evidence with `ocskill work finalize <slug> . --evidence <summary>`.
+10. Re-run affected verification, inspect final diff/status, and report only evidence-backed completion.
 
 Do not merge, push, publish, deploy or perform destructive operations without explicit user approval.
