@@ -16,14 +16,14 @@ export function routeSkills(text, maxSkills = 4) {
     add(routed, "ues-long-task-state")
     add(routed, "ues-task-planner")
   }
-  if (/(bug|crash|regression|failing|failure|error|exception|broken|debug)/.test(value)) add(routed, "ues-bug-diagnosis")
+  if (/(\bfix\b|\bbug\b|crash|regression|failing|failure|error|exception|broken|\bdebug\b)/.test(value)) add(routed, "ues-bug-diagnosis")
   if (/(latest|current docs|documentation|release notes|version compatibility|dependency|package version|api changed)/.test(value)) add(routed, "ues-research-verification")
 
   if (/(react native|expo|android|ios|gradle|xcode|metro)/.test(value)) add(routed, "ues-react-native-engineering")
   else if (/(next\.js|nextjs|app router|server component)/.test(value)) add(routed, "ues-nextjs-engineering")
-  else if (/(react|hook|useeffect|usestate|component)/.test(value)) add(routed, "ues-react-engineering")
+  else if (/(\breact\b|\bhook\b|useeffect|usestate|\bcomponent\b)/.test(value)) add(routed, "ues-react-engineering")
 
-  if (/(database|schema|migration|sql|query|index|transaction)/.test(value)) {
+  if (/(database|migration|sql|query|index|transaction|schema changes?)/.test(value)) {
     add(routed, "ues-database-engineering")
     add(routed, "ues-change-impact-analysis")
   }
@@ -41,7 +41,7 @@ export function routeSkills(text, maxSkills = 4) {
   }
   if (/(docker|github actions|ci\/cd|pipeline|deploy|kubernetes|container)/.test(value)) add(routed, "ues-devops-engineering")
   if (/(performance|slow|latency|memory leak|n\+1|bundle size)/.test(value)) add(routed, "ues-performance-engineering")
-  if (/(accessibility|a11y|screen reader|keyboard navigation|aria)/.test(value)) add(routed, "ues-accessibility")
+  if (/(accessibility|accessible|a11y|screen reader|keyboard navigation|aria|focus management|focus handling)/.test(value)) add(routed, "ues-accessibility")
   if (/(upload|file upload|multipart|object storage)/.test(value)) add(routed, "ues-file-upload-engineering")
   if (/(ecommerce|marketplace|inventory|cart|catalog|order)/.test(value)) add(routed, "ues-ecommerce-engineering")
 
