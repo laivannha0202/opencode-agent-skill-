@@ -58,7 +58,7 @@ try {
 
   const install = runNpm(installArgs, {
     cwd: temp,
-    env: { ...process.env, OPENCODE_CONFIG_DIR: configDir },
+    env: { ...process.env, OPENCODE_CONFIG_DIR: configDir, UES_OPENCODE_MAJOR: "2" },
   })
   requireSuccess(install, "packed global install with automatic OpenCode sync")
 
@@ -97,10 +97,25 @@ try {
   assert.ok(state.skills.length >= 39)
   assert.ok(state.commands.length >= 9)
   assert.ok(state.agents.length >= 6)
+  assert.equal(state.openCodeMajor, 2)
+  assert.deepEqual(state.plugins, ["ues-router/index.js"])
+
+  const routerPlugin = path.join(configDir, "plugins", "ues-router", "index.js")
+  assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
+  const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
+  assert.match(reviewer, /permissions:/)
+  assert.doesNotMatch(reviewer, /^permission:/m)
+
+  const inspect = spawnSync(process.execPath, [cli, "inspect", workspace ?? temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(inspect, "ocskill inspect from packed copy")
 
   console.log(
     `One-command packed install smoke passed for ${packageName}@${packageJson.version}: ` +
-      `${state.skills.length} skills, ${state.commands.length} commands, ${state.agents.length} subagents.`,
+      `${state.skills.length} skills, ${state.commands.length} commands, ${state.agents.length} subagents, ${state.plugins.length} v2 router plugin.`,
   )
 } finally {
   await rm(temp, { recursive: true, force: true })
