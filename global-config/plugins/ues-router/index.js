@@ -75,7 +75,7 @@ export default Plugin.define({
     await ctx.tool.transform((editor) => {
       editor.namespace({
         name: "ues",
-        description: "Read-only UES long-horizon state and deterministic planning evidence.",
+        description: "UES long-horizon state, deterministic planning evidence, and fresh-context task execution.",
       })
       editor.add({
         name: "work_status",
@@ -185,7 +185,7 @@ export default Plugin.define({
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES V6 runtime: for long tasks trust durable .ues-work state over conversation memory, keep task contexts focused, require fresh verification before completion, and ask before destructive/external side effects.",
+        text: "UES V6 runtime: for long tasks trust durable .ues-work state over conversation memory, obey plan/integration machine gates, prefer fresh ues.dispatch_task execution, require fresh verification before completion, and ask before destructive/external side effects.",
       })
     })
 
