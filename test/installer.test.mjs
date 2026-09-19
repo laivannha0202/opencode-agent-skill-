@@ -17,8 +17,8 @@ test("install and remove are idempotent, recursive and preserve user AGENTS cont
 
   const first = await module.installResources()
   assert.ok(first.skills.length >= 39)
-  assert.ok(first.commands.length >= 9)
-  assert.ok(first.agents.length >= 6)
+  assert.ok(first.commands.length >= 11)
+  assert.ok(first.agents.length >= 10)
 
   await access(
     path.join(
@@ -438,7 +438,7 @@ test("remove --force cleans managed resources even when state belongs to another
   const result = await module.removeResources({ force: true })
   assert.equal(result.stateError, undefined)
   assert.ok(result.skills >= 39)
-  assert.ok(result.agents >= 5)
+  assert.ok(result.agents >= 10)
   assert.ok(
     result.warnings.some((warning) => warning.includes("Backed up state before forced remove")),
   )
@@ -509,6 +509,13 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
     const plugin = await readFile(path.join(temp, "plugins", "ues-router", "index.js"), "utf8")
     assert.match(plugin, /managed-by: @laivannha0202\/opencode-agent-skill/)
     await access(path.join(temp, "plugins", "ues-router", "router.js"))
+    await access(path.join(temp, "plugins", "ues-router", "safety.js"))
+
+    const executor = await readFile(path.join(temp, "agents", "ues-executor.md"), "utf8")
+    assert.match(executor, /permissions:/)
+    assert.match(executor, /action: subagent/)
+    assert.match(executor, /effect: deny/)
+    assert.doesNotMatch(executor, /^permission:/m)
 
     const router = JSON.parse(await readFile(path.join(temp, ".ues", "router.json"), "utf8"))
     assert.deepEqual(router, { enabled: true, maxSkills: 4 })
@@ -540,6 +547,11 @@ test("switching from OpenCode v2 to v1 removes only the managed router and resto
     const reviewer = await readFile(path.join(temp, "agents", "ues-reviewer.md"), "utf8")
     assert.match(reviewer, /^permission:/m)
     assert.doesNotMatch(reviewer, /^permissions:/m)
+
+    const executor = await readFile(path.join(temp, "agents", "ues-executor.md"), "utf8")
+    assert.match(executor, /^permission:/m)
+    assert.match(executor, /^  task: deny$/m)
+    assert.doesNotMatch(executor, /^permissions:/m)
   } finally {
     await rm(temp, { recursive: true, force: true })
   }
@@ -561,6 +573,30 @@ test("installer preserves an unmanaged OpenCode v2 router plugin directory", asy
     assert.ok(result.warnings.some((warning) => warning.includes("unmanaged plugin directory")))
     assert.equal(await readFile(path.join(pluginDir, "custom.txt"), "utf8"), "keep me\n")
     await assert.rejects(access(path.join(pluginDir, "index.js")))
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
+test("installer applies configured model tiers to managed agents without affecting disabled defaults", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-model-policy-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  try {
+    const config = await import(`../lib/model-config.mjs?model-policy=${Date.now()}`)
+    await config.writeModelPolicy(temp, {
+      enabled: true,
+      tiers: { standard: "provider/mid", heavy: "provider/strong" },
+      roleTiers: { executor: "standard", architect: "heavy" },
+    })
+
+    const module = await import(`../lib/installer.mjs?model-policy=${Date.now()}`)
+    await module.installResources({ openCodeMajor: 2 })
+
+    const executor = await readFile(path.join(temp, "agents", "ues-executor.md"), "utf8")
+    const architect = await readFile(path.join(temp, "agents", "ues-architect.md"), "utf8")
+    assert.match(executor, /^model: provider\/mid$/m)
+    assert.match(architect, /^model: provider\/strong$/m)
   } finally {
     await rm(temp, { recursive: true, force: true })
   }
