@@ -13,6 +13,16 @@ import {
   removeResources,
 } from "../lib/installer.mjs"
 import { compareVersions } from "../lib/version.mjs"
+import { resolveLatestPublishedVersion } from "../lib/update-resolver.mjs"
+import { readRouterConfig, writeRouterConfig } from "../lib/router-config.mjs"
+import {
+  detectStack,
+  detectTestCommands,
+  repoMap,
+  impactMap,
+  collectEvidence,
+  checkWorkingTree,
+} from "../lib/repo-inspect.mjs"
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
@@ -29,6 +39,13 @@ Usage:
   ocskill doctor               Check Node, npm, OpenCode and installed resources
   ocskill eval                 Validate the bundled static skill-routing suite
   ocskill eval-live [options]  Run baseline-vs-UES live behavioral evals
+  ocskill eval-report [paths]  Aggregate live eval pass-rate/cost/tool telemetry
+  ocskill inspect [dir]        Deterministic repository/stack/test-command map
+  ocskill impact <query> [dir] Search likely impact paths and matching lines
+  ocskill evidence [dir]       Collect stack, verification and Git evidence
+  ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
+  ocskill router [status|on|off] [--max N]
+                              Configure the OpenCode v2 automatic skill router
   ocskill update               Update the global npm package and re-sync resources
   ocskill remove [--force]     Remove managed resources and uninstall the npm package
   ocskill version              Show package version
@@ -141,6 +158,8 @@ async function install() {
   console.log(`[ocskill] Skills: ${result.skills.length}`)
   console.log(`[ocskill] Commands: ${result.commands.length}`)
   console.log(`[ocskill] Subagents: ${result.agents.length}`)
+  console.log(`[ocskill] OpenCode major: ${result.openCodeMajor}`)
+  if ((result.plugins || []).length) console.log(`[ocskill] Router plugins: ${result.plugins.length}`)
   for (const warning of result.warnings) console.warn(`[ocskill] WARNING: ${warning}`)
   console.log("[ocskill] Start a new OpenCode session to pick up workflow changes.")
 }
@@ -166,12 +185,15 @@ async function status() {
   console.log(`[ocskill] Skills: ${result.skillsPresent}/${result.skills.length}`)
   console.log(`[ocskill] Commands: ${result.commandsPresent}/${result.commands.length}`)
   console.log(`[ocskill] Subagents: ${result.agentsPresent}/${(result.agents || []).length}`)
+  console.log(`[ocskill] OpenCode major: ${result.openCodeMajor ?? "legacy/unknown"}`)
+  if ((result.plugins || []).length) console.log(`[ocskill] Router plugins: ${result.pluginsPresent}/${result.plugins.length}`)
   console.log(`[ocskill] Workflow: ${result.workflowPresent ? "OK" : "MISSING"}`)
 
   if (!synced ||
       result.skillsPresent !== result.skills.length ||
       result.commandsPresent !== result.commands.length ||
       result.agentsPresent !== (result.agents || []).length ||
+      result.pluginsPresent !== (result.plugins || []).length ||
       !result.workflowPresent) {
     process.exitCode = 1
   }
@@ -202,6 +224,88 @@ async function evaluateLive() {
   if (code !== 0) process.exitCode = code
 }
 
+function printJson(value) {
+  console.log(JSON.stringify(value, null, 2))
+}
+
+async function evaluateReport() {
+  const code = run(
+    process.execPath,
+    [path.join(packageRoot, "scripts", "eval-report.mjs"), ...args.slice(1)],
+  )
+  if (code !== 0) process.exitCode = code
+}
+
+async function inspectRepository() {
+  printJson(await repoMap(args[1] || process.cwd()))
+}
+
+async function inspectImpact() {
+  const query = args[1]
+  if (!query) {
+    console.error("Usage: ocskill impact <query> [dir]")
+    process.exitCode = 2
+    return
+  }
+  printJson(await impactMap(args[2] || process.cwd(), query))
+}
+
+async function inspectEvidence() {
+  printJson(await collectEvidence(args[1] || process.cwd()))
+}
+
+async function inspectWorkingTree() {
+  printJson(await checkWorkingTree(args[1] || process.cwd()))
+}
+
+async function inspectStack() {
+  printJson(await detectStack(args[1] || process.cwd()))
+}
+
+async function inspectTests() {
+  printJson(await detectTestCommands(args[1] || process.cwd()))
+}
+
+async function routerControl() {
+  const action = args[1] || "status"
+  const maxIndex = args.indexOf("--max")
+  const maxValue = maxIndex >= 0 ? Number.parseInt(args[maxIndex + 1] || "", 10) : null
+
+  if (!["status", "on", "off"].includes(action)) {
+    console.error("Usage: ocskill router [status|on|off] [--max 1..6]")
+    process.exitCode = 2
+    return
+  }
+  if (maxIndex >= 0 && (!Number.isInteger(maxValue) || maxValue < 1 || maxValue > 6)) {
+    console.error("--max must be an integer from 1 through 6")
+    process.exitCode = 2
+    return
+  }
+
+  let config = await readRouterConfig(getConfigDir())
+  if (action !== "status" || maxValue !== null) {
+    config = await writeRouterConfig(getConfigDir(), {
+      enabled: action === "on" ? true : action === "off" ? false : config.enabled,
+      ...(maxValue !== null ? { maxSkills: maxValue } : {}),
+    })
+  }
+
+  const installed = await getStatus()
+  const runtimeAvailable =
+    installed.installed &&
+    Number(installed.openCodeMajor) >= 2 &&
+    (installed.plugins || []).includes("ues-router/index.js") &&
+    installed.pluginsPresent === installed.plugins.length
+
+  console.log(`[ocskill] Router preference: ${config.enabled ? "ON" : "OFF"}`)
+  console.log(`[ocskill] Router runtime: ${runtimeAvailable ? "AVAILABLE" : "UNAVAILABLE"}`)
+  if (!runtimeAvailable) {
+    console.log("[ocskill] Runtime routing requires OpenCode 2.x followed by 'ocskill install'.")
+  }
+  console.log(`[ocskill] Max automatic skills: ${config.maxSkills}`)
+  console.log(`[ocskill] Config: ${config.file}`)
+}
+
 async function update() {
   if (!hasCommand("npm")) {
     console.error("[ocskill] npm is required to update this global package.")
@@ -210,31 +314,21 @@ async function update() {
   }
 
   const currentVersion = await getPackageVersion()
-  const lookup = runCapture(
-    "npm",
-    ["view", PACKAGE_NAME, "version", "--json"],
-    { cwd: os.homedir() },
-  )
-
-  if (lookup.status !== 0) {
-    console.error("[ocskill] Could not determine the latest published npm version; refusing an unsafe self-update.")
-    if (lookup.stderr?.trim()) console.error(lookup.stderr.trim())
-    process.exitCode = lookup.status ?? 1
-    return
-  }
-
-  let latestVersion
+  let resolved
   try {
-    latestVersion = JSON.parse(lookup.stdout.trim())
-  } catch {
-    latestVersion = null
-  }
-
-  if (typeof latestVersion !== "string") {
-    console.error("[ocskill] npm returned an invalid latest version; refusing an unsafe self-update.")
-    process.exitCode = 1
+    resolved = resolveLatestPublishedVersion({
+      runCapture,
+      packageName: PACKAGE_NAME,
+      cwd: os.homedir(),
+    })
+  } catch (error) {
+    console.error("[ocskill] Could not determine the latest published npm version; refusing an unsafe self-update.")
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = error?.exitCode || 1
     return
   }
+
+  const latestVersion = resolved.version
 
   let compared
   try {
@@ -287,7 +381,7 @@ async function remove() {
     return
   }
   console.log(
-    `[ocskill] Removed ${removed.skills} skills, ${removed.commands} commands and ${removed.agents} subagents.`,
+    `[ocskill] Removed ${removed.skills} skills, ${removed.commands} commands, ${removed.agents} subagents and ${removed.plugins || 0} plugins.`,
   )
   for (const warning of removed.warnings || []) {
     console.warn(`[ocskill] WARNING: ${warning}`)
@@ -320,6 +414,30 @@ switch (command) {
     break
   case "eval-live":
     await evaluateLive()
+    break
+  case "eval-report":
+    await evaluateReport()
+    break
+  case "inspect":
+    await inspectRepository()
+    break
+  case "impact":
+    await inspectImpact()
+    break
+  case "evidence":
+    await inspectEvidence()
+    break
+  case "working-tree":
+    await inspectWorkingTree()
+    break
+  case "detect-stack":
+    await inspectStack()
+    break
+  case "detect-tests":
+    await inspectTests()
+    break
+  case "router":
+    await routerControl()
     break
   case "update":
     await update()

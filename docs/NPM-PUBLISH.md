@@ -1,16 +1,40 @@
 # Publishing to npm
 
-The repository is prepared to publish as:
+The package is published as:
 
 ```text
 @laivannha0202/opencode-agent-skill
 ```
 
-## One-time setup
+## Release prerequisites
 
-1. Create or sign in to an npm account.
-2. Make sure that account owns the `@laivannha0202` scope, or change the package scope in `package.json` to one you own.
-3. Run:
+1. The npm account must have publish rights to the `@laivannha0202` scope.
+2. `package.json` and `package-lock.json` versions must match.
+3. `CHANGELOG.md` must contain the release.
+4. Run the complete local validation:
+
+```cmd
+npm run ci
+```
+
+V4 CI includes syntax validation, full-catalog routing validation, hidden-grader integrity checks, unit/integration tests, package dry-run, and an isolated packed global-install smoke.
+
+## Manual release-like test
+
+Do not use `npm install -g .` as a release simulation because npm may create a symlink/junction back to the checkout.
+
+Use:
+
+```cmd
+npm pack
+npm install -g .\laivannha0202-opencode-agent-skill-4.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+ocskill status
+ocskill doctor
+```
+
+For routine development, the automated `smoke:pack` test uses an isolated npm prefix/OpenCode config so it does not replace the developer's currently installed UES.
+
+## Manual publish
 
 ```cmd
 npm login
@@ -19,45 +43,60 @@ npm run ci
 npm publish --access public
 ```
 
-After the first successful publish, users can install with:
+After publication verify:
+
+```cmd
+npm view @laivannha0202/opencode-agent-skill versions --json
+npm view @laivannha0202/opencode-agent-skill@4.0.0 version
+npm dist-tag ls @laivannha0202/opencode-agent-skill
+```
+
+The expected release tag is:
+
+```text
+latest: 4.0.0
+```
+
+## GitHub Actions publishing
+
+The repository's publish workflow is release-ready for token-based publishing and provenance. It runs the same package validation before `npm publish`.
+
+For stronger long-term supply-chain security, configure npm Trusted Publishing for:
+
+```text
+GitHub owner: laivannha0202
+Repository: opencode-agent-skill-
+Workflow: publish.yml
+```
+
+Then the GitHub-hosted workflow can authenticate through OIDC instead of a long-lived npm publish token. npm Trusted Publishing requires the corresponding publisher relationship to be configured on npm; repository code alone cannot create that account-side trust relationship.
+
+Until that npm-side setup is complete, keep a valid publish credential configured as `NPM_TOKEN`.
+
+## Release checklist
+
+1. Confirm version/changelog/package-lock consistency.
+2. Run `npm run ci` locally on Windows and at least one Unix-like environment when practical.
+3. Run `npm pack` and inspect the tarball contents.
+4. Verify packed install/state/resource counts.
+5. When installer compatibility changed, exercise both forced V1 and V2 paths through tests.
+6. When updater behavior changed, test explicit latest-tag resolution, equal-version behavior, and downgrade refusal.
+7. Commit and push the release branch.
+8. Merge only after review/local validation is clean.
+9. Create/push the matching `vX.Y.Z` tag or run the publish workflow.
+10. Verify registry version and `latest` dist-tag.
+11. Install the published package on a clean environment before announcing it.
+
+## One-command user install
+
+After publication:
 
 ```cmd
 npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-Current npm versions require install-time lifecycle scripts to be explicitly approved for global installs. The approved `postinstall` synchronizes UES into OpenCode, so this is the intended one-command installation path. Older npm versions that predate package-specific approval can use the same command without `--allow-scripts`. If lifecycle scripts are skipped, follow with `ocskill install`.
-
-## GitHub Actions publishing
-
-Create a repository secret named `NPM_TOKEN` containing an npm automation token.
-
-Then either:
-
-- run the **Publish npm** workflow manually, or
-- push a version tag such as `v3.0.0`.
-
-## Release checklist
-
-1. Update `package.json` and `package-lock.json` versions.
-2. Update `CHANGELOG.md`.
-3. Run `npm run ci` locally. CI includes `npm run smoke:pack`, which packs the project, installs the tarball into an isolated global npm prefix, verifies that install is not linked back to the source checkout, and checks resource synchronization.
-4. For a manual release-like test, run `npm pack`, install the resulting `.tgz` rather than `npm install -g .`, and verify `ocskill install`, `ocskill status`, and `ocskill remove`.
-5. Confirm `ocskill update` against a published test/current version when update behavior changed, including the equal-version no-op/re-sync path and the older-registry downgrade refusal.
-6. Commit and push.
-7. Create and push the matching `vX.Y.Z` tag.
-8. Confirm the Publish npm workflow succeeds.
-9. Install the published package on at least one clean environment before announcing the release.
-
-
-## Local development note
-
-`npm install -g .` can create a symlink/junction to the source checkout. That is useful for development, but it is not a valid release simulation and can break if the checkout lives on a temporary or RAM disk.
-
-Use:
+If lifecycle execution is blocked by local npm policy:
 
 ```cmd
-npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+ocskill install
 ```
-
-The packed-install smoke test enforces both the real-copy behavior and automatic OpenCode synchronization in CI.

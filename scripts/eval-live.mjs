@@ -5,6 +5,9 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import { installResources } from "../lib/installer.mjs"
+import { copyCurrentOpenCodeAuth } from "../lib/eval-auth.mjs"
+import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
+import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const liveRoot = path.join(root, "evals", "live")
@@ -88,15 +91,21 @@ const trials = Math.min(positiveInt(argValue("--trials"), 1), 20)
 const taskFilter = argValue("--task")
 const requestedMode = argValue("--mode", "both")
 const keep = hasArg("--keep")
+const authMode = argValue("--auth", "env-only")
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--output-dir path] [--keep]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
 
 if (!["baseline", "ues", "both"].includes(requestedMode)) {
   console.error("--mode must be baseline, ues, or both")
+  process.exit(2)
+}
+
+if (!["env-only", "current"].includes(authMode)) {
+  console.error("--auth must be env-only or current")
   process.exit(2)
 }
 
@@ -144,6 +153,14 @@ try {
         await mkdir(cacheRoot, { recursive: true })
         await mkdir(stateRoot, { recursive: true })
         await cp(path.join(liveRoot, task.fixture), workspace, { recursive: true })
+        const beforeSnapshot = await snapshotWorkspace(workspace)
+
+        if (authMode === "current") {
+          const auth = await copyCurrentOpenCodeAuth(dataRoot)
+          if (!auth.copied) {
+            console.warn("[eval] current auth requested but auth.json was not found; continuing with environment credentials only.")
+          }
+        }
 
         if (mode === "ues") {
           process.env.OPENCODE_CONFIG_DIR = configDir
@@ -193,11 +210,14 @@ try {
         const graderPath = path.join(liveRoot, task.grader)
         const graderRun = spawnSync(process.execPath, [graderPath], {
           cwd: workspace,
-          env: { ...childEnv, UES_EVAL_WORKSPACE: workspace },
+          env: { ...childEnv, UES_EVAL_WORKSPACE: workspace, UES_EVAL_TASK: task.id },
           encoding: "utf8",
           maxBuffer: 1024 * 1024,
         })
 
+        const afterSnapshot = await snapshotWorkspace(workspace)
+        const telemetry = parseOpenCodeTelemetry(agentRun.stdout)
+        const changedFiles = diffWorkspaceSnapshots(beforeSnapshot, afterSnapshot)
         const passed = agentRun.status === 0 && graderRun.status === 0
         results.push({
           task: task.id,
@@ -209,6 +229,9 @@ try {
           agentExit: agentRun.status,
           graderExit: graderRun.status,
           durationMs,
+          authMode,
+          telemetry,
+          changedFiles,
           agentStdout: excerpt(agentRun.stdout),
           agentStderr: excerpt(agentRun.stderr),
           graderStdout: excerpt(graderRun.stdout),
@@ -256,6 +279,7 @@ await writeFile(
       variant: variant || null,
       trials,
       taskFilter: taskFilter || null,
+      authMode,
       modes,
       summary,
       results,

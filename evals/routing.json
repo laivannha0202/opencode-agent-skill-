@@ -1,86 +1,321 @@
 {
-  "version": 1,
-  "description": "Static routing contract for representative engineering requests. This validates expected skill IDs and keeps routing focused; it is not an LLM benchmark.",
+  "version": 2,
+  "description": "Static routing contract covering every UES skill at least once while keeping each scenario focused.",
   "scenarios": [
     {
       "name": "unknown-repository-feature",
       "prompt": "Add a small feature to an unfamiliar repository and follow its existing conventions.",
-      "expect": ["repo-explorer", "implementation-engineer", "test-verification"]
+      "expect": [
+        "repo-explorer",
+        "implementation-engineer",
+        "test-verification"
+      ]
     },
     {
       "name": "cross-module-feature",
       "prompt": "Implement a feature touching API, service, persistence, and tests.",
-      "expect": ["engineering-orchestrator", "task-planner", "change-impact-analysis", "implementation-engineer", "test-verification"]
+      "expect": [
+        "engineering-orchestrator",
+        "task-planner",
+        "change-impact-analysis",
+        "implementation-engineer",
+        "test-verification"
+      ]
     },
     {
       "name": "runtime-regression",
       "prompt": "A previously working endpoint now crashes after a refactor. Find and fix the root cause.",
-      "expect": ["bug-diagnosis", "test-driven-development", "test-verification"]
+      "expect": [
+        "bug-diagnosis",
+        "test-driven-development",
+        "test-verification"
+      ]
     },
     {
       "name": "dependency-version-uncertainty",
       "prompt": "Upgrade a library but first verify the current official API and compatible package version.",
-      "expect": ["dependency-management", "research-verification", "test-verification"]
+      "expect": [
+        "dependency-management",
+        "research-verification",
+        "test-verification"
+      ]
     },
     {
       "name": "public-api-change",
       "prompt": "Change a public REST response contract used by multiple clients.",
-      "expect": ["api-contract", "change-impact-analysis", "task-planner", "test-verification"]
+      "expect": [
+        "api-contract",
+        "change-impact-analysis",
+        "task-planner",
+        "test-verification"
+      ]
     },
     {
       "name": "database-migration",
       "prompt": "Add a database migration and update the application code that depends on the new schema.",
-      "expect": ["database-engineering", "change-impact-analysis", "task-planner", "test-verification"]
+      "expect": [
+        "database-engineering",
+        "change-impact-analysis",
+        "task-planner",
+        "test-verification"
+      ]
     },
     {
       "name": "authentication-change",
       "prompt": "Change role permissions for an authenticated endpoint.",
-      "expect": ["auth-security", "change-impact-analysis", "test-verification"]
+      "expect": [
+        "auth-security",
+        "change-impact-analysis",
+        "test-verification"
+      ]
     },
     {
       "name": "large-repo-investigation",
       "prompt": "Understand a large monorepo without loading unrelated code into context.",
-      "expect": ["repo-explorer", "context-engineering"]
+      "expect": [
+        "repo-explorer",
+        "context-engineering"
+      ]
     },
     {
       "name": "long-running-migration",
       "prompt": "Plan a risky multi-session migration that may need to be paused and resumed.",
-      "expect": ["engineering-orchestrator", "long-task-state", "task-planner", "change-impact-analysis"]
+      "expect": [
+        "engineering-orchestrator",
+        "long-task-state",
+        "task-planner",
+        "change-impact-analysis"
+      ]
     },
     {
       "name": "react-native-bug",
       "prompt": "Fix a React Native screen regression and add a focused regression test.",
-      "expect": ["react-native-engineering", "bug-diagnosis", "test-driven-development", "test-verification"]
+      "expect": [
+        "react-native-engineering",
+        "bug-diagnosis",
+        "test-driven-development",
+        "test-verification"
+      ]
     },
     {
       "name": "ci-pipeline-failure",
       "prompt": "GitHub Actions fails while local tests pass. Diagnose the CI environment difference.",
-      "expect": ["devops-engineering", "bug-diagnosis", "test-verification"]
+      "expect": [
+        "devops-engineering",
+        "bug-diagnosis",
+        "test-verification"
+      ]
     },
     {
       "name": "release-review",
       "prompt": "Review the completed change for correctness and prove it is ready to release.",
-      "expect": ["code-review", "test-verification", "git-safety"]
+      "expect": [
+        "code-review",
+        "test-verification",
+        "git-safety"
+      ]
     },
     {
       "name": "new-behavior-tdd",
       "prompt": "Add a behavior change in a repository that already has a fast unit test suite.",
-      "expect": ["test-driven-development", "implementation-engineer", "test-verification"]
+      "expect": [
+        "test-driven-development",
+        "implementation-engineer",
+        "test-verification"
+      ]
     },
     {
       "name": "current-framework-docs",
       "prompt": "The framework API may have changed recently. Check primary documentation before editing.",
-      "expect": ["research-verification", "repo-explorer"]
+      "expect": [
+        "research-verification",
+        "repo-explorer"
+      ]
     },
     {
       "name": "payment-flow-change",
       "prompt": "Modify checkout payment handling without breaking retries or idempotency.",
-      "expect": ["payment-engineering", "change-impact-analysis", "test-verification"]
+      "expect": [
+        "payment-engineering",
+        "change-impact-analysis",
+        "test-verification"
+      ]
     },
     {
       "name": "security-audit",
       "prompt": "Audit a web authentication flow for exploitable vulnerabilities and false positives.",
-      "expect": ["web-security-review", "auth-security", "code-review"]
+      "expect": [
+        "web-security-review",
+        "auth-security",
+        "code-review"
+      ]
+    },
+    {
+      "name": "react-state-race",
+      "prompt": "Fix a React hook regression where an older request overwrites the newest screen state.",
+      "expect": [
+        "react-engineering",
+        "bug-diagnosis",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "nextjs-cache-auth",
+      "prompt": "Fix a Next.js App Router mutation that leaves stale cached data and must preserve server-only authorization.",
+      "expect": [
+        "nextjs-engineering",
+        "auth-security",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "node-stream-shutdown",
+      "prompt": "Fix a Node.js service that leaks listeners and drops in-flight work during graceful shutdown.",
+      "expect": [
+        "nodejs-engineering",
+        "bug-diagnosis",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "nestjs-module-auth",
+      "prompt": "Add a NestJS endpoint with DTO validation, module wiring, and resource authorization.",
+      "expect": [
+        "nestjs-engineering",
+        "auth-security",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "python-async-service",
+      "prompt": "Fix a Python async service that blocks the event loop and leaks a resource on failure.",
+      "expect": [
+        "python-engineering",
+        "bug-diagnosis",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "django-permission-query",
+      "prompt": "Add a Django/DRF resource endpoint while preventing N+1 queries and object-level permission bypass.",
+      "expect": [
+        "django-engineering",
+        "auth-security",
+        "performance-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "fastapi-contract",
+      "prompt": "Change a FastAPI request/response model and keep validation, auth dependencies, and OpenAPI behavior correct.",
+      "expect": [
+        "fastapi-engineering",
+        "api-contract",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "dotnet-ef-api",
+      "prompt": "Implement an ASP.NET Core API change involving EF Core queries, cancellation, and authorization.",
+      "expect": [
+        "dotnet-engineering",
+        "auth-security",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "spring-transaction-security",
+      "prompt": "Modify a Spring Boot service transaction and endpoint permission without breaking JPA behavior.",
+      "expect": [
+        "java-spring-engineering",
+        "auth-security",
+        "database-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "flutter-async-ui",
+      "prompt": "Fix a Flutter screen where stale async results update disposed state and navigation behavior regresses.",
+      "expect": [
+        "flutter-engineering",
+        "bug-diagnosis",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "accessible-form",
+      "prompt": "Improve a form so keyboard, focus, labels, errors, screen readers, and responsive UI work correctly.",
+      "expect": [
+        "accessibility",
+        "ui-ux-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "secure-upload",
+      "prompt": "Implement image upload with size/type validation, safe storage keys, authorization, and orphan cleanup.",
+      "expect": [
+        "file-upload-engineering",
+        "auth-security",
+        "web-security-review",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "marketplace-stock",
+      "prompt": "Fix a marketplace checkout that can oversell inventory and trusts client-submitted totals.",
+      "expect": [
+        "ecommerce-engineering",
+        "payment-engineering",
+        "database-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "performance-hot-path",
+      "prompt": "Investigate a slow endpoint and optimize only after identifying the dominant query or allocation cost.",
+      "expect": [
+        "performance-engineering",
+        "repo-explorer",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "rest-idempotency",
+      "prompt": "Design a retry-safe REST write endpoint with stable errors, pagination conventions, and resource authorization.",
+      "expect": [
+        "rest-api-design",
+        "api-contract",
+        "auth-security",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "architecture-boundary",
+      "prompt": "Plan an incremental architecture change across modules with explicit contracts, rollout, rollback, and failure boundaries.",
+      "expect": [
+        "software-architect",
+        "change-impact-analysis",
+        "task-planner"
+      ]
+    },
+    {
+      "name": "docs-after-cli-change",
+      "prompt": "Update setup and CLI documentation after behavior changed, verifying every command and path from the repository.",
+      "expect": [
+        "documentation-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "implementation-refactor",
+      "prompt": "Implement a multi-file refactor while preserving contracts, validation, tests, and unrelated user changes.",
+      "expect": [
+        "implementation-engineer",
+        "change-impact-analysis",
+        "test-verification",
+        "git-safety"
+      ]
     }
   ]
 }

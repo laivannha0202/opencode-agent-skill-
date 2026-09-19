@@ -9,7 +9,7 @@ Use this as the process coordinator for non-trivial work.
 
 1. Classify the task as small, standard, or complex by risk and blast radius.
 2. Load process skills before domain skills, and keep the active set small.
-3. Establish observable acceptance criteria and the verification needed to prove them.
+3. Establish observable acceptance criteria and the verification needed to prove them. Use deterministic `ocskill inspect` / `ocskill evidence` helpers when available to ground stack, test and working-tree facts cheaply.
 4. Inspect enough repository context to plan real files, interfaces, producers, and consumers.
 5. For complex or interruption-prone work, maintain a compact fact/assumption/decision/rejected-hypothesis ledger rather than relying on conversational memory.
 6. Implement in dependency order with verification after meaningful increments.

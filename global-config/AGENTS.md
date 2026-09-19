@@ -22,6 +22,19 @@ The selected model remains the model. These instructions improve process, contex
 4. Prefer process skills before framework skills: exploration/planning/debugging/verification determine how to work; domain skills determine what framework-specific details to apply.
 5. Keep the active skill set focused. Usually 2-4 skills are enough; do not load the entire catalog.
 
+## Deterministic evidence helpers
+
+When the `ocskill` CLI is available, prefer deterministic repository evidence before spending model context on broad exploration:
+
+- `ocskill inspect [dir]` — stack, package manager, top-level map and project-native verification commands
+- `ocskill impact <symbol-or-term> [dir]` — bounded path/content impact search
+- `ocskill evidence [dir]` — stack + verification + Git evidence snapshot
+- `ocskill working-tree [dir]` — branch, HEAD and uncommitted-change state
+
+These helpers are evidence accelerators, not substitutes for reading the exact affected code. Use repository-native search/tools when they provide more precise symbol/call-graph information.
+
+On OpenCode v2, UES may install a managed runtime router that preselects at most a small focused set of relevant skills from the incoming prompt. Treat router selections as hints: keep useful skills, load deeper references only when needed, and do not assume a routed skill proves anything about the repository.
+
 ## Scope classification
 
 - **Small:** one local area, low risk, obvious verification. Work inline; no ceremonial plan.
