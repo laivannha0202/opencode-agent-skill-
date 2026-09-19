@@ -1,36 +1,75 @@
 # UES evaluation trace schema
 
-Live evaluations write machine-readable result files under `.ues-evals/` (gitignored).
+Live evaluations write machine-readable JSON under `.ues-evals/`.
 
-Each run records enough data to compare the harness rather than trusting a narrative success report:
+Each result item contains:
 
-- task id
-- mode: `baseline` or `ues`
-- model and optional model variant
-- trial number
-- isolated workspace path only when `--keep` is used
-- OpenCode process exit status
-- grader exit status
-- elapsed milliseconds
-- bounded stdout/stderr excerpts for diagnosis
-- final pass/fail
+- `task`
+- `mode`: `baseline` or `ues`
+- `model` and optional `variant`
+- `trial`
+- `passed`
+- `agentExit` and `graderExit`
+- `durationMs`
+- `authMode`: `env-only` or `current`
+- `changedFiles`: added/removed/modified workspace paths
+- bounded agent/grader stdout and stderr
+- optional kept workspace path when `--keep` is used
 - timestamp
 
-The summary records pass counts and rates per mode.
+## Telemetry
 
-These traces intentionally do **not** attempt to score hidden chain-of-thought. They measure observable outcomes, tool/process success, and grader evidence. Future versions may add normalized tool-call counts and selected-skill events when the OpenCode JSON event schema is stable enough to parse without brittle assumptions.
+`telemetry` currently has schema version 1:
 
-## Interpretation
+```json
+{
+  "schemaVersion": 1,
+  "format": "best-effort-opencode-jsonl",
+  "jsonLines": 42,
+  "parseErrors": 0,
+  "toolCalls": 12,
+  "tools": {
+    "bash": 4,
+    "read": 5,
+    "skill": 2,
+    "subagent": 1
+  },
+  "skillsLoaded": ["ues-bug-diagnosis"],
+  "subagents": ["ues-verifier"],
+  "tokens": {
+    "input": 12000,
+    "output": 2200,
+    "total": 14200
+  },
+  "cost": 0.18
+}
+```
 
-One passing trial is not a benchmark. Compare multiple trials on the same model and task set.
+OpenCode JSON event shapes can evolve, so telemetry extraction is best-effort. Hidden-grader correctness and process exit status remain the primary benchmark evidence.
 
-A useful comparison keeps constant:
+The trace intentionally does not collect or score hidden chain-of-thought.
+
+## Run summary
+
+Each result file also contains:
+- suite version
+- auth mode
+- selected model/variant
+- trial count
+- optional task filter
+- modes executed
+- pass counts and pass rates per mode
+
+Use `ocskill eval-report` or `npm run evals:report -- <paths>` to aggregate multiple result files.
+
+## Fair comparisons
+
+Keep constant:
 - model and variant
-- repository fixture
+- task fixture
 - prompt
 - grader
-- environment/runtime versions
+- runtime/provider environment
+- trial count when possible
 
-The independent variable should be the UES harness.
-
-Do not claim a model is equivalent to another model from this benchmark. Use it to measure whether UES improves task success, regression rate, recovery, verification, and cost for the tested workload.
+Compare observable success, regressions, elapsed time, tool behavior and cost rather than narrative confidence.
