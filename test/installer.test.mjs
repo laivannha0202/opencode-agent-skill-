@@ -508,6 +508,11 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
 
     const plugin = await readFile(path.join(temp, "plugins", "ues-router", "index.js"), "utf8")
     assert.match(plugin, /managed-by: @laivannha0202\/opencode-agent-skill/)
+    assert.match(plugin, /name: "dispatch_task"/)
+    assert.match(plugin, /ctx\.session\.create/)
+    assert.match(plugin, /ctx\.session\.switchAgent/)
+    assert.match(plugin, /ctx\.session\.switchModel/)
+    assert.match(plugin, /ctx\.session\.wait/)
     await access(path.join(temp, "plugins", "ues-router", "router.js"))
     await access(path.join(temp, "plugins", "ues-router", "safety.js"))
 
