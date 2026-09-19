@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "description": "Long-horizon multi-file benchmark for weak-model baseline vs UES orchestration. Each task requires coordinated changes across several modules.",
+  "tasks": [
+    {
+      "id": "long-checkout-integration",
+      "fixture": "fixtures/long-horizon",
+      "prompt": "Repair the checkout flow across src/money.mjs, src/inventory.mjs, src/payment.mjs, and src/checkout.mjs. Money is integer cents. calculateTotal(lines) must validate integer unitPriceCents>=0 and quantity>0, and sum exactly. reserveAll(stock, lines) must be immutable and all-or-nothing: validate requested integer quantities, aggregate duplicate sku demand, reject insufficient/missing stock with RangeError, and return a new stock object. applyCharge(order,event) must be immutable/idempotent by event.id; successful events must exactly match order.totalCents and currency before marking paid; failed events do not mark paid; each new event id is recorded once. checkout(order,stock,event) must recompute the trusted total from order.lines, reject a client/order total mismatch, reserve stock, then apply the event, returning {order,stock} without mutating inputs.",
+      "grader": "graders/long-horizon.mjs"
+    },
+    {
+      "id": "long-tenant-security-integration",
+      "fixture": "fixtures/long-horizon",
+      "prompt": "Repair tenant authorization across src/auth.mjs, src/project-service.mjs, and src/project-api.mjs. Missing inputs deny. Suspended users always deny. Admin may edit a project only inside the same tenant. Members may edit only projects in the same tenant where project.ownerId equals user.id. updateProject must reject unauthorized access with an error whose code is FORBIDDEN, must allow only title and description patch fields, must not mutate project/patch, and must preserve id/tenantId/ownerId. handleProjectUpdate must return {status:200,body:{project}} on success, map FORBIDDEN to 403 with body {error:{code:'FORBIDDEN',message:'Forbidden'}}, map malformed patch input to 400 VALIDATION, and never expose stack/arbitrary error fields.",
+      "grader": "graders/long-horizon.mjs"
+    },
+    {
+      "id": "long-user-contract-migration",
+      "fixture": "fixtures/long-horizon",
+      "prompt": "Repair the legacy user migration contract across src/user-migration.mjs, src/user-serializer.mjs, src/user-consumer.mjs, and src/user-validation.mjs. migrateUser must return a new object, preserve unrelated fields, preserve existing firstName/lastName, otherwise split trimmed legacy fullName into first token/rest, remove fullName, and keep legacy name when present. serializeUser must preserve id and legacy name while exposing displayName from non-empty user.displayName, otherwise firstName+lastName, otherwise name. validateSerializedUser must require non-null id, non-empty displayName, and if name is present require it to be non-empty. userLabel must prefer displayName but remain backward-compatible with name. Do not mutate inputs.",
+      "grader": "graders/long-horizon.mjs"
+    },
+    {
+      "id": "long-product-race-cache",
+      "fixture": "fixtures/long-horizon",
+      "prompt": "Repair product mutation state across src/product-state.mjs, src/product-cache.mjs, src/product-service.mjs, and src/product-api.mjs. The reducer must ignore stale success/error actions whose requestId differs from current state.requestId, preserving object identity for stale actions. tagsForProduct must return unique tags in order products, product:<id>, optional category:<categoryId>, optional seller:<sellerId>, rejecting missing id. updateProduct must allow only title/categoryId/sellerId patch fields, be immutable, preserve id, and return {product,tags}. handleProductUpdate must use updateProduct and return {status:200,body:{product},revalidate:tags}; malformed patches return 400 VALIDATION without leaking stack.",
+      "grader": "graders/long-horizon.mjs"
+    }
+  ]
+}
