@@ -1,111 +1,119 @@
 # UES evaluations
 
-UES uses three evaluation layers because catalog correctness, benchmark integrity, and model behavior are different problems.
+UES 6 separates catalog correctness, routing precision, benchmark integrity, final behavior and long-horizon orchestration.
 
-## 1. Static routing contract
+## 1. Static skill-routing contract
 
-`evals/routing.json` contains 34 representative engineering prompts and covers every installed UES skill at least once while keeping each expected route focused.
-
-Run:
+`evals/routing.json` keeps 34 representative scenarios and covers all installed skills.
 
 ```bash
 npm run evals
-```
-
-or:
-
-```bash
+# or
 ocskill eval
 ```
 
-This catches renamed/deleted skills, routing catalog drift, oversized expected routes, and missing domain coverage without spending model tokens. It does **not** prove that a model actually selected the skill.
+This checks catalog consistency, not model behavior.
 
-## 2. Live-suite integrity
+## 2. V2 router trigger matrix
 
-The live suite contains 20 executable tasks spanning bug fixing, authorization, API contracts, pagination, inventory, payment idempotency, webhook ordering, upload/path security, retry logic, migrations, money invariants, SQL allowlists, React request races, React Native platform behavior, dependency compatibility, configuration parsing, cache invalidation, and multi-file compatibility.
+`evals/router-triggers.json` contains **120 cases** spanning positive routes, negative guards and wording variations.
 
-Run:
+```bash
+npm run evals:router
+```
+
+The evaluator reports required-route recall and negative-guard success. It exists to catch deterministic router drift separately from LLM behavior.
+
+## 3. Standard live-suite integrity
+
+The standard live suite contains **20 executable hidden-graded tasks**.
 
 ```bash
 npm run evals:live:validate
 ```
 
-The validator checks task/fixture/grader references and then runs every hidden grader against its intentionally broken fixture. Each grader must reject the broken starting state with an assertion failure; a grader that already passes or crashes for an unrelated reason fails validation.
+Each grader must reject its intentionally broken fixture with an assertion failure. A grader that already passes or fails for unrelated setup reasons invalidates the suite.
 
-## 3. Live behavioral benchmark
+## 4. Long-horizon suite integrity
 
-`scripts/eval-live.mjs` runs coding tasks through OpenCode in isolated temporary workspaces.
-
-For each task:
-- **baseline** — same selected model with an isolated empty OpenCode config
-- **ues** — same model/task with the current repository's UES resources installed
-
-The grader stays outside the editable workspace. Multiple trials are supported because agent runs are nondeterministic.
-
-Example:
+The long suite contains **5 tasks**. Four exercise coordinated 3–4 file domains; one combines all four domains into a **15-source-file** integration workload.
 
 ```bash
-npm run evals:live -- --model provider/model --trials 3
+npm run evals:long:validate
 ```
 
-or after global installation:
+The same broken-fixture rule applies.
+
+## 5. Live baseline vs UES
 
 ```bash
 ocskill eval-live --model provider/model --trials 3
+ocskill eval-live --suite long --model provider/model --trials 3
 ```
 
-Useful filters:
+Each task runs as:
 
-```bash
-ocskill eval-live --model provider/model --task payment-idempotency --mode both --trials 5
-```
+- **baseline** — isolated empty OpenCode config
+- **ues** — same model/task with repository UES resources installed
 
-### Authentication isolation
+Use multiple trials because coding-agent behavior is nondeterministic.
 
-Default:
+### Long-suite orchestration gate
+
+For `--suite long`, a UES-mode result is PASS only if:
+
+1. OpenCode agent process exits successfully;
+2. hidden behavior grader passes;
+3. at least one `.ues-work/<slug>/` item is valid;
+4. the plan contains at least two tasks;
+5. plan approval status is `passed`;
+6. every planned task has an attempt and ends `completed`;
+7. integration verification is `PASS`;
+8. integration and finalization evidence exist;
+9. work item status is `completed`.
+
+Therefore a model that directly patches all files in its main context but bypasses the long-task engine is not counted as a successful UES long-horizon run.
+
+## Authentication isolation
+
+Default mode:
 
 ```text
 --auth env-only
 ```
 
-The benchmark isolates `HOME`, `USERPROFILE`, XDG config/data/cache/state, and the OpenCode config so a baseline cannot accidentally inherit UES. Provider credentials must therefore already be available through environment variables.
+The harness isolates HOME, USERPROFILE, XDG config/data/cache/state and `OPENCODE_CONFIG_DIR`.
 
-For a workstation where OpenCode credentials were established with `/connect`, use:
+If provider auth was established through OpenCode itself:
 
 ```bash
 ocskill eval-live --model provider/model --auth current --trials 3
 ```
 
-`current` copies only the current OpenCode `auth.json` into each isolated data directory. It does not copy the user's global OpenCode configuration.
+`current` copies only the current auth file, not the user's global UES configuration.
 
-### Telemetry
+## Telemetry
 
-Each result records:
-- hidden-grader pass/fail
-- process exit status and duration
-- changed workspace files
+Results may include:
+
+- pass/fail
+- process exit status
+- duration
+- changed files
 - bounded stdout/stderr
-- best-effort JSONL tool-call counts
-- skills observed as loaded through the skill tool
-- subagent tool targets
-- token usage and cost when exposed by the OpenCode JSON event stream
+- best-effort tool calls
+- loaded skills/subagent targets
+- token/cost data when exposed
+- long-suite orchestration inspection
 
-Telemetry parsing is deliberately tolerant of event-shape variation. Missing telemetry is not converted into invented values.
-
-Results are written under `.ues-evals/`.
+No hidden chain-of-thought is collected.
 
 ## Report aggregation
-
-Aggregate one result directory or explicit JSON files:
 
 ```bash
 ocskill eval-report .ues-evals
 ```
 
-The report computes per-mode pass rate, average duration/tool calls/tokens/cost, per-task pass rates, and the UES-minus-baseline pass-rate delta.
+Compare the same model, variant, prompt, fixture, grader and environment. Report multiple trials.
 
-## Interpretation
-
-One passing task or trial is not evidence of general model equivalence. Use the same model, variant, fixture, prompt, grader and environment across baseline/UES runs and compare multiple trials.
-
-UES measures whether the harness improves observable engineering outcomes on the tested workload. It does not claim to turn one base model into another.
+A benchmark result is evidence only for the measured workload. UES does not claim to turn one base model into another.
