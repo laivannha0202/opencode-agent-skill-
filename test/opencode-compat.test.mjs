@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { adaptAgentForOpenCode, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
+import { adaptAgentForOpenCode, buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 
 test("OpenCode version parsing accepts normal CLI versions", () => {
   assert.equal(parseOpenCodeMajor("1.18.31"), 1)
@@ -26,4 +26,33 @@ Review.
   assert.match(v2, /permissions:/)
   assert.match(v2, /action: edit/)
   assert.match(v2, /effect: deny/)
+})
+
+
+test("live eval invocation omits standalone on OpenCode 1.x", () => {
+  const args = buildOpenCodeRunArgs({
+    major: 1,
+    model: "opencode/big-pickle",
+    workspace: "C:\\repo",
+    prompt: "Reply exactly: OK",
+  })
+
+  assert.equal(args[0], "run")
+  assert.equal(args.includes("--standalone"), false)
+  assert.deepEqual(args.slice(1, 5), ["--format", "json", "--auto", "--agent"])
+  assert.ok(args.includes("opencode/big-pickle"))
+  assert.equal(args.at(-1), "Reply exactly: OK")
+})
+
+test("live eval invocation keeps standalone for OpenCode 2.x and newer", () => {
+  const args = buildOpenCodeRunArgs({
+    major: 2,
+    model: "provider/model",
+    workspace: "/repo",
+    variant: "high",
+    prompt: "task",
+  })
+
+  assert.deepEqual(args.slice(0, 3), ["run", "--standalone", "--format"])
+  assert.deepEqual(args.slice(-3), ["--variant", "high", "task"])
 })
