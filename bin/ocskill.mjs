@@ -28,12 +28,14 @@ import { analyzePlan } from "../lib/task-graph.mjs"
 import {
   addBlocker,
   addDecision,
+  approvePlan,
   completeTask,
   contextPack,
   failTask,
   finalizeWork,
   importPlan,
   initWork,
+  recordIntegrationVerification,
   resolveBlocker,
   resumeWork,
   startTask,
@@ -88,11 +90,13 @@ Usage:
     ocskill work init <slug> [dir] --goal <text>
     ocskill work plan <slug> <plan.json> [dir]
     ocskill work status|resume <slug> [dir]
+    ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence>
     ocskill work start <slug> <task-id> [dir]
     ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>]
     ocskill work fail <slug> <task-id> [dir] --reason <text>
     ocskill work decision <slug> [dir] --text <decision>
     ocskill work block|unblock <slug> [dir] --text <blocker>
+    ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text> [--report-file <file>]
     ocskill work finalize <slug> [dir] --evidence <integration-evidence>
 
   Model routing:
@@ -368,7 +372,7 @@ async function workControl() {
   const action = args[1]
   const slug = args[2]
   if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|start|complete|fail|decision|block|unblock|finalize> <slug> ...")
+    console.error("Usage: ocskill work <init|plan|status|resume|approve-plan|start|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
     process.exitCode = 2
     return
   }
@@ -395,6 +399,11 @@ async function workControl() {
     if (action === "resume") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
       printJson(await resumeWork(root, slug))
+      return
+    }
+    if (action === "approve-plan") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await approvePlan(root, slug, optionValue("--evidence")))
       return
     }
     if (action === "start") {
@@ -438,6 +447,19 @@ async function workControl() {
       printJson(await resolveBlocker(root, slug, optionValue("--text")))
       return
     }
+    if (action === "verify-integration") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const reportFile = optionValue("--report-file")
+      const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
+      printJson(await recordIntegrationVerification(
+        root,
+        slug,
+        optionValue("--verdict"),
+        optionValue("--evidence"),
+        report,
+      ))
+      return
+    }
     if (action === "finalize") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
       printJson(await finalizeWork(root, slug, optionValue("--evidence")))
@@ -460,7 +482,12 @@ async function modelPolicy() {
     return
   }
   const attempt = Number.parseInt(optionValue("--attempt") || "1", 10)
-  printJson(resolveModel(role, Number.isInteger(attempt) && attempt > 0 ? attempt : 1))
+  const policy = await readModelPolicy(getConfigDir())
+  printJson(resolveModel(
+    role,
+    Number.isInteger(attempt) && attempt > 0 ? attempt : 1,
+    policy,
+  ))
 }
 
 
