@@ -7,6 +7,7 @@ The project follows Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
+- Live baseline/UES evaluation now detects the OpenCode major version: OpenCode 1.x runs omit the V2-only `--standalone` flag, while OpenCode 2.x+ keeps it. Eval JSON also records the detected OpenCode version/major for reproducibility.
 - The V2 automatic router now retains domain/impact skills and `ues-engineering-orchestrator` ahead of generic process skills when the configured skill cap (default 4) is exceeded, so cross-cutting and long-running prompts no longer silently lose their domain guidance. Under cap pressure a generic process skill such as `ues-bug-diagnosis` may be evicted before domain skills by design; when the cap is not exceeded, routing output is unchanged.
 
 ## [6.0.0] - 2026-09-19
