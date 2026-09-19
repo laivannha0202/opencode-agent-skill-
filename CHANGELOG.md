@@ -6,6 +6,8 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-09-19
+
 ### Added
 - Live baseline-vs-UES behavioral evaluation harness with isolated OpenCode configs, executable fixtures, hidden graders, multi-trial support, and JSON traces.
 - Independent `ues-critic` subagent and `/ues-critique` command for evidence-grounded falsification before completion.
@@ -18,6 +20,12 @@ The project follows Semantic Versioning.
 - Long-task state now preserves rejected hypotheses and evidence so resumed work does not repeat disproved approaches.
 - Completion gates now require substantial/high-risk changes to resolve or explicitly surface evidence-backed blocking critic findings.
 - Installer tests now require the expanded command/subagent catalog and progressive-disclosure references.
+- Added a packed-install smoke test that installs the tarball into an isolated global npm prefix and verifies the package is a real copy rather than a source link/junction.
+- Bumped the package release line to 3.0.0 for the intelligence-loop and behavioral-eval release.
+
+### Fixed
+- `ocskill update` now checks the published npm version first, refuses accidental downgrades, avoids reinstalling an equal version, performs newer package replacement with lifecycle scripts disabled, then explicitly re-syncs resources from the newly installed CLI.
+- `ocskill update` and `ocskill remove` now run npm from the user home directory instead of from inside the package directory being replaced or removed.
 
 ## [2.1.0] - 2026-09-18
 

@@ -37,32 +37,44 @@ substantial/high-risk success
 
 ## Install
 
-After the package is published to npm:
-
-```cmd
-npm install -g @laivannha0202/opencode-agent-skill
-```
-
-On npm versions/configurations that block lifecycle scripts, npm may install the `ocskill` CLI but skip automatic OpenCode synchronization. In that case run:
-
-```cmd
-ocskill install
-```
-
-If your npm supports the allow-scripts flag, you can explicitly allow the package lifecycle in the install command:
+For current npm versions, use the global install with explicit lifecycle approval:
 
 ```cmd
 npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-Before npm publication, install the GitHub version with:
+That is the intended one-command install. npm copies the published package into its global package directory, then the approved `postinstall` synchronizes the bundled UES resources into the user's OpenCode config. Start a new OpenCode session after installation.
+
+On older npm versions that do not implement package-specific script approval, the equivalent command is:
 
 ```cmd
-npm install -g github:laivannha0202/opencode-agent-skill-
+npm install -g @laivannha0202/opencode-agent-skill
+```
+
+If lifecycle scripts are blocked or intentionally skipped, the CLI can still be synchronized manually:
+
+```cmd
 ocskill install
 ```
 
-Then start a new OpenCode session.
+To persist approval for future global installs/updates on npm versions that support it:
+
+```cmd
+npm config set allow-scripts=@laivannha0202/opencode-agent-skill --location=user
+```
+
+### Testing a local source checkout
+
+Do not use `npm install -g .` to simulate a published install. npm may create a symlink/junction back to the source checkout, which means deleting a temporary or RAM-disk checkout can break the global CLI.
+
+Use the packed tarball instead:
+
+```cmd
+npm pack
+npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+```
+
+This mirrors the published-package layout: npm stores a real package copy in the global npm directory and the approved postinstall copies the managed resources into OpenCode.
 
 ## Check installation
 
@@ -88,7 +100,7 @@ After npm publication:
 ocskill update
 ```
 
-`ocskill update` updates the global npm package and then explicitly re-syncs OpenCode resources, so resource synchronization does not depend only on npm postinstall behavior.
+`ocskill update` first checks the npm registry version. It refuses to replace a newer local/development build with an older published version, treats an equal version as already current, and only installs when the registry version is newer. Package replacement runs with lifecycle scripts disabled, then the newly installed CLI explicitly re-syncs OpenCode resources.
 
 You can also use npm directly and then sync:
 
