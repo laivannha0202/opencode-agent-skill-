@@ -1,178 +1,192 @@
 # OpenCode Universal Engineering System
 
-A model-agnostic engineering workflow for OpenCode, distributed as a global npm package.
+A model-agnostic engineering harness for OpenCode, distributed as a global npm package.
 
-UES does not turn Big Pickle, GPT, Claude, Gemini, or another model into a different model. It improves the engineering harness around the selected model: context selection, skill routing, planning, root-cause debugging, research verification, impact analysis, testing, independent review, and evidence-based completion.
+UES does not turn one base model into another. It improves the selected model's engineering process with focused skill routing, deterministic repository evidence, planning, root-cause debugging, current-source research, impact analysis, tests, independent verification, adversarial criticism, bounded repair, and measurable behavioral evals.
 
-## What the current package installs
+## What V4 installs
 
 - **39 engineering skills**
 - **9 slash commands**
-- **6 optional read-only/analysis subagents**
+- **6 read-only/analysis subagents**
 - a managed global engineering workflow in OpenCode's `AGENTS.md`
-- installation state used by `ocskill status` and safe uninstall
+- managed install state under `.ues/`
+- on **OpenCode 2.x**, a managed runtime router plugin that can preselect a small relevant skill set
 
-The core workflow is:
+The core loop is:
 
 ```text
 understand
-  -> select focused skills
-  -> plan when risk justifies it
+  -> deterministic evidence
+  -> focused routing
+  -> plan when risk warrants it
   -> implement
   -> verify with fresh evidence
-  -> independent review when useful
-  -> finish
-
-verification failure
-  -> root-cause diagnosis
-  -> smallest evidence-backed fix
-  -> re-verify
-
-substantial/high-risk success
-  -> independent critic
-  -> evidence-backed repair if needed
-  -> re-verify
+  -> critic/reviewer when useful
+  -> bounded repair
   -> finish
 ```
 
 ## Install
 
-For current npm versions, use the global install with explicit lifecycle approval:
+For npm versions with package-specific lifecycle approval:
 
 ```cmd
 npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-That is the intended one-command install. npm copies the published package into its global package directory, then the approved `postinstall` synchronizes the bundled UES resources into the user's OpenCode config. Start a new OpenCode session after installation.
+The approved `postinstall` copies the published package into npm's global package directory and synchronizes the managed UES resources into the user's OpenCode config.
 
-On older npm versions that do not implement package-specific script approval, the equivalent command is:
+On older npm versions:
 
 ```cmd
 npm install -g @laivannha0202/opencode-agent-skill
 ```
 
-If lifecycle scripts are blocked or intentionally skipped, the CLI can still be synchronized manually:
+If lifecycle scripts are blocked or intentionally skipped:
 
 ```cmd
 ocskill install
 ```
 
-To persist approval for future global installs/updates on npm versions that support it:
+Then start a new OpenCode session.
 
-```cmd
-npm config set allow-scripts=@laivannha0202/opencode-agent-skill --location=user
-```
+### Do not test a release with `npm install -g .`
 
-### Testing a local source checkout
+A local global install may create a symlink/junction back to the source checkout. If that checkout is on a temporary or RAM disk, the global CLI can break after the source disappears.
 
-Do not use `npm install -g .` to simulate a published install. npm may create a symlink/junction back to the source checkout, which means deleting a temporary or RAM-disk checkout can break the global CLI.
-
-Use the packed tarball instead:
+Use a packed tarball for release-like testing:
 
 ```cmd
 npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-3.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+npm install -g .\laivannha0202-opencode-agent-skill-4.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
 ```
 
-This mirrors the published-package layout: npm stores a real package copy in the global npm directory and the approved postinstall copies the managed resources into OpenCode.
-
-## Check installation
+## Verify installation
 
 ```cmd
-ocskill doctor
 ocskill status
+ocskill doctor
 ```
 
-A synchronized install reports package/resource versions plus:
+A synchronized install reports:
 
 ```text
+Package version: 4.0.0
+Resource version: 4.0.0
+Sync: OK
 Skills: 39/39
 Commands: 9/9
 Subagents: 6/6
 Workflow: OK
 ```
 
-## Update
-
-After npm publication:
-
-```cmd
-ocskill update
-```
-
-`ocskill update` first checks the npm registry version. It refuses to replace a newer local/development build with an older published version, treats an equal version as already current, and only installs when the registry version is newer. Package replacement runs with lifecycle scripts disabled, then the newly installed CLI explicitly re-syncs OpenCode resources.
-
-You can also use npm directly and then sync:
-
-```cmd
-npm update -g @laivannha0202/opencode-agent-skill
-ocskill install
-```
-
-## Uninstall
-
-```cmd
-ocskill remove
-```
-
-The command first removes only UES-managed OpenCode resources, then uninstalls the global npm package.
-
-Note: run `ocskill remove` rather than relying on a direct `npm uninstall -g`. npm 7 and newer no longer
-run `uninstall`/`preuninstall` lifecycle scripts, so a direct `npm uninstall -g` only removes the package
-and leaves the managed OpenCode resources and `.ues/state.json` behind without any warning.
-
-```cmd
-npm uninstall -g @laivannha0202/opencode-agent-skill
-```
+On OpenCode 2.x it also reports the managed router plugin.
 
 ## CLI
 
 ```text
 ocskill install [--force]    install/re-sync managed OpenCode resources
-ocskill status               compare package version and installed resource state
-ocskill doctor               check Node, npm, OpenCode and resource synchronization
-ocskill eval                 validate the bundled static skill-routing contract
-ocskill eval-live [options]  run baseline-vs-UES live behavioral evals
-ocskill update               update npm package and explicitly re-sync resources
+ocskill status               compare package/resource synchronization state
+ocskill doctor               check Node, npm, OpenCode and UES resources
+ocskill eval                 validate the static routing contract
+ocskill eval-live [options]  run executable baseline-vs-UES behavioral evals
+ocskill eval-report [paths]  aggregate pass-rate/tool/token/cost telemetry
+
+ocskill inspect [dir]        deterministic repository/stack/test-command map
+ocskill impact <query> [dir] bounded likely-impact search
+ocskill evidence [dir]       collect stack, test-command and Git evidence
+ocskill working-tree [dir]   report branch/HEAD/dirty state
+ocskill detect-stack [dir]   report stack/package-manager evidence
+ocskill detect-tests [dir]   report likely project-native verification commands
+
+ocskill router status        show OpenCode V2 router state
+ocskill router on|off        enable/disable automatic V2 routing
+ocskill router on --max 3    set maximum automatically selected skills
+
+ocskill update               update from npm latest and re-sync
 ocskill remove [--force]     remove managed resources and uninstall package
 ocskill version              print package version
 ```
 
-If `~/.config/opencode/.ues/state.json` is owned by another package, install and remove
-refuse to touch it. Use `--force` to take ownership anyway: the existing state file is
-backed up first (next to `.ues` for `remove --force`), then replaced or the managed
-resources are removed. This is the deliberate override for migrations or stale ownership.
+## Deterministic evidence before model guessing
 
-## Process skills added in v2.1
+When `ocskill` is available, UES can cheaply establish repository facts before the model reads broadly:
 
-The package now includes dedicated process skills in addition to framework/domain skills:
-
-- `ues-engineering-orchestrator` — scope classification, routing, verification, retry and delegation policy
-- `ues-context-engineering` — compact context maps for large repositories
-- `ues-research-verification` — current primary-source/API/package/version verification
-- `ues-change-impact-analysis` — producer/consumer and blast-radius analysis
-- `ues-long-task-state` — optional resumable state for long multi-session work
-- `ues-test-driven-development` — pragmatic red-green-refactor when a useful harness exists
-
-Existing debugging, planning, repository exploration, dependency, review, and verification skills were strengthened as well.
-
-## Commands
-
-```text
-/ues-feature
-/ues-fix
-/ues-plan
-/ues-debug
-/ues-review
-/ues-verify
-/ues-research
-/ues-audit
-/ues-critique
+```cmd
+ocskill inspect .
+ocskill impact calculateOrderTotal .
+ocskill evidence .
+ocskill working-tree .
 ```
 
-The analysis commands route to focused subagents where appropriate.
+The helpers use Node built-ins only, do not modify the target repository, skip common dependency/build directories, bound broad scans, and return JSON.
 
-## Optional subagents
+They are not semantic call-graph or language-server replacements; important matches still need exact code inspection.
+
+See [Deterministic evidence tools](docs/DETERMINISTIC-TOOLS.md).
+
+## OpenCode 1.x and 2.x
+
+UES detects the OpenCode major during synchronization.
+
+**OpenCode 1.x**
+- installs existing V1-compatible agent permission frontmatter
+- does not install the V2 router plugin
+
+**OpenCode 2.x**
+- installs native ordered `permissions` frontmatter for managed subagents
+- installs `~/.config/opencode/plugins/ues-router/index.js`
+- keeps router preferences in `.ues/router.json`
+- uses the V2 prompt-admission hook to add at most a focused skill set
+
+After upgrading OpenCode from V1 to V2, run:
+
+```cmd
+ocskill install
+```
+
+See [OpenCode compatibility](docs/OPENCODE-COMPAT.md).
+
+## Skill routing
+
+UES deliberately avoids loading all 39 skills.
+
+Typical routes:
+
+```text
+unfamiliar repository
+  -> repo-explorer
+  -> context-engineering only when useful
+  -> domain skill
+
+bug/regression
+  -> bug-diagnosis
+  -> domain skill
+  -> test-driven-development when practical
+  -> test-verification
+
+public API/schema/auth/payment change
+  -> engineering-orchestrator
+  -> change-impact-analysis / task-planner as warranted
+  -> domain skill
+  -> test-verification
+  -> reviewer/critic for high risk
+
+uncertain current dependency/API
+  -> research-verification
+  -> relevant framework/dependency skill
+```
+
+On OpenCode 2.x, the managed router can preselect a maximum number of relevant skills from the incoming prompt. Router selection is a hint, not evidence or authority.
+
+## Progressive disclosure
+
+The main `SKILL.md` files stay compact. Deeper domain behavior lives under each skill's `references/` or `templates/` directory and is loaded only when needed.
+
+V4 deepens previously short workflows for accessibility, DevOps, Django, documentation, .NET, ecommerce, FastAPI, uploads, Flutter, Git safety, implementation, Java/Spring, NestJS, performance, Python, REST API design, architecture, and UI/UX.
+
+## Subagents
 
 UES installs:
 
@@ -185,73 +199,58 @@ ues-critic
 ues-verifier
 ```
 
-They are intended for independent analysis with isolated context. They should not replace the normal Build agent for ordinary implementation work, and their conclusions still require repository or command evidence.
-
-## Automatic routing
-
-Keep using OpenCode's normal **Build** agent with whichever model you choose.
-
-For a non-trivial request, UES encourages Build to load a small focused set of process/domain skills rather than all 39. Examples:
-
-```text
-unfamiliar repo
-  -> repo-explorer
-  -> context-engineering only if the repo is large
-  -> relevant domain skill
-
-bug
-  -> bug-diagnosis
-  -> domain skill
-  -> test-driven-development when practical
-  -> test-verification
-
-public API/schema/auth/payment change
-  -> task-planner
-  -> change-impact-analysis
-  -> relevant domain skill
-  -> test-verification
-  -> code-review
-
-uncertain current API/version
-  -> research-verification
-  -> dependency/framework skill
-```
-
-## Progressive disclosure
-
-Detailed orchestration rules are split into supporting files under each skill's `references/` or `templates/` directory. OpenCode can load the main skill first and deeper material only when needed. The npm installer copies whole skill directories, not only `SKILL.md`.
+They are selective read-only/analysis helpers. The parent Build agent remains responsible for implementation, integration and final completion claims.
 
 ## Evaluation
 
-Static catalog/routing validation remains fast and deterministic:
+Static routing validation now has **34 scenarios covering every skill**:
 
 ```cmd
 npm run evals
 ```
 
-The repository also includes a live behavioral harness that runs the same executable coding task with an isolated baseline config and with UES, then scores both using an external hidden grader:
+The executable live suite has **20 hidden-graded tasks**:
 
 ```cmd
-npm run evals:live -- --model provider/model --trials 3
-```
-
-or after installation:
-
-```cmd
+npm run evals:live:validate
 ocskill eval-live --model provider/model --trials 3
 ```
 
-Live results are written to the gitignored `.ues-evals/` directory. This measures harness impact on tested tasks; it does **not** claim that one base model becomes another model.
+Default live runs fully isolate OpenCode config/home/data and use environment credentials. To copy only the current OpenCode auth file into the isolated runs:
 
-See [docs/EVALS.md](docs/EVALS.md) and [docs/TRACE-SCHEMA.md](docs/TRACE-SCHEMA.md).
+```cmd
+ocskill eval-live --model provider/model --auth current --trials 3
+```
+
+Aggregate results:
+
+```cmd
+ocskill eval-report .ues-evals
+```
+
+Traces include correctness, duration, workspace changes, and best-effort tool/skill/subagent/token/cost telemetry. They do not collect hidden chain-of-thought.
+
+See [Evaluation](docs/EVALS.md) and [Trace schema](docs/TRACE-SCHEMA.md).
+
+## Update
+
+```cmd
+ocskill update
+```
+
+V4 resolves the explicit npm `latest` dist-tag, falls back to `npm dist-tag ls` if needed, refuses downgrades, skips equal-version replacement, and re-syncs resources explicitly after a real update.
+
+## Uninstall
+
+```cmd
+ocskill remove
+```
+
+Use `ocskill remove` rather than direct npm uninstall when you also want managed OpenCode resources cleaned up.
 
 ## Development
 
-Requirements:
-
-- Node.js 20+
-- npm
-- Git
+Requirements: Node.js 20+, npm, Git.
 
 ```cmd
 git clone https://github.com/laivannha0202/opencode-agent-skill-.git
@@ -260,54 +259,40 @@ npm install
 npm run ci
 ```
 
-`npm run ci` runs:
+V4 CI runs:
 
 ```text
-skill/command/subagent validation
--> routing eval contract
--> Node tests
+JavaScript syntax checks
+-> skill/command/subagent validation
+-> 34-scenario full-catalog routing contract
+-> 20-task hidden-grader integrity validation
+-> Node unit/integration tests
 -> npm pack --dry-run
+-> packed one-command install smoke using the OpenCode V2 path
 ```
 
-A local `npm install` deliberately skips global OpenCode installation.
-
-## Research and design
-
-The v2.1 architecture was informed by public patterns from Alibaba OpenCodeReview, Open GSD Core, Superpowers, Anthropic Agent Skills material, NVIDIA's public skills, Ruflo/Claude Flow, and OpenCode's own skills/agents/commands documentation.
-
-UES does not vendor those projects. The design notes explain what was adopted and what was deliberately avoided:
-
-- [Engineering design](docs/ENGINEERING-DESIGN.md)
-- [Research sources](docs/RESEARCH-SOURCES.md)
-
-## Publish to npm
-
-The intended public package name is:
-
-```text
-@laivannha0202/opencode-agent-skill
-```
-
-Before first publication, the npm account or organization must own the `@laivannha0202` scope.
-
-```cmd
-npm login
-npm whoami
-npm run ci
-npm publish --access public
-```
-
-The repository also includes a GitHub Actions npm publishing workflow using the `NPM_TOKEN` repository secret.
+A local `npm install` deliberately skips global OpenCode setup.
 
 ## Safety
 
-- unrelated user skills, commands, subagents, and existing `AGENTS.md` content are preserved
-- UES resources are namespaced with `ues-`
-- reinstall/re-sync is idempotent
-- unmanaged collisions are skipped rather than overwritten
-- uninstall removes only resources marked and tracked as UES-managed
-- destructive repository operations still require user approval
-- external API/version claims should be verified instead of invented
+- UES-managed resources use the `ues-` namespace
+- unmanaged collisions are preserved instead of overwritten
+- installer state ownership is checked before install/remove
+- re-sync is idempotent and removes only stale managed resources
+- V2 router files are managed and removed safely when no longer applicable
+- destructive repository operations still require explicit user intent
+- current external API/version claims should be verified rather than invented
+- benchmark traces record observable outcomes, not hidden reasoning
+
+## Documentation
+
+- [Engineering design](docs/ENGINEERING-DESIGN.md)
+- [OpenCode compatibility](docs/OPENCODE-COMPAT.md)
+- [Deterministic evidence tools](docs/DETERMINISTIC-TOOLS.md)
+- [Evaluation](docs/EVALS.md)
+- [Trace schema](docs/TRACE-SCHEMA.md)
+- [npm publishing](docs/NPM-PUBLISH.md)
+- [Research sources](docs/RESEARCH-SOURCES.md)
 
 ## License
 
