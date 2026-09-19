@@ -17,7 +17,7 @@ const suite = JSON.parse(await readFile(path.join(suiteRoot, "tasks.json"), "utf
 const errors = []
 const ids = new Set()
 
-const minimumTasks = suiteName === "long" ? 4 : 20
+const minimumTasks = suiteName === "long" ? 5 : 20
 if (!Array.isArray(suite.tasks) || suite.tasks.length < minimumTasks) {
   errors.push(suiteName + " eval suite must contain at least " + minimumTasks + " tasks")
 }
