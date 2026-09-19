@@ -12,6 +12,7 @@ export function routeSkills(text, maxSkills = 4) {
   if (nonTrivial) add(routed, "ues-engineering-orchestrator")
   const longHorizon = value.length > 700 || /(large task|big task|long[- ]running|multi[- ]file|cross[- ]module|whole (?:repo|repository|project)|entire (?:repo|repository|project)|full refactor|refactor all|migrate all|resume this work)/.test(value)
   if (longHorizon) {
+    add(routed, "ues-engineering-orchestrator")
     add(routed, "ues-long-task-state")
     add(routed, "ues-task-planner")
   }
