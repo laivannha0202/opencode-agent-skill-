@@ -35,16 +35,32 @@ import {
   finalizeWork,
   importPlan,
   initWork,
+  heartbeatTask,
   recordIntegrationVerification,
+  recordVerificationReceipt,
+  recoverStaleTasks,
   resolveBlocker,
   resumeWork,
   startTask,
   workStatus,
+  workspaceFingerprint,
 } from "../lib/task-engine.mjs"
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
-import { resolveModel } from "../lib/model-policy.mjs"
+import { resolveAdaptiveModel } from "../lib/model-policy.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
+import { runProcess } from "../lib/process-runner.mjs"
+import { buildVerificationReceipt } from "../lib/verification-receipt.mjs"
+import { writeLearningBundle } from "../lib/learning-engine.mjs"
+import { buildHermesHandoff, detectHermes } from "../lib/hermes-bridge.mjs"
+import { startControlCenter } from "../lib/control-center.mjs"
+import {
+  applyTaskSandbox,
+  createTaskSandbox,
+  diffTaskSandbox,
+  removeTaskSandbox,
+  taskSandboxStatus,
+} from "../lib/worktree-manager.mjs"
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
@@ -75,8 +91,16 @@ Usage:
   ocskill context-pack <slug> <task> [dir]
                               Emit bounded task context for a fresh executor
   ocskill work <action> ...     Manage persistent .ues-work long-task state
-  ocskill model-policy <role> [--attempt N]
-                              Resolve light/standard/heavy escalation tier
+  ocskill model-policy <role> [--attempt N] [adaptive signals]
+                              Resolve adaptive light/standard/heavy execution policy
+  ocskill sandbox <create|status|diff|apply|remove> <slug> <task> [dir]
+                              Manage isolated Git worktrees for parallel task execution
+  ocskill learn [dir] [--eval-dir path]
+                              Derive proposal-only lessons from local eval traces
+  ocskill hermes <status|handoff> ...
+                              Inspect optional Hermes Agent interoperability
+  ocskill dashboard [dir] [--port N]
+                              Start the local read-only UES Control Center
   ocskill models <status|on|off|set|role> ...
                               Configure role/tier model routing, then re-sync
   ocskill router [status|on|off] [--max N]
@@ -92,8 +116,11 @@ Usage:
     ocskill work status|resume <slug> [dir]
     ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence>
     ocskill work start <slug> <task-id> [dir]
-    ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>]
-    ocskill work fail <slug> <task-id> [dir] --reason <text>
+    ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>
+    ocskill work recover <slug> [dir]
+    ocskill work check <slug> <task-id|__integration__> [dir] -- <command> [args...]
+    ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>] [--run-id <id>]
+    ocskill work fail <slug> <task-id> [dir] --reason <text> [--run-id <id>]
     ocskill work decision <slug> [dir] --text <decision>
     ocskill work block|unblock <slug> [dir] --text <blocker>
     ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text> [--report-file <file>]
@@ -380,7 +407,9 @@ async function workControl() {
   try {
     if (action === "init") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await initWork(root, slug, optionValue("--goal")))
+      printJson(await initWork(root, slug, optionValue("--goal"), {
+        requireReceipts: !args.includes("--legacy-evidence"),
+      }))
       return
     }
     if (action === "plan") {
@@ -410,7 +439,65 @@ async function workControl() {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work start <slug> <task-id> [dir]")
-      printJson(await startTask(root, slug, taskID))
+      printJson(await startTask(root, slug, taskID, {
+        leaseMs: Number.parseInt(optionValue("--lease-ms") || "", 10) || undefined,
+        ownerSession: optionValue("--session"),
+      }))
+      return
+    }
+    if (action === "heartbeat") {
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>")
+      printJson(await heartbeatTask(
+        root,
+        slug,
+        taskID,
+        optionValue("--run-id"),
+        Number.parseInt(optionValue("--lease-ms") || "", 10) || undefined,
+      ))
+      return
+    }
+    if (action === "recover") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await recoverStaleTasks(root, slug))
+      return
+    }
+    if (action === "check") {
+      const taskID = args[3]
+      if (!taskID) throw new Error("Usage: ocskill work check <slug> <task-id|__integration__> [dir] -- <command> [args...]")
+      const separator = args.indexOf("--")
+      if (separator < 0 || separator + 1 >= args.length) throw new Error("work check requires '-- <command> [args...]'")
+      const root = args[4] && !args[4].startsWith("--") && 4 < separator ? args[4] : process.cwd()
+      const commandParts = args.slice(separator + 1)
+      const command = commandParts[0]
+      const commandArgs = commandParts.slice(1)
+      const startedAt = new Date().toISOString()
+      const run = await runProcess(command, commandArgs, {
+        cwd: root,
+        env: process.env,
+        timeoutMs: Number.parseInt(optionValue("--timeout-ms") || "", 10) || 15 * 60_000,
+        idleTimeoutMs: Number.parseInt(optionValue("--idle-timeout-ms") || "", 10) || 5 * 60_000,
+      })
+      const finishedAt = new Date().toISOString()
+      const receipt = buildVerificationReceipt({
+        scope: taskID === "__integration__" ? "integration" : "task",
+        command: commandParts.join(" "),
+        exitCode: run.status,
+        startedAt,
+        finishedAt,
+        stdout: run.stdout,
+        stderr: run.stderr,
+        workspaceFingerprint: workspaceFingerprint(root),
+        runId: optionValue("--run-id"),
+        executorSessionID: optionValue("--session"),
+        timedOut: run.timedOut,
+        idleTimedOut: run.idleTimedOut,
+        cancelled: run.cancelled,
+      })
+      const recorded = await recordVerificationReceipt(root, slug, taskID, receipt)
+      printJson({ ...recorded, stdout: run.stdout.slice(-4000), stderr: run.stderr.slice(-4000) })
+      if (run.status !== 0) process.exitCode = run.status
       return
     }
     if (action === "complete") {
@@ -422,6 +509,7 @@ async function workControl() {
       printJson(await completeTask(root, slug, taskID, {
         evidence: optionValue("--evidence"),
         report,
+        runId: optionValue("--run-id"),
       }))
       return
     }
@@ -429,7 +517,9 @@ async function workControl() {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work fail <slug> <task-id> [dir] --reason <text>")
-      printJson(await failTask(root, slug, taskID, optionValue("--reason")))
+      printJson(await failTask(root, slug, taskID, optionValue("--reason"), {
+        runId: optionValue("--run-id"),
+      }))
       return
     }
     if (action === "decision") {
@@ -483,10 +573,16 @@ async function modelPolicy() {
   }
   const attempt = Number.parseInt(optionValue("--attempt") || "1", 10)
   const policy = await readModelPolicy(getConfigDir())
-  printJson(resolveModel(
+  printJson(resolveAdaptiveModel(
     role,
     Number.isInteger(attempt) && attempt > 0 ? attempt : 1,
     policy,
+    {
+      risk: optionValue("--risk") || "medium",
+      files: Number.parseInt(optionValue("--files") || "0", 10),
+      contextBytes: Number.parseInt(optionValue("--context-bytes") || "0", 10),
+      failure: optionValue("--failure") || "",
+    },
   ))
 }
 
@@ -579,6 +675,66 @@ async function routerControl() {
   }
   console.log(`[ocskill] Max automatic skills: ${config.maxSkills}`)
   console.log(`[ocskill] Config: ${config.file}`)
+}
+
+
+async function sandboxControl() {
+  const action = args[1]
+  const slug = args[2]
+  const taskID = args[3]
+  if (!action || !slug || !taskID) {
+    console.error("Usage: ocskill sandbox <create|status|diff|apply|remove> <slug> <task> [dir]")
+    process.exitCode = 2
+    return
+  }
+  const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+  if (action === "create") printJson(await createTaskSandbox(root, slug, taskID))
+  else if (action === "status") printJson(taskSandboxStatus(root, slug, taskID))
+  else if (action === "diff") printJson(diffTaskSandbox(root, slug, taskID))
+  else if (action === "apply") printJson(applyTaskSandbox(root, slug, taskID))
+  else if (action === "remove") printJson(await removeTaskSandbox(root, slug, taskID, { force }))
+  else {
+    console.error("Unknown sandbox action: " + action)
+    process.exitCode = 2
+  }
+}
+
+async function learningControl() {
+  const root = args[1] && !args[1].startsWith("--") ? args[1] : process.cwd()
+  printJson(await writeLearningBundle(root, {
+    evalDir: optionValue("--eval-dir") || ".ues-evals",
+  }))
+}
+
+async function hermesControl() {
+  const action = args[1] || "status"
+  if (action === "status") {
+    printJson(detectHermes())
+    return
+  }
+  if (action === "handoff") {
+    const slug = args[2]
+    const taskID = args[3]
+    const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+    if (!slug || !taskID) {
+      console.error("Usage: ocskill hermes handoff <slug> <task-id> [dir]")
+      process.exitCode = 2
+      return
+    }
+    const pack = await contextPack(root, slug, taskID)
+    printJson(buildHermesHandoff(pack))
+    return
+  }
+  console.error("Usage: ocskill hermes <status|handoff> ...")
+  process.exitCode = 2
+}
+
+async function dashboardControl() {
+  const root = args[1] && !args[1].startsWith("--") ? args[1] : process.cwd()
+  const port = Number.parseInt(optionValue("--port") || "4317", 10)
+  const result = await startControlCenter(root, { port })
+  console.log("[ocskill] UES Control Center: " + result.url)
+  console.log("[ocskill] Press Ctrl+C to stop.")
 }
 
 async function update() {
@@ -725,6 +881,18 @@ switch (command) {
     break
   case "model-policy":
     await modelPolicy()
+    break
+  case "sandbox":
+    await sandboxControl()
+    break
+  case "learn":
+    await learningControl()
+    break
+  case "hermes":
+    await hermesControl()
+    break
+  case "dashboard":
+    await dashboardControl()
     break
   case "models":
     await modelsControl()
