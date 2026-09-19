@@ -127,13 +127,14 @@ For explicit long-running/autonomous work, do not ask one context to remember th
 1. Map the relevant repository surface with deterministic evidence and `ues-codebase-mapper` when useful.
 2. Persist observable requirements in `.ues-work/<slug>/SPEC.md`.
 3. Create a machine-checkable `PLAN.json` and validate it with `ocskill task-graph`.
-4. Ask `ues-plan-checker` to challenge the plan before edits begin.
-5. Execute each approved task in a fresh `ues-executor` context. Give it only the task brief, relevant spec/decisions, dependency reports, exact affected code, and verification.
-6. Mark task completion only with fresh evidence using `ocskill work complete`.
-7. Parallelize only dependency-safe tasks with non-overlapping declared files and isolated write surfaces; otherwise serialize.
+4. Ask `ues-plan-checker` to challenge the plan before edits begin. Record PASS with `ocskill work approve-plan`; `work start` is blocked until this happens.
+5. Execute each approved task in a fresh `ues-executor` context. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
+6. Inspect each child diff and mark task completion only with fresh evidence using `ocskill work complete`; record failures with `ocskill work fail`.
+7. Parallelize only dependency-safe tasks with non-overlapping declared files and genuinely independent write surfaces. UES serializes durable state writes but cannot make conflicting source edits safe.
 8. On resume, trust durable state plus current Git evidence over conversational memory.
-9. After all tasks complete, run `ues-integration-verifier` against cross-task contracts and end-to-end acceptance criteria.
-10. Merge/push/publish/deploy remain external side effects and require explicit user intent.
+9. After all tasks complete, run `ues-integration-verifier` against cross-task contracts and end-to-end acceptance criteria, then persist its actual verdict with `ocskill work verify-integration`.
+10. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
+11. Merge/push/publish/deploy remain external side effects and require explicit user intent.
 
 Use `ocskill model-policy <role> --attempt N` when configured model tiers exist. Escalate only after diagnosis/fresh context; never use a stronger model as a substitute for missing evidence.
 
