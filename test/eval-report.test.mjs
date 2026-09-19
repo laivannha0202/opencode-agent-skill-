@@ -18,3 +18,15 @@ test("eval report summarizes pass-rate delta and efficiency telemetry", () => {
   assert.equal(result.byTask.b.baseline.passRate, 0)
   assert.equal(result.byTask.b.ues.passRate, 1)
 })
+
+test("eval report marks unavailable telemetry as null instead of inventing zero usage", () => {
+  const result = summarizeEvalResults([
+    { task: "a", mode: "baseline", passed: true, durationMs: 50, telemetry: { jsonLines: 0, toolCalls: 0, usageSamples: 0, tokens: { total: 0 }, costSamples: 0, cost: 0 } },
+  ])
+
+  assert.equal(result.modes.baseline.avgToolCalls, null)
+  assert.equal(result.modes.baseline.avgTokens, null)
+  assert.equal(result.modes.baseline.avgCost, null)
+  assert.deepEqual(result.modes.baseline.telemetryCoverage, { tools: 0, tokens: 0, cost: 0 })
+})
+
