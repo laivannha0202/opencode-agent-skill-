@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -82,6 +82,55 @@ function excerpt(value, limit = 12000) {
   if (!value) return ""
   const text = String(value)
   return text.length <= limit ? text : text.slice(0, limit) + "\n...[truncated]"
+}
+
+async function inspectLongOrchestration(workspace) {
+  const workRoot = path.join(workspace, ".ues-work")
+  const dirs = await readdir(workRoot, { withFileTypes: true }).catch(() => [])
+  const items = []
+
+  for (const entry of dirs) {
+    if (!entry.isDirectory()) continue
+    const dir = path.join(workRoot, entry.name)
+    try {
+      const [state, plan, evidence] = await Promise.all([
+        readFile(path.join(dir, "STATE.json"), "utf8").then(JSON.parse),
+        readFile(path.join(dir, "PLAN.json"), "utf8").then(JSON.parse),
+        readFile(path.join(dir, "EVIDENCE.json"), "utf8").then(JSON.parse),
+      ])
+      const tasks = Object.values(state.tasks || {})
+      const evidenceTasks = new Set((evidence.entries || []).map((item) => item.task))
+      const item = {
+        slug: entry.name,
+        taskCount: Array.isArray(plan.tasks) ? plan.tasks.length : 0,
+        planApproved: state.planApproval?.status === "passed",
+        attemptedTasks: tasks.filter((task) => Number(task.attempts || 0) > 0).length,
+        completedTasks: tasks.filter((task) => task.status === "completed").length,
+        integrationPassed: state.integrationVerification?.status === "PASS",
+        integrationEvidence: evidenceTasks.has("__integration_verification__"),
+        finalizedEvidence: evidenceTasks.has("__integration__"),
+        completed: state.status === "completed",
+      }
+      item.valid =
+        item.taskCount >= 2 &&
+        item.planApproved &&
+        item.attemptedTasks === item.taskCount &&
+        item.completedTasks === item.taskCount &&
+        item.integrationPassed &&
+        item.integrationEvidence &&
+        item.finalizedEvidence &&
+        item.completed
+      items.push(item)
+    } catch (error) {
+      items.push({ slug: entry.name, valid: false, error: String(error?.message || error) })
+    }
+  }
+
+  return {
+    required: true,
+    valid: items.some((item) => item.valid),
+    items,
+  }
 }
 
 const model = argValue("--model", process.env.UES_EVAL_MODEL)
@@ -224,7 +273,14 @@ try {
         const afterSnapshot = await snapshotWorkspace(workspace)
         const telemetry = parseOpenCodeTelemetry(agentRun.stdout)
         const changedFiles = diffWorkspaceSnapshots(beforeSnapshot, afterSnapshot)
-        const passed = agentRun.status === 0 && graderRun.status === 0
+        const orchestration =
+          suiteName === "long" && mode === "ues"
+            ? await inspectLongOrchestration(workspace)
+            : { required: false, valid: true, items: [] }
+        const passed =
+          agentRun.status === 0 &&
+          graderRun.status === 0 &&
+          (!orchestration.required || orchestration.valid)
         results.push({
           task: task.id,
           mode,
@@ -238,6 +294,7 @@ try {
           authMode,
           telemetry,
           changedFiles,
+          orchestration,
           agentStdout: excerpt(agentRun.stdout),
           agentStderr: excerpt(agentRun.stderr),
           graderStdout: excerpt(graderRun.stdout),
@@ -249,7 +306,9 @@ try {
         console.log(
           "[" + mode + "] " + task.id + " trial " + trial + ": " +
           (passed ? "PASS" : "FAIL") +
-          " (agent=" + agentRun.status + ", grader=" + graderRun.status + ", " + durationMs + "ms)",
+          " (agent=" + agentRun.status + ", grader=" + graderRun.status +
+          (orchestration.required ? ", orchestration=" + (orchestration.valid ? "PASS" : "FAIL") : "") +
+          ", " + durationMs + "ms)",
         )
       }
     }
