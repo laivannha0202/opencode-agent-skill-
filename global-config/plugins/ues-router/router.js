@@ -2,6 +2,15 @@ function add(list, id) {
   if (!list.includes(id)) list.push(id)
 }
 
+const PROCESS_SKILLS = new Set([
+  "ues-engineering-orchestrator",
+  "ues-long-task-state",
+  "ues-task-planner",
+  "ues-bug-diagnosis",
+  "ues-research-verification",
+  "ues-repo-explorer",
+])
+
 export function routeSkills(text, maxSkills = 4) {
   const value = String(text || "").toLowerCase()
   const limit = Number.isInteger(maxSkills) ? Math.max(1, Math.min(maxSkills, 6)) : 4
@@ -47,6 +56,18 @@ export function routeSkills(text, maxSkills = 4) {
 
   if (routed.length === 0 && /(code|repository|repo|project|function|class|endpoint|test)/.test(value)) {
     add(routed, "ues-repo-explorer")
+  }
+
+  if (routed.length > limit) {
+    const prioritized = []
+    const domain = []
+    const process = []
+    for (const id of routed) {
+      if (id === "ues-engineering-orchestrator") prioritized.push(id)
+      else if (PROCESS_SKILLS.has(id)) process.push(id)
+      else domain.push(id)
+    }
+    return prioritized.concat(domain, process).slice(0, limit)
   }
 
   return routed.slice(0, limit)

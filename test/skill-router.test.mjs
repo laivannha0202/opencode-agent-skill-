@@ -89,3 +89,63 @@ test("router recognizes accessible focus management", () => {
   )
   assert.ok(routed.includes("ues-accessibility"))
 })
+
+test("router retains domain and impact skills under cap pressure (long-horizon database + auth)", () => {
+  const routed = routeSkills(
+    "Implement a whole-repository database and auth migration across the entire project, keep it durable and resumable.",
+    4,
+  )
+  assert.ok(routed.includes("ues-engineering-orchestrator"))
+  assert.ok(routed.includes("ues-database-engineering"))
+  assert.ok(routed.includes("ues-change-impact-analysis"))
+  assert.ok(routed.includes("ues-auth-security"))
+})
+
+test("router keeps domain skills ahead of generic process skills when the cap binds", () => {
+  assert.deepEqual(
+    routeSkills(
+      "Debug a payment webhook regression, investigate performance and accessibility in the checkout flow across the entire project.",
+      4,
+    ),
+    [
+      "ues-engineering-orchestrator",
+      "ues-payment-engineering",
+      "ues-change-impact-analysis",
+      "ues-performance-engineering",
+    ],
+  )
+})
+
+test("router grows domain retention as the cap rises (all domain skills at cap 5)", () => {
+  const routed = routeSkills(
+    "Debug a payment webhook regression, investigate performance and accessibility in the checkout flow across the entire project.",
+    5,
+  )
+  assert.ok(routed.includes("ues-accessibility"))
+  assert.ok(routed.includes("ues-payment-engineering"))
+  assert.ok(routed.includes("ues-change-impact-analysis"))
+  assert.ok(routed.includes("ues-performance-engineering"))
+})
+
+test("router evicts generic process skills before domain skills by design", () => {
+  const routed = routeSkills(
+    "Fix a payment webhook auth regression involving database migration and API contract compatibility.",
+    3,
+  )
+  assert.equal(routed.length, 3)
+  assert.ok(routed.includes("ues-database-engineering"))
+  assert.ok(routed.includes("ues-change-impact-analysis"))
+  assert.ok(!routed.includes("ues-bug-diagnosis"))
+})
+
+test("router leaves non-truncated routing output unchanged", () => {
+  assert.deepEqual(
+    routeSkills("Add ARIA labels to the checkout payment form.", 6),
+    [
+      "ues-engineering-orchestrator",
+      "ues-payment-engineering",
+      "ues-change-impact-analysis",
+      "ues-accessibility",
+    ],
+  )
+})
