@@ -5,7 +5,7 @@ description: Inspect unfamiliar repositories efficiently before changes by locat
 
 # Repo Explorer
 
-Read applicable instructions and manifests first.
+Read applicable instructions and manifests first. If `ocskill` is available, `ocskill inspect` can establish stack/package-manager/test-command facts before targeted source reads.
 
 Then:
 1. locate the task's exact entry point, symbol, route, error, or configuration
