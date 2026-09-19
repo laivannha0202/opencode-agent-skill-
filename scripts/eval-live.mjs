@@ -7,8 +7,9 @@ import { fileURLToPath } from "node:url"
 import { installResources } from "../lib/installer.mjs"
 import { copyCurrentOpenCodeAuth } from "../lib/eval-auth.mjs"
 import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
-import { buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
+import { buildOpenCodeRunArgs, capabilitiesFromHelp, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
+import { runProcess } from "../lib/process-runner.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
@@ -142,10 +143,13 @@ const requestedMode = argValue("--mode", "both")
 const keep = hasArg("--keep")
 const authMode = argValue("--auth", "env-only")
 const suiteName = argValue("--suite", "live")
+const timeoutMinutes = positiveInt(argValue("--timeout-minutes"), suiteName === "long" ? 30 : 15)
+const idleTimeoutMinutes = positiveInt(argValue("--idle-timeout-minutes"), suiteName === "long" ? 8 : 5)
+const heartbeatSeconds = positiveInt(argValue("--heartbeat-seconds"), 30)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--timeout-minutes N] [--idle-timeout-minutes N] [--heartbeat-seconds N] [--output-dir path] [--keep]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -169,8 +173,13 @@ if (probe.status !== 0) {
 const opencodeVersion = String(probe.stdout || probe.stderr || "").trim()
 const parsedOpenCodeMajor = parseOpenCodeMajor(opencodeVersion)
 const opencodeMajor = parsedOpenCodeMajor ?? 1
+const runHelp = runCommand("opencode", ["run", "--help"], { encoding: "utf8" })
+const opencodeCapabilities = capabilitiesFromHelp(
+  opencodeVersion,
+  runHelp.status === 0 ? runHelp.stdout || runHelp.stderr : "",
+)
 if (parsedOpenCodeMajor === null) {
-  console.warn("[eval] could not parse OpenCode version; using the conservative OpenCode 1.x invocation.")
+  console.warn("[eval] could not parse OpenCode version; using capability probing and conservative fallbacks.")
 }
 
 if (!["live", "long"].includes(suiteName)) {
@@ -246,20 +255,34 @@ try {
 
         const opencodeArgs = buildOpenCodeRunArgs({
           major: opencodeMajor,
+          capabilities: opencodeCapabilities,
           model,
           workspace,
           variant,
           prompt: task.prompt,
         })
 
-        const started = Date.now()
-        const agentRun = runCommand("opencode", opencodeArgs, {
+        console.log(
+          "[" + mode + "] " + task.id + " trial " + trial +
+          ": starting agent (timeout=" + timeoutMinutes + "m, idle=" + idleTimeoutMinutes + "m)",
+        )
+        const agentRun = await runProcess("opencode", opencodeArgs, {
           cwd: workspace,
           env: childEnv,
-          encoding: "utf8",
           maxBuffer: 4 * 1024 * 1024,
+          timeoutMs: timeoutMinutes * 60_000,
+          idleTimeoutMs: idleTimeoutMinutes * 60_000,
+          heartbeatMs: heartbeatSeconds * 1000,
+          onHeartbeat: ({ elapsedMs, idleMs, pid }) => {
+            console.log(
+              "[" + mode + "] " + task.id + " trial " + trial +
+              ": heartbeat pid=" + pid +
+              " elapsed=" + Math.round(elapsedMs / 1000) + "s" +
+              " idle=" + Math.round(idleMs / 1000) + "s",
+            )
+          },
         })
-        const durationMs = Date.now() - started
+        const durationMs = agentRun.durationMs
 
         const graderPath = path.join(suiteRoot, task.grader)
         const graderRun = spawnSync(process.execPath, [graderPath], {
@@ -293,6 +316,13 @@ try {
           authMode,
           opencodeVersion,
           opencodeMajor,
+          opencodeCapabilities,
+          runtime: {
+            timedOut: agentRun.timedOut,
+            idleTimedOut: agentRun.idleTimedOut,
+            cancelled: agentRun.cancelled,
+            signal: agentRun.signal,
+          },
           telemetry,
           changedFiles,
           orchestration,
@@ -349,6 +379,10 @@ await writeFile(
       authMode,
       opencodeVersion,
       opencodeMajor,
+      opencodeCapabilities,
+      timeoutMinutes,
+      idleTimeoutMinutes,
+      heartbeatSeconds,
       modes,
       summary,
       results,
