@@ -39,6 +39,7 @@ import {
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
 import { resolveModel } from "../lib/model-policy.mjs"
+import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
@@ -71,6 +72,8 @@ Usage:
   ocskill work <action> ...     Manage persistent .ues-work long-task state
   ocskill model-policy <role> [--attempt N]
                               Resolve light/standard/heavy escalation tier
+  ocskill models <status|on|off|set|role> ...
+                              Configure role/tier model routing, then re-sync
   ocskill router [status|on|off] [--max N]
                               Configure the OpenCode v2 automatic skill router
   ocskill update               Update the global npm package and re-sync resources
@@ -86,6 +89,12 @@ Usage:
     ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>]
     ocskill work fail <slug> <task-id> [dir] --reason <text>
     ocskill work decision <slug> [dir] --text <decision>
+
+  Model routing:
+    ocskill models status
+    ocskill models on|off
+    ocskill models set <light|standard|heavy> <provider/model[#variant]>
+    ocskill models role <role> <light|standard|heavy>
 
   --force backs up and replaces/removes state owned by another package.
 `)
@@ -434,6 +443,57 @@ async function modelPolicy() {
   printJson(resolveModel(role, Number.isInteger(attempt) && attempt > 0 ? attempt : 1))
 }
 
+
+async function modelsControl() {
+  const action = args[1] || "status"
+  let policy = await readModelPolicy(getConfigDir())
+
+  if (action === "status") {
+    printJson(policy)
+    return
+  }
+  if (action === "on" || action === "off") {
+    policy = await writeModelPolicy(getConfigDir(), { enabled: action === "on" })
+    printJson(policy)
+    console.log("[ocskill] Run 'ocskill install' to rewrite managed agent frontmatter.")
+    return
+  }
+  if (action === "set") {
+    const tier = args[2]
+    const model = args[3]
+    if (!["light", "standard", "heavy"].includes(tier) || !validateModelID(model)) {
+      console.error("Usage: ocskill models set <light|standard|heavy> <provider/model[#variant]>")
+      process.exitCode = 2
+      return
+    }
+    policy = await writeModelPolicy(getConfigDir(), {
+      enabled: true,
+      tiers: { [tier]: model },
+    })
+    printJson(policy)
+    console.log("[ocskill] Run 'ocskill install' to apply model mappings to managed agents.")
+    return
+  }
+  if (action === "role") {
+    const role = args[2]
+    const tier = args[3]
+    if (!role || !["light", "standard", "heavy"].includes(tier)) {
+      console.error("Usage: ocskill models role <role> <light|standard|heavy>")
+      process.exitCode = 2
+      return
+    }
+    policy = await writeModelPolicy(getConfigDir(), {
+      roleTiers: { [role]: tier },
+    })
+    printJson(policy)
+    console.log("[ocskill] Run 'ocskill install' to apply role-tier changes.")
+    return
+  }
+
+  console.error("Usage: ocskill models <status|on|off|set|role> ...")
+  process.exitCode = 2
+}
+
 async function routerControl() {
   const action = args[1] || "status"
   const maxIndex = args.indexOf("--max")
@@ -618,6 +678,9 @@ switch (command) {
     break
   case "model-policy":
     await modelPolicy()
+    break
+  case "models":
+    await modelsControl()
     break
   case "detect-stack":
     await inspectStack()
