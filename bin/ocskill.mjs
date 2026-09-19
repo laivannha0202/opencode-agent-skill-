@@ -45,7 +45,7 @@ Usage:
   ocskill evidence [dir]       Collect stack, verification and Git evidence
   ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
   ocskill router [status|on|off] [--max N]
-                              Control the OpenCode v2 automatic skill router
+                              Configure the OpenCode v2 automatic skill router
   ocskill update               Update the global npm package and re-sync resources
   ocskill remove [--force]     Remove managed resources and uninstall the npm package
   ocskill version              Show package version
@@ -290,7 +290,18 @@ async function routerControl() {
     })
   }
 
-  console.log(`[ocskill] Router: ${config.enabled ? "ON" : "OFF"}`)
+  const installed = await getStatus()
+  const runtimeAvailable =
+    installed.installed &&
+    Number(installed.openCodeMajor) >= 2 &&
+    (installed.plugins || []).includes("ues-router/index.js") &&
+    installed.pluginsPresent === installed.plugins.length
+
+  console.log(`[ocskill] Router preference: ${config.enabled ? "ON" : "OFF"}`)
+  console.log(`[ocskill] Router runtime: ${runtimeAvailable ? "AVAILABLE" : "UNAVAILABLE"}`)
+  if (!runtimeAvailable) {
+    console.log("[ocskill] Runtime routing requires OpenCode 2.x followed by 'ocskill install'.")
+  }
   console.log(`[ocskill] Max automatic skills: ${config.maxSkills}`)
   console.log(`[ocskill] Config: ${config.file}`)
 }
