@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { routeSkills } from "./router.js"
+import { destructiveShellRisk } from "./safety.js"
 
 const CONFIG_FILE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -45,9 +46,17 @@ export default Plugin.define({
         ...event.metadata,
         uesRouter: {
           selected,
-          version: 1,
+          version: 2,
         },
       }
+    })
+
+    await ctx.permission.hook("evaluate", (event) => {
+      if (event.action !== "shell") return
+      const risk = destructiveShellRisk(event.resources.join("\n"))
+      if (!risk.risky) return
+      event.effect = "ask"
+      event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
     })
   },
 })
