@@ -1,6 +1,6 @@
 {
-  "version": 1,
-  "description": "Long-horizon multi-file benchmark for weak-model baseline vs UES orchestration. Each task requires coordinated changes across several modules.",
+  "version": 2,
+  "description": "Long-horizon weak-model baseline vs UES benchmark. UES-mode passes require both hidden behavior graders and a completed durable multi-task orchestration state.",
   "tasks": [
     {
       "id": "long-checkout-integration",
@@ -24,6 +24,12 @@
       "id": "long-product-race-cache",
       "fixture": "fixtures/long-horizon",
       "prompt": "Treat this as a long-horizon multi-file task and use durable/fresh-task orchestration if the environment provides it. Repair product mutation state across src/product-state.mjs, src/product-cache.mjs, src/product-service.mjs, and src/product-api.mjs. The reducer must ignore stale success/error actions whose requestId differs from current state.requestId, preserving object identity for stale actions. tagsForProduct must return unique tags in order products, product:<id>, optional category:<categoryId>, optional seller:<sellerId>, rejecting missing id. updateProduct must allow only title/categoryId/sellerId patch fields, be immutable, preserve id, and return {product,tags}. handleProductUpdate must use updateProduct and return {status:200,body:{product},revalidate:tags}; malformed patches return 400 VALIDATION without leaking stack.",
+      "grader": "graders/long-horizon.mjs"
+    },
+    {
+      "id": "long-full-system-integration",
+      "fixture": "fixtures/long-horizon",
+      "prompt": "Treat this as a true long-horizon task. You must use the available durable UES workflow with an approved multi-task PLAN, fresh executors, task evidence, integration verification and finalization rather than solving everything in one context. Repair all four broken domains across 15 modules: src/money.mjs, src/inventory.mjs, src/payment.mjs, src/checkout.mjs, src/auth.mjs, src/project-service.mjs, src/project-api.mjs, src/user-migration.mjs, src/user-serializer.mjs, src/user-consumer.mjs, src/user-validation.mjs, src/product-state.mjs, src/product-cache.mjs, src/product-service.mjs, and src/product-api.mjs. Preserve immutability and strict validation throughout. Checkout must use trusted integer-cent totals, all-or-nothing aggregate stock reservation and idempotent exact-currency payment events. Tenant project edits must deny suspended/cross-tenant access, limit patch fields and return sanitized API errors. User migration/serialization must preserve backward compatibility while producing a valid displayName contract without mutating inputs. Product mutation must ignore stale reducer actions, generate stable unique cache tags, restrict patch fields and sanitize API validation errors. All existing hidden requirements of the four domain tasks apply together.",
       "grader": "graders/long-horizon.mjs"
     }
   ]
