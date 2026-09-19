@@ -10,6 +10,7 @@ const root = process.env.UES_BUNDLE_ROOT
 const skillsRoot = path.join(root, "global-config", "skills")
 const commandsRoot = path.join(root, "global-config", "commands")
 const agentsRoot = path.join(root, "global-config", "agents")
+const pluginsRoot = path.join(root, "global-config", "plugins")
 const errors = []
 const ids = new Set()
 
@@ -86,9 +87,19 @@ for (const entry of await readdir(agentsRoot, { withFileTypes: true })) {
   if (!/mode:\s*subagent/.test(source)) errors.push(`${entry.name}: agent must use mode: subagent`)
 }
 
-if (ids.size === 0) errors.push("no skills found")
-if (commands === 0) errors.push("no commands found")
-if (agents === 0) errors.push("no subagents found")
+if (ids.size < 39) errors.push(`expected at least 39 skills, found ${ids.size}`)
+if (commands < 9) errors.push(`expected at least 9 commands, found ${commands}`)
+if (agents < 6) errors.push(`expected at least 6 subagents, found ${agents}`)
+
+const routerIndex = path.join(pluginsRoot, "ues-router", "index.js")
+const routerCore = path.join(pluginsRoot, "ues-router", "router.js")
+if (!existsSync(routerIndex)) errors.push("missing OpenCode v2 router plugin entrypoint")
+if (!existsSync(routerCore)) errors.push("missing OpenCode v2 router core")
+if (existsSync(routerIndex)) {
+  const source = await readFile(routerIndex, "utf8")
+  if (!source.includes('id: "ues-router"')) errors.push("v2 router plugin must declare stable id ues-router")
+  if (!source.includes('ctx.session.hook("prompt"')) errors.push("v2 router plugin must register prompt admission hook")
+}
 
 if (errors.length) {
   console.error("Validation failed:")
