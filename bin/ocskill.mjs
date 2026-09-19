@@ -23,6 +23,22 @@ import {
   collectEvidence,
   checkWorkingTree,
 } from "../lib/repo-inspect.mjs"
+import { buildRepoGraph } from "../lib/repo-graph.mjs"
+import { analyzePlan } from "../lib/task-graph.mjs"
+import {
+  addDecision,
+  completeTask,
+  contextPack,
+  failTask,
+  importPlan,
+  initWork,
+  resumeWork,
+  startTask,
+  workStatus,
+} from "../lib/task-engine.mjs"
+import { reviewScope } from "../lib/review-scope.mjs"
+import { buildVerificationPlan } from "../lib/verification-plan.mjs"
+import { resolveModel } from "../lib/model-policy.mjs"
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
@@ -44,12 +60,32 @@ Usage:
   ocskill impact <query> [dir] Search likely impact paths and matching lines
   ocskill evidence [dir]       Collect stack, verification and Git evidence
   ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
+  ocskill repo-graph [dir]      Build a bounded source import/dependency graph
+  ocskill review-scope [base] [dir]
+                              Enumerate changed files, review coverage and risk
+  ocskill verification-plan [dir]
+                              Build project-native verification recommendations
+  ocskill task-graph <plan>     Validate PLAN.json and compute dependency-safe waves
+  ocskill context-pack <slug> <task> [dir]
+                              Emit bounded task context for a fresh executor
+  ocskill work <action> ...     Manage persistent .ues-work long-task state
+  ocskill model-policy <role> [--attempt N]
+                              Resolve light/standard/heavy escalation tier
   ocskill router [status|on|off] [--max N]
                               Configure the OpenCode v2 automatic skill router
   ocskill update               Update the global npm package and re-sync resources
   ocskill remove [--force]     Remove managed resources and uninstall the npm package
   ocskill version              Show package version
   ocskill help                 Show this help
+
+  Long-task actions:
+    ocskill work init <slug> [dir] --goal <text>
+    ocskill work plan <slug> <plan.json> [dir]
+    ocskill work status|resume <slug> [dir]
+    ocskill work start <slug> <task-id> [dir]
+    ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>]
+    ocskill work fail <slug> <task-id> [dir] --reason <text>
+    ocskill work decision <slug> [dir] --text <decision>
 
   --force backs up and replaces/removes state owned by another package.
 `)
@@ -266,6 +302,138 @@ async function inspectTests() {
   printJson(await detectTestCommands(args[1] || process.cwd()))
 }
 
+function optionValue(name) {
+  const index = args.indexOf(name)
+  return index >= 0 ? args[index + 1] : null
+}
+
+async function inspectRepoGraph() {
+  printJson(await buildRepoGraph(args[1] || process.cwd()))
+}
+
+async function inspectReviewScope() {
+  const base = args[1] && !args[1].startsWith("--") ? args[1] : null
+  const root = args[2] && !args[2].startsWith("--") ? args[2] : process.cwd()
+  printJson(reviewScope(root, base))
+}
+
+async function inspectVerificationPlan() {
+  printJson(await buildVerificationPlan(args[1] || process.cwd(), optionValue("--base")))
+}
+
+async function inspectTaskGraph() {
+  const file = args[1]
+  if (!file) {
+    console.error("Usage: ocskill task-graph <plan.json>")
+    process.exitCode = 2
+    return
+  }
+  try {
+    const plan = JSON.parse(readFileSync(path.resolve(file), "utf8"))
+    const analysis = analyzePlan(plan)
+    printJson(analysis)
+    if (!analysis.valid) process.exitCode = 1
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
+}
+
+async function inspectContextPack() {
+  const slug = args[1]
+  const taskID = args[2]
+  if (!slug || !taskID) {
+    console.error("Usage: ocskill context-pack <slug> <task-id> [dir]")
+    process.exitCode = 2
+    return
+  }
+  printJson(await contextPack(args[3] || process.cwd(), slug, taskID))
+}
+
+async function workControl() {
+  const action = args[1]
+  const slug = args[2]
+  if (!action || !slug) {
+    console.error("Usage: ocskill work <init|plan|status|resume|start|complete|fail|decision> <slug> ...")
+    process.exitCode = 2
+    return
+  }
+
+  try {
+    if (action === "init") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await initWork(root, slug, optionValue("--goal")))
+      return
+    }
+    if (action === "plan") {
+      const planFile = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!planFile) throw new Error("Usage: ocskill work plan <slug> <plan.json> [dir]")
+      const result = await importPlan(root, slug, planFile)
+      printJson({ state: result.state, analysis: result.analysis, dir: result.paths.dir })
+      return
+    }
+    if (action === "status") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await workStatus(root, slug))
+      return
+    }
+    if (action === "resume") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await resumeWork(root, slug))
+      return
+    }
+    if (action === "start") {
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work start <slug> <task-id> [dir]")
+      printJson(await startTask(root, slug, taskID))
+      return
+    }
+    if (action === "complete") {
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work complete <slug> <task-id> [dir] --evidence <text>")
+      const reportFile = optionValue("--report-file")
+      const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
+      printJson(await completeTask(root, slug, taskID, {
+        evidence: optionValue("--evidence"),
+        report,
+      }))
+      return
+    }
+    if (action === "fail") {
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work fail <slug> <task-id> [dir] --reason <text>")
+      printJson(await failTask(root, slug, taskID, optionValue("--reason")))
+      return
+    }
+    if (action === "decision") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await addDecision(root, slug, optionValue("--text")))
+      return
+    }
+
+    throw new Error("Unknown work action: " + action)
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    if (error?.validation) printJson(error.validation)
+    process.exitCode = 1
+  }
+}
+
+async function modelPolicy() {
+  const role = args[1]
+  if (!role) {
+    console.error("Usage: ocskill model-policy <role> [--attempt N]")
+    process.exitCode = 2
+    return
+  }
+  const attempt = Number.parseInt(optionValue("--attempt") || "1", 10)
+  printJson(resolveModel(role, Number.isInteger(attempt) && attempt > 0 ? attempt : 1))
+}
+
 async function routerControl() {
   const action = args[1] || "status"
   const maxIndex = args.indexOf("--max")
@@ -429,6 +597,27 @@ switch (command) {
     break
   case "working-tree":
     await inspectWorkingTree()
+    break
+  case "repo-graph":
+    await inspectRepoGraph()
+    break
+  case "review-scope":
+    await inspectReviewScope()
+    break
+  case "verification-plan":
+    await inspectVerificationPlan()
+    break
+  case "task-graph":
+    await inspectTaskGraph()
+    break
+  case "context-pack":
+    await inspectContextPack()
+    break
+  case "work":
+    await workControl()
+    break
+  case "model-policy":
+    await modelPolicy()
     break
   case "detect-stack":
     await inspectStack()
