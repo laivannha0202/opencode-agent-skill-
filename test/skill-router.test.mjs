@@ -48,3 +48,14 @@ test("v2 router adds persistent planning skills for explicit long-horizon work",
   )
 })
 
+
+
+test("resume-style long-horizon prompts always include the orchestrator", () => {
+  const routed = routeSkills(
+    "Resume this work across many files and keep a durable execution plan.",
+    6,
+  )
+  assert.ok(routed.includes("ues-engineering-orchestrator"))
+  assert.ok(routed.includes("ues-long-task-state"))
+  assert.ok(routed.includes("ues-task-planner"))
+})
