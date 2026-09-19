@@ -10,7 +10,6 @@ import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
-const liveRoot = path.join(root, "evals", "live")
 const args = process.argv.slice(2)
 
 function argValue(name, fallback = null) {
@@ -92,9 +91,11 @@ const taskFilter = argValue("--task")
 const requestedMode = argValue("--mode", "both")
 const keep = hasArg("--keep")
 const authMode = argValue("--auth", "env-only")
+const suiteName = argValue("--suite", "live")
+const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -116,7 +117,12 @@ if (probe.status !== 0) {
   process.exit(2)
 }
 
-const suite = JSON.parse(await readFile(path.join(liveRoot, "tasks.json"), "utf8"))
+if (!["live", "long"].includes(suiteName)) {
+  console.error("--suite must be live or long")
+  process.exit(2)
+}
+
+const suite = JSON.parse(await readFile(path.join(suiteRoot, "tasks.json"), "utf8"))
 let tasks = suite.tasks || []
 if (taskFilter) tasks = tasks.filter((task) => task.id === taskFilter)
 if (tasks.length === 0) {
@@ -152,7 +158,7 @@ try {
         await mkdir(dataRoot, { recursive: true })
         await mkdir(cacheRoot, { recursive: true })
         await mkdir(stateRoot, { recursive: true })
-        await cp(path.join(liveRoot, task.fixture), workspace, { recursive: true })
+        await cp(path.join(suiteRoot, task.fixture), workspace, { recursive: true })
         const beforeSnapshot = await snapshotWorkspace(workspace)
 
         if (authMode === "current") {
@@ -207,7 +213,7 @@ try {
         })
         const durationMs = Date.now() - started
 
-        const graderPath = path.join(liveRoot, task.grader)
+        const graderPath = path.join(suiteRoot, task.grader)
         const graderRun = spawnSync(process.execPath, [graderPath], {
           cwd: workspace,
           env: { ...childEnv, UES_EVAL_WORKSPACE: workspace, UES_EVAL_TASK: task.id },
@@ -268,12 +274,13 @@ for (const mode of modes) {
 
 const safeModel = model.replace(/[^a-zA-Z0-9._-]+/g, "-")
 const stamp = new Date().toISOString().replace(/[:.]/g, "-")
-const resultFile = path.join(resultDir, stamp + "-" + safeModel + ".json")
+const resultFile = path.join(resultDir, stamp + "-" + suiteName + "-" + safeModel + ".json")
 await writeFile(
   resultFile,
   JSON.stringify(
     {
       schemaVersion: 1,
+      suite: suiteName,
       suiteVersion: suite.version,
       model,
       variant: variant || null,
