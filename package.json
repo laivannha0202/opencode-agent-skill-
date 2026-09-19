@@ -34,7 +34,8 @@
     "inspect:repo": "node scripts/repo-map.mjs",
     "inspect:impact": "node scripts/impact-map.mjs",
     "inspect:evidence": "node scripts/collect-evidence.mjs",
-    "inspect:git": "node scripts/check-working-tree.mjs"
+    "inspect:git": "node scripts/check-working-tree.mjs",
+    "evals:report": "node scripts/eval-report.mjs"
   },
   "keywords": [
     "opencode",
