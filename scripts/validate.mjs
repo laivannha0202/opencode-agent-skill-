@@ -119,6 +119,25 @@ if (existsSync(routerIndex)) {
   if (!source.includes('"work", "heartbeat"')) errors.push("v8 task dispatch must refresh task leases")
 }
 
+const publishWorkflow = path.join(root, ".github", "workflows", "publish.yml")
+if (!existsSync(publishWorkflow)) {
+  errors.push("missing npm publish workflow")
+} else {
+  const source = await readFile(publishWorkflow, "utf8")
+  if (source.includes("workflow_dispatch")) errors.push("publish workflow must be tag-only")
+  if (!source.includes("id-token: write")) errors.push("publish workflow must enable OIDC id-token permission")
+  if (source.includes("NODE_AUTH_TOKEN")) errors.push("publish workflow must not inject long-lived npm tokens")
+  if (!source.includes("npm publish --access public --provenance")) errors.push("publish workflow must emit npm provenance")
+}
+
+const plainInstallSmoke = path.join(root, "scripts", "smoke-plain-install.mjs")
+if (existsSync(plainInstallSmoke)) {
+  const source = await readFile(plainInstallSmoke, "utf8")
+  if (source.includes("ocskill install after plain npm install")) {
+    errors.push("plain install smoke must not recover with a second manual install command")
+  }
+}
+
 for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs"]) {
   if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V8 core module ${name}`)
 }
