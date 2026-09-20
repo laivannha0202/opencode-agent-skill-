@@ -40,4 +40,4 @@ Only concrete issues that prevent completion.
 ## Completion evidence
 What the parent may truthfully claim after this verification.
 
-The parent must record your actual verdict with `ocskill work verify-integration <slug> . --verdict PASS|FAIL|PARTIAL --evidence <summary>`. Finalization is intentionally blocked without a recorded PASS and will be invalidated if the workspace changes afterward.
+For a long/high-risk PASS, the parent must create an `integration-verification` receipt bound to the current workspace fingerprint and pass it to `ocskill work verify-integration --receipt-file <file>`. Finalization remains blocked without PASS and is invalidated by later workspace changes.
