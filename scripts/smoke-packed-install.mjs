@@ -105,7 +105,7 @@ try {
   assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "router.js")), "v2 router helper was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "safety.js")), "v2 router safety gate was not installed from packed package")
-  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "capabilities.js")), "v7 router capability probe was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "capabilities.js")), "v8 router capability probe was not installed from packed package")
   const routerSource = await readFile(routerPlugin, "utf8")
   assert.match(routerSource, /name: "dispatch_task"/)
   assert.match(routerSource, /ctx\.session\.create/)
@@ -113,12 +113,15 @@ try {
   assert.match(routerSource, /ctx\.session\.switchModel/)
   assert.match(routerSource, /name: "capabilities"/)
   assert.match(routerSource, /name: "task_policy"/)
+  assert.match(routerSource, /name: "cancel_task"/)
+  assert.match(routerSource, /name: "recover_task"/)
+  assert.match(routerSource, /ctx\.session\.interrupt/)
   const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
 
   for (const name of ["ues-codebase-mapper.md", "ues-plan-checker.md", "ues-executor.md", "ues-integration-verifier.md"]) {
-    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V6 subagent " + name)
+    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V8 subagent " + name)
   }
   const executor = await readFile(path.join(configDir, "agents", "ues-executor.md"), "utf8")
   assert.match(executor, /permissions:/)
@@ -136,7 +139,7 @@ try {
   const planFile = path.join(temp, "PLAN.json")
   await writeFile(planFile, JSON.stringify({
     schemaVersion: 1,
-    goal: "Packed V6 smoke",
+    goal: "Packed V8 smoke",
     tasks: [{
       id: "T1",
       title: "Smoke",
@@ -157,12 +160,24 @@ try {
   requireSuccess(graph, "ocskill task-graph from packed copy")
   assert.match(graph.stdout, /"valid": true/)
 
-  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V6 work smoke"], {
+  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V8 work smoke"], {
     cwd: temp,
     env,
     encoding: "utf8",
   })
   requireSuccess(workInit, "ocskill work init from packed copy")
+  assert.ok(
+    existsSync(path.join(temp, ".ues-work", "packed-smoke", "EVENTS.jsonl")),
+    "packed V8 work item did not create EVENTS.jsonl",
+  )
+
+  const workEvents = spawnSync(process.execPath, [cli, "work", "events", "packed-smoke", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workEvents, "ocskill work events from packed copy")
+  assert.match(workEvents.stdout, /"work\.init"/)
 
   const workPlan = spawnSync(process.execPath, [cli, "work", "plan", "packed-smoke", planFile, temp], {
     cwd: temp,
