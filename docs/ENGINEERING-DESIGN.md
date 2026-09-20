@@ -156,3 +156,21 @@ UES deliberately avoids:
 - claiming that one benchmark proves general model equivalence
 
 The target is a small number of strong control loops: correct context, small tasks, durable state, deterministic checks and independent verification.
+
+
+## V7.7 intelligence runtime additions
+
+V7 adds four control loops around the V6 state machine:
+
+1. **runtime reliability** — task attempts carry run fencing, heartbeats and leases; expired `running` state can be recovered after process/session interruption;
+2. **evidence binding** — verification commands can emit structured receipts containing exit status, output digests and before/after workspace fingerprints;
+3. **context intelligence** — fresh executors receive a bounded manifest of declared files, import neighbors, likely tests, instruction/manifests and accepted learnings;
+4. **adaptive policy + learning** — deterministic task risk/complexity influences workflow/model tier and eval traces can produce explicit learning proposals.
+
+Parallelism is now read/write aware. Read/read overlap can share a wave; writers serialize against readers/writers unless the parent intentionally moves them into isolated Git worktree sandboxes.
+
+The V2 plugin probes actual session capabilities before dispatch rather than treating a major version number as sufficient proof that every runtime API exists.
+
+Hermes is deliberately adapter-only. UES can detect Hermes and generate a bounded task handoff, but does not embed Hermes' runtime, memory, scheduler or gateway into core.
+
+The local Control Center is observational. It reads durable artifacts and eval summaries; it does not bypass plan, verification, safety or finalization gates.
