@@ -66,3 +66,24 @@ test("sandbox integration refuses overlap with dirty root files", async () => {
     await rm(base, { recursive: true, force: true })
   }
 })
+
+
+test("sandbox creation refuses dirty root state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-dirty-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-dirty-base-"))
+  try {
+    await writeFile(path.join(root, "value.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+    await writeFile(path.join(root, "value.txt"), "dirty\n")
+
+    await assert.rejects(
+      createTaskSandbox(root, "demo", "T3", { baseDir: base }),
+      /clean root working tree/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
