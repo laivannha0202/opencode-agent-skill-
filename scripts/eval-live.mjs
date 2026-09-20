@@ -9,9 +9,17 @@ import { copyCurrentOpenCodeAuth } from "../lib/eval-auth.mjs"
 import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
 import { buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
+import { runProcess } from "../lib/process-runner.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
+const abortController = new AbortController()
+let interrupted = false
+process.once("SIGINT", () => {
+  interrupted = true
+  console.warn("\n[eval] interrupt requested; stopping the active OpenCode process tree...")
+  abortController.abort()
+})
 
 function argValue(name, fallback = null) {
   const index = args.indexOf(name)
@@ -79,6 +87,34 @@ function runCommand(executable, commandArgs, options = {}) {
   return spawnSync(resolved, commandArgs, options)
 }
 
+
+function runAsyncCommand(executable, commandArgs, options = {}) {
+  if (process.platform !== "win32") return runProcess(executable, commandArgs, options)
+
+  const resolved = findWindowsCommand(executable)
+  if (!resolved) {
+    return Promise.resolve({
+      status: 127,
+      signal: null,
+      stdout: "",
+      stderr: "Command not found: " + executable,
+      durationMs: 0,
+      timedOut: false,
+      idleTimedOut: false,
+      aborted: false,
+    })
+  }
+
+  if (/\.(cmd|bat)$/i.test(resolved)) {
+    const entry = findNodeShimEntry(resolved)
+    if (entry) return runProcess(process.execPath, [entry, ...commandArgs], options)
+    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
+    return runProcess(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], options)
+  }
+
+  return runProcess(resolved, commandArgs, options)
+}
+
 function excerpt(value, limit = 12000) {
   if (!value) return ""
   const text = String(value)
@@ -101,12 +137,20 @@ async function inspectLongOrchestration(workspace) {
       ])
       const tasks = Object.values(state.tasks || {})
       const evidenceTasks = new Set((evidence.entries || []).map((item) => item.task))
+      const receiptBackedTasks = new Set(
+        (evidence.receipts || []).filter((item) => item.passed).map((item) => item.task),
+      )
+      const plannedIDs = (plan.tasks || []).map((item) => item.id)
       const item = {
         slug: entry.name,
         taskCount: Array.isArray(plan.tasks) ? plan.tasks.length : 0,
         planApproved: state.planApproval?.status === "passed",
         attemptedTasks: tasks.filter((task) => Number(task.attempts || 0) > 0).length,
         completedTasks: tasks.filter((task) => task.status === "completed").length,
+        receiptBackedTasks: plannedIDs.filter((id) => receiptBackedTasks.has(id)).length,
+        receiptCoverage: plannedIDs.length
+          ? plannedIDs.filter((id) => receiptBackedTasks.has(id)).length / plannedIDs.length
+          : 0,
         integrationPassed: state.integrationVerification?.status === "PASS",
         integrationEvidence: evidenceTasks.has("__integration_verification__"),
         finalizedEvidence: evidenceTasks.has("__integration__"),
@@ -117,6 +161,7 @@ async function inspectLongOrchestration(workspace) {
         item.planApproved &&
         item.attemptedTasks === item.taskCount &&
         item.completedTasks === item.taskCount &&
+        item.receiptBackedTasks === item.taskCount &&
         item.integrationPassed &&
         item.integrationEvidence &&
         item.finalizedEvidence &&
@@ -142,10 +187,13 @@ const requestedMode = argValue("--mode", "both")
 const keep = hasArg("--keep")
 const authMode = argValue("--auth", "env-only")
 const suiteName = argValue("--suite", "live")
+const timeoutMs = positiveInt(argValue("--timeout-ms"), 15 * 60_000)
+const idleTimeoutMs = positiveInt(argValue("--idle-timeout-ms"), 5 * 60_000)
+const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep] [--timeout-ms N] [--idle-timeout-ms N] [--heartbeat-ms N]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -199,8 +247,11 @@ const oldConfigDir = process.env.OPENCODE_CONFIG_DIR
 
 try {
   for (const task of tasks) {
+    if (interrupted) break
     for (const mode of modes) {
+      if (interrupted) break
       for (let trial = 1; trial <= trials; trial += 1) {
+        if (interrupted) break
         const isolatedRoot = path.join(runRoot, task.id + "-" + mode + "-" + trial)
         const workspace = path.join(isolatedRoot, "workspace")
         const isolatedHome = path.join(isolatedRoot, "home")
@@ -252,14 +303,24 @@ try {
           prompt: task.prompt,
         })
 
-        const started = Date.now()
-        const agentRun = runCommand("opencode", opencodeArgs, {
+        console.log("[" + mode + "] " + task.id + " trial " + trial + ": starting agent")
+        const agentRun = await runAsyncCommand("opencode", opencodeArgs, {
           cwd: workspace,
           env: childEnv,
-          encoding: "utf8",
           maxBuffer: 4 * 1024 * 1024,
+          heartbeatMs,
+          timeoutMs,
+          idleTimeoutMs,
+          signal: abortController.signal,
+          onHeartbeat: ({ elapsedMs, idleMs }) => {
+            console.log(
+              "[" + mode + "] " + task.id + " trial " + trial +
+              ": still running (" + Math.round(elapsedMs / 1000) + "s elapsed, " +
+              Math.round(idleMs / 1000) + "s since output)",
+            )
+          },
         })
-        const durationMs = Date.now() - started
+        const durationMs = agentRun.durationMs
 
         const graderPath = path.join(suiteRoot, task.grader)
         const graderRun = spawnSync(process.execPath, [graderPath], {
@@ -290,6 +351,9 @@ try {
           agentExit: agentRun.status,
           graderExit: graderRun.status,
           durationMs,
+          timedOut: agentRun.timedOut,
+          idleTimedOut: agentRun.idleTimedOut,
+          aborted: agentRun.aborted,
           authMode,
           opencodeVersion,
           opencodeMajor,
@@ -304,11 +368,13 @@ try {
           timestamp: new Date().toISOString(),
         })
 
+        if (agentRun.aborted) interrupted = true
         console.log(
           "[" + mode + "] " + task.id + " trial " + trial + ": " +
           (passed ? "PASS" : "FAIL") +
           " (agent=" + agentRun.status + ", grader=" + graderRun.status +
           (orchestration.required ? ", orchestration=" + (orchestration.valid ? "PASS" : "FAIL") : "") +
+          (agentRun.timedOut ? ", timeout=hard" : agentRun.idleTimedOut ? ", timeout=idle" : "") +
           ", " + durationMs + "ms)",
         )
       }
@@ -347,6 +413,9 @@ await writeFile(
       trials,
       taskFilter: taskFilter || null,
       authMode,
+      timeoutMs,
+      idleTimeoutMs,
+      heartbeatMs,
       opencodeVersion,
       opencodeMajor,
       modes,
@@ -365,3 +434,4 @@ for (const [mode, item] of Object.entries(summary)) {
 }
 console.log("Result: " + resultFile)
 if (keep) console.log("Temporary workspaces kept under: " + runRoot)
+if (interrupted) process.exitCode = 130

@@ -13,3 +13,10 @@ Trust durable task state and Git evidence over conversational recollection. Resp
 - on OpenCode V2 prefer `ues.dispatch_task` for a fresh executor and configured model escalation;
 - do not repeat completed tasks unless fresh evidence invalidates them;
 - after all tasks complete, run `ues-integration-verifier`, record its verdict with `ocskill work verify-integration`, then finalize only after PASS and an unchanged workspace fingerprint.
+
+
+V7 recovery additions:
+- `ocskill work resume` automatically attempts stale-lease recovery before reporting ready work;
+- use `ocskill work recover <slug> .` explicitly when inspecting an interrupted run;
+- preserve the current runId when heartbeating/completing/failing an active task so a stale executor cannot accidentally fence a newer run;
+- prefer receipt-backed verification for retried tasks so the resumed state is backed by observable command results.

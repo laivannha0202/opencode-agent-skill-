@@ -40,10 +40,19 @@ import {
   resumeWork,
   startTask,
   workStatus,
+  heartbeatTask,
+  recoverStaleTasks,
+  recordVerificationReceipt,
+  workspaceFingerprint,
 } from "../lib/task-engine.mjs"
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
-import { resolveModel } from "../lib/model-policy.mjs"
+import { resolveAdaptiveModel, resolveModel } from "../lib/model-policy.mjs"
+import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
+import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
+import { createTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
+import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning } from "../lib/learning-engine.mjs"
+import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 
 const args = process.argv.slice(2)
@@ -77,6 +86,12 @@ Usage:
   ocskill work <action> ...     Manage persistent .ues-work long-task state
   ocskill model-policy <role> [--attempt N]
                               Resolve light/standard/heavy escalation tier
+  ocskill task-policy <text>    Classify task mode/risk/context/model tier
+  ocskill sandbox <action> ...  Manage isolated Git worktree task sandboxes
+  ocskill learn <action> ...    Analyze eval traces and promote accepted lessons
+  ocskill hermes <action> ...   Optional Hermes adapter/status
+  ocskill dashboard [dir] [--serve] [--port N]
+                              Generate/serve the local UES Control Center
   ocskill models <status|on|off|set|role> ...
                               Configure role/tier model routing, then re-sync
   ocskill router [status|on|off] [--max N]
@@ -91,9 +106,12 @@ Usage:
     ocskill work plan <slug> <plan.json> [dir]
     ocskill work status|resume <slug> [dir]
     ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence>
-    ocskill work start <slug> <task-id> [dir]
-    ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>]
-    ocskill work fail <slug> <task-id> [dir] --reason <text>
+    ocskill work start <slug> <task-id> [dir] [--lease-ms N]
+    ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]
+    ocskill work recover <slug> [dir] [--force]
+    ocskill work verify-command <slug> <task-id> [dir] [--run-id <id>] -- <command> [args...]
+    ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>] [--run-id <id>]
+    ocskill work fail <slug> <task-id> [dir] --reason <text> [--run-id <id>]
     ocskill work decision <slug> [dir] --text <decision>
     ocskill work block|unblock <slug> [dir] --text <blocker>
     ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text> [--report-file <file>]
@@ -372,7 +390,7 @@ async function workControl() {
   const action = args[1]
   const slug = args[2]
   if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|approve-plan|start|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
+    console.error("Usage: ocskill work <init|plan|status|resume|approve-plan|start|heartbeat|recover|verify-command|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
     process.exitCode = 2
     return
   }
@@ -410,7 +428,69 @@ async function workControl() {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work start <slug> <task-id> [dir]")
-      printJson(await startTask(root, slug, taskID))
+      printJson(await startTask(root, slug, taskID, {
+        leaseMs: Number.parseInt(optionValue("--lease-ms") || "0", 10) || undefined,
+      }))
+      return
+    }
+    if (action === "heartbeat") {
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]")
+      printJson(await heartbeatTask(root, slug, taskID, optionValue("--run-id"), {
+        leaseMs: Number.parseInt(optionValue("--lease-ms") || "0", 10) || undefined,
+      }))
+      return
+    }
+    if (action === "recover") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      printJson(await recoverStaleTasks(root, slug, { force: args.includes("--force") }))
+      return
+    }
+    if (action === "verify-command") {
+      const taskID = args[3]
+      const root = args[4] && args[4] !== "--" && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const separator = args.indexOf("--")
+      const executable = separator >= 0 ? args[separator + 1] : null
+      const commandArgs = separator >= 0 ? args.slice(separator + 2) : []
+      if (!taskID || !executable) {
+        throw new Error("Usage: ocskill work verify-command <slug> <task-id> [dir] [--run-id <id>] -- <command> [args...]")
+      }
+      const startedAt = new Date().toISOString()
+      const before = workspaceFingerprint(root)
+      const startedMs = Date.now()
+      const result = runCapture(executable, commandArgs, {
+        cwd: path.resolve(root),
+        maxBuffer: 8 * 1024 * 1024,
+      })
+      const receipt = createVerificationReceipt({
+        task: taskID,
+        runId: optionValue("--run-id"),
+        command: executable,
+        args: commandArgs,
+        cwd: path.resolve(root),
+        exitCode: result.status ?? 1,
+        startedAt,
+        finishedAt: new Date().toISOString(),
+        durationMs: Date.now() - startedMs,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        workspaceBefore: before,
+        workspaceAfter: workspaceFingerprint(root),
+      })
+      const recorded = await recordVerificationReceipt(root, slug, taskID, receipt)
+      const clip = (value) => {
+        const text = String(value || "")
+        return text.length <= 8000 ? text : "...[truncated]\n" + text.slice(-8000)
+      }
+      printJson({
+        receipt: recorded,
+        output: {
+          stdout: clip(result.stdout),
+          stderr: clip(result.stderr),
+        },
+      })
+      if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
       return
     }
     if (action === "complete") {
@@ -422,6 +502,7 @@ async function workControl() {
       printJson(await completeTask(root, slug, taskID, {
         evidence: optionValue("--evidence"),
         report,
+        runId: optionValue("--run-id"),
       }))
       return
     }
@@ -429,7 +510,7 @@ async function workControl() {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work fail <slug> <task-id> [dir] --reason <text>")
-      printJson(await failTask(root, slug, taskID, optionValue("--reason")))
+      printJson(await failTask(root, slug, taskID, optionValue("--reason"), { runId: optionValue("--run-id") }))
       return
     }
     if (action === "decision") {
@@ -483,11 +564,13 @@ async function modelPolicy() {
   }
   const attempt = Number.parseInt(optionValue("--attempt") || "1", 10)
   const policy = await readModelPolicy(getConfigDir())
-  printJson(resolveModel(
-    role,
-    Number.isInteger(attempt) && attempt > 0 ? attempt : 1,
-    policy,
-  ))
+  const normalizedAttempt = Number.isInteger(attempt) && attempt > 0 ? attempt : 1
+  const taskText = optionValue("--text")
+  if (taskText) {
+    printJson(resolveAdaptiveModel(role, normalizedAttempt, classifyEngineeringTask(taskText), policy))
+    return
+  }
+  printJson(resolveModel(role, normalizedAttempt, policy))
 }
 
 
@@ -579,6 +662,121 @@ async function routerControl() {
   }
   console.log(`[ocskill] Max automatic skills: ${config.maxSkills}`)
   console.log(`[ocskill] Config: ${config.file}`)
+}
+
+
+async function taskPolicyControl() {
+  const text = args.slice(1).join(" ").trim()
+  if (!text) {
+    console.error("Usage: ocskill task-policy <text>")
+    process.exitCode = 2
+    return
+  }
+  printJson(classifyEngineeringTask(text))
+}
+
+async function sandboxControl() {
+  const action = args[1] || "list"
+  try {
+    if (action === "list") {
+      printJson(listTaskSandboxes(args[2] || process.cwd()))
+      return
+    }
+    if (action === "create") {
+      const slug = args[2]
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!slug || !taskID) throw new Error("Usage: ocskill sandbox create <slug> <task-id> [dir]")
+      printJson(await createTaskSandbox(root, slug, taskID))
+      return
+    }
+    if (action === "remove") {
+      const dir = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!dir) throw new Error("Usage: ocskill sandbox remove <worktree-path> [dir] [--force]")
+      printJson(await removeTaskSandbox(root, dir, { force: args.includes("--force") }))
+      return
+    }
+    throw new Error("Usage: ocskill sandbox <list|create|remove> ...")
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
+}
+
+async function learningControl() {
+  const action = args[1] || "status"
+  const root = args[2] && !args[2].startsWith("--") ? args[2] : process.cwd()
+  try {
+    if (action === "status") {
+      printJson(await readLearningState(root))
+      return
+    }
+    if (action === "analyze") {
+      const evalDir = optionValue("--eval-dir") || path.join(path.resolve(root), ".ues-evals")
+      const analysis = await analyzeEvalTraces(evalDir)
+      const state = await saveLearningAnalysis(root, analysis)
+      printJson({ analysis, state })
+      return
+    }
+    if (action === "accept") {
+      const id = args[2]
+      const acceptRoot = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!id) throw new Error("Usage: ocskill learn accept <proposal-id> [dir]")
+      printJson(await acceptLearning(acceptRoot, id))
+      return
+    }
+    throw new Error("Usage: ocskill learn <status|analyze|accept> ...")
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
+}
+
+async function hermesControl() {
+  const action = args[1] || "status"
+  if (action === "status") {
+    printJson(hermesStatus())
+    return
+  }
+  if (action === "prompt" || action === "exec") {
+    const slug = args[2]
+    const taskID = args[3]
+    const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+    if (!slug || !taskID) {
+      console.error("Usage: ocskill hermes <prompt|exec> <slug> <task-id> [dir]")
+      process.exitCode = 2
+      return
+    }
+    const prompt = buildHermesDelegationPrompt(await contextPack(root, slug, taskID))
+    if (action === "prompt") {
+      console.log(prompt)
+      return
+    }
+
+    const status = hermesStatus()
+    if (!status.available) {
+      console.error(status.error || "Hermes CLI is unavailable")
+      process.exitCode = 1
+      return
+    }
+    const result = runCapture("hermes", hermesOneShotArgs(prompt), {
+      cwd: path.resolve(root),
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    if (result.stdout) process.stdout.write(result.stdout)
+    if (result.stderr) process.stderr.write(result.stderr)
+    if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
+    return
+  }
+  console.error("Usage: ocskill hermes <status|prompt|exec> ...")
+  process.exitCode = 2
+}
+
+async function dashboardControl() {
+  const forwarded = args.slice(1)
+  const code = run(process.execPath, [path.join(packageRoot, "scripts", "control-center.mjs"), ...forwarded])
+  if (code !== 0) process.exitCode = code
 }
 
 async function update() {
@@ -725,6 +923,21 @@ switch (command) {
     break
   case "model-policy":
     await modelPolicy()
+    break
+  case "task-policy":
+    await taskPolicyControl()
+    break
+  case "sandbox":
+    await sandboxControl()
+    break
+  case "learn":
+    await learningControl()
+    break
+  case "hermes":
+    await hermesControl()
+    break
+  case "dashboard":
+    await dashboardControl()
     break
   case "models":
     await modelsControl()

@@ -94,9 +94,11 @@ if (agents < 10) errors.push(`expected at least 10 subagents, found ${agents}`)
 const routerIndex = path.join(pluginsRoot, "ues-router", "index.js")
 const routerCore = path.join(pluginsRoot, "ues-router", "router.js")
 const routerSafety = path.join(pluginsRoot, "ues-router", "safety.js")
+const routerCapabilities = path.join(pluginsRoot, "ues-router", "capabilities.js")
 if (!existsSync(routerIndex)) errors.push("missing OpenCode v2 router plugin entrypoint")
 if (!existsSync(routerCore)) errors.push("missing OpenCode v2 router core")
 if (!existsSync(routerSafety)) errors.push("missing OpenCode v2 safety gate")
+if (!existsSync(routerCapabilities)) errors.push("missing OpenCode v2 runtime capability probe")
 if (existsSync(routerIndex)) {
   const source = await readFile(routerIndex, "utf8")
   if (!source.includes('id: "ues-router"')) errors.push("v2 router plugin must declare stable id ues-router")
@@ -109,6 +111,13 @@ if (existsSync(routerIndex)) {
   if (!source.includes("ctx.session.switchAgent")) errors.push("v2 task dispatch must select ues-executor")
   if (!source.includes("ctx.session.switchModel")) errors.push("v2 task dispatch must support configured model escalation")
   if (!source.includes("ctx.session.wait")) errors.push("v2 task dispatch must wait for executor completion")
+  if (!source.includes('name: "capabilities"')) errors.push("v7 router plugin must expose runtime capability inspection")
+  if (!source.includes('name: "task_policy"')) errors.push("v7 router plugin must expose adaptive task policy")
+  if (!source.includes('"work", "heartbeat"')) errors.push("v7 task dispatch must refresh task leases")
+}
+
+for (const name of ["process-runner.mjs","evidence-receipt.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs"]) {
+  if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V7 core module ${name}`)
 }
 
 for (const name of ["codebase-mapper.md","plan-checker.md","executor.md","integration-verifier.md"]) {

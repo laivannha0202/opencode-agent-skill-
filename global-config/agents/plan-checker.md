@@ -15,7 +15,7 @@ ocskill task-graph <path-to-PLAN.json>
 ocskill verification-plan .
 ```
 
-Reject a plan when it relies on invented files/interfaces, has dependency cycles, missing consumers, untestable acceptance criteria, unsafe same-wave file overlap, unexplained destructive operations, or verification that cannot prove the requested behavior.
+Reject a plan when it relies on invented files/interfaces, has dependency cycles, missing consumers, untestable acceptance criteria, unsafe same-wave write/read conflicts, unexplained destructive operations, or verification that cannot prove the requested behavior. Two read-only tasks may share files; any writer must be serialized against readers/writers unless isolated worktrees plus an explicit integration step make the boundary safe.
 
 Return exactly:
 

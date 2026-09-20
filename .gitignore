@@ -6,3 +6,6 @@ Thumbs.db
 !.env.example
 .ues-evals/
 .ues-work/
+.ues-learning/
+.ues-dashboard/
+.ues-sandboxes/

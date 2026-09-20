@@ -1,10 +1,38 @@
 # OpenCode Universal Engineering System (UES)
 
-**UES 6.0.0** là engineering harness cho OpenCode, tập trung vào việc giúp model hiện có xử lý repository lớn và task dài theo quy trình có trạng thái bền vững, fresh-context execution, deterministic evidence và verification gate.
+**UES 7.7.0** là engineering harness cho OpenCode, tập trung vào việc giúp model hiện có xử lý repository lớn và task dài theo quy trình có trạng thái bền vững, fresh-context execution, deterministic evidence và verification gate.
 
 UES không tuyên bố biến một model yếu thành model mạnh hơn về bản chất. Mục tiêu là giảm lượng reasoning mà model phải tự giữ trong một context: chia task rõ, lưu state ra filesystem, dùng code cho các việc có thể xác định được, chạy subagent với context mới, và chỉ cho phép hoàn tất khi có evidence.
 
-## UES 6.0.0 có gì?
+## UES 7.7.0 có gì?
+
+Ngoài nền V6 (durable PLAN/STATE/EVIDENCE, fresh executors, plan/integration gates), V7.7 thêm:
+
+- crash-safe task lease với `runId`, heartbeat, stale-task recovery
+- live benchmark heartbeat + hard/idle timeout + Ctrl+C process-tree cancellation
+- structured verification receipts gắn command/exit code/output hash/workspace fingerprint vào task run
+- context manifest tự chọn declared files, import neighbors, likely tests, manifests và accepted lessons
+- adaptive task policy: inline/standard/long-horizon + risk/model/context/retry guidance
+- read/write-aware safe waves và isolated Git worktree sandbox primitives cho parallel writers
+- evidence-gated learning loop từ `.ues-evals` → proposal → explicit accept → future context retrieval
+- optional Hermes bridge theo kiểu adapter, không nhúng Hermes runtime vào core
+- zero-dependency local **UES Control Center** cho work state, evidence, learning và eval summaries; chế độ `--serve` tự refresh dữ liệu
+
+Xem chi tiết: [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
+
+### Lệnh V7 nhanh
+
+```cmd
+ocskill task-policy "refactor auth across the whole repository"
+ocskill work recover <slug> .
+ocskill work verify-command <slug> <task> . -- npm test
+ocskill sandbox create <slug> <task> .
+ocskill learn analyze . --eval-dir .ues-evals
+ocskill hermes status
+ocskill dashboard . --serve
+```
+
+
 
 - **39 engineering skills**
 - **11 slash commands**
@@ -73,11 +101,11 @@ Nếu npm không chạy lifecycle script:
 ocskill install
 ```
 
-Khi đồng bộ V6 đầy đủ, status sẽ phản ánh khoảng:
+Khi đồng bộ V7.7 đầy đủ, status sẽ phản ánh khoảng:
 
 ```text
-Package version: 6.0.0
-Resource version: 6.0.0
+Package version: 7.7.0
+Resource version: 7.7.0
 Skills: 39/39
 Commands: 11/11
 Subagents: 10/10
@@ -138,6 +166,16 @@ Nếu session bị ngắt/compact:
 ---
 
 # 3. Long-horizon engine
+
+V7 task records additionally track `runId`, executor owner, heartbeat, lease expiry and evidence strength. `ocskill work resume` can recover stale running tasks, while the V2 dispatcher refreshes leases during fresh-session execution.
+
+Structured verification can be recorded with:
+
+```cmd
+ocskill work verify-command <slug> <task> . --run-id <run-id> -- npm test
+```
+
+
 
 Mỗi work item dùng:
 
@@ -232,7 +270,18 @@ Parent vẫn phải inspect diff/evidence và gọi `work complete` hoặc `work
 
 ---
 
-# 5. Model tiers
+# 5. Adaptive task + model policy
+
+V7 adds deterministic task classification:
+
+```cmd
+ocskill task-policy "your engineering request"
+ocskill model-policy executor --attempt 1 --text "your engineering request"
+```
+
+Task risk/complexity can raise the base model tier before attempt-based escalation. User-configured provider/model IDs remain authoritative.
+
+## Model tiers
 
 Xem cấu hình:
 
@@ -376,6 +425,10 @@ Instruction vẫn yêu cầu confirmation cho destructive/external side effects.
 
 # 10. Evaluation
 
+Live evals now print heartbeats and support `--heartbeat-ms`, `--idle-timeout-ms`, and `--timeout-ms`. Ctrl+C asks the harness to terminate the active OpenCode process tree cleanly.
+
+
+
 ## Static skill contract
 
 ```cmd
@@ -390,7 +443,7 @@ Giữ **34 scenarios** để kiểm catalog và phủ đủ 39 skill.
 npm run evals:router
 ```
 
-V6 có **120 cases** với required routes và negative guards.
+V7.7 giữ **120 cases** với required routes và negative guards, cộng regression tests riêng cho cap-priority/capability runtime.
 
 ## Standard hidden graders
 
@@ -493,3 +546,36 @@ UES chỉ quản lý resource có namespace/marker của chính nó, giữ unman
 # License
 
 MIT
+
+
+# 13. Learning, Hermes và Control Center
+
+Evidence-gated learning:
+
+```cmd
+ocskill learn analyze . --eval-dir .ues-evals
+ocskill learn status .
+ocskill learn accept <proposal-id> .
+```
+
+Optional Hermes adapter:
+
+```cmd
+ocskill hermes status
+ocskill hermes prompt <slug> <task> .
+ocskill hermes exec <slug> <task> .
+```
+
+Local Control Center:
+
+```cmd
+ocskill dashboard .
+ocskill dashboard . --serve --port 4177
+```
+
+Parallel write isolation primitives:
+
+```cmd
+ocskill sandbox create <slug> <task> .
+ocskill sandbox list .
+```

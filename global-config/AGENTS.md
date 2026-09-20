@@ -16,11 +16,12 @@ The selected model remains the model. These instructions improve process, contex
 
 ## First actions
 
-1. Read the repository's applicable `AGENTS.md`, manifests, package-manager files, and nearby conventions before editing.
-2. Establish the actual request, acceptance criteria, constraints, and current behavior from evidence.
-3. For non-trivial work, load `ues-engineering-orchestrator` first. Then load only the process and domain skills that materially help.
-4. Prefer process skills before framework skills: exploration/planning/debugging/verification determine how to work; domain skills determine what framework-specific details to apply.
-5. Keep the active skill set focused. Usually 2-4 skills are enough; do not load the entire catalog.
+1. When `ocskill` is available for non-trivial work, classify the request with `ocskill task-policy <text>` and use its mode/risk/model/context guidance as a deterministic starting point.
+2. Read the repository's applicable `AGENTS.md`, manifests, package-manager files, and nearby conventions before editing.
+3. Establish the actual request, acceptance criteria, constraints, and current behavior from evidence.
+4. For non-trivial work, load `ues-engineering-orchestrator` first. Then load only the process and domain skills that materially help.
+5. Prefer process skills before framework skills: exploration/planning/debugging/verification determine how to work; domain skills determine what framework-specific details to apply.
+6. Keep the active skill set focused. Usually 2-4 skills are enough; do not load the entire catalog.
 
 ## Deterministic evidence helpers
 
@@ -34,7 +35,11 @@ When the `ocskill` CLI is available, prefer deterministic repository evidence be
 - `ocskill review-scope [base] [dir]` — deterministic changed-file coverage and risk hints
 - `ocskill verification-plan [dir]` — project-native verification recommendations
 - `ocskill task-graph <PLAN.json>` — validate dependencies and compute safe execution waves
-- `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff for a fresh executor
+- `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff enriched with declared files, import neighbors, likely tests, instruction/manifests and accepted lessons
+- `ocskill work verify-command ... -- <command>` — structured verification receipt (exit code, hashes, timing, workspace fingerprints)
+- `ocskill sandbox create|list|remove ...` — isolated Git worktree primitives for parallel write tasks
+- `ocskill learn status|analyze|accept ...` — evidence-gated learning loop; proposals never auto-edit skills
+- `ocskill dashboard [dir] --serve` — local Control Center for work state, evidence, learning and eval summaries
 
 These helpers are evidence accelerators, not substitutes for reading the exact affected code. Use repository-native search/tools when they provide more precise symbol/call-graph information.
 
@@ -128,10 +133,10 @@ For explicit long-running/autonomous work, do not ask one context to remember th
 2. Persist observable requirements in `.ues-work/<slug>/SPEC.md`.
 3. Create a machine-checkable `PLAN.json` and validate it with `ocskill task-graph`.
 4. Ask `ues-plan-checker` to challenge the plan before edits begin. Record PASS with `ocskill work approve-plan`; `work start` is blocked until this happens.
-5. Execute each approved task in a fresh `ues-executor` context. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
-6. Inspect each child diff and mark task completion only with fresh evidence using `ocskill work complete`; record failures with `ocskill work fail`.
-7. Parallelize only dependency-safe tasks with non-overlapping declared files and genuinely independent write surfaces. UES serializes durable state writes but cannot make conflicting source edits safe.
-8. On resume, trust durable state plus current Git evidence over conversational memory.
+5. Execute each approved task in a fresh `ues-executor` context. Active V7 tasks carry a runId, heartbeat and lease expiry so interrupted work can be recovered deterministically. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
+6. Inspect each child diff and prefer receipt-backed verification using `ocskill work verify-command` before marking completion with `ocskill work complete`; record failures with `ocskill work fail`.
+7. Parallelize only dependency-safe tasks with no write/read conflict. For concurrent writers, use isolated worktrees/sandboxes and an explicit integration step instead of sharing one working tree. UES serializes durable state writes but cannot make conflicting source edits safe.
+8. On resume, trust durable state plus current Git evidence over conversational memory. Recover expired executor leases before retrying; preserve runId fences for active attempts.
 9. After all tasks complete, run `ues-integration-verifier` against cross-task contracts and end-to-end acceptance criteria, then persist its actual verdict with `ocskill work verify-integration`.
 10. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
 11. Merge/push/publish/deploy remain external side effects and require explicit user intent.
@@ -198,3 +203,10 @@ Ask before destructive or irreversible actions such as deleting important data, 
 ## Completion standard
 
 A task is complete only when requested behavior is implemented, acceptance criteria are addressed, relevant verification has fresh evidence, the final diff has been reviewed, no known blocking critic finding is being hidden, and any remaining limitations are stated accurately.
+
+
+## V7 learning and optional external executors
+
+UES may analyze its own `.ues-evals` traces with `ocskill learn analyze`. The output is a proposal set, not an automatic self-modification. A human/parent explicitly accepts a proposal before it can appear in future task context. This keeps learning evidence-gated and reversible.
+
+Hermes support is optional and adapter-style. `ocskill hermes status` checks availability and `ocskill hermes prompt <slug> <task> .` emits a bounded delegation prompt. Hermes is not embedded into the UES runtime and may not mutate UES durable state on its own.

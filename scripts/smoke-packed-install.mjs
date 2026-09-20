@@ -104,11 +104,14 @@ try {
   assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "router.js")), "v2 router helper was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "safety.js")), "v2 router safety gate was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "capabilities.js")), "v7 router capability probe was not installed from packed package")
   const routerSource = await readFile(routerPlugin, "utf8")
   assert.match(routerSource, /name: "dispatch_task"/)
   assert.match(routerSource, /ctx\.session\.create/)
   assert.match(routerSource, /ctx\.session\.switchAgent/)
   assert.match(routerSource, /ctx\.session\.switchModel/)
+  assert.match(routerSource, /name: "capabilities"/)
+  assert.match(routerSource, /name: "task_policy"/)
   const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
@@ -205,13 +208,39 @@ try {
     encoding: "utf8",
   })
   requireSuccess(workStart, "ocskill work start from packed copy")
+  const started = JSON.parse(workStart.stdout)
+  assert.ok(started.record.runId)
 
-  const workComplete = spawnSync(process.execPath, [cli, "work", "complete", "packed-smoke", "T1", temp, "--evidence", "node --version => PASS"], {
+  const heartbeat = spawnSync(process.execPath, [cli, "work", "heartbeat", "packed-smoke", "T1", temp, "--run-id", started.record.runId], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(heartbeat, "ocskill work heartbeat from packed copy")
+
+  const verifyCommand = spawnSync(process.execPath, [
+    cli, "work", "verify-command", "packed-smoke", "T1", temp,
+    "--run-id", started.record.runId,
+    "--", process.execPath, "--version",
+  ], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(verifyCommand, "ocskill work verify-command from packed copy")
+  assert.match(verifyCommand.stdout, /"passed": true/)
+
+  const workComplete = spawnSync(process.execPath, [
+    cli, "work", "complete", "packed-smoke", "T1", temp,
+    "--evidence", "node --version => PASS",
+    "--run-id", started.record.runId,
+  ], {
     cwd: temp,
     env,
     encoding: "utf8",
   })
   requireSuccess(workComplete, "ocskill work complete from packed copy")
+  assert.match(workComplete.stdout, /"evidenceStrength": "receipt-backed"/)
 
   const finalizeBeforeVerify = spawnSync(process.execPath, [cli, "work", "finalize", "packed-smoke", temp, "--evidence", "should fail"], {
     cwd: temp,
@@ -235,6 +264,34 @@ try {
   })
   requireSuccess(workFinalize, "ocskill work finalize from packed copy")
   assert.match(workFinalize.stdout, /"status": "completed"/)
+
+  const adaptivePolicy = spawnSync(process.execPath, [
+    cli, "task-policy",
+    "Refactor the entire repository authentication schema migration and public API contracts",
+  ], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(adaptivePolicy, "ocskill task-policy from packed copy")
+  assert.match(adaptivePolicy.stdout, /"mode": "long-horizon"/)
+  assert.match(adaptivePolicy.stdout, /"modelTier": "heavy"/)
+
+  const dashboard = spawnSync(process.execPath, [cli, "dashboard", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(dashboard, "ocskill dashboard from packed copy")
+  assert.ok(existsSync(path.join(temp, ".ues-dashboard", "index.html")))
+
+  const hermes = spawnSync(process.execPath, [cli, "hermes", "status"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(hermes, "ocskill hermes status from packed copy")
+  assert.match(hermes.stdout, /"available":/)
 
   const modelStatus = spawnSync(process.execPath, [cli, "models", "status"], {
     cwd: temp,
