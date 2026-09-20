@@ -5,7 +5,7 @@ import path from "node:path"
 import { writeControlCenter } from "../lib/control-center.mjs"
 
 const args = process.argv.slice(2)
-const root = path.resolve(args.find((arg) => !arg.startsWith("--")) || process.cwd())
+const root = path.resolve(args[0] && !args[0].startsWith("--") ? args[0] : process.cwd())
 const outputIndex = args.indexOf("--output")
 const output = outputIndex >= 0 ? args[outputIndex + 1] : null
 const portIndex = args.indexOf("--port")
