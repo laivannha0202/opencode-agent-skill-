@@ -8,8 +8,8 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
 const suiteIndex = args.indexOf("--suite")
 const suiteName = suiteIndex >= 0 ? args[suiteIndex + 1] : "live"
-if (!["live", "long"].includes(suiteName)) {
-  console.error("--suite must be live or long")
+if (!["live", "long", "polyglot"].includes(suiteName)) {
+  console.error("--suite must be live, long or polyglot")
   process.exit(2)
 }
 const suiteRoot = path.join(root, "evals", suiteName)
@@ -17,7 +17,7 @@ const suite = JSON.parse(await readFile(path.join(suiteRoot, "tasks.json"), "utf
 const errors = []
 const ids = new Set()
 
-const minimumTasks = suiteName === "long" ? 5 : 20
+const minimumTasks = suiteName === "long" ? 5 : suiteName === "polyglot" ? 8 : 20
 if (!Array.isArray(suite.tasks) || suite.tasks.length < minimumTasks) {
   errors.push(suiteName + " eval suite must contain at least " + minimumTasks + " tasks")
 }
