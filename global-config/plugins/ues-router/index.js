@@ -140,7 +140,6 @@ export default Plugin.define({
           properties: {
             slug: { type: "string" },
             task: { type: "string" },
-            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
           },
           required: ["slug", "task"],
           additionalProperties: false,
@@ -152,12 +151,13 @@ export default Plugin.define({
       })
       editor.add({
         name: "dispatch_task",
-        description: "Start one approved UES task and execute it in a fresh ues-executor session, applying configured attempt-based model escalation when available. The parent must inspect the diff and record completion evidence separately.",
+        description: "Start one approved UES task and execute it in a fresh ues-executor session with bounded runtime and interrupt-on-timeout. The parent must inspect the diff and record completion evidence separately.",
         input: {
           type: "object",
           properties: {
             slug: { type: "string" },
             task: { type: "string" },
+            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
           },
           required: ["slug", "task"],
           additionalProperties: false,
