@@ -17,7 +17,7 @@ opencode-agent-skill
 npm run ci
 ```
 
-V7.7 CI includes syntax validation, resource validation, static skill routing, the 120-case V2 router matrix, standard and long hidden-grader integrity checks, unit/integration tests, package dry-run, and an isolated packed global-install smoke.
+V8 CI includes syntax validation, resource validation, static skill routing, the 120-case V2 router matrix, standard/long/polyglot hidden-grader integrity checks, unit/integration tests, package dry-run, packed global-install smoke, and a plain global-install compatibility smoke.
 
 ## Manual release-like test
 
@@ -27,7 +27,7 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\opencode-agent-skill-7.7.0.tgz --allow-scripts=opencode-agent-skill
+npm install -g .\opencode-agent-skill-8.0.0.tgz --allow-scripts=opencode-agent-skill
 ocskill status
 ocskill doctor
 ```
@@ -47,19 +47,19 @@ After publication verify:
 
 ```cmd
 npm view opencode-agent-skill versions --json
-npm view opencode-agent-skill@7.7.0 version
+npm view opencode-agent-skill@8.0.0 version
 npm dist-tag ls opencode-agent-skill
 ```
 
 The expected release tag is:
 
 ```text
-latest: 7.7.0
+latest: 8.0.0
 ```
 
 ## GitHub Actions publishing
 
-The repository's publish workflow is release-ready for token-based publishing and provenance. It runs the same package validation before `npm publish`.
+The repository's publish workflow is OIDC/provenance-ready and runs the same package validation before `npm publish`.
 
 For stronger long-term supply-chain security, configure npm Trusted Publishing for:
 
@@ -71,7 +71,7 @@ Workflow: publish.yml
 
 Then the GitHub-hosted workflow can authenticate through OIDC instead of a long-lived npm publish token. npm Trusted Publishing requires the corresponding publisher relationship to be configured on npm; repository code alone cannot create that account-side trust relationship.
 
-Until that npm-side setup is complete, keep a valid publish credential configured as `NPM_TOKEN`.
+Until the npm-side Trusted Publisher relationship is configured, the workflow can fall back to a valid `NPM_TOKEN`. After OIDC publishing is verified, remove long-lived publish-token access where practical.
 
 ## Release checklist
 
