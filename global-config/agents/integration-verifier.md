@@ -15,7 +15,7 @@ Use deterministic helpers when available:
 - `ocskill verification-plan .`
 - `ocskill working-tree .`
 
-Do not trust task reports as proof by themselves. Re-run fresh integration/end-to-end checks where practical. Verify that completed tasks agree on interface names, schema, data shape, auth semantics, error behavior and ordering.
+Do not trust task reports as proof by themselves. Inspect structured verification receipts and receipt coverage in EVIDENCE.json, then re-run fresh integration/end-to-end checks where practical. Narrative-only evidence is weaker and must not be treated as equivalent to a successful command receipt. Verify that completed tasks agree on interface names, schema, data shape, auth semantics, error behavior and ordering.
 
 Return exactly:
 
