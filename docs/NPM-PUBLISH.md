@@ -17,7 +17,7 @@ The package is published as:
 npm run ci
 ```
 
-V6 CI includes syntax validation, resource validation, static skill routing, the 120-case V2 router matrix, standard and long hidden-grader integrity checks, unit/integration tests, package dry-run, and an isolated packed global-install smoke.
+V7.7 CI includes syntax validation, resource validation, static skill routing, the 120-case V2 router matrix, standard and long hidden-grader integrity checks, unit/integration tests, package dry-run, and an isolated packed global-install smoke.
 
 ## Manual release-like test
 
@@ -27,7 +27,7 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-6.0.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+npm install -g .\laivannha0202-opencode-agent-skill-7.7.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
 ocskill status
 ocskill doctor
 ```
@@ -47,14 +47,14 @@ After publication verify:
 
 ```cmd
 npm view @laivannha0202/opencode-agent-skill versions --json
-npm view @laivannha0202/opencode-agent-skill@6.0.0 version
+npm view @laivannha0202/opencode-agent-skill@7.7.0 version
 npm dist-tag ls @laivannha0202/opencode-agent-skill
 ```
 
 The expected release tag is:
 
 ```text
-latest: 6.0.0
+latest: 7.7.0
 ```
 
 ## GitHub Actions publishing
