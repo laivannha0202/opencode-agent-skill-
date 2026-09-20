@@ -301,9 +301,15 @@ export default Plugin.define({
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
           const workStatus = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const workingTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
+          const rootClean = workingTree?.git === true && workingTree?.clean === true
+          if (input.isolate === true && !rootClean) {
+            throw new Error("explicit sandbox isolation requires a clean root working tree; commit/stash or integrate existing changes first")
+          }
           const autoIsolate =
             input.isolate === true ||
             (input.isolate !== false &&
+              rootClean &&
               Number(workStatus?.counts?.running || 0) > 1 &&
               taskHasWrites(started?.contextPack?.task))
           let sandbox = null
