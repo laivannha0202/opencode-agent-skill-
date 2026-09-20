@@ -159,6 +159,45 @@ export default Plugin.define({
         }),
       })
       editor.add({
+        name: "cancel_task",
+        description: "Interrupt a running UES executor session and mark its durable task attempt failed.",
+        input: {
+          type: "object",
+          properties: {
+            slug: { type: "string" },
+            task: { type: "string" },
+            reason: { type: "string" },
+          },
+          required: ["slug", "task"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => {
+          if (!capabilities.sessionInterrupt) {
+            throw new Error("OpenCode runtime does not expose session.interrupt")
+          }
+          const status = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const running = (status.running || []).find((item) => item.taskID === input.task)
+          if (!running) throw new Error("task is not currently running: " + input.task)
+          if (!running.sessionID) throw new Error("running task has no attached executor session")
+          await ctx.session.interrupt({ sessionID: running.sessionID, continue: false })
+          const failArgs = [
+            "work", "fail", input.slug, input.task, projectRoot,
+            "--reason", input.reason || "cancelled by user/runtime",
+          ]
+          if (running.runId) failArgs.push("--run-id", running.runId)
+          const failed = runOcskillJSON(failArgs, projectRoot)
+          return {
+            content: JSON.stringify({
+              interrupted: true,
+              sessionID: running.sessionID,
+              task: input.task,
+              state: failed,
+            }, null, 2),
+          }
+        },
+      })
+      editor.add({
         name: "dispatch_task",
         description: "Start one approved UES task and execute it in a fresh ues-executor session with bounded runtime and interrupt-on-timeout. The parent must inspect the diff and record completion evidence separately.",
         input: {
@@ -225,6 +264,14 @@ export default Plugin.define({
               title: "UES " + input.slug + " " + input.task,
               location: { directory: executionDir },
             })
+            {
+              const attachArgs = [
+                "work", "attach-session", input.slug, input.task, projectRoot,
+                "--session-id", created.id,
+              ]
+              if (runId) attachArgs.push("--run-id", runId)
+              runOcskill(attachArgs, projectRoot)
+            }
             await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
             const selectedModel = modelRef(policy?.model)
             if (selectedModel) {
