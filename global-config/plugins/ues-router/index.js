@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { routeSkills } from "./router.js"
+import { classifyIntent, routeSkills } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
 
@@ -100,6 +100,28 @@ function policySkills(policy) {
   for (const domain of policy?.domains || []) add(map[domain])
   if (policy?.risk === "high") add("ues-change-impact-analysis")
   return selected
+}
+
+function projectRoutingFacts(projectRoot) {
+  let inspected = null
+  let learning = null
+  try { inspected = runOcskillJSON(["inspect", projectRoot], projectRoot) } catch {}
+  try { learning = runOcskillJSON(["learn", "status", projectRoot], projectRoot) } catch {}
+
+  const feedbackDomains = []
+  for (const item of learning?.accepted || []) {
+    if (item.status !== "promoted") continue
+    const learned = classifyIntent(item.candidateRule || item.recommendation || item.title || "")
+    for (const domain of learned.domains || []) {
+      if (!feedbackDomains.includes(domain)) feedbackDomains.push(domain)
+    }
+  }
+
+  return {
+    repoStacks: inspected?.stack?.stacks || [],
+    feedbackDomains,
+    acceptedLearningCount: (learning?.accepted || []).filter((item) => item.status === "promoted").length,
+  }
 }
 
 export default Plugin.define({
@@ -304,15 +326,16 @@ export default Plugin.define({
           const workStatus = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
           const workingTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
           const rootClean = workingTree?.git === true && workingTree?.clean === true
+          const writerTask = taskHasWrites(started?.contextPack?.task)
           if (input.isolate === true && !rootClean) {
             throw new Error("explicit sandbox isolation requires a clean root working tree; commit/stash or integrate existing changes first")
           }
+          if (input.isolate !== false && writerTask && !rootClean) {
+            throw new Error("writer dispatch requires a clean root for automatic worktree isolation; clean the root or explicitly pass isolate:false to accept shared-root writes")
+          }
           const autoIsolate =
             input.isolate === true ||
-            (input.isolate !== false &&
-              rootClean &&
-              Number(workStatus?.counts?.running || 0) > 1 &&
-              taskHasWrites(started?.contextPack?.task))
+            (input.isolate !== false && rootClean && writerTask)
           let sandbox = null
           let executionDir = projectRoot
           if (autoIsolate) {
@@ -439,6 +462,8 @@ export default Plugin.define({
       })
     })
 
+    const routingFacts = projectRoutingFacts(projectRoot)
+
     if (capabilities.sessionHook) {
       await ctx.session.hook("context", (event) => {
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
@@ -456,8 +481,9 @@ export default Plugin.define({
       try {
         policy = runOcskillJSON(["task-policy", event.prompt.text], projectRoot)
       } catch {}
+      const intent = classifyIntent(event.prompt.text, routingFacts)
       const selected = []
-      for (const id of [...routeSkills(event.prompt.text, config.maxSkills), ...policySkills(policy)]) {
+      for (const id of [...routeSkills(event.prompt.text, config.maxSkills, routingFacts), ...policySkills(policy)]) {
         if (!selected.includes(id)) selected.push(id)
         if (selected.length >= config.maxSkills) break
       }
@@ -475,7 +501,13 @@ export default Plugin.define({
         uesRouter: {
           selected,
           policy,
-          version: 4,
+          intent,
+          facts: {
+            repoStacks: routingFacts.repoStacks,
+            feedbackDomains: routingFacts.feedbackDomains,
+            acceptedLearningCount: routingFacts.acceptedLearningCount,
+          },
+          version: 5,
         },
       }
     })
