@@ -65,17 +65,11 @@ try {
 
   const stateFile = path.join(configDir, ".ues", "state.json")
   const autoSynced = existsSync(stateFile)
-
-  // npm 11+ blocks unapproved global lifecycle scripts by default. The package
-  // must still be recoverable with the installed CLI, without reinstalling.
-  if (!autoSynced) {
-    const sync = spawnSync(process.execPath, [cli, "install"], {
-      cwd: temp,
-      env: { ...process.env, OPENCODE_CONFIG_DIR: configDir, UES_OPENCODE_MAJOR: "2" },
-      encoding: "utf8",
-    })
-    requireSuccess(sync, "ocskill install after plain npm install")
-  }
+  assert.equal(
+    autoSynced,
+    true,
+    "plain npm install installed the CLI but did not auto-sync OpenCode resources; one-command installation is not release-safe",
+  )
 
   const state = JSON.parse(await readFile(stateFile, "utf8"))
   assert.equal(state.package, packageName)
@@ -89,13 +83,8 @@ try {
     ", final resources=" + state.skills.length + "/" + state.commands.length + "/" + state.agents.length + ".",
   )
 
-  if (!autoSynced) {
-    console.warn(
-      "[smoke] npm installed the CLI but skipped postinstall under its lifecycle-script policy; " +
-      "resources were recovered by the installed 'ocskill install' command.",
-    )
-  } else if (Number.isFinite(npmMajor) && npmMajor >= 11) {
-    console.warn("[smoke] npm 11+ ran install scripts in this environment; keep policy behavior under observation.")
+  if (Number.isFinite(npmMajor) && npmMajor >= 11) {
+    console.warn("[smoke] npm 11+ completed the one-command install and resource auto-sync contract.")
   }
 } finally {
   await rm(temp, { recursive: true, force: true })
