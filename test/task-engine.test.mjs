@@ -23,6 +23,12 @@ import {
   workspaceFingerprint,
 } from "../lib/task-engine.mjs"
 
+function git(root, args) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" })
+  assert.equal(result.status, 0, result.stderr || result.stdout)
+  return result.stdout.trim()
+}
+
 const fixturePlan = {
   schemaVersion: 1,
   goal: "Implement two dependent changes",
