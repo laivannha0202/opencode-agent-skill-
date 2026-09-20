@@ -123,6 +123,8 @@ ocskill dashboard .
 ocskill dashboard . --serve --port 4177
 ```
 
+When served with `--serve`, the Control Center refreshes its data every few seconds without requiring a frontend build.
+
 The Control Center summarizes:
 
 - long-horizon work items and task status
