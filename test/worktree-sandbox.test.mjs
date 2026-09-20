@@ -34,8 +34,10 @@ test("sandbox integration applies isolated changes and cleans worktree", async (
     assert.equal(integrated.integrated, true)
     assert.ok(integrated.changed.includes("src/value.js"))
     assert.ok(integrated.changed.includes("src/new.js"))
-    assert.equal(await readFile(path.join(root, "src", "value.js"), "utf8"), "export const value = 2\n")
-    assert.equal(await readFile(path.join(root, "src", "new.js"), "utf8"), "export const extra = true\n")
+    const valueSource = await readFile(path.join(root, "src", "value.js"), "utf8")
+    const newSource = await readFile(path.join(root, "src", "new.js"), "utf8")
+    assert.equal(valueSource.replaceAll("\\r\\n", "\\n"), "export const value = 2\n")
+    assert.equal(newSource.replaceAll("\\r\\n", "\\n"), "export const extra = true\n")
     assert.equal(listTaskSandboxes(root).some((item) => path.resolve(item.path) === path.resolve(sandbox.dir)), false)
     assert.equal(git(root, ["branch", "--list", sandbox.branch]), "")
   } finally {
