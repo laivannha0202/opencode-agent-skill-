@@ -9,8 +9,8 @@ const explicit = process.argv[2] || process.env.GITHUB_REF_NAME || ""
 const tag = String(explicit).trim()
 
 if (!tag || !tag.startsWith("v")) {
-  console.log("[release] No v* tag supplied; package version is " + pkg.version + ".")
-  process.exit(0)
+  console.error("[release] Refusing publish without an explicit v* release tag; package version is " + pkg.version + ".")
+  process.exit(1)
 }
 
 const expected = "v" + pkg.version
