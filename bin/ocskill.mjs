@@ -47,7 +47,7 @@ import {
 } from "../lib/task-engine.mjs"
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
-import { resolveModel } from "../lib/model-policy.mjs"
+import { resolveAdaptiveModel, resolveModel } from "../lib/model-policy.mjs"
 import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 import { createTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
@@ -555,11 +555,13 @@ async function modelPolicy() {
   }
   const attempt = Number.parseInt(optionValue("--attempt") || "1", 10)
   const policy = await readModelPolicy(getConfigDir())
-  printJson(resolveModel(
-    role,
-    Number.isInteger(attempt) && attempt > 0 ? attempt : 1,
-    policy,
-  ))
+  const normalizedAttempt = Number.isInteger(attempt) && attempt > 0 ? attempt : 1
+  const taskText = optionValue("--text")
+  if (taskText) {
+    printJson(resolveAdaptiveModel(role, normalizedAttempt, classifyEngineeringTask(taskText), policy))
+    return
+  }
+  printJson(resolveModel(role, normalizedAttempt, policy))
 }
 
 
