@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
@@ -44,6 +44,9 @@ import {
   recoverStaleTasks,
   recordVerificationReceipt,
   workspaceFingerprint,
+  createPlanVerificationReceipt,
+  createIntegrationVerificationReceipt,
+  runtimeEvents,
 } from "../lib/task-engine.mjs"
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
@@ -105,16 +108,18 @@ Usage:
     ocskill work init <slug> [dir] --goal <text>
     ocskill work plan <slug> <plan.json> [dir]
     ocskill work status|resume <slug> [dir]
-    ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence>
+    ocskill work gate-receipt <slug> <plan|integration> [dir] --evidence <text> [--verdict PASS|FAIL|PARTIAL] [--verifier <role>] [--session-id <id>] [--report-file <file>] [--out <file>]
+    ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence> [--receipt-file <file>]
     ocskill work start <slug> <task-id> [dir] [--lease-ms N]
     ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]
     ocskill work recover <slug> [dir] [--force]
+    ocskill work events <slug> [dir] [--limit N]
     ocskill work verify-command <slug> <task-id> [dir] [--run-id <id>] -- <command> [args...]
     ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>] [--run-id <id>]
     ocskill work fail <slug> <task-id> [dir] --reason <text> [--run-id <id>]
     ocskill work decision <slug> [dir] --text <decision>
     ocskill work block|unblock <slug> [dir] --text <blocker>
-    ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text> [--report-file <file>]
+    ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text> [--report-file <file>] [--receipt-file <file>]
     ocskill work finalize <slug> [dir] --evidence <integration-evidence>
 
   Model routing:
@@ -390,7 +395,7 @@ async function workControl() {
   const action = args[1]
   const slug = args[2]
   if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|approve-plan|start|heartbeat|recover|verify-command|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
+    console.error("Usage: ocskill work <init|plan|status|resume|gate-receipt|approve-plan|start|heartbeat|recover|events|verify-command|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
     process.exitCode = 2
     return
   }
@@ -419,9 +424,40 @@ async function workControl() {
       printJson(await resumeWork(root, slug))
       return
     }
+    if (action === "gate-receipt") {
+      const kind = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!["plan", "integration"].includes(kind)) {
+        throw new Error("Usage: ocskill work gate-receipt <slug> <plan|integration> [dir] --evidence <text>")
+      }
+      const reportFile = optionValue("--report-file")
+      const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
+      const input = {
+        verdict: optionValue("--verdict") || "PASS",
+        verifier: optionValue("--verifier") || undefined,
+        sessionID: optionValue("--session-id"),
+        runId: optionValue("--run-id"),
+        evidence: optionValue("--evidence"),
+        report,
+      }
+      const receipt = kind === "plan"
+        ? await createPlanVerificationReceipt(root, slug, input)
+        : await createIntegrationVerificationReceipt(root, slug, input)
+      const outputFile = optionValue("--out")
+      if (outputFile) {
+        const resolved = path.resolve(outputFile)
+        writeFileSync(resolved, JSON.stringify(receipt, null, 2) + "\n", "utf8")
+        printJson({ file: resolved, receipt })
+      } else {
+        printJson(receipt)
+      }
+      return
+    }
     if (action === "approve-plan") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await approvePlan(root, slug, optionValue("--evidence")))
+      const receiptFile = optionValue("--receipt-file")
+      const receipt = receiptFile ? JSON.parse(readFileSync(path.resolve(receiptFile), "utf8")) : null
+      printJson(await approvePlan(root, slug, optionValue("--evidence"), { receipt }))
       return
     }
     if (action === "start") {
@@ -445,6 +481,12 @@ async function workControl() {
     if (action === "recover") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
       printJson(await recoverStaleTasks(root, slug, { force: args.includes("--force") }))
+      return
+    }
+    if (action === "events") {
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const limit = Number.parseInt(optionValue("--limit") || "200", 10)
+      printJson(await runtimeEvents(root, slug, { limit }))
       return
     }
     if (action === "verify-command") {
@@ -532,12 +574,15 @@ async function workControl() {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
       const reportFile = optionValue("--report-file")
       const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
+      const receiptFile = optionValue("--receipt-file")
+      const receipt = receiptFile ? JSON.parse(readFileSync(path.resolve(receiptFile), "utf8")) : null
       printJson(await recordIntegrationVerification(
         root,
         slug,
         optionValue("--verdict"),
         optionValue("--evidence"),
         report,
+        { receipt },
       ))
       return
     }
