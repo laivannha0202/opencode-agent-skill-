@@ -1,6 +1,6 @@
 # Deterministic evidence and execution tools
 
-UES 6 uses dependency-light Node helpers for work that should not rely on a model guessing or remembering it.
+UES 8 uses dependency-light Node helpers for work that should not rely on a model guessing or remembering it.
 
 ## Repository evidence
 
@@ -54,16 +54,20 @@ Validates plan shape/dependencies/cycles and computes topological and safe waves
 ```cmd
 ocskill work init <slug> . --goal "..."
 ocskill work plan <slug> PLAN.json .
-ocskill work approve-plan <slug> . --evidence "..."
+ocskill work gate-receipt <slug> plan . --verifier ues-plan-checker --evidence "PASS" --out .ues-work/<slug>/reports/plan-receipt.json
+ocskill work approve-plan <slug> . --evidence "PASS" --receipt-file .ues-work/<slug>/reports/plan-receipt.json
 ocskill work start <slug> T1 .
-ocskill work complete <slug> T1 . --evidence "..."
+ocskill work verify-command <slug> T1 . --run-id <run-id> -- npm test
+ocskill work complete <slug> T1 . --run-id <run-id> --evidence "verified"
 ocskill work fail <slug> T1 . --reason "..."
-ocskill work verify-integration <slug> . --verdict PASS --evidence "..."
-ocskill work finalize <slug> . --evidence "..."
+ocskill work gate-receipt <slug> integration . --verifier ues-integration-verifier --verdict PASS --evidence "PASS" --out .ues-work/<slug>/reports/integration-receipt.json
+ocskill work verify-integration <slug> . --verdict PASS --evidence "PASS" --receipt-file .ues-work/<slug>/reports/integration-receipt.json
+ocskill work finalize <slug> . --evidence "final acceptance verified"
+ocskill work events <slug> . --limit 100
 ocskill work resume <slug> .
 ```
 
-State/evidence writes use a per-item lock and atomic replacement.
+State/evidence writes use a per-item lock and atomic replacement. `EVENTS.jsonl` is append-only runtime evidence. Long/high-risk tasks require successful receipts for the active run and current workspace fingerprint.
 
 ## Context pack
 
@@ -71,11 +75,24 @@ State/evidence writes use a per-item lock and atomic replacement.
 ocskill context-pack <slug> <task> .
 ```
 
-Returns only the task, bounded spec, dependency reports, decisions, blockers and current task state required for a fresh executor.
+Returns the task, bounded spec, dependency reports, decisions, blockers, current task state and Context Manifest v3: declared files, import neighbors, likely tests, nearby instructions, Git-changed files, task-term relevance, symbol hits, centered excerpts and promoted lessons.
 
 ## Runtime dispatch on OpenCode V2
 
-The managed plugin exposes `ues.dispatch_task`, which combines `work start`, context pack, model policy and a fresh OpenCode executor session.
+The managed plugin exposes `ues.dispatch_task`, which combines `work start`, context pack, model policy and a fresh OpenCode executor session with heartbeat, bounded wait and interrupt-on-timeout. It also exposes runtime cancellation/recovery helpers when the OpenCode session API supports them.
+
+## Sandboxes and learning
+
+```cmd
+ocskill sandbox create <slug> <task-id> .
+ocskill sandbox integrate <worktree-path> .
+ocskill sandbox list .
+ocskill learn analyze . --eval-dir .ues-evals
+ocskill learn accept <proposal-id> .
+ocskill learn promote <proposal-id> . --baseline 0.50 --candidate 0.75 --samples 4
+```
+
+Sandbox integration refuses overlap with dirty root files. Shadow-required learning proposals are not retrieved until a measured benchmark improvement is recorded.
 
 ## Constraints
 
