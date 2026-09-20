@@ -43,6 +43,7 @@ import {
   workStatus,
   heartbeatTask,
   recoverStaleTasks,
+  recoverTask,
   recordVerificationReceipt,
   workspaceFingerprint,
   createPlanVerificationReceipt,
@@ -115,6 +116,7 @@ Usage:
     ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id> [--execution-dir <dir>] [--sandbox-dir <dir>]
     ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]
     ocskill work recover <slug> [dir] [--force]
+    ocskill work recover-task <slug> <task-id> [dir] [--force] [--reason <text>]
     ocskill work events <slug> [dir] [--limit N]
     ocskill work verify-command <slug> <task-id> [dir] [--run-id <id>] -- <command> [args...]
     ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>] [--run-id <id>]
@@ -397,7 +399,7 @@ async function workControl() {
   const action = args[1]
   const slug = args[2]
   if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|gate-receipt|approve-plan|start|attach-session|heartbeat|recover|events|verify-command|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
+    console.error("Usage: ocskill work <init|plan|status|resume|gate-receipt|approve-plan|start|attach-session|heartbeat|recover|recover-task|events|verify-command|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
     process.exitCode = 2
     return
   }
@@ -500,6 +502,16 @@ async function workControl() {
     if (action === "recover") {
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
       printJson(await recoverStaleTasks(root, slug, { force: args.includes("--force") }))
+      return
+    }
+    if (action === "recover-task") {
+      const taskID = args[3]
+      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work recover-task <slug> <task-id> [dir] [--force] [--reason <text>]")
+      printJson(await recoverTask(root, slug, taskID, {
+        force: args.includes("--force"),
+        reason: optionValue("--reason"),
+      }))
       return
     }
     if (action === "events") {
