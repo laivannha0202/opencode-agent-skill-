@@ -39,7 +39,9 @@
     "evals:router": "node scripts/eval-router.mjs",
     "evals:long:validate": "node scripts/validate-live-suite.mjs --suite long",
     "evals:long": "node scripts/eval-live.mjs --suite long",
-    "dashboard": "node scripts/control-center.mjs"
+    "dashboard": "node scripts/control-center.mjs",
+    "evals:matrix": "node scripts/eval-matrix.mjs",
+    "smoke:plain-install": "node scripts/smoke-plain-install.mjs"
   },
   "keywords": [
     "opencode",
