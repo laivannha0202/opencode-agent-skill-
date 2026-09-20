@@ -13,6 +13,13 @@ import { runProcess } from "../lib/process-runner.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
+const abortController = new AbortController()
+let interrupted = false
+process.once("SIGINT", () => {
+  interrupted = true
+  console.warn("\n[eval] interrupt requested; stopping the active OpenCode process tree...")
+  abortController.abort()
+})
 
 function argValue(name, fallback = null) {
   const index = args.indexOf(name)
@@ -231,8 +238,11 @@ const oldConfigDir = process.env.OPENCODE_CONFIG_DIR
 
 try {
   for (const task of tasks) {
+    if (interrupted) break
     for (const mode of modes) {
+      if (interrupted) break
       for (let trial = 1; trial <= trials; trial += 1) {
+        if (interrupted) break
         const isolatedRoot = path.join(runRoot, task.id + "-" + mode + "-" + trial)
         const workspace = path.join(isolatedRoot, "workspace")
         const isolatedHome = path.join(isolatedRoot, "home")
@@ -292,6 +302,7 @@ try {
           heartbeatMs,
           timeoutMs,
           idleTimeoutMs,
+          signal: abortController.signal,
           onHeartbeat: ({ elapsedMs, idleMs }) => {
             console.log(
               "[" + mode + "] " + task.id + " trial " + trial +
@@ -348,6 +359,7 @@ try {
           timestamp: new Date().toISOString(),
         })
 
+        if (agentRun.aborted) interrupted = true
         console.log(
           "[" + mode + "] " + task.id + " trial " + trial + ": " +
           (passed ? "PASS" : "FAIL") +
@@ -413,3 +425,4 @@ for (const [mode, item] of Object.entries(summary)) {
 }
 console.log("Result: " + resultFile)
 if (keep) console.log("Temporary workspaces kept under: " + runRoot)
+if (interrupted) process.exitCode = 130
