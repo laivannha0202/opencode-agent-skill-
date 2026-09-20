@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { computeSafeWaves } from "../lib/task-graph.mjs"
+import { computeSafeWaves, validatePlan } from "../lib/task-graph.mjs"
 
 function task(id, files) {
   return {
@@ -35,4 +35,18 @@ test("safe waves allow parallel reads but serialize write-read conflicts", () =>
     ],
   }
   assert.deepEqual(computeSafeWaves(conflict).waves, [["A"], ["B"]])
+})
+
+
+test("plan validation rejects file scopes that escape the repository", () => {
+  const invalid = {
+    schemaVersion: 1,
+    goal: "unsafe path",
+    tasks: [
+      task("A", { read: ["../../secrets.txt"] }),
+    ],
+  }
+  const result = validatePlan(invalid)
+  assert.equal(result.valid, false)
+  assert.ok(result.errors.some((item) => item.includes("stay inside the repository")))
 })
