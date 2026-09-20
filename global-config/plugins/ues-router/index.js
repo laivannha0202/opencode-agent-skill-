@@ -5,6 +5,7 @@ import path from "node:path"
 import { spawnSync } from "node:child_process"
 import { routeSkills } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
+import { runtimeCapabilities } from "./capabilities.js"
 
 const CONFIG_FILE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -71,11 +72,37 @@ export default Plugin.define({
   id: "ues-router",
   async setup(ctx) {
     const projectRoot = ctx.location.project?.canonical || ctx.location.directory
+    const capabilities = runtimeCapabilities(ctx)
 
     await ctx.tool.transform((editor) => {
       editor.namespace({
         name: "ues",
         description: "UES long-horizon state, deterministic planning evidence, and fresh-context task execution.",
+      })
+      editor.add({
+        name: "capabilities",
+        description: "Report detected OpenCode runtime capabilities used by UES instead of assuming behavior from a version number.",
+        input: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async () => ({ content: JSON.stringify(capabilities, null, 2) }),
+      })
+      editor.add({
+        name: "task_policy",
+        description: "Classify an engineering request into inline, standard or long-horizon mode with risk/model/context guidance.",
+        input: {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill(["task-policy", input.text], projectRoot),
+        }),
       })
       editor.add({
         name: "work_status",
@@ -136,10 +163,31 @@ export default Plugin.define({
         },
         options: { namespace: "ues", codemode: true },
         execute: async (input, tool) => {
+          if (!capabilities.freshDispatch) {
+            throw new Error("OpenCode runtime does not expose the fresh-session capabilities required by ues.dispatch_task")
+          }
           await tool.progress({ status: "starting fresh UES executor" })
           const started = runOcskillJSON(["work", "start", input.slug, input.task, projectRoot], projectRoot)
           const attempt = started?.record?.attempts || 1
-          const policy = runOcskillJSON(["model-policy", "executor", "--attempt", String(attempt)], projectRoot)
+          const runId = started?.record?.runId || null
+          const taskText = [
+            started?.contextPack?.task?.title,
+            started?.contextPack?.task?.summary,
+            ...(started?.contextPack?.task?.acceptance || []),
+          ].filter(Boolean).join(" ")
+          const taskPolicy = runOcskillJSON(["task-policy", taskText], projectRoot)
+          const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
+          if (taskText) policyArgs.push("--text", taskText)
+          const policy = runOcskillJSON(policyArgs, projectRoot)
+          const heartbeatStarted = Date.now()
+          const heartbeat = setInterval(() => {
+            try {
+              const args = ["work", "heartbeat", input.slug, input.task, projectRoot]
+              if (runId) args.push("--run-id", runId)
+              runOcskill(args, projectRoot)
+              void tool.progress({ status: "executor running " + Math.round((Date.now() - heartbeatStarted) / 1000) + "s" })
+            } catch {}
+          }, 30_000)
 
           try {
             const created = await ctx.session.create({ title: "UES " + input.slug + " " + input.task })
@@ -163,6 +211,8 @@ export default Plugin.define({
                 sessionID: created.id,
                 task: input.task,
                 attempt,
+                runId,
+                taskPolicy,
                 model: policy,
                 messages: messageExcerpt(messages),
                 next: "Inspect the child diff and verification, then call ocskill work complete or fail.",
@@ -170,12 +220,16 @@ export default Plugin.define({
             }
           } catch (error) {
             try {
-              runOcskill(
-                ["work", "fail", input.slug, input.task, projectRoot, "--reason", "fresh executor failed: " + String(error?.message || error)],
-                projectRoot,
-              )
+              const failArgs = [
+                "work", "fail", input.slug, input.task, projectRoot,
+                "--reason", "fresh executor failed: " + String(error?.message || error),
+              ]
+              if (runId) failArgs.push("--run-id", runId)
+              runOcskill(failArgs, projectRoot)
             } catch {}
             throw error
+          } finally {
+            clearInterval(heartbeat)
           }
         },
       })
@@ -185,7 +239,7 @@ export default Plugin.define({
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES V6 runtime: for long tasks trust durable .ues-work state over conversation memory, obey plan/integration machine gates, prefer fresh ues.dispatch_task execution, require fresh verification before completion, and ask before destructive/external side effects.",
+        text: "UES V7 runtime: classify task complexity/risk, trust durable .ues-work state over conversation memory, use lease-backed fresh execution when supported, prefer structured verification receipts, recover stale work after interruption, and require integration evidence before completion.",
       })
     })
 
@@ -207,7 +261,7 @@ export default Plugin.define({
         ...event.metadata,
         uesRouter: {
           selected,
-          version: 2,
+          version: 3,
         },
       }
     })
