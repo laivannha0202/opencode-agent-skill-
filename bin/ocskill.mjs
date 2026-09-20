@@ -760,8 +760,11 @@ async function sandboxControl() {
     if (action === "remove") {
       const dir = args[2]
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      if (!dir) throw new Error("Usage: ocskill sandbox remove <worktree-path> [dir] [--force]")
-      printJson(await removeTaskSandbox(root, dir, { force: args.includes("--force") }))
+      if (!dir) throw new Error("Usage: ocskill sandbox remove <worktree-path> [dir] [--force] [--delete-branch]")
+      printJson(await removeTaskSandbox(root, dir, {
+        force: args.includes("--force"),
+        deleteBranch: args.includes("--delete-branch"),
+      }))
       return
     }
     throw new Error("Usage: ocskill sandbox <list|create|integrate|remove> ...")
