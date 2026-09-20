@@ -75,6 +75,7 @@ export function classifyIntent(text, facts = {}) {
   if (/(\bfix\b|\bbug\b|crash|regression|failing|failure|error|exception|broken|\bdebug\b|sửa lỗi|lỗi|không chạy|bị hỏng|điều tra lỗi)/.test(value)) add(actions, "debug")
   if (/(implement|feature|add|build|create|triển khai tính năng|thêm|xây dựng)/.test(value)) add(actions, "implement")
   if (/(review|audit|kiểm tra code|đánh giá)/.test(value)) add(actions, "review")
+  if (/(investigate|analy[sz]e|profile|optimi[sz]e|điều tra|phân tích|tối ưu)/.test(value)) add(actions, "investigate")
   if (/(refactor|cleanup|restructure|refactor toàn bộ)/.test(value)) add(actions, "refactor")
   if (/(latest|current docs|documentation|release notes|version compatibility|dependency|package version|api changed|tài liệu mới nhất|phiên bản mới|tương thích phiên bản|package mới)/.test(value)) add(actions, "research")
 
