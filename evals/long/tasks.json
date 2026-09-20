@@ -1,6 +1,6 @@
 {
-  "version": 2,
-  "description": "Long-horizon weak-model baseline vs UES benchmark. UES-mode passes require both hidden behavior graders and a completed durable multi-task orchestration state.",
+  "version": 3,
+  "description": "Long-horizon weak-model baseline vs UES benchmark. UES-mode passes require hidden behavior graders, completed durable multi-task orchestration, and current structured task/integration verification receipts.",
   "tasks": [
     {
       "id": "long-checkout-integration",
