@@ -98,3 +98,6 @@ jobs:
 
       - name: Packed global-install smoke
         run: npm run smoke:pack
+
+      - name: Plain one-command install smoke
+        run: npm run smoke:plain-install
