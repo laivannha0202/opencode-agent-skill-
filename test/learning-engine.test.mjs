@@ -23,6 +23,14 @@ test("learning loop proposes and accepts evidence-backed eval lessons", async ()
     const analysis = await analyzeEvalTraces(evalDir)
     assert.ok(analysis.proposals.some((item) => item.key === "grader-failure"))
     const state = await saveLearningAnalysis(root, analysis)
+    await assert.rejects(
+      promoteLearning(root, state.proposals[0].id, {
+        baselinePassRate: 0.5,
+        candidatePassRate: 0.75,
+        samples: 4,
+      }),
+      /explicitly accepted/,
+    )
     const accepted = await acceptLearning(root, state.proposals[0].id)
     assert.equal(accepted.status, "accepted-awaiting-shadow")
     assert.equal((await readLearningState(root)).accepted.length, 1)
