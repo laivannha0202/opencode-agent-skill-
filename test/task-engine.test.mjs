@@ -1,5 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { spawnSync } from "node:child_process"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
@@ -8,6 +9,7 @@ import {
   addBlocker,
   approvePlan,
   completeTask,
+  createPlanVerificationReceipt,
   failTask,
   finalizeWork,
   importPlan,
@@ -17,6 +19,7 @@ import {
   resumeWork,
   startTask,
   workStatus,
+  recordVerificationReceipt,
 } from "../lib/task-engine.mjs"
 
 const fixturePlan = {
@@ -50,7 +53,24 @@ async function importAndApprove(root, slug, plan = fixturePlan) {
   const planFile = path.join(root, "plan.json")
   await writeFile(planFile, JSON.stringify(plan), "utf8")
   await importPlan(root, slug, planFile)
-  await approvePlan(root, slug, "ues-plan-checker => PASS")
+  const receipt = await createPlanVerificationReceipt(root, slug, {
+    verifier: "ues-plan-checker",
+    evidence: "ues-plan-checker => PASS",
+  })
+  await approvePlan(root, slug, "ues-plan-checker => PASS", { receipt })
+}
+
+async function addPassingReceipt(root, slug, taskID, runId) {
+  const receipt = createVerificationReceipt({
+    task: taskID,
+    runId,
+    command: "node",
+    args: ["--version"],
+    exitCode: 0,
+    stdout: "v-test",
+    stderr: "",
+  })
+  await recordVerificationReceipt(root, slug, taskID, receipt)
 }
 
 test("plan approval is a hard gate before task execution", async () => {
@@ -66,7 +86,11 @@ test("plan approval is a hard gate before task execution", async () => {
     assert.deepEqual(before.ready, [])
     await assert.rejects(startTask(root, "plan-gate", "T1"), /plan is not approved/)
 
-    const approved = await approvePlan(root, "plan-gate", "plan checker PASS")
+    const planReceipt = await createPlanVerificationReceipt(root, "plan-gate", {
+      verifier: "ues-plan-checker",
+      evidence: "plan checker PASS",
+    })
+    const approved = await approvePlan(root, "plan-gate", "plan checker PASS", { receipt: planReceipt })
     assert.equal(approved.approval.status, "passed")
     assert.deepEqual(approved.ready, ["T1"])
 
@@ -89,6 +113,7 @@ test("persistent work state resumes from dependency-safe boundaries", async () =
     const started = await startTask(root, "checkout-upgrade", "T1")
     assert.equal(started.record.status, "running")
     assert.equal(started.contextPack.task.id, "T1")
+    await addPassingReceipt(root, "checkout-upgrade", "T1", started.record.runId)
 
     await completeTask(root, "checkout-upgrade", "T1", {
       evidence: "node --test test/core.test.js => PASS",
@@ -146,13 +171,17 @@ test("concurrent independent task completion preserves both state and evidence",
   try {
     await initWork(root, "parallel-safe", plan.goal)
     await importAndApprove(root, "parallel-safe", plan)
-    await Promise.all([
+    const [startedA, startedB] = await Promise.all([
       startTask(root, "parallel-safe", "A"),
       startTask(root, "parallel-safe", "B"),
     ])
     await Promise.all([
-      completeTask(root, "parallel-safe", "A", { evidence: "alpha PASS" }),
-      completeTask(root, "parallel-safe", "B", { evidence: "beta PASS" }),
+      addPassingReceipt(root, "parallel-safe", "A", startedA.record.runId),
+      addPassingReceipt(root, "parallel-safe", "B", startedB.record.runId),
+    ])
+    await Promise.all([
+      completeTask(root, "parallel-safe", "A", { evidence: "alpha PASS", runId: startedA.record.runId }),
+      completeTask(root, "parallel-safe", "B", { evidence: "beta PASS", runId: startedB.record.runId }),
     ])
 
     const status = await workStatus(root, "parallel-safe")
