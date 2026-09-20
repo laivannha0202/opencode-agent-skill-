@@ -6,12 +6,33 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [8.0.0] - 2026-09-20
+
+### Added
+- Structured plan and integration gate receipts bound to the current plan hash or workspace fingerprint, with gate receipts persisted in `EVIDENCE.json`.
+- Strict long/high-risk task completion that requires a successful verification receipt for the active `runId` and the current workspace fingerprint.
+- Append-only `EVENTS.jsonl` runtime journal for work initialization, plan import/approval, task start/heartbeat/session binding, verification receipts, failure/recovery, integration verification and finalization.
+- Task-scoped stale recovery and OpenCode V2 runtime tools for bounded executor cancellation/recovery.
+- Context manifest v3 with multilingual task terms, Git-change awareness, symbol hits, TF-IDF-style relevance scoring, related tests/instructions and adaptive centered excerpts.
+- Conflict-aware Git worktree integration plus automatic isolation support for concurrent writing executors.
+- Learning v2 with recurring failure clustering, explicit acceptance and shadow-benchmark promotion gates.
+- UES benchmark matrix runner for baseline-vs-UES comparison across standard, long-horizon and polyglot suites.
+- Eight polyglot benchmark tasks spanning Python, Java/Spring-style code, .NET, Next.js, React Native, SQL migration, monorepo boundaries and generated-contract discipline.
+- Control Center runtime-event visibility, receipt inspection and stale-task recovery control.
+- CodeQL, dependency review, Dependabot maintenance and release-tag/version consistency checks.
+
 ### Changed
-- The public npm distribution name is now the unscoped `opencode-agent-skill`, so users install it with `npm install -g opencode-agent-skill`.
+- Fresh OpenCode V2 executor sessions now use bounded waits and `session.interrupt` on timeout, with capability probing and graceful degradation when optional hooks are unavailable.
+- Process execution escalates Unix process-tree cancellation from SIGTERM to SIGKILL after a bounded grace period and always reports cancelled runs as nonzero.
+- Router/task policy adds multilingual and framework-aware signals while preserving deterministic caps.
+- Managed resource ownership now uses `managed-by: opencode-agent-skill` while automatically recognizing and migrating the former scoped marker.
+- Package version is 8.0.0. Existing `opencode-agent-skill@7.7.0` users remain on the same package name and can update normally.
 
 ### Fixed
-- Packed global-install smoke derives the package install path from package metadata instead of assuming the former scoped npm name.
-- The installer accepts the former `@laivannha0202/opencode-agent-skill` state owner as legacy UES ownership and re-owns it as `opencode-agent-skill` during the next install.
+- Strict verification no longer accepts a receipt after the workspace changed.
+- Sandbox cleanup refuses to delete non-UES branches and removes temporary UES branches after successful integration.
+- Learning proposals cannot be promoted before explicit acceptance.
+- Plain npm-install smoke now reports lifecycle-script auto-sync versus explicit `ocskill install` recovery accurately.
 
 ## [7.7.0] - 2026-09-20
 
@@ -27,12 +48,15 @@ The project follows Semantic Versioning.
 - V2 runtime capability probing tool and fail-closed fresh-dispatch checks.
 
 ### Changed
+- The public npm distribution name is the unscoped `opencode-agent-skill`, so users install it with `npm install -g opencode-agent-skill`.
 - Live evaluation runs are asynchronous and observable: start messages, periodic heartbeats, hard timeout, idle timeout and Ctrl+C process-tree cancellation are supported.
 - V2 fresh task dispatch refreshes durable task leases while the executor session runs and reports task policy/runId alongside model policy.
 - Workspace fingerprints ignore UES runtime-only learning/dashboard/sandbox directories in addition to `.ues-work`.
 - Package version is 7.7.0.
 
 ### Fixed
+- Packed global-install smoke derives the package install path from package metadata instead of assuming the former scoped npm name.
+- The installer accepts the former `@laivannha0202/opencode-agent-skill` state owner as legacy UES ownership and re-owns it as `opencode-agent-skill` during the next install.
 - Live baseline/UES evaluation detects the OpenCode major version: OpenCode 1.x omits the V2-only `--standalone` flag, while OpenCode 2.x+ keeps it. Eval JSON records the detected OpenCode version/major for reproducibility.
 - The V2 automatic router retains domain/impact skills and `ues-engineering-orchestrator` ahead of generic process skills when the configured skill cap is exceeded.
 
