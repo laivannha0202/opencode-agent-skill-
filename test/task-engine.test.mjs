@@ -422,3 +422,22 @@ test("task-scoped recovery preserves previous executor ownership", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("non-git workspace fingerprint tracks source changes but ignores UES runtime state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-nongit-fingerprint-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "value.txt"), "one\n")
+    const first = workspaceFingerprint(root)
+
+    await mkdir(path.join(root, ".ues-work", "demo"), { recursive: true })
+    await writeFile(path.join(root, ".ues-work", "demo", "STATE.json"), "{\"status\":\"running\"}\n")
+    assert.equal(workspaceFingerprint(root), first)
+
+    await writeFile(path.join(root, "src", "value.txt"), "two\n")
+    assert.notEqual(workspaceFingerprint(root), first)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
