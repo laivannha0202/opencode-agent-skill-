@@ -28,18 +28,29 @@ const idleTimeoutMs = positiveInt(argValue("--idle-timeout-ms"), 5 * 60_000)
 const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
 const onlyLong = has("--long-only")
 const onlyLive = has("--standard-only")
+const onlyPolyglot = has("--polyglot-only")
+const withoutPolyglot = has("--without-polyglot")
 
 if (!model) {
-  console.error("Usage: node scripts/eval-matrix.mjs --model provider/model [--trials 3] [--auth current|env-only] [--variant high]")
+  console.error("Usage: node scripts/eval-matrix.mjs --model provider/model [--trials 3] [--auth current|env-only] [--variant high] [--without-polyglot|--long-only|--standard-only|--polyglot-only]")
   process.exit(2)
 }
-if (onlyLong && onlyLive) {
-  console.error("--long-only and --standard-only cannot be used together")
+const exclusiveCount = [onlyLong, onlyLive, onlyPolyglot].filter(Boolean).length
+if (exclusiveCount > 1) {
+  console.error("--long-only, --standard-only and --polyglot-only are mutually exclusive")
   process.exit(2)
 }
 
 await mkdir(outputDir, { recursive: true })
-const suites = onlyLong ? ["long"] : onlyLive ? ["live"] : ["long", "live"]
+const suites = onlyLong
+  ? ["long"]
+  : onlyLive
+    ? ["live"]
+    : onlyPolyglot
+      ? ["polyglot"]
+      : withoutPolyglot
+        ? ["long", "live"]
+        : ["long", "live", "polyglot"]
 const startedAt = new Date().toISOString()
 const before = new Set(await readdir(outputDir).catch(() => []))
 
@@ -90,6 +101,7 @@ for (const name of created) {
 const expectedPerMode = suites.reduce((sum, suite) => {
   if (suite === "long") return sum + 5 * trials
   if (suite === "live") return sum + 20 * trials
+  if (suite === "polyglot") return sum + 8 * trials
   return sum
 }, 0)
 const baselineCount = results.filter((item) => item.mode === "baseline").length
