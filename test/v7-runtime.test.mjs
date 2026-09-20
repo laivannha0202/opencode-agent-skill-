@@ -175,9 +175,11 @@ test("isolated Git task sandbox can apply a patch back to the integration worktr
     await initGit(root)
     const sandbox = await createTaskSandbox(root, "demo", "T1")
     await writeFile(path.join(sandbox.dir, "README.md"), "changed in sandbox\n", "utf8")
+    await writeFile(path.join(sandbox.dir, "NEW.md"), "new file\n", "utf8")
     const applied = applyTaskSandbox(root, "demo", "T1")
     assert.equal(applied.applied, true)
     assert.equal(await readFile(path.join(root, "README.md"), "utf8"), "changed in sandbox\n")
+    assert.equal(await readFile(path.join(root, "NEW.md"), "utf8"), "new file\n")
     await removeTaskSandbox(root, "demo", "T1", { force: true })
     assert.equal(taskSandboxPath(root, "demo", "T1"), sandbox.dir)
   } finally {
