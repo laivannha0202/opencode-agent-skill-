@@ -73,3 +73,37 @@ Keep constant:
 - trial count when possible
 
 Compare observable success, regressions, elapsed time, tool behavior and cost rather than narrative confidence.
+
+
+## V7 runtime fields
+
+Each live result may additionally contain:
+
+- `timedOut`
+- `idleTimedOut`
+- `aborted`
+- detected `opencodeVersion` / `opencodeMajor`
+- configured heartbeat/hard/idle timeout values
+- long-suite receipt coverage inside orchestration inspection
+
+Long-task `EVIDENCE.json` schema 3 may contain a `receipts` array. Receipt fields include:
+
+```json
+{
+  "schemaVersion": 1,
+  "id": "uuid",
+  "task": "T1",
+  "runId": "attempt-uuid",
+  "command": "npm",
+  "args": ["test"],
+  "exitCode": 0,
+  "passed": true,
+  "durationMs": 1234,
+  "stdoutSha256": "...",
+  "stderrSha256": "...",
+  "workspaceBefore": "...",
+  "workspaceAfter": "..."
+}
+```
+
+Full stdout/stderr are not stored in receipts; hashes provide binding without persisting potentially sensitive logs.
