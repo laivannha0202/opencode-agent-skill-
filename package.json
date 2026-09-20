@@ -1,6 +1,6 @@
 {
   "name": "@laivannha0202/opencode-agent-skill",
-  "version": "6.0.0",
+  "version": "7.7.0",
   "description": "Model-agnostic long-horizon engineering workflow, skills, fresh-context subagents, deterministic tooling and verification gates for OpenCode",
   "type": "module",
   "bin": {
