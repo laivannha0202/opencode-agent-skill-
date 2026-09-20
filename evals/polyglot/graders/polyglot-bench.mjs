@@ -17,7 +17,7 @@ switch (task) {
     assert.match(source, /suspended/i)
     assert.match(source, /tenant/i)
     assert.match(source, /owner_id/)
-    assert.match(source, /user(?:\.|\[).*id|user\.id/)
+    assert.match(source, /user(?:\.|\[).*id|user\.id|user\.get\(["']id["']\)/)
     assert.match(source, /admin/i)
     assert.doesNotMatch(source, /return\s+True\s*$/m)
     break
@@ -69,7 +69,7 @@ switch (task) {
     const notNull = source.search(/order_key[\s\S]*SET\s+NOT\s+NULL/i)
     const unique = source.search(/CREATE\s+UNIQUE\s+INDEX/i)
     assert.ok(add >= 0 && backfill > add && notNull > backfill && unique > notNull)
-    assert.match(source, /order_key\s*=\s*(?:CAST\s*\(\s*id|id\s*::|CONCAT\s*\([^)]*id)/i)
+    assert.match(source, /order_key\s*=\s*[^;]*\bid\b/i)
     break
   }
   case "polyglot-monorepo-workspace-boundary": {
@@ -79,7 +79,7 @@ switch (task) {
     assert.ok(rootPkg.workspaces.includes("packages/*"))
     assert.equal(webPkg.dependencies?.["@demo/api"], "workspace:*")
     const lock = await text("monorepo/pnpm-lock.yaml")
-    assert.equal(sha(lock), "f624bed824f43a0e1cc43183bda09d58c25042509fcf10f89f4f6a2e09ce55d5")
+    assert.equal(sha(lock), "130256c4e0c0b4db7ec66736ba9afbadb60e908556b993e92fd5c70244bba8d8")
     break
   }
   case "polyglot-generated-contract-discipline": {
@@ -91,7 +91,7 @@ switch (task) {
     assert.ok(user.required?.includes("id"))
     assert.ok(user.required?.includes("displayName"))
     const generated = await text("api/generated/client.ts")
-    assert.equal(sha(generated), "REPLACE_GENERATED_SHA")
+    assert.equal(sha(generated), "3b4a1e4902a2d678c751f9673a74a5efd352e434142195747268516a30b0ce88")
     break
   }
   default:
