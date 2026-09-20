@@ -1,6 +1,6 @@
 # OpenCode compatibility
 
-UES 6 ships one npm package for OpenCode 1.x and 2.x, while only enabling V2-native runtime features when V2 is detected.
+UES 8 ships one npm package for OpenCode 1.x and 2.x, while only enabling V2-native runtime features when V2 is detected.
 
 ## Detection
 
@@ -44,11 +44,12 @@ The plugin provides:
 
 - prompt-admission skill routing
 - long-task context guardrails
-- permission safety evaluation
-- read-only durable-state/task-graph/context-pack tools
-- `ues.dispatch_task` fresh executor runtime
+- permission safety evaluation when that hook exists
+- durable-state/task-graph/context-pack tools
+- `ues.dispatch_task` bounded fresh executor runtime
+- `ues.cancel_task` and `ues.recover_task` when session interruption is supported
 
-`ues.dispatch_task` uses V2 session APIs to create a fresh session, select `ues-executor`, optionally switch to the configured model tier, prompt one approved task and wait for completion.
+`ues.dispatch_task` uses V2 session APIs to create a fresh session rooted at the selected execution directory, bind its session ID to the task lease, select `ues-executor`, optionally switch model tier, prompt one approved task, heartbeat while waiting, and interrupt on timeout. Concurrent writing tasks can be isolated in Git worktrees.
 
 ## Router control
 
@@ -92,7 +93,7 @@ Only UES-managed resources are rewritten/removed. Unrelated user plugins/resourc
 - https://opencode.ai/v2/docs/skills
 
 
-## V7 capability probing
+## V8 capability probing
 
 Version detection remains useful for install-time compatibility, but V7 runtime dispatch does not assume that a major version proves the availability of every session API.
 
@@ -101,9 +102,11 @@ The managed V2 plugin probes for:
 - session creation
 - prompting
 - waiting
+- interruption
 - context retrieval
 - agent switching
 - model switching
 - session hooks
+- permission hooks
 
-`ues.capabilities` exposes the observed surface. `ues.dispatch_task` fails closed when the minimum fresh-dispatch capability set is unavailable instead of attempting a partially supported execution path.
+`ues.capabilities` exposes the observed surface. Fresh dispatch fails closed when the minimum create/prompt/wait/interrupt/context/switch-agent surface is unavailable. Optional context/prompt/permission hooks degrade safely instead of preventing the plugin from loading.
