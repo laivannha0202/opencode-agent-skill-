@@ -111,13 +111,16 @@ if (existsSync(routerIndex)) {
   if (!source.includes("ctx.session.switchAgent")) errors.push("v2 task dispatch must select ues-executor")
   if (!source.includes("ctx.session.switchModel")) errors.push("v2 task dispatch must support configured model escalation")
   if (!source.includes("ctx.session.wait")) errors.push("v2 task dispatch must wait for executor completion")
-  if (!source.includes('name: "capabilities"')) errors.push("v7 router plugin must expose runtime capability inspection")
-  if (!source.includes('name: "task_policy"')) errors.push("v7 router plugin must expose adaptive task policy")
-  if (!source.includes('"work", "heartbeat"')) errors.push("v7 task dispatch must refresh task leases")
+  if (!source.includes('name: "capabilities"')) errors.push("v8 router plugin must expose runtime capability inspection")
+  if (!source.includes('name: "task_policy"')) errors.push("v8 router plugin must expose adaptive task policy")
+  if (!source.includes('name: "cancel_task"')) errors.push("v8 router plugin must expose executor cancellation")
+  if (!source.includes('name: "recover_task"')) errors.push("v8 router plugin must expose task-scoped recovery")
+  if (!source.includes("ctx.session.interrupt")) errors.push("v8 task dispatch must interrupt timed-out executors")
+  if (!source.includes('"work", "heartbeat"')) errors.push("v8 task dispatch must refresh task leases")
 }
 
-for (const name of ["process-runner.mjs","evidence-receipt.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs"]) {
-  if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V7 core module ${name}`)
+for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs"]) {
+  if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V8 core module ${name}`)
 }
 
 for (const name of ["codebase-mapper.md","plan-checker.md","executor.md","integration-verifier.md"]) {
