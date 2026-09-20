@@ -10,6 +10,7 @@ import {
   approvePlan,
   completeTask,
   createPlanVerificationReceipt,
+  createIntegrationVerificationReceipt,
   failTask,
   finalizeWork,
   importPlan,
@@ -17,6 +18,7 @@ import {
   recordIntegrationVerification,
   resolveBlocker,
   resumeWork,
+  recoverTask,
   startTask,
   workStatus,
   recordVerificationReceipt,
@@ -312,6 +314,110 @@ test("strict completion rejects a stale workspace receipt", async () => {
       }),
       /current workspace fingerprint/,
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("strict multi-task plan requires structured approval receipt", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-plan-structured-"))
+  try {
+    await initWork(root, "structured-plan", fixturePlan.goal)
+    await importPlan(root, "structured-plan", fixturePlan)
+    await assert.rejects(
+      approvePlan(root, "structured-plan", "plain text PASS"),
+      /structured plan-verification receipt/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("strict integration PASS requires a receipt bound to current workspace", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-integration-structured-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "a.js"), "export const a = 1\n")
+    await writeFile(path.join(root, "src", "b.js"), "export const b = 1\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const plan = {
+      schemaVersion: 1,
+      goal: "Strict integration",
+      tasks: [
+        { ...fixturePlan.tasks[0], id: "A", files: { modify: ["src/a.js"] }, dependsOn: [] },
+        { ...fixturePlan.tasks[1], id: "B", files: { modify: ["src/b.js"] }, dependsOn: ["A"] },
+      ],
+    }
+    await initWork(root, "structured-integration", plan.goal)
+    await importAndApprove(root, "structured-integration", plan)
+
+    const startedA = await startTask(root, "structured-integration", "A")
+    await addPassingReceipt(root, "structured-integration", "A", startedA.record.runId)
+    await completeTask(root, "structured-integration", "A", {
+      runId: startedA.record.runId,
+      evidence: "A verified",
+    })
+
+    const startedB = await startTask(root, "structured-integration", "B")
+    await addPassingReceipt(root, "structured-integration", "B", startedB.record.runId)
+    await completeTask(root, "structured-integration", "B", {
+      runId: startedB.record.runId,
+      evidence: "B verified",
+    })
+
+    await assert.rejects(
+      recordIntegrationVerification(root, "structured-integration", "PASS", "plain PASS"),
+      /structured integration-verification receipt/,
+    )
+
+    const receipt = await createIntegrationVerificationReceipt(root, "structured-integration", {
+      verifier: "ues-integration-verifier",
+      verdict: "PASS",
+      evidence: "integration PASS",
+    })
+    const verified = await recordIntegrationVerification(
+      root,
+      "structured-integration",
+      "PASS",
+      "integration PASS",
+      null,
+      { receipt },
+    )
+    assert.equal(verified.status, "PASS")
+    assert.equal(verified.receipt.id, receipt.id)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("task-scoped recovery preserves previous executor ownership", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-recover-task-"))
+  try {
+    const plan = { ...fixturePlan, tasks: [fixturePlan.tasks[0]] }
+    await initWork(root, "recover-one", plan.goal)
+    await importAndApprove(root, "recover-one", plan)
+    const started = await startTask(root, "recover-one", "T1", { leaseMs: 30_000, sessionID: "session-old" })
+
+    await assert.rejects(
+      recoverTask(root, "recover-one", "T1"),
+      /lease is still active/,
+    )
+
+    const recovered = await recoverTask(root, "recover-one", "T1", {
+      force: true,
+      reason: "manual stale recovery",
+    })
+    assert.deepEqual(recovered.recovered, ["T1"])
+    assert.equal(recovered.previousRunId, started.record.runId)
+    assert.equal(recovered.previousOwner.sessionID, "session-old")
+
+    const status = await workStatus(root, "recover-one")
+    assert.equal(status.counts.failed, 1)
+    assert.deepEqual(status.ready, ["T1"])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
