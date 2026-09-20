@@ -141,7 +141,7 @@ Compare the same model, variant, prompt, fixture, grader and environment. Report
 A benchmark result is evidence only for the measured workload. UES does not claim to turn one base model into another.
 
 
-## V7 live-run observability and evidence gate
+## V8 live-run observability and evidence gate
 
 Live runs accept:
 
@@ -153,6 +153,6 @@ Live runs accept:
 
 The harness prints a start line and heartbeat for an active model run. Hard timeout and idle timeout are recorded separately. Ctrl+C aborts the active OpenCode process tree and sets exit code 130 after the current result is recorded.
 
-V7 long-suite UES mode additionally requires **receipt-backed verification for every planned task**. A narrative completion entry is still preserved for backwards compatibility, but it does not satisfy the V7 long benchmark unless at least one successful structured verification receipt is bound to that task.
+V8 long-suite UES mode requires **receipt-backed verification for every planned task**, a structured plan receipt bound to the current plan hash, and a structured integration receipt bound to the verified workspace fingerprint. Strict task completion additionally rejects a successful command receipt if the workspace changed after that receipt.
 
-This intentionally raises the benchmark bar: final code correctness + durable orchestration + machine-observable verification are all required.
+This intentionally raises the benchmark bar: final code correctness + durable orchestration + current machine-observable verification are all required.
