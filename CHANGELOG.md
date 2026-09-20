@@ -6,6 +6,33 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [7.7.0] - 2026-09-20
+
+### Added
+- Crash-safe task leases with `runId`, heartbeat timestamps, lease expiry, stale-run recovery and append-only `EVENTS.jsonl` state transitions.
+- Structured verification receipts that bind command exit status, timing, output hashes, run/session identity and workspace fingerprint to task/integration evidence.
+- `ocskill work check`, `heartbeat` and `recover` actions for machine-verifiable checks and interrupted-run recovery.
+- Bounded context intelligence manifests containing declared files, dependency neighborhood, relevant tests, hotspots and source excerpts.
+- Adaptive execution/model policy driven by risk, scope, context size, attempt number and failure signals.
+- Isolated Git worktree sandbox commands for parallel task execution and deterministic patch application.
+- Proposal-only learning engine that derives reusable failure/success patterns from local eval traces without auto-activating guidance.
+- Optional Hermes Agent status/handoff bridge; UES PLAN/STATE/EVIDENCE remain authoritative.
+- Local read-only UES Control Center showing work items, tasks, events, eval summaries and learning proposals.
+
+### Changed
+- Live evals now use an observable async process runner with periodic heartbeat, hard timeout, idle timeout and cancellation metadata instead of a silent synchronous agent wait.
+- OpenCode live invocation now probes actual CLI capabilities such as `--standalone` instead of trusting major-version assumptions alone.
+- V2 fresh-session dispatch is registered only when the required runtime session capabilities are actually exposed.
+- Fresh task dispatch maintains the task lease, uses context/risk-aware model policy, and instructs executors to produce structured verification receipts.
+- Safe-wave conflict analysis now distinguishes read-only overlap from write/read and write/write conflicts.
+- Long-horizon eval PASS now requires structured task and integration verification receipts in addition to the existing durable orchestration gates.
+- New CLI-created work items default to strict receipt-backed evidence while the library API remains backward compatible unless strict evidence is requested.
+
+### Fixed
+- Interrupted executors can no longer leave a task permanently stuck in `running` once its lease expires and the work item is resumed/recovered.
+- Long live benchmarks no longer appear frozen indefinitely; progress and timeout state are observable.
+
+
 ### Fixed
 - Live baseline/UES evaluation now detects the OpenCode major version: OpenCode 1.x runs omit the V2-only `--standalone` flag, while OpenCode 2.x+ keeps it. Eval JSON also records the detected OpenCode version/major for reproducibility.
 - The V2 automatic router now retains domain/impact skills and `ues-engineering-orchestrator` ahead of generic process skills when the configured skill cap (default 4) is exceeded, so cross-cutting and long-running prompts no longer silently lose their domain guidance. Under cap pressure a generic process skill such as `ues-bug-diagnosis` may be evicted before domain skills by design; when the cap is not exceeded, routing output is unchanged.
