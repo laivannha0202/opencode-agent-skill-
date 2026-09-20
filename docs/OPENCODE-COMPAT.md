@@ -95,7 +95,7 @@ Only UES-managed resources are rewritten/removed. Unrelated user plugins/resourc
 
 ## V8 capability probing
 
-Version detection remains useful for install-time compatibility, but V7 runtime dispatch does not assume that a major version proves the availability of every session API.
+Version detection remains useful for install-time compatibility, but V8 runtime dispatch does not assume that a major version proves the availability of every session API.
 
 The managed V2 plugin probes for:
 
