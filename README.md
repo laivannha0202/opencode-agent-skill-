@@ -16,7 +16,7 @@ Ngoài nền V6 (durable PLAN/STATE/EVIDENCE, fresh executors, plan/integration 
 - read/write-aware safe waves và isolated Git worktree sandbox primitives cho parallel writers
 - evidence-gated learning loop từ `.ues-evals` → proposal → explicit accept → future context retrieval
 - optional Hermes bridge theo kiểu adapter, không nhúng Hermes runtime vào core
-- zero-dependency local **UES Control Center** cho work state, evidence, learning và eval summaries
+- zero-dependency local **UES Control Center** cho work state, evidence, learning và eval summaries; chế độ `--serve` tự refresh dữ liệu
 
 Xem chi tiết: [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 
