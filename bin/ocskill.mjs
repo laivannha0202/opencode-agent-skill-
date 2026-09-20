@@ -54,7 +54,7 @@ import { resolveAdaptiveModel, resolveModel } from "../lib/model-policy.mjs"
 import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 import { createTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
-import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning } from "../lib/learning-engine.mjs"
+import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 
@@ -91,7 +91,7 @@ Usage:
                               Resolve light/standard/heavy escalation tier
   ocskill task-policy <text>    Classify task mode/risk/context/model tier
   ocskill sandbox <action> ...  Manage isolated Git worktree task sandboxes
-  ocskill learn <action> ...    Analyze eval traces and promote accepted lessons
+  ocskill learn <action> ...    Analyze eval traces and promote benchmark-validated lessons
   ocskill hermes <action> ...   Optional Hermes adapter/status
   ocskill dashboard [dir] [--serve] [--port N]
                               Generate/serve the local UES Control Center
@@ -771,7 +771,19 @@ async function learningControl() {
       printJson(await acceptLearning(acceptRoot, id))
       return
     }
-    throw new Error("Usage: ocskill learn <status|analyze|accept> ...")
+    if (action === "promote") {
+      const id = args[2]
+      const promoteRoot = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!id) throw new Error("Usage: ocskill learn promote <proposal-id> [dir] --baseline <0..1> --candidate <0..1> --samples N")
+      printJson(await promoteLearning(promoteRoot, id, {
+        baselinePassRate: optionValue("--baseline"),
+        candidatePassRate: optionValue("--candidate"),
+        samples: optionValue("--samples"),
+        report: optionValue("--report"),
+      }))
+      return
+    }
+    throw new Error("Usage: ocskill learn <status|analyze|accept|promote> ...")
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
