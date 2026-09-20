@@ -41,7 +41,8 @@
     "evals:long": "node scripts/eval-live.mjs --suite long",
     "dashboard": "node scripts/control-center.mjs",
     "evals:matrix": "node scripts/eval-matrix.mjs",
-    "smoke:plain-install": "node scripts/smoke-plain-install.mjs"
+    "smoke:plain-install": "node scripts/smoke-plain-install.mjs",
+    "release:check-tag": "node scripts/check-release-tag.mjs"
   },
   "keywords": [
     "opencode",
