@@ -291,6 +291,7 @@ export default Plugin.define({
             started?.contextPack?.task?.title,
             started?.contextPack?.task?.summary,
             ...(started?.contextPack?.task?.acceptance || []),
+            started?.contextPack?.task?.risk ? "risk: " + started.contextPack.task.risk : null,
           ].filter(Boolean).join(" ")
           const taskPolicy = runOcskillJSON(["task-policy", taskText], projectRoot)
           const timeoutMs = Math.max(
