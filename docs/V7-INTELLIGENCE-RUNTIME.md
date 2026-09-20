@@ -67,7 +67,7 @@ The goal is to reduce rediscovery cost without dumping the whole repository into
 
 ## V7.4 — Isolated parallel execution primitives
 
-The task graph distinguishes reads from writes:
+The task graph distinguishes reads from writes. By default linked worktrees are created in a sibling `.REPO.ues-sandboxes/` directory on the same drive, avoiding nested worktrees inside the main checkout:
 
 - read/read overlap can share a safe wave
 - write/read and write/write conflicts serialize
