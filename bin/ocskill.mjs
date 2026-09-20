@@ -348,8 +348,10 @@ async function inspectTests() {
 }
 
 function optionValue(name) {
-  const index = args.indexOf(name)
-  return index >= 0 ? args[index + 1] : null
+  const separator = args.indexOf("--")
+  const visible = separator >= 0 ? args.slice(0, separator) : args
+  const index = visible.indexOf(name)
+  return index >= 0 ? visible[index + 1] : null
 }
 
 async function inspectRepoGraph() {
@@ -399,7 +401,7 @@ async function workControl() {
   const action = args[1]
   const slug = args[2]
   if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|approve-plan|start|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
+    console.error("Usage: ocskill work <init|plan|status|resume|approve-plan|start|heartbeat|recover|check|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
     process.exitCode = 2
     return
   }
