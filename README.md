@@ -503,6 +503,7 @@ UES chỉ quản lý resource có namespace/marker của chính nó, giữ unman
 # Tài liệu
 
 - [Engineering design](docs/ENGINEERING-DESIGN.md)
+- [V7 intelligence runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 - [OpenCode compatibility](docs/OPENCODE-COMPAT.md)
 - [Deterministic tools](docs/DETERMINISTIC-TOOLS.md)
 - [Evaluation](docs/EVALS.md)
