@@ -1,6 +1,10 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { runProcess } from "../lib/process-runner.mjs"
+import { existsSync } from "node:fs"
+import { mkdtemp, rm } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
 
 test("runProcess captures output and exit status", async () => {
   const result = await runProcess(process.execPath, ["-e", "process.stdout.write('ok')"], {
@@ -50,4 +54,34 @@ test("runProcess bounds captured output", async () => {
   })
   assert.equal(result.status, 0)
   assert.equal(result.stdout.length, 1024)
+})
+
+
+test("runProcess kills descendant processes on timeout", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-process-tree-"))
+  const sentinel = path.join(root, "grandchild-survived.txt")
+  const grandchildCode = [
+    "const fs=require('node:fs')",
+    "const file=process.argv[1]",
+    "setTimeout(()=>fs.writeFileSync(file,'survived'),1200)",
+    "setTimeout(()=>{},5000)",
+  ].join(";")
+  const parentCode = [
+    "const {spawn}=require('node:child_process')",
+    "spawn(process.execPath,['-e'," + JSON.stringify(grandchildCode) + "," + JSON.stringify(sentinel) + "],{stdio:'ignore'})",
+    "setTimeout(()=>{},5000)",
+  ].join(";")
+
+  try {
+    const result = await runProcess(process.execPath, ["-e", parentCode], {
+      timeoutMs: 150,
+      heartbeatMs: 0,
+    })
+    assert.equal(result.timedOut, true)
+    assert.notEqual(result.status, 0)
+    await new Promise((resolve) => setTimeout(resolve, 1500))
+    assert.equal(existsSync(sentinel), false, "grandchild survived process-tree cancellation")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
