@@ -128,6 +128,7 @@ test("persistent work state resumes from dependency-safe boundaries", async () =
     await addPassingReceipt(root, "checkout-upgrade", "T1", started.record.runId)
 
     await completeTask(root, "checkout-upgrade", "T1", {
+      runId: started.record.runId,
       evidence: "node --test test/core.test.js => PASS",
       report: "# T1 report\n\nCore implemented and verified.",
     })
@@ -136,8 +137,10 @@ test("persistent work state resumes from dependency-safe boundaries", async () =
     assert.deepEqual(status.ready, ["T2"])
     assert.equal(status.counts.completed, 1)
 
-    await startTask(root, "checkout-upgrade", "T2")
-    const failed = await failTask(root, "checkout-upgrade", "T2", "consumer test still fails")
+    const startedT2 = await startTask(root, "checkout-upgrade", "T2")
+    const failed = await failTask(root, "checkout-upgrade", "T2", "consumer test still fails", {
+      runId: startedT2.record.runId,
+    })
     assert.equal(failed.attempts, 1)
 
     const resumed = await resumeWork(root, "checkout-upgrade")
@@ -217,9 +220,9 @@ test("work completion requires fresh evidence", async () => {
       tasks: [fixturePlan.tasks[0]],
     }
     await importAndApprove(root, "evidence-gate", plan)
-    await startTask(root, "evidence-gate", "T1")
+    const started = await startTask(root, "evidence-gate", "T1")
     await assert.rejects(
-      completeTask(root, "evidence-gate", "T1", { evidence: "" }),
+      completeTask(root, "evidence-gate", "T1", { runId: started.record.runId, evidence: "" }),
       /fresh evidence/,
     )
   } finally {
@@ -247,8 +250,11 @@ test("finalization requires recorded integration PASS and unchanged workspace", 
     }
     await importAndApprove(root, "finalize-gate", plan)
 
-    await startTask(root, "finalize-gate", "T1")
-    await completeTask(root, "finalize-gate", "T1", { evidence: "unit test passed" })
+    const started = await startTask(root, "finalize-gate", "T1")
+    await completeTask(root, "finalize-gate", "T1", {
+      runId: started.record.runId,
+      evidence: "unit test passed",
+    })
 
     await assert.rejects(
       finalizeWork(root, "finalize-gate", "integration passed"),
@@ -437,6 +443,36 @@ test("non-git workspace fingerprint tracks source changes but ignores UES runtim
 
     await writeFile(path.join(root, "src", "value.txt"), "two\n")
     assert.notEqual(workspaceFingerprint(root), first)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("active task mutations require the current runId", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-run-fence-required-"))
+  try {
+    const plan = { ...fixturePlan, tasks: [fixturePlan.tasks[0]] }
+    await initWork(root, "run-fence-required", plan.goal)
+    await importAndApprove(root, "run-fence-required", plan)
+    const started = await startTask(root, "run-fence-required", "T1")
+
+    await assert.rejects(
+      heartbeatTask(root, "run-fence-required", "T1", null),
+      /requires the active runId/,
+    )
+    await assert.rejects(
+      failTask(root, "run-fence-required", "T1", "stale caller"),
+      /requires the active runId/,
+    )
+    await assert.rejects(
+      completeTask(root, "run-fence-required", "T1", { evidence: "stale caller" }),
+      /requires the active runId/,
+    )
+
+    await failTask(root, "run-fence-required", "T1", "current caller", {
+      runId: started.record.runId,
+    })
   } finally {
     await rm(root, { recursive: true, force: true })
   }
