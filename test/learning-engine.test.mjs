@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { acceptLearning, analyzeEvalTraces, readLearningState, saveLearningAnalysis } from "../lib/learning-engine.mjs"
+import { acceptLearning, analyzeEvalTraces, promoteLearning, readLearningState, relevantAcceptedLearnings, saveLearningAnalysis } from "../lib/learning-engine.mjs"
 
 test("learning loop proposes and accepts evidence-backed eval lessons", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-learning-"))
@@ -24,8 +24,27 @@ test("learning loop proposes and accepts evidence-backed eval lessons", async ()
     assert.ok(analysis.proposals.some((item) => item.key === "grader-failure"))
     const state = await saveLearningAnalysis(root, analysis)
     const accepted = await acceptLearning(root, state.proposals[0].id)
-    assert.equal(accepted.status, "accepted")
+    assert.equal(accepted.status, "accepted-awaiting-shadow")
     assert.equal((await readLearningState(root)).accepted.length, 1)
+    assert.deepEqual(await relevantAcceptedLearnings(root, "checkout failure"), [])
+
+    await assert.rejects(
+      promoteLearning(root, accepted.id, {
+        baselinePassRate: 0.5,
+        candidatePassRate: 0.5,
+        samples: 4,
+      }),
+      /measured shadow benchmark improvement/,
+    )
+
+    const promoted = await promoteLearning(root, accepted.id, {
+      baselinePassRate: 0.5,
+      candidatePassRate: 0.75,
+      samples: 4,
+      report: "shadow-eval.json",
+    })
+    assert.equal(promoted.status, "promoted")
+    assert.equal(promoted.shadowValidation.delta, 0.25)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
