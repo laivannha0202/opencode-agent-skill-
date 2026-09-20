@@ -21,6 +21,8 @@ Execution rules:
 - Prefer a failing behavior/regression test before implementation when practical.
 - Make the smallest coherent implementation.
 - Run the task's declared verification and inspect actual output.
+- When the UES CLI is available, record concrete checks with `ocskill work verify-command <slug> <task-id> . -- <command> [args...]`. This stores exit code, duration, output hashes, runId and before/after workspace fingerprints without storing full potentially-sensitive output.
+- If a runId is supplied in the context pack, use it when recording heartbeat/completion/failure so stale executors cannot complete a newer attempt.
 - If a fix fails repeatedly, stop patch stacking and return the failure evidence.
 
 Return exactly:
