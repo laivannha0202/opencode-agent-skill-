@@ -90,3 +90,20 @@ Only UES-managed resources are rewritten/removed. Unrelated user plugins/resourc
 - https://opencode.ai/v2/docs/permissions
 - https://opencode.ai/v2/docs/plugins
 - https://opencode.ai/v2/docs/skills
+
+
+## V7 capability probing
+
+Version detection remains useful for install-time compatibility, but V7 runtime dispatch does not assume that a major version proves the availability of every session API.
+
+The managed V2 plugin probes for:
+
+- session creation
+- prompting
+- waiting
+- context retrieval
+- agent switching
+- model switching
+- session hooks
+
+`ues.capabilities` exposes the observed surface. `ues.dispatch_task` fails closed when the minimum fresh-dispatch capability set is unavailable instead of attempting a partially supported execution path.
