@@ -203,7 +203,7 @@ const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep] [--timeout-ms N] [--idle-timeout-ms N] [--heartbeat-ms N]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long|polyglot] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep] [--timeout-ms N] [--idle-timeout-ms N] [--heartbeat-ms N]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -231,8 +231,8 @@ if (parsedOpenCodeMajor === null) {
   console.warn("[eval] could not parse OpenCode version; using the conservative OpenCode 1.x invocation.")
 }
 
-if (!["live", "long"].includes(suiteName)) {
-  console.error("--suite must be live or long")
+if (!["live", "long", "polyglot"].includes(suiteName)) {
+  console.error("--suite must be live, long, or polyglot")
   process.exit(2)
 }
 
