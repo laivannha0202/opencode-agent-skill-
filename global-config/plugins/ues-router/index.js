@@ -140,6 +140,7 @@ export default Plugin.define({
           properties: {
             slug: { type: "string" },
             task: { type: "string" },
+            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
           },
           required: ["slug", "task"],
           additionalProperties: false,
@@ -176,6 +177,10 @@ export default Plugin.define({
             ...(started?.contextPack?.task?.acceptance || []),
           ].filter(Boolean).join(" ")
           const taskPolicy = runOcskillJSON(["task-policy", taskText], projectRoot)
+          const timeoutMs = Math.max(
+            30_000,
+            Math.min(Number(input.timeoutMs || (taskPolicy.mode === "long-horizon" ? 20 * 60_000 : 10 * 60_000)), 60 * 60_000),
+          )
           const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
@@ -204,7 +209,27 @@ export default Plugin.define({
                 "Do not broaden scope or launch child agents. Run the declared verification and return the executor report.\n\n" +
                 JSON.stringify(started.contextPack, null, 2),
             })
-            await ctx.session.wait({ sessionID: created.id })
+
+            let timer = null
+            try {
+              await Promise.race([
+                ctx.session.wait({ sessionID: created.id }),
+                new Promise((_, reject) => {
+                  timer = setTimeout(
+                    () => reject(new Error("UES executor timed out after " + timeoutMs + "ms")),
+                    timeoutMs,
+                  )
+                }),
+              ])
+            } catch (error) {
+              try {
+                await ctx.session.interrupt({ sessionID: created.id, continue: false })
+              } catch {}
+              throw error
+            } finally {
+              if (timer) clearTimeout(timer)
+            }
+
             const messages = await ctx.session.context({ sessionID: created.id })
             return {
               content: JSON.stringify({
@@ -214,6 +239,7 @@ export default Plugin.define({
                 runId,
                 taskPolicy,
                 model: policy,
+                timeoutMs,
                 messages: messageExcerpt(messages),
                 next: "Inspect the child diff and verification, then call ocskill work complete or fail.",
               }, null, 2),
