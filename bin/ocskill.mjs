@@ -52,7 +52,7 @@ import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 import { createTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning } from "../lib/learning-engine.mjs"
-import { hermesStatus, buildHermesDelegationPrompt } from "../lib/hermes-bridge.mjs"
+import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 
 const args = process.argv.slice(2)
@@ -730,19 +730,37 @@ async function hermesControl() {
     printJson(hermesStatus())
     return
   }
-  if (action === "prompt") {
+  if (action === "prompt" || action === "exec") {
     const slug = args[2]
     const taskID = args[3]
     const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
     if (!slug || !taskID) {
-      console.error("Usage: ocskill hermes prompt <slug> <task-id> [dir]")
+      console.error("Usage: ocskill hermes <prompt|exec> <slug> <task-id> [dir]")
       process.exitCode = 2
       return
     }
-    console.log(buildHermesDelegationPrompt(await contextPack(root, slug, taskID)))
+    const prompt = buildHermesDelegationPrompt(await contextPack(root, slug, taskID))
+    if (action === "prompt") {
+      console.log(prompt)
+      return
+    }
+
+    const status = hermesStatus()
+    if (!status.available) {
+      console.error(status.error || "Hermes CLI is unavailable")
+      process.exitCode = 1
+      return
+    }
+    const result = runCapture("hermes", hermesOneShotArgs(prompt), {
+      cwd: path.resolve(root),
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    if (result.stdout) process.stdout.write(result.stdout)
+    if (result.stderr) process.stderr.write(result.stderr)
+    if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
     return
   }
-  console.error("Usage: ocskill hermes <status|prompt> ...")
+  console.error("Usage: ocskill hermes <status|prompt|exec> ...")
   process.exitCode = 2
 }
 
