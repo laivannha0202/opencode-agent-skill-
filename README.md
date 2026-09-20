@@ -1,10 +1,10 @@
 # OpenCode Universal Engineering System (UES)
 
-**UES 6.0.0** là engineering harness cho OpenCode, tập trung vào việc giúp model hiện có xử lý repository lớn và task dài theo quy trình có trạng thái bền vững, fresh-context execution, deterministic evidence và verification gate.
+**UES 7.7.0** là engineering harness cho OpenCode, tập trung vào việc giúp model hiện có xử lý repository lớn và task dài theo quy trình có trạng thái bền vững, fresh-context execution, deterministic evidence và verification gate.
 
 UES không tuyên bố biến một model yếu thành model mạnh hơn về bản chất. Mục tiêu là giảm lượng reasoning mà model phải tự giữ trong một context: chia task rõ, lưu state ra filesystem, dùng code cho các việc có thể xác định được, chạy subagent với context mới, và chỉ cho phép hoàn tất khi có evidence.
 
-## UES 6.0.0 có gì?
+## UES 7.7.0 có gì?
 
 - **39 engineering skills**
 - **11 slash commands**
@@ -20,6 +20,15 @@ UES không tuyên bố biến một model yếu thành model mạnh hơn về b�
 - **120 V2 router trigger cases** có positive/negative guards
 - **20 standard live hidden-graded tasks**
 - **5 long-horizon tasks**, gồm một bài tích hợp **15 source files**
+- crash-safe task leases + heartbeat + stale-run recovery
+- structured verification receipts bound to command exit status, output hashes, run ID and workspace fingerprint
+- capability-aware OpenCode invocation, observable live-eval heartbeat and hard/idle timeouts
+- context intelligence manifest with declared files, dependency neighborhood, relevant tests and bounded excerpts
+- adaptive execution/model policy from risk, scope, context pressure, attempt and failure signals
+- optional isolated Git worktree sandboxes for parallel task execution
+- proposal-only learning engine derived from eval traces
+- optional Hermes Agent handoff bridge; UES remains source of truth
+- local read-only **UES Control Center** dashboard
 - hỗ trợ **OpenCode 1.x và 2.x**
 
 Luồng long-horizon chính:
@@ -39,9 +48,15 @@ machine approval gate
   ↓
 dependency-safe tasks
   ↓
-fresh ues-executor session / task
+task lease + heartbeat
   ↓
-task evidence + durable state
+fresh executor + context manifest
+  ↓
+structured task verification receipt
+  ↓
+task report + evidence
+  ↓
+integration verifier + integration receipt
   ↓
 ues-integration-verifier
   ↓
@@ -73,7 +88,7 @@ Nếu npm không chạy lifecycle script:
 ocskill install
 ```
 
-Khi đồng bộ V6 đầy đủ, status sẽ phản ánh khoảng:
+Khi đồng bộ V7.7 đầy đủ, status sẽ phản ánh khoảng:
 
 ```text
 Package version: 6.0.0
@@ -284,8 +299,13 @@ Mặc định role quan trọng như architect, plan-checker, critic và integra
 | `ocskill review-scope [base] [dir]` | Changed-file coverage + deterministic risk hints |
 | `ocskill verification-plan [dir]` | Project-native verification recommendations |
 | `ocskill task-graph <PLAN.json>` | Validate DAG + compute safe waves |
-| `ocskill context-pack <slug> <task> [dir]` | Bounded handoff cho fresh executor |
-| `ocskill work ...` | Durable long-task state machine |
+| `ocskill context-pack <slug> <task> [dir]` | Bounded handoff + dependency/test/excerpt context manifest |
+| `ocskill work check <slug> <task|__integration__> ...` | Execute verification and persist structured receipt |
+| `ocskill sandbox ...` | Isolated Git worktree task execution/integration |
+| `ocskill learn [dir]` | Proposal-only learning from eval traces |
+| `ocskill hermes status|handoff` | Optional Hermes Agent interoperability |
+| `ocskill dashboard [dir]` | Local read-only Control Center |
+| `ocskill work ...` | Durable long-task state machine with leases/events/receipts |
 
 Ví dụ:
 
@@ -390,7 +410,7 @@ Giữ **34 scenarios** để kiểm catalog và phủ đủ 39 skill.
 npm run evals:router
 ```
 
-V6 có **120 cases** với required routes và negative guards.
+V7.7 có **120 cases** với required routes và negative guards.
 
 ## Standard hidden graders
 
@@ -493,3 +513,57 @@ UES chỉ quản lý resource có namespace/marker của chính nó, giữ unman
 # License
 
 MIT
+
+
+---
+
+# 13. V7.7 intelligence runtime
+
+V7.7 moves UES from a durable prompt/state harness toward a crash-safe adaptive agent runtime.
+
+## Reliability
+
+Each running task owns a `runId`, `heartbeatAt` and `leaseExpiresAt`. A resumed work item can recover expired running tasks instead of remaining stuck forever. The OpenCode V2 dispatcher refreshes the lease while the child executor is active.
+
+Live evals no longer use a silent synchronous wait. They run through an observable process runner with heartbeat, hard timeout and idle timeout controls:
+
+```cmd
+ocskill eval-live --suite long --model provider/model --heartbeat-seconds 30 --timeout-minutes 30 --idle-timeout-minutes 8
+```
+
+## Structured evidence
+
+New CLI-created work items require structured verification receipts. Execute checks through:
+
+```cmd
+ocskill work check <slug> <task-id> . -- npm test
+ocskill work check <slug> __integration__ . -- npm run ci
+```
+
+Receipts store command, exit code, timing, output hashes, run/session identity when available and the current workspace fingerprint. `work complete` and integration PASS reject stale/missing receipts when strict evidence is enabled.
+
+## Context intelligence and adaptive routing
+
+`context-pack` now includes a bounded manifest of declared files, dependency neighbors, relevant tests, hotspots and excerpts. Model policy can consider risk, file count, context bytes, attempts and failure signals rather than attempt count alone.
+
+## Isolated parallel work
+
+From a clean Git worktree:
+
+```cmd
+ocskill sandbox create <slug> <task> .
+ocskill sandbox status <slug> <task> .
+ocskill sandbox diff <slug> <task> .
+ocskill sandbox apply <slug> <task> .
+ocskill sandbox remove <slug> <task> .
+```
+
+Read/read overlap can share a safe wave; write/read and write/write conflicts serialize.
+
+## Learning, Hermes and Control Center
+
+`ocskill learn .` derives proposal-only lessons from `.ues-evals`; it never auto-edits or auto-activates a skill.
+
+`ocskill hermes status` detects an optional Hermes Agent installation. `ocskill hermes handoff <slug> <task> .` emits a bounded interoperability packet while keeping UES PLAN/STATE/EVIDENCE authoritative.
+
+`ocskill dashboard .` starts a local read-only dashboard for work items, task leases/events, eval summaries and learning proposals.
