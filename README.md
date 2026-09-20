@@ -56,9 +56,7 @@ structured task verification receipt
   ↓
 task report + evidence
   ↓
-integration verifier + integration receipt
-  ↓
-ues-integration-verifier
+ues-integration-verifier + structured integration receipt
   ↓
 machine integration PASS gate
   ↓
@@ -91,8 +89,8 @@ ocskill install
 Khi đồng bộ V7.7 đầy đủ, status sẽ phản ánh khoảng:
 
 ```text
-Package version: 6.0.0
-Resource version: 6.0.0
+Package version: 7.7.0
+Resource version: 7.7.0
 Skills: 39/39
 Commands: 11/11
 Subagents: 10/10
