@@ -84,13 +84,18 @@ try {
   assert.ok(state.agents.length >= 10)
 
   console.log(
-    "Plain npm install smoke passed for " + packageName + "@" + packageJson.version +
+    "Plain npm install compatibility smoke passed for " + packageName + "@" + packageJson.version +
     ": npm " + npmVersion + ", lifecycle auto-sync=" + autoSynced +
     ", final resources=" + state.skills.length + "/" + state.commands.length + "/" + state.agents.length + ".",
   )
 
-  if (Number.isFinite(npmMajor) && npmMajor >= 11 && autoSynced) {
-    console.warn("[smoke] npm 11+ unexpectedly ran install scripts without explicit allow-scripts; keep this behavior under observation.")
+  if (!autoSynced) {
+    console.warn(
+      "[smoke] npm installed the CLI but skipped postinstall under its lifecycle-script policy; " +
+      "resources were recovered by the installed 'ocskill install' command.",
+    )
+  } else if (Number.isFinite(npmMajor) && npmMajor >= 11) {
+    console.warn("[smoke] npm 11+ ran install scripts in this environment; keep policy behavior under observation.")
   }
 } finally {
   await rm(temp, { recursive: true, force: true })
