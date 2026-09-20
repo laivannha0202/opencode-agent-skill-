@@ -24,6 +24,7 @@ test("declared high risk metadata forces heavy policy", () => {
   assert.equal(policy.risk, "high")
   assert.equal(policy.modelTier, "heavy")
   assert.equal(policy.requirePlanCheck, true)
+  assert.equal(policy.contextBudget, 48_000)
   assert.ok(policy.signals.some((item) => item.name === "declared-high-risk"))
 })
 
