@@ -21,6 +21,7 @@ jobs:
           - evals:router
           - evals:live:validate
           - evals:long:validate
+          - evals:polyglot:validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
