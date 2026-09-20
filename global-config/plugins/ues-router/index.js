@@ -333,7 +333,7 @@ export default Plugin.define({
 
             const messages = await ctx.session.context({ sessionID: created.id })
             let integration = null
-            if (sandbox && input.integrate !== false) {
+            if (sandbox && input.integrate === true) {
               integration = runOcskillJSON(
                 ["sandbox", "integrate", sandbox.dir, projectRoot],
                 projectRoot,
@@ -354,7 +354,9 @@ export default Plugin.define({
                 sandbox,
                 integration,
                 messages: messageExcerpt(messages),
-                next: "Inspect the child diff and verification, then call ocskill work complete or fail.",
+                next: sandbox
+                  ? "Inspect and verify the isolated worktree first. If accepted, integrate it with ocskill sandbox integrate <worktree> . before recording work complete."
+                  : "Inspect the child diff and verification, then call ocskill work complete or fail.",
               }, null, 2),
             }
           } catch (error) {
