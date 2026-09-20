@@ -34,9 +34,15 @@ When the `ocskill` CLI is available, prefer deterministic repository evidence be
 - `ocskill review-scope [base] [dir]` — deterministic changed-file coverage and risk hints
 - `ocskill verification-plan [dir]` — project-native verification recommendations
 - `ocskill task-graph <PLAN.json>` — validate dependencies and compute safe execution waves
-- `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff for a fresh executor
+- `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff plus dependency/test/excerpt context manifest for a fresh executor
+- `ocskill work check <slug> <task|__integration__> [dir] -- <command> ...` — execute verification and persist a structured receipt bound to the current workspace
+- `ocskill sandbox <create|status|diff|apply|remove> ...` — isolated Git worktrees for dependency-safe parallel task execution
+- `ocskill learn [dir]` — convert local eval traces into proposal-only learning artifacts; never auto-activates a skill
+- `ocskill dashboard [dir]` — local read-only Control Center for work state, events, evals and learning proposals
 
 These helpers are evidence accelerators, not substitutes for reading the exact affected code. Use repository-native search/tools when they provide more precise symbol/call-graph information.
+
+For V7.7 work, prefer capability probing over version assumptions, machine-bound verification receipts over narrative test claims, and lease-backed task ownership over an indefinitely "running" status. A fresh executor that disappears must eventually be recoverable without manual state surgery.
 
 On OpenCode v2, UES may install a managed runtime router that preselects at most a small focused set of relevant skills from the incoming prompt. The V2 plugin also upgrades destructive/high-impact shell actions such as forceful Git history operations, publishing, infrastructure destruction, or destructive SQL to an explicit permission prompt. Treat router selections as hints: keep useful skills, load deeper references only when needed, and do not assume a routed skill proves anything about the repository.
 
@@ -128,15 +134,18 @@ For explicit long-running/autonomous work, do not ask one context to remember th
 2. Persist observable requirements in `.ues-work/<slug>/SPEC.md`.
 3. Create a machine-checkable `PLAN.json` and validate it with `ocskill task-graph`.
 4. Ask `ues-plan-checker` to challenge the plan before edits begin. Record PASS with `ocskill work approve-plan`; `work start` is blocked until this happens.
-5. Execute each approved task in a fresh `ues-executor` context. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
-6. Inspect each child diff and mark task completion only with fresh evidence using `ocskill work complete`; record failures with `ocskill work fail`.
-7. Parallelize only dependency-safe tasks with non-overlapping declared files and genuinely independent write surfaces. UES serializes durable state writes but cannot make conflicting source edits safe.
-8. On resume, trust durable state plus current Git evidence over conversational memory.
-9. After all tasks complete, run `ues-integration-verifier` against cross-task contracts and end-to-end acceptance criteria, then persist its actual verdict with `ocskill work verify-integration`.
-10. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
-11. Merge/push/publish/deploy remain external side effects and require explicit user intent.
+5. Execute each approved task in a fresh `ues-executor` context when the runtime exposes the required session capabilities. `ues.dispatch_task` applies adaptive model policy from attempt, risk and context size and keeps the task lease alive while the child runs.
+6. Run declared task verification through `ocskill work check`. New CLI-created work items require at least one passing structured receipt for the active run/current workspace before `work complete` succeeds.
+7. Inspect each child diff and then mark task completion using `ocskill work complete`; record failures with `ocskill work fail`. Narrative reports remain useful context but are not machine verification.
+8. Parallelize only dependency-safe tasks. Read/read overlap may share a wave; write/read and write/write overlap must serialize. For risky parallel edits from a clean Git tree, prefer isolated `ocskill sandbox` worktrees and deterministic patch application.
+9. On interruption, `work resume` first recovers expired executor leases. Trust durable state, receipts, events and current Git evidence over conversational memory.
+10. After all tasks complete, run fresh integration checks through `ocskill work check <slug> __integration__ . -- ...`, then run `ues-integration-verifier` and persist its actual verdict with `ocskill work verify-integration`.
+11. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
+12. `ocskill learn` may derive proposal-only lessons from eval traces, but no generated lesson becomes active guidance without a regression test proving it.
+13. Hermes Agent interoperability is optional; a Hermes handoff never replaces UES PLAN/STATE/EVIDENCE as the source of truth.
+14. Merge/push/publish/deploy remain external side effects and require explicit user intent.
 
-Use `ocskill model-policy <role> --attempt N` when configured model tiers exist. Escalate only after diagnosis/fresh context; never use a stronger model as a substitute for missing evidence.
+Use `ocskill model-policy <role> --attempt N --risk <risk> --files <count> --context-bytes <bytes>` when configured model tiers exist. V7.7 may raise the minimum tier for risk, large scope, context pressure or repeated failure. Escalate only after diagnosis/fresh context; never use a stronger model as a substitute for missing evidence.
 
 ## Critic and repair discipline
 
