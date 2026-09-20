@@ -16,6 +16,8 @@ test("runtime event journal is append-only and bounded on read", async () => {
     const last = await readRuntimeEvents(file, { limit: 1 })
     assert.equal(last.length, 1)
     assert.equal(last[0].type, "task.completed")
+    const malformed = await readRuntimeEvents(file, { limit: Number.NaN })
+    assert.equal(malformed.length, 2)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
