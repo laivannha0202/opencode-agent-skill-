@@ -37,8 +37,9 @@ When the `ocskill` CLI is available, prefer deterministic repository evidence be
 - `ocskill task-graph <PLAN.json>` — validate dependencies and compute safe execution waves
 - `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff enriched with declared files, import neighbors, likely tests, instruction/manifests and accepted lessons
 - `ocskill work verify-command ... -- <command>` — structured verification receipt (exit code, hashes, timing, workspace fingerprints)
-- `ocskill sandbox create|list|remove ...` — isolated Git worktree primitives for parallel write tasks
-- `ocskill learn status|analyze|accept ...` — evidence-gated learning loop; proposals never auto-edit skills
+- `ocskill sandbox create|integrate|list|remove ...` — isolated Git worktree primitives with conflict-aware integration
+- `ocskill work events <slug> [dir]` — append-only runtime event journal for start/heartbeat/receipt/failure/recovery/completion/integration/finalization
+- `ocskill learn status|analyze|accept|promote ...` — evidence-gated learning loop; shadow-required lessons are retrieved only after measured improvement
 - `ocskill dashboard [dir] --serve` — local Control Center for work state, evidence, learning and eval summaries
 
 These helpers are evidence accelerators, not substitutes for reading the exact affected code. Use repository-native search/tools when they provide more precise symbol/call-graph information.
@@ -132,12 +133,12 @@ For explicit long-running/autonomous work, do not ask one context to remember th
 1. Map the relevant repository surface with deterministic evidence and `ues-codebase-mapper` when useful.
 2. Persist observable requirements in `.ues-work/<slug>/SPEC.md`.
 3. Create a machine-checkable `PLAN.json` and validate it with `ocskill task-graph`.
-4. Ask `ues-plan-checker` to challenge the plan before edits begin. Record PASS with `ocskill work approve-plan`; `work start` is blocked until this happens.
+4. Ask `ues-plan-checker` to challenge the plan before edits begin. For long/high-risk work, create a structured plan-verification receipt bound to the current plan hash, then record approval with `ocskill work approve-plan --receipt-file ...`; `work start` is blocked until this happens.
 5. Execute each approved task in a fresh `ues-executor` context. Active V7 tasks carry a runId, heartbeat and lease expiry so interrupted work can be recovered deterministically. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
-6. Inspect each child diff and prefer receipt-backed verification using `ocskill work verify-command` before marking completion with `ocskill work complete`; record failures with `ocskill work fail`.
-7. Parallelize only dependency-safe tasks with no write/read conflict. For concurrent writers, use isolated worktrees/sandboxes and an explicit integration step instead of sharing one working tree. UES serializes durable state writes but cannot make conflicting source edits safe.
+6. Inspect each child diff and use `ocskill work verify-command` before marking completion. Long/high-risk tasks require at least one successful receipt for the active run; narrative-only completion is rejected.
+7. Parallelize only dependency-safe tasks with no write/read conflict. V8 may isolate concurrent writers automatically; manual sandboxes use `ocskill sandbox create` and `ocskill sandbox integrate`, which refuses overlap with dirty root files.
 8. On resume, trust durable state plus current Git evidence over conversational memory. Recover expired executor leases before retrying; preserve runId fences for active attempts.
-9. After all tasks complete, run `ues-integration-verifier` against cross-task contracts and end-to-end acceptance criteria, then persist its actual verdict with `ocskill work verify-integration`.
+9. After all tasks complete, run `ues-integration-verifier`. Long/high-risk PASS must be bound to the current workspace fingerprint with a structured integration-verification receipt before `ocskill work verify-integration` records it.
 10. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
 11. Merge/push/publish/deploy remain external side effects and require explicit user intent.
 
@@ -207,6 +208,6 @@ A task is complete only when requested behavior is implemented, acceptance crite
 
 ## V7 learning and optional external executors
 
-UES may analyze its own `.ues-evals` traces with `ocskill learn analyze`. The output is a proposal set, not an automatic self-modification. A human/parent explicitly accepts a proposal before it can appear in future task context. This keeps learning evidence-gated and reversible.
+UES may analyze its own `.ues-evals` traces with `ocskill learn analyze`. V8 clusters recurring failure signatures and emits candidate rules. Acceptance stages a proposal; shadow-required lessons appear in future context only after `ocskill learn promote` records a measured benchmark improvement.
 
 Hermes support is optional and adapter-style. `ocskill hermes status` checks availability and `ocskill hermes prompt <slug> <task> .` emits a bounded delegation prompt. Hermes is not embedded into the UES runtime and may not mutate UES durable state on its own.
