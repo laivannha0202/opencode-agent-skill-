@@ -85,3 +85,20 @@ test("runProcess kills descendant processes on timeout", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("runProcess escalates SIGTERM-resistant children", { skip: process.platform === "win32" }, async () => {
+  const started = Date.now()
+  const result = await runProcess(
+    process.execPath,
+    ["-e", "process.on('SIGTERM',()=>{}); setInterval(()=>{},1000)"],
+    {
+      timeoutMs: 120,
+      killGraceMs: 120,
+      heartbeatMs: 0,
+    },
+  )
+  assert.equal(result.timedOut, true)
+  assert.notEqual(result.status, 0)
+  assert.ok(Date.now() - started < 2500, "timeout escalation did not terminate the process promptly")
+})
