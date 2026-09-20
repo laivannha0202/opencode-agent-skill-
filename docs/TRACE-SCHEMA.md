@@ -12,6 +12,8 @@ Each result item contains:
 - `agentExit` and `graderExit`
 - `durationMs`
 - `authMode`: `env-only` or `current`
+- `opencodeVersion`, `opencodeMajor` and `opencodeCapabilities`
+- `runtime`: timeout / idle-timeout / cancellation / signal metadata
 - `changedFiles`: added/removed/modified workspace paths
 - bounded agent/grader stdout and stderr
 - optional kept workspace path when `--keep` is used
@@ -73,3 +75,8 @@ Keep constant:
 - trial count when possible
 
 Compare observable success, regressions, elapsed time, tool behavior and cost rather than narrative confidence.
+
+
+## V7 structured verification receipts
+
+Long-horizon work evidence can embed `verificationReceipts`. A receipt contains a command, integer exit code, timing, stdout/stderr SHA-256 hashes, workspace fingerprint, optional executor session/run identity, and timeout/cancellation state. `evidenceStrength: "structured"` means at least one current passing receipt backed the recorded task or integration evidence.
