@@ -101,7 +101,7 @@ Nếu npm không chạy lifecycle script:
 ocskill install
 ```
 
-Khi đồng bộ V6 đầy đủ, status sẽ phản ánh khoảng:
+Khi đồng bộ V7.7 đầy đủ, status sẽ phản ánh khoảng:
 
 ```text
 Package version: 7.7.0
@@ -443,7 +443,7 @@ Giữ **34 scenarios** để kiểm catalog và phủ đủ 39 skill.
 npm run evals:router
 ```
 
-V6 có **120 cases** với required routes và negative guards.
+V7.7 giữ **120 cases** với required routes và negative guards, cộng regression tests riêng cho cap-priority/capability runtime.
 
 ## Standard hidden graders
 
@@ -563,6 +563,7 @@ Optional Hermes adapter:
 ```cmd
 ocskill hermes status
 ocskill hermes prompt <slug> <task> .
+ocskill hermes exec <slug> <task> .
 ```
 
 Local Control Center:
