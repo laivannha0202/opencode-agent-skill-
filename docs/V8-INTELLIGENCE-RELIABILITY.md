@@ -89,7 +89,7 @@ The context remains bounded by a per-task budget rather than dumping the whole r
 
 Safe-wave analysis still serializes declared read/write conflicts.
 
-When concurrent writers are allowed, V8 can use isolated Git worktrees. Integration:
+Writer tasks are isolated in Git worktrees by default when the root checkout is clean (unless isolation is explicitly disabled). This keeps the first writer off the canonical root as well as later concurrent writers. Integration:
 
 - captures tracked and untracked sandbox changes;
 - rejects overlap with dirty files in the root checkout;
@@ -117,10 +117,10 @@ ocskill learn accept <proposal-id> .
 Acceptance alone does not make a shadow-required lesson active. Promotion additionally requires measured benchmark improvement:
 
 ```bash
-ocskill learn promote <proposal-id> .   --baseline 0.50   --candidate 0.75   --samples 4
+ocskill learn promote <proposal-id> . --report .ues-evals/matrix/matrix-summary-<timestamp>.json
 ```
 
-Only promoted lessons are eligible for future context retrieval.
+Promotion reads the benchmark matrix artifact itself, verifies complete/equal baseline-vs-UES coverage, hashes the artifact, and refuses caller-supplied pass-rate claims. Only promoted lessons are eligible for future context retrieval.
 
 ## 7. Benchmark matrix
 
@@ -188,8 +188,9 @@ V8 adds:
 - dependency-review workflow;
 - Dependabot for GitHub Actions and npm;
 - package/tag version consistency guard;
-- npm provenance-ready publish workflow;
-- OIDC permissions for npm Trusted Publishing;
+- tag-only npm publish workflow;
+- OIDC-only npm Trusted Publishing permissions (no long-lived NODE_AUTH_TOKEN);
+- fail-closed tag/version guard;
 - exact plain global-install compatibility smoke in addition to packed-install smoke.
 
 Trusted Publishing still requires the npm account-side trust relationship to be configured for `laivannha0202/opencode-agent-skill-` and `publish.yml`.
