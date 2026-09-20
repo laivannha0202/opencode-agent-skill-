@@ -819,11 +819,8 @@ async function learningControl() {
     if (action === "promote") {
       const id = args[2]
       const promoteRoot = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      if (!id) throw new Error("Usage: ocskill learn promote <proposal-id> [dir] --baseline <0..1> --candidate <0..1> --samples N")
+      if (!id) throw new Error("Usage: ocskill learn promote <proposal-id> [dir] --report <matrix-summary.json>")
       printJson(await promoteLearning(promoteRoot, id, {
-        baselinePassRate: optionValue("--baseline"),
-        candidatePassRate: optionValue("--candidate"),
-        samples: optionValue("--samples"),
         report: optionValue("--report"),
       }))
       return
