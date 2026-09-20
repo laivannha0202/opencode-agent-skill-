@@ -424,7 +424,8 @@ export default Plugin.define({
       })
     })
 
-    await ctx.session.hook("context", (event) => {
+    if (capabilities.sessionHook) {
+      await ctx.session.hook("context", (event) => {
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
@@ -432,7 +433,7 @@ export default Plugin.define({
       })
     })
 
-    await ctx.session.hook("prompt", (event) => {
+      await ctx.session.hook("prompt", (event) => {
       const config = routerConfig()
       if (!config.enabled) return
 
@@ -464,12 +465,16 @@ export default Plugin.define({
       }
     })
 
-    await ctx.permission.hook("evaluate", (event) => {
-      if (event.action !== "shell") return
-      const risk = destructiveShellRisk(event.resources.join("\n"))
-      if (!risk.risky) return
-      event.effect = "ask"
-      event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
-    })
+    }
+
+    if (capabilities.permissionHook) {
+      await ctx.permission.hook("evaluate", (event) => {
+        if (event.action !== "shell") return
+        const risk = destructiveShellRisk(event.resources.join("\n"))
+        if (!risk.risky) return
+        event.effect = "ask"
+        event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
+      })
+    }
   },
 })
