@@ -149,3 +149,21 @@ test("router leaves non-truncated routing output unchanged", () => {
     ],
   )
 })
+
+
+test("router handles Vietnamese engineering prompts", () => {
+  const routed = routeSkills(
+    "Sửa lỗi phân quyền thanh toán trong toàn bộ dự án, kiểm tra cơ sở dữ liệu và API công khai.",
+    6,
+  )
+  assert.ok(routed.includes("ues-engineering-orchestrator"))
+  assert.ok(routed.includes("ues-auth-security"))
+  assert.ok(routed.includes("ues-payment-engineering"))
+  assert.ok(routed.includes("ues-database-engineering"))
+})
+
+test("router recognizes backend framework domains", () => {
+  assert.ok(routeSkills("Fix FastAPI pydantic validation regression", 6).includes("ues-fastapi-engineering"))
+  assert.ok(routeSkills("Review Django REST permission handling", 6).includes("ues-django-engineering"))
+  assert.ok(routeSkills("Debug NestJS dependency injection failure", 6).includes("ues-nestjs-engineering"))
+})
