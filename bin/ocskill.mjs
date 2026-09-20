@@ -463,8 +463,6 @@ async function workControl() {
         cwd: path.resolve(root),
         maxBuffer: 8 * 1024 * 1024,
       })
-      if (result.stdout) process.stdout.write(result.stdout)
-      if (result.stderr) process.stderr.write(result.stderr)
       const receipt = createVerificationReceipt({
         task: taskID,
         runId: optionValue("--run-id"),
@@ -480,7 +478,18 @@ async function workControl() {
         workspaceBefore: before,
         workspaceAfter: workspaceFingerprint(root),
       })
-      printJson(await recordVerificationReceipt(root, slug, taskID, receipt))
+      const recorded = await recordVerificationReceipt(root, slug, taskID, receipt)
+      const clip = (value) => {
+        const text = String(value || "")
+        return text.length <= 8000 ? text : "...[truncated]\n" + text.slice(-8000)
+      }
+      printJson({
+        receipt: recorded,
+        output: {
+          stdout: clip(result.stdout),
+          stderr: clip(result.stderr),
+        },
+      })
       if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
       return
     }
