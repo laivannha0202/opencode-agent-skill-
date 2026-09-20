@@ -90,3 +90,8 @@ Only UES-managed resources are rewritten/removed. Unrelated user plugins/resourc
 - https://opencode.ai/v2/docs/permissions
 - https://opencode.ai/v2/docs/plugins
 - https://opencode.ai/v2/docs/skills
+
+
+## Capability probing
+
+V7.7 keeps major-version handling for resource installation, but live execution no longer assumes that a major version guarantees a specific CLI flag. The eval harness probes `opencode run --help` and only uses `--standalone` when that capability is actually exposed. The V2 router likewise registers fresh-session dispatch only when the required session methods exist. This is intentionally more conservative than version-only branching.
