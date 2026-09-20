@@ -6,9 +6,28 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [7.7.0] - 2026-09-20
+
+### Added
+- Crash-safe long-task leases with per-attempt `runId`, executor owner metadata, heartbeat timestamps, lease expiry, explicit heartbeat command and stale-task recovery.
+- Structured verification receipts with command/args, exit code, timing, SHA-256 output digests, task/run fencing and before/after workspace fingerprints.
+- Context intelligence manifests that add declared files, import neighbors, likely tests, repository instructions/manifests, bounded excerpts and accepted learnings to fresh executor handoffs.
+- Adaptive task classification via `ocskill task-policy` and risk/complexity-aware model selection layered on top of attempt escalation.
+- Read/write-aware safe-wave scheduling plus isolated Git worktree sandbox primitives for parallel write tasks.
+- Evidence-gated learning loop over `.ues-evals` with deterministic proposals, explicit acceptance and relevant accepted lessons fed back into future context packs.
+- Optional Hermes adapter commands that detect Hermes and emit bounded UES delegation prompts without embedding Hermes into the UES runtime.
+- Zero-dependency local UES Control Center for durable work state, evidence, learning proposals and recent evaluation summaries.
+- V2 runtime capability probing tool and fail-closed fresh-dispatch checks.
+
+### Changed
+- Live evaluation runs are asynchronous and observable: start messages, periodic heartbeats, hard timeout, idle timeout and Ctrl+C process-tree cancellation are supported.
+- V2 fresh task dispatch refreshes durable task leases while the executor session runs and reports task policy/runId alongside model policy.
+- Workspace fingerprints ignore UES runtime-only learning/dashboard/sandbox directories in addition to `.ues-work`.
+- Package version is 7.7.0.
+
 ### Fixed
-- Live baseline/UES evaluation now detects the OpenCode major version: OpenCode 1.x runs omit the V2-only `--standalone` flag, while OpenCode 2.x+ keeps it. Eval JSON also records the detected OpenCode version/major for reproducibility.
-- The V2 automatic router now retains domain/impact skills and `ues-engineering-orchestrator` ahead of generic process skills when the configured skill cap (default 4) is exceeded, so cross-cutting and long-running prompts no longer silently lose their domain guidance. Under cap pressure a generic process skill such as `ues-bug-diagnosis` may be evicted before domain skills by design; when the cap is not exceeded, routing output is unchanged.
+- Live baseline/UES evaluation detects the OpenCode major version: OpenCode 1.x omits the V2-only `--standalone` flag, while OpenCode 2.x+ keeps it. Eval JSON records the detected OpenCode version/major for reproducibility.
+- The V2 automatic router retains domain/impact skills and `ues-engineering-orchestrator` ahead of generic process skills when the configured skill cap is exceeded.
 
 ## [6.0.0] - 2026-09-19
 
