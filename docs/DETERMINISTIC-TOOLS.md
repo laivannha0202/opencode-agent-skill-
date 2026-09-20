@@ -86,3 +86,48 @@ These helpers:
 - do not auto-merge/push/publish/deploy
 - preserve unrelated user work
 - use JSON outputs where machine consumption matters
+
+
+## V7.7 runtime tools
+
+### Structured verification
+
+```bash
+ocskill work check checkout T2 . -- npm test
+ocskill work check checkout __integration__ . -- npm run ci
+```
+
+The command is executed by UES and recorded as a structured receipt. A strict work item rejects completion/integration PASS when the current workspace has no passing receipt.
+
+### Lease recovery
+
+```bash
+ocskill work heartbeat checkout T2 . --run-id <id>
+ocskill work recover checkout .
+ocskill work resume checkout .
+```
+
+Fresh-session dispatch maintains heartbeat automatically while the child is active. Resume recovers stale leases before returning state.
+
+### Isolated task worktrees
+
+```bash
+ocskill sandbox create checkout T2 .
+ocskill sandbox status checkout T2 .
+ocskill sandbox diff checkout T2 .
+ocskill sandbox apply checkout T2 .
+ocskill sandbox remove checkout T2 .
+```
+
+Creation requires a clean main Git worktree. Apply uses `git apply --3way`.
+
+### Learning and interoperability
+
+```bash
+ocskill learn .
+ocskill hermes status
+ocskill hermes handoff checkout T2 .
+ocskill dashboard .
+```
+
+Learning output is proposal-only. Hermes is optional. The dashboard is read-only and bound to localhost by default.
