@@ -137,12 +137,20 @@ async function inspectLongOrchestration(workspace) {
       ])
       const tasks = Object.values(state.tasks || {})
       const evidenceTasks = new Set((evidence.entries || []).map((item) => item.task))
+      const receiptBackedTasks = new Set(
+        (evidence.receipts || []).filter((item) => item.passed).map((item) => item.task),
+      )
+      const plannedIDs = (plan.tasks || []).map((item) => item.id)
       const item = {
         slug: entry.name,
         taskCount: Array.isArray(plan.tasks) ? plan.tasks.length : 0,
         planApproved: state.planApproval?.status === "passed",
         attemptedTasks: tasks.filter((task) => Number(task.attempts || 0) > 0).length,
         completedTasks: tasks.filter((task) => task.status === "completed").length,
+        receiptBackedTasks: plannedIDs.filter((id) => receiptBackedTasks.has(id)).length,
+        receiptCoverage: plannedIDs.length
+          ? plannedIDs.filter((id) => receiptBackedTasks.has(id)).length / plannedIDs.length
+          : 0,
         integrationPassed: state.integrationVerification?.status === "PASS",
         integrationEvidence: evidenceTasks.has("__integration_verification__"),
         finalizedEvidence: evidenceTasks.has("__integration__"),
@@ -153,6 +161,7 @@ async function inspectLongOrchestration(workspace) {
         item.planApproved &&
         item.attemptedTasks === item.taskCount &&
         item.completedTasks === item.taskCount &&
+        item.receiptBackedTasks === item.taskCount &&
         item.integrationPassed &&
         item.integrationEvidence &&
         item.finalizedEvidence &&
