@@ -114,13 +114,13 @@ Usage:
     ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence> [--receipt-file <file>]
     ocskill work start <slug> <task-id> [dir] [--lease-ms N]
     ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id> [--execution-dir <dir>] [--sandbox-dir <dir>]
-    ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]
+    ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>
     ocskill work recover <slug> [dir] [--force]
     ocskill work recover-task <slug> <task-id> [dir] [--force] [--reason <text>]
     ocskill work events <slug> [dir] [--limit N]
-    ocskill work verify-command <slug> <task-id> [dir] [--run-id <id>] -- <command> [args...]
-    ocskill work complete <slug> <task-id> [dir] --evidence <text> [--report-file <file>] [--run-id <id>]
-    ocskill work fail <slug> <task-id> [dir] --reason <text> [--run-id <id>]
+    ocskill work verify-command <slug> <task-id> [dir] --run-id <id> -- <command> [args...]
+    ocskill work complete <slug> <task-id> [dir] --run-id <id> --evidence <text> [--report-file <file>]
+    ocskill work fail <slug> <task-id> [dir] --run-id <id> --reason <text>
     ocskill work decision <slug> [dir] --text <decision>
     ocskill work block|unblock <slug> [dir] --text <blocker>
     ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text> [--report-file <file>] [--receipt-file <file>]
