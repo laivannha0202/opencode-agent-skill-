@@ -224,6 +224,31 @@ test("renamed package accepts scoped legacy state without force", async () => {
   await rm(temp, { recursive: true, force: true })
 })
 
+test("renamed package migrates legacy managed markers", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-marker-migration-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?marker-migration=${Date.now()}`)
+  await module.installResources()
+
+  const skillFile = path.join(temp, "skills", "ues-repo-explorer", "SKILL.md")
+  const current = await readFile(skillFile, "utf8")
+  await writeFile(
+    skillFile,
+    current.replace(module.MANAGED_MARKER, module.LEGACY_MANAGED_MARKER),
+    "utf8",
+  )
+
+  const result = await module.installResources()
+  assert.equal(result.stateError, undefined)
+
+  const migrated = await readFile(skillFile, "utf8")
+  assert.match(migrated, /managed-by: opencode-agent-skill/)
+  assert.doesNotMatch(migrated, /managed-by: @laivannha0202\/opencode-agent-skill/)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
 test("installer skips command and agent sources whose IDs are not managed-safe", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-invalid-id-"))
   process.env.OPENCODE_CONFIG_DIR = temp

@@ -1,6 +1,6 @@
 # UES evaluations
 
-UES 6 separates catalog correctness, routing precision, benchmark integrity, final behavior and long-horizon orchestration.
+UES 8 separates catalog correctness, routing precision, benchmark integrity, final behavior, long-horizon orchestration and cross-stack coverage.
 
 ## 1. Static skill-routing contract
 
@@ -44,11 +44,22 @@ npm run evals:long:validate
 
 The same broken-fixture rule applies.
 
-## 5. Live baseline vs UES
+## 5. Polyglot suite integrity
+
+The polyglot suite contains **8 tasks** covering Python, Java, .NET, Next.js, React Native, SQL migration, monorepo boundaries and generated contract discipline.
+
+```bash
+npm run evals:polyglot:validate
+```
+
+The hidden graders must reject the intentionally broken fixture before the suite is considered valid.
+
+## 6. Live baseline vs UES
 
 ```bash
 ocskill eval-live --model provider/model --trials 3
 ocskill eval-live --suite long --model provider/model --trials 3
+ocskill eval-live --suite polyglot --model provider/model --trials 3
 ```
 
 Each task runs as:
@@ -66,15 +77,26 @@ For `--suite long`, a UES-mode result is PASS only if:
 2. hidden behavior grader passes;
 3. at least one `.ues-work/<slug>/` item is valid;
 4. the plan contains at least two tasks;
-5. plan approval status is `passed`;
+5. plan approval status is `passed` and contains a structured plan-verification receipt for the current plan hash;
 6. every planned task has an attempt and ends `completed`;
-7. integration verification is `PASS`;
-8. integration and finalization evidence exist;
-9. work item status is `completed`.
+7. every task is backed by a successful verification receipt;
+8. integration verification is `PASS` and contains a structured integration-verification receipt for the verified workspace fingerprint;
+9. integration and finalization evidence exist;
+10. work item status is `completed`.
 
 Therefore a model that directly patches all files in its main context but bypasses the long-task engine is not counted as a successful UES long-horizon run.
 
-## Authentication isolation
+## 7. Benchmark matrix
+
+Run all three behavioral suites in baseline and UES mode:
+
+```bash
+npm run evals:matrix -- --model provider/model --trials 3
+```
+
+The matrix verifies that the expected number of baseline and UES runs was produced before summarizing pass-rate delta. Use `--long-only`, `--standard-only`, `--polyglot-only`, or `--without-polyglot` to narrow the matrix.
+
+## 8. Authentication isolation
 
 Default mode:
 
@@ -92,7 +114,7 @@ ocskill eval-live --model provider/model --auth current --trials 3
 
 `current` copies only the current auth file, not the user's global UES configuration.
 
-## Telemetry
+## 9. Telemetry
 
 Results may include:
 
@@ -108,7 +130,7 @@ Results may include:
 
 No hidden chain-of-thought is collected.
 
-## Report aggregation
+## 10. Report aggregation
 
 ```bash
 ocskill eval-report .ues-evals
@@ -119,7 +141,7 @@ Compare the same model, variant, prompt, fixture, grader and environment. Report
 A benchmark result is evidence only for the measured workload. UES does not claim to turn one base model into another.
 
 
-## V7 live-run observability and evidence gate
+## V8 live-run observability and evidence gate
 
 Live runs accept:
 
@@ -131,6 +153,6 @@ Live runs accept:
 
 The harness prints a start line and heartbeat for an active model run. Hard timeout and idle timeout are recorded separately. Ctrl+C aborts the active OpenCode process tree and sets exit code 130 after the current result is recorded.
 
-V7 long-suite UES mode additionally requires **receipt-backed verification for every planned task**. A narrative completion entry is still preserved for backwards compatibility, but it does not satisfy the V7 long benchmark unless at least one successful structured verification receipt is bound to that task.
+V8 long-suite UES mode requires **receipt-backed verification for every planned task**, a structured plan receipt bound to the current plan hash, and a structured integration receipt bound to the verified workspace fingerprint. Strict task completion additionally rejects a successful command receipt if the workspace changed after that receipt.
 
-This intentionally raises the benchmark bar: final code correctness + durable orchestration + machine-observable verification are all required.
+This intentionally raises the benchmark bar: final code correctness + durable orchestration + current machine-observable verification are all required.

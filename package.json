@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "7.7.0",
+  "version": "8.0.0",
   "description": "Adaptive crash-safe engineering runtime, durable orchestration, structured evidence, learning loop and control center for OpenCode",
   "type": "module",
   "bin": {
@@ -23,7 +23,7 @@
     "evals": "node scripts/eval-skills.mjs",
     "evals:live:validate": "node scripts/validate-live-suite.mjs",
     "test": "node --test test/*.test.mjs",
-    "ci": "npm run syntax && npm run validate && npm run evals && npm run evals:router && npm run evals:live:validate && npm run evals:long:validate && npm test && npm pack --dry-run && npm run smoke:pack",
+    "ci": "npm run syntax && npm run validate && npm run evals && npm run evals:router && npm run evals:live:validate && npm run evals:long:validate && npm run evals:polyglot:validate && npm test && npm pack --dry-run && npm run smoke:pack && npm run smoke:plain-install",
     "postinstall": "node scripts/install.mjs",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run ci",
@@ -39,7 +39,12 @@
     "evals:router": "node scripts/eval-router.mjs",
     "evals:long:validate": "node scripts/validate-live-suite.mjs --suite long",
     "evals:long": "node scripts/eval-live.mjs --suite long",
-    "dashboard": "node scripts/control-center.mjs"
+    "dashboard": "node scripts/control-center.mjs",
+    "evals:matrix": "node scripts/eval-matrix.mjs",
+    "smoke:plain-install": "node scripts/smoke-plain-install.mjs",
+    "release:check-tag": "node scripts/check-release-tag.mjs",
+    "evals:polyglot:validate": "node scripts/validate-live-suite.mjs --suite polyglot",
+    "evals:polyglot": "node scripts/eval-live.mjs --suite polyglot"
   },
   "keywords": [
     "opencode",

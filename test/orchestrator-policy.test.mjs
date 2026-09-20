@@ -17,3 +17,19 @@ test("small local work stays inline", () => {
   assert.equal(policy.mode, "inline")
   assert.equal(policy.modelTier, "light")
 })
+
+
+test("declared high risk metadata forces heavy policy", () => {
+  const policy = classifyEngineeringTask("Change a local helper", { risk: "high" })
+  assert.equal(policy.risk, "high")
+  assert.equal(policy.modelTier, "heavy")
+  assert.equal(policy.requirePlanCheck, true)
+  assert.equal(policy.contextBudget, 48_000)
+  assert.ok(policy.signals.some((item) => item.name === "declared-high-risk"))
+})
+
+test("risk text annotation is recognized by runtime policy", () => {
+  const policy = classifyEngineeringTask("Update helper risk: high")
+  assert.equal(policy.risk, "high")
+  assert.equal(policy.modelTier, "heavy")
+})

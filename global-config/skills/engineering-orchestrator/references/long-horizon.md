@@ -12,6 +12,7 @@ When the user explicitly chooses the long-horizon workflow (for example with `/u
   PLAN.json
   STATE.json
   EVIDENCE.json
+  EVENTS.jsonl
   tasks/
   reports/
 ```
@@ -22,9 +23,9 @@ The directory is git-ignored execution state, not hidden reasoning. Store requir
 
 The V6 engine enforces three boundaries:
 
-1. **Plan gate** — `work plan` leaves the item in `awaiting-plan-approval`. `work start` refuses to run until an independent plan checker PASS is recorded with `work approve-plan`.
+1. **Plan gate** — `work plan` leaves the item in `awaiting-plan-approval`. Long/high-risk plans require a structured `plan-verification` receipt bound to the current plan hash before `work approve-plan` succeeds.
 2. **Concurrent state gate** — all mutable `STATE.json` and `EVIDENCE.json` operations use a per-work-item lock plus atomic file replacement, preventing safe-wave executors from losing each other's state.
-3. **Integration gate** — finalization requires a recorded `verify-integration --verdict PASS`. The engine fingerprints the Git workspace at PASS time and rejects finalization if the workspace changes afterward.
+3. **Integration gate** — long/high-risk PASS requires a structured `integration-verification` receipt bound to the current workspace fingerprint. Finalization rejects any later workspace change.
 
 ## Pipeline
 
@@ -32,15 +33,16 @@ The V6 engine enforces three boundaries:
 2. Write observable acceptance criteria into `SPEC.md`.
 3. Initialize state with `ocskill work init`.
 4. Create `PLAN.json` following the plan schema and import it with `ocskill work plan`.
-5. Run `ues-plan-checker`. If it returns PASS, persist that gate with `ocskill work approve-plan`.
+5. Run `ues-plan-checker`. If it returns PASS, create `work gate-receipt <slug> plan` and persist approval with `work approve-plan --receipt-file ...`.
 6. Use `ocskill task-graph` to compute dependency-safe waves.
 7. For each ready task:
    - on OpenCode V2 prefer `ues.dispatch_task`, which performs `work start`, creates a fresh `ues-executor` session, selects the configured attempt-based model tier, prompts it with a bounded context pack and waits for completion;
    - inspect the child diff and verification;
+   - record at least one successful `work verify-command` receipt for long/high-risk work;
    - persist `work complete --evidence ...` or `work fail --reason ...`.
 8. On failure, re-diagnose rather than stacking patches. A later `ues.dispatch_task` attempt can escalate from standard to heavy when configured.
 9. After all tasks complete, run `ues-integration-verifier`.
-10. Persist the verifier's actual result with `ocskill work verify-integration`.
+10. Persist the verifier's actual result with a structured integration receipt plus `ocskill work verify-integration --receipt-file ...`.
 11. Only a recorded PASS with an unchanged workspace can be finalized.
 
 ## Parallelism

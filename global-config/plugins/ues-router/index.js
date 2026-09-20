@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { routeSkills } from "./router.js"
+import { classifyIntent, routeSkills } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
 
@@ -66,6 +66,62 @@ function messageExcerpt(messages) {
   const value = Array.isArray(messages) ? messages.slice(-6) : messages
   const text = JSON.stringify(value)
   return text.length <= 24000 ? text : text.slice(-24000)
+}
+
+function taskHasWrites(task) {
+  const files = task?.files
+  if (Array.isArray(files)) return files.length > 0
+  if (!files || typeof files !== "object") return false
+  return ["create", "modify", "test", "delete"].some(
+    (key) => Array.isArray(files[key]) && files[key].length > 0,
+  )
+}
+
+function policySkills(policy) {
+  const selected = []
+  const add = (id) => { if (id && !selected.includes(id)) selected.push(id) }
+  if (policy?.mode === "long-horizon") {
+    add("ues-engineering-orchestrator")
+    add("ues-long-task-state")
+    add("ues-task-planner")
+  } else if (policy?.mode === "standard" || policy?.risk === "high") {
+    add("ues-engineering-orchestrator")
+  }
+  const map = {
+    "auth-security": "ues-auth-security",
+    payment: "ues-payment-engineering",
+    database: "ues-database-engineering",
+    "api-contract": "ues-api-contract",
+    "react-native": "ues-react-native-engineering",
+    nextjs: "ues-nextjs-engineering",
+    react: "ues-react-engineering",
+    devops: "ues-devops-engineering",
+  }
+  for (const domain of policy?.domains || []) add(map[domain])
+  if (policy?.risk === "high") add("ues-change-impact-analysis")
+  return selected
+}
+
+function projectRoutingFacts(projectRoot) {
+  let inspected = null
+  let learning = null
+  try { inspected = runOcskillJSON(["inspect", projectRoot], projectRoot) } catch {}
+  try { learning = runOcskillJSON(["learn", "status", projectRoot], projectRoot) } catch {}
+
+  const feedbackDomains = []
+  for (const item of learning?.accepted || []) {
+    if (item.status !== "promoted") continue
+    const learned = classifyIntent(item.candidateRule || item.recommendation || item.title || "")
+    for (const domain of learned.domains || []) {
+      if (!feedbackDomains.includes(domain)) feedbackDomains.push(domain)
+    }
+  }
+
+  return {
+    repoStacks: inspected?.stack?.stacks || [],
+    feedbackDomains,
+    acceptedLearningCount: (learning?.accepted || []).filter((item) => item.status === "promoted").length,
+  }
 }
 
 export default Plugin.define({
@@ -150,13 +206,96 @@ export default Plugin.define({
         }),
       })
       editor.add({
-        name: "dispatch_task",
-        description: "Start one approved UES task and execute it in a fresh ues-executor session, applying configured attempt-based model escalation when available. The parent must inspect the diff and record completion evidence separately.",
+        name: "recover_task",
+        description: "Safely recover one stale UES task attempt. If an attached executor session still exists, interrupt it before releasing the durable lease.",
         input: {
           type: "object",
           properties: {
             slug: { type: "string" },
             task: { type: "string" },
+            force: { type: "boolean" },
+            reason: { type: "string" },
+          },
+          required: ["slug", "task"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => {
+          const status = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const running = (status.running || []).find((item) => item.taskID === input.task)
+          if (!running) throw new Error("task is not currently running: " + input.task)
+
+          let interrupted = false
+          if (running.sessionID && capabilities.sessionInterrupt) {
+            try {
+              await ctx.session.interrupt({ sessionID: running.sessionID, continue: false })
+              interrupted = true
+            } catch {}
+          }
+
+          const recoverArgs = ["work", "recover-task", input.slug, input.task, projectRoot]
+          if (input.force) recoverArgs.push("--force")
+          if (input.reason) recoverArgs.push("--reason", input.reason)
+          const recovered = runOcskillJSON(recoverArgs, projectRoot)
+          return {
+            content: JSON.stringify({
+              interrupted,
+              sessionID: running.sessionID || null,
+              recovered,
+            }, null, 2),
+          }
+        },
+      })
+      editor.add({
+        name: "cancel_task",
+        description: "Interrupt a running UES executor session and mark its durable task attempt failed.",
+        input: {
+          type: "object",
+          properties: {
+            slug: { type: "string" },
+            task: { type: "string" },
+            reason: { type: "string" },
+          },
+          required: ["slug", "task"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => {
+          if (!capabilities.sessionInterrupt) {
+            throw new Error("OpenCode runtime does not expose session.interrupt")
+          }
+          const status = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const running = (status.running || []).find((item) => item.taskID === input.task)
+          if (!running) throw new Error("task is not currently running: " + input.task)
+          if (!running.sessionID) throw new Error("running task has no attached executor session")
+          await ctx.session.interrupt({ sessionID: running.sessionID, continue: false })
+          const failArgs = [
+            "work", "fail", input.slug, input.task, projectRoot,
+            "--reason", input.reason || "cancelled by user/runtime",
+          ]
+          if (running.runId) failArgs.push("--run-id", running.runId)
+          const failed = runOcskillJSON(failArgs, projectRoot)
+          return {
+            content: JSON.stringify({
+              interrupted: true,
+              sessionID: running.sessionID,
+              task: input.task,
+              state: failed,
+            }, null, 2),
+          }
+        },
+      })
+      editor.add({
+        name: "dispatch_task",
+        description: "Start one approved UES task and execute it in a fresh ues-executor session with bounded runtime and interrupt-on-timeout. The parent must inspect the diff and record completion evidence separately.",
+        input: {
+          type: "object",
+          properties: {
+            slug: { type: "string" },
+            task: { type: "string" },
+            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
+            isolate: { type: "boolean" },
+            integrate: { type: "boolean" },
           },
           required: ["slug", "task"],
           additionalProperties: false,
@@ -174,11 +313,38 @@ export default Plugin.define({
             started?.contextPack?.task?.title,
             started?.contextPack?.task?.summary,
             ...(started?.contextPack?.task?.acceptance || []),
+            started?.contextPack?.task?.risk ? "risk: " + started.contextPack.task.risk : null,
           ].filter(Boolean).join(" ")
           const taskPolicy = runOcskillJSON(["task-policy", taskText], projectRoot)
+          const timeoutMs = Math.max(
+            30_000,
+            Math.min(Number(input.timeoutMs || (taskPolicy.mode === "long-horizon" ? 20 * 60_000 : 10 * 60_000)), 60 * 60_000),
+          )
           const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
+          const workStatus = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const workingTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
+          const rootClean = workingTree?.git === true && workingTree?.clean === true
+          const writerTask = taskHasWrites(started?.contextPack?.task)
+          if (input.isolate === true && !rootClean) {
+            throw new Error("explicit sandbox isolation requires a clean root working tree; commit/stash or integrate existing changes first")
+          }
+          if (input.isolate !== false && writerTask && !rootClean) {
+            throw new Error("writer dispatch requires a clean root for automatic worktree isolation; clean the root or explicitly pass isolate:false to accept shared-root writes")
+          }
+          const autoIsolate =
+            input.isolate === true ||
+            (input.isolate !== false && rootClean && writerTask)
+          let sandbox = null
+          let executionDir = projectRoot
+          if (autoIsolate) {
+            sandbox = runOcskillJSON(
+              ["sandbox", "create", input.slug, input.task, projectRoot],
+              projectRoot,
+            )
+            executionDir = sandbox.dir
+          }
           const heartbeatStarted = Date.now()
           const heartbeat = setInterval(() => {
             try {
@@ -190,7 +356,20 @@ export default Plugin.define({
           }, 30_000)
 
           try {
-            const created = await ctx.session.create({ title: "UES " + input.slug + " " + input.task })
+            const created = await ctx.session.create({
+              title: "UES " + input.slug + " " + input.task,
+              location: { directory: executionDir },
+            })
+            {
+              const attachArgs = [
+                "work", "attach-session", input.slug, input.task, projectRoot,
+                "--session-id", created.id,
+              ]
+              if (runId) attachArgs.push("--run-id", runId)
+              attachArgs.push("--execution-dir", executionDir)
+              if (sandbox?.dir) attachArgs.push("--sandbox-dir", sandbox.dir)
+              runOcskill(attachArgs, projectRoot)
+            }
             await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
             const selectedModel = modelRef(policy?.model)
             if (selectedModel) {
@@ -204,8 +383,44 @@ export default Plugin.define({
                 "Do not broaden scope or launch child agents. Run the declared verification and return the executor report.\n\n" +
                 JSON.stringify(started.contextPack, null, 2),
             })
-            await ctx.session.wait({ sessionID: created.id })
+
+            let timer = null
+            try {
+              await Promise.race([
+                ctx.session.wait({ sessionID: created.id }),
+                new Promise((_, reject) => {
+                  timer = setTimeout(
+                    () => reject(new Error("UES executor timed out after " + timeoutMs + "ms")),
+                    timeoutMs,
+                  )
+                }),
+              ])
+            } catch (error) {
+              try {
+                await ctx.session.interrupt({ sessionID: created.id, continue: false })
+              } catch {}
+              throw error
+            } finally {
+              if (timer) clearTimeout(timer)
+            }
+
+            const afterWait = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+            const activeAttempt = (afterWait.running || []).find(
+              (item) => item.taskID === input.task && (!runId || item.runId === runId),
+            )
+            if (!activeAttempt) {
+              throw new Error("UES executor attempt is no longer active; refusing post-cancel integration or completion handoff")
+            }
+
             const messages = await ctx.session.context({ sessionID: created.id })
+            let integration = null
+            if (sandbox && input.integrate === true) {
+              integration = runOcskillJSON(
+                ["sandbox", "integrate", sandbox.dir, projectRoot],
+                projectRoot,
+              )
+              sandbox = null
+            }
             return {
               content: JSON.stringify({
                 sessionID: created.id,
@@ -214,11 +429,23 @@ export default Plugin.define({
                 runId,
                 taskPolicy,
                 model: policy,
+                timeoutMs,
+                executionDir,
+                isolated: executionDir !== projectRoot,
+                sandbox,
+                integration,
                 messages: messageExcerpt(messages),
-                next: "Inspect the child diff and verification, then call ocskill work complete or fail.",
+                next: sandbox
+                  ? "Inspect and verify the isolated worktree first. If accepted, integrate it with ocskill sandbox integrate <worktree> . before recording work complete."
+                  : "Inspect the child diff and verification, then call ocskill work complete or fail.",
               }, null, 2),
             }
           } catch (error) {
+            if (sandbox?.dir) {
+              try {
+                runOcskill(["sandbox", "remove", sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot)
+              } catch {}
+            }
             try {
               const failArgs = [
                 "work", "fail", input.slug, input.task, projectRoot,
@@ -235,19 +462,31 @@ export default Plugin.define({
       })
     })
 
-    await ctx.session.hook("context", (event) => {
+    const routingFacts = projectRoutingFacts(projectRoot)
+
+    if (capabilities.sessionHook) {
+      await ctx.session.hook("context", (event) => {
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES V7 runtime: classify task complexity/risk, trust durable .ues-work state over conversation memory, use lease-backed fresh execution when supported, prefer structured verification receipts, recover stale work after interruption, and require integration evidence before completion.",
+        text: "UES V8 runtime: classify task complexity/risk, trust durable .ues-work state and EVENTS.jsonl over conversation memory, use bounded interruptible fresh execution, require structured receipts for long/high-risk gates, isolate parallel writers when needed, recover stale work after interruption, and require integration evidence before completion.",
       })
     })
 
-    await ctx.session.hook("prompt", (event) => {
+      await ctx.session.hook("prompt", (event) => {
       const config = routerConfig()
       if (!config.enabled) return
 
-      const selected = routeSkills(event.prompt.text, config.maxSkills)
+      let policy = null
+      try {
+        policy = runOcskillJSON(["task-policy", event.prompt.text], projectRoot)
+      } catch {}
+      const intent = classifyIntent(event.prompt.text, routingFacts)
+      const selected = []
+      for (const id of [...routeSkills(event.prompt.text, config.maxSkills, routingFacts), ...policySkills(policy)]) {
+        if (!selected.includes(id)) selected.push(id)
+        if (selected.length >= config.maxSkills) break
+      }
       if (selected.length === 0) return
 
       event.prompt.skills ??= []
@@ -261,17 +500,28 @@ export default Plugin.define({
         ...event.metadata,
         uesRouter: {
           selected,
-          version: 3,
+          policy,
+          intent,
+          facts: {
+            repoStacks: routingFacts.repoStacks,
+            feedbackDomains: routingFacts.feedbackDomains,
+            acceptedLearningCount: routingFacts.acceptedLearningCount,
+          },
+          version: 5,
         },
       }
     })
 
-    await ctx.permission.hook("evaluate", (event) => {
-      if (event.action !== "shell") return
-      const risk = destructiveShellRisk(event.resources.join("\n"))
-      if (!risk.risky) return
-      event.effect = "ask"
-      event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
-    })
+    }
+
+    if (capabilities.permissionHook) {
+      await ctx.permission.hook("evaluate", (event) => {
+        if (event.action !== "shell") return
+        const risk = destructiveShellRisk(event.resources.join("\n"))
+        if (!risk.risky) return
+        event.effect = "ask"
+        event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
+      })
+    }
   },
 })

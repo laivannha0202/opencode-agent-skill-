@@ -105,7 +105,7 @@ try {
   assert.ok(existsSync(routerPlugin), "v2 router plugin was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "router.js")), "v2 router helper was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "safety.js")), "v2 router safety gate was not installed from packed package")
-  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "capabilities.js")), "v7 router capability probe was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "capabilities.js")), "v8 router capability probe was not installed from packed package")
   const routerSource = await readFile(routerPlugin, "utf8")
   assert.match(routerSource, /name: "dispatch_task"/)
   assert.match(routerSource, /ctx\.session\.create/)
@@ -113,12 +113,15 @@ try {
   assert.match(routerSource, /ctx\.session\.switchModel/)
   assert.match(routerSource, /name: "capabilities"/)
   assert.match(routerSource, /name: "task_policy"/)
+  assert.match(routerSource, /name: "cancel_task"/)
+  assert.match(routerSource, /name: "recover_task"/)
+  assert.match(routerSource, /ctx\.session\.interrupt/)
   const reviewer = await readFile(path.join(configDir, "agents", "ues-reviewer.md"), "utf8")
   assert.match(reviewer, /permissions:/)
   assert.doesNotMatch(reviewer, /^permission:/m)
 
   for (const name of ["ues-codebase-mapper.md", "ues-plan-checker.md", "ues-executor.md", "ues-integration-verifier.md"]) {
-    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V6 subagent " + name)
+    assert.ok(existsSync(path.join(configDir, "agents", name)), "missing packed V8 subagent " + name)
   }
   const executor = await readFile(path.join(configDir, "agents", "ues-executor.md"), "utf8")
   assert.match(executor, /permissions:/)
@@ -136,7 +139,7 @@ try {
   const planFile = path.join(temp, "PLAN.json")
   await writeFile(planFile, JSON.stringify({
     schemaVersion: 1,
-    goal: "Packed V6 smoke",
+    goal: "Packed V8 smoke",
     tasks: [{
       id: "T1",
       title: "Smoke",
@@ -157,12 +160,24 @@ try {
   requireSuccess(graph, "ocskill task-graph from packed copy")
   assert.match(graph.stdout, /"valid": true/)
 
-  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V6 work smoke"], {
+  const workInit = spawnSync(process.execPath, [cli, "work", "init", "packed-smoke", temp, "--goal", "Packed V8 work smoke"], {
     cwd: temp,
     env,
     encoding: "utf8",
   })
   requireSuccess(workInit, "ocskill work init from packed copy")
+  assert.ok(
+    existsSync(path.join(temp, ".ues-work", "packed-smoke", "EVENTS.jsonl")),
+    "packed V8 work item did not create EVENTS.jsonl",
+  )
+
+  const workEvents = spawnSync(process.execPath, [cli, "work", "events", "packed-smoke", temp], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(workEvents, "ocskill work events from packed copy")
+  assert.match(workEvents.stdout, /"work\.init"/)
 
   const workPlan = spawnSync(process.execPath, [cli, "work", "plan", "packed-smoke", planFile, temp], {
     cwd: temp,
@@ -265,6 +280,125 @@ try {
   })
   requireSuccess(workFinalize, "ocskill work finalize from packed copy")
   assert.match(workFinalize.stdout, /"status": "completed"/)
+
+  const strictPlanFile = path.join(temp, "STRICT-PLAN.json")
+  await writeFile(strictPlanFile, JSON.stringify({
+    schemaVersion: 1,
+    goal: "Packed V8 strict evidence smoke",
+    tasks: [
+      {
+        id: "S1",
+        title: "Strict one",
+        summary: "Exercise structured plan/task evidence",
+        files: { modify: ["src/one.js"] },
+        dependsOn: [],
+        acceptance: ["S1 is verified"],
+        verification: ["node --version"],
+        risk: "medium",
+      },
+      {
+        id: "S2",
+        title: "Strict two",
+        summary: "Exercise structured integration evidence",
+        files: { modify: ["src/two.js"] },
+        dependsOn: ["S1"],
+        acceptance: ["S2 is verified"],
+        verification: ["node --version"],
+        risk: "medium",
+      },
+    ],
+  }, null, 2) + "\n", "utf8")
+
+  requireSuccess(
+    spawnSync(process.execPath, [cli, "work", "init", "packed-strict", temp, "--goal", "Packed V8 strict evidence smoke"], {
+      cwd: temp, env, encoding: "utf8",
+    }),
+    "strict work init from packed copy",
+  )
+  requireSuccess(
+    spawnSync(process.execPath, [cli, "work", "plan", "packed-strict", strictPlanFile, temp], {
+      cwd: temp, env, encoding: "utf8",
+    }),
+    "strict work plan from packed copy",
+  )
+
+  const plainStrictApproval = spawnSync(process.execPath, [
+    cli, "work", "approve-plan", "packed-strict", temp, "--evidence", "plain PASS",
+  ], { cwd: temp, env, encoding: "utf8" })
+  assert.notEqual(plainStrictApproval.status, 0)
+  assert.match(plainStrictApproval.stderr, /structured plan-verification receipt/)
+
+  const strictPlanReceipt = path.join(temp, ".ues-work", "packed-strict", "reports", "plan-receipt.json")
+  requireSuccess(
+    spawnSync(process.execPath, [
+      cli, "work", "gate-receipt", "packed-strict", "plan", temp,
+      "--verifier", "ues-plan-checker",
+      "--evidence", "strict plan PASS",
+      "--out", strictPlanReceipt,
+    ], { cwd: temp, env, encoding: "utf8" }),
+    "strict plan receipt from packed copy",
+  )
+  requireSuccess(
+    spawnSync(process.execPath, [
+      cli, "work", "approve-plan", "packed-strict", temp,
+      "--evidence", "strict plan PASS",
+      "--receipt-file", strictPlanReceipt,
+    ], { cwd: temp, env, encoding: "utf8" }),
+    "strict plan approval from packed copy",
+  )
+
+  for (const taskID of ["S1", "S2"]) {
+    const strictStart = spawnSync(process.execPath, [cli, "work", "start", "packed-strict", taskID, temp], {
+      cwd: temp, env, encoding: "utf8",
+    })
+    requireSuccess(strictStart, "strict " + taskID + " start from packed copy")
+    const strictStarted = JSON.parse(strictStart.stdout)
+    const runId = strictStarted.record.runId
+
+    requireSuccess(
+      spawnSync(process.execPath, [
+        cli, "work", "verify-command", "packed-strict", taskID, temp,
+        "--run-id", runId,
+        "--", process.execPath, "--version",
+      ], { cwd: temp, env, encoding: "utf8" }),
+      "strict " + taskID + " verification from packed copy",
+    )
+    requireSuccess(
+      spawnSync(process.execPath, [
+        cli, "work", "complete", "packed-strict", taskID, temp,
+        "--run-id", runId,
+        "--evidence", taskID + " verification PASS",
+      ], { cwd: temp, env, encoding: "utf8" }),
+      "strict " + taskID + " completion from packed copy",
+    )
+  }
+
+  const strictIntegrationReceipt = path.join(temp, ".ues-work", "packed-strict", "reports", "integration-receipt.json")
+  requireSuccess(
+    spawnSync(process.execPath, [
+      cli, "work", "gate-receipt", "packed-strict", "integration", temp,
+      "--verifier", "ues-integration-verifier",
+      "--verdict", "PASS",
+      "--evidence", "strict integration PASS",
+      "--out", strictIntegrationReceipt,
+    ], { cwd: temp, env, encoding: "utf8" }),
+    "strict integration receipt from packed copy",
+  )
+  requireSuccess(
+    spawnSync(process.execPath, [
+      cli, "work", "verify-integration", "packed-strict", temp,
+      "--verdict", "PASS",
+      "--evidence", "strict integration PASS",
+      "--receipt-file", strictIntegrationReceipt,
+    ], { cwd: temp, env, encoding: "utf8" }),
+    "strict integration verification from packed copy",
+  )
+  const strictFinalize = spawnSync(process.execPath, [
+    cli, "work", "finalize", "packed-strict", temp,
+    "--evidence", "strict final acceptance PASS",
+  ], { cwd: temp, env, encoding: "utf8" })
+  requireSuccess(strictFinalize, "strict finalization from packed copy")
+  assert.match(strictFinalize.stdout, /"status": "completed"/)
 
   const adaptivePolicy = spawnSync(process.execPath, [
     cli, "task-policy",

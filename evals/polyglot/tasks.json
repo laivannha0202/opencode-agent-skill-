@@ -1,0 +1,54 @@
+{
+  "version": 1,
+  "description": "Polyglot engineering-surface benchmark covering Python, Java/Spring, .NET, Next.js, React Native, SQL migration, monorepo dependency boundaries and generated-code discipline.",
+  "tasks": [
+    {
+      "id": "polyglot-python-tenant-auth",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair python/tenant_auth.py. can_edit(user, resource) must deny missing inputs and suspended users, allow admins only inside the same tenant, and allow members only when both tenant IDs match and resource.owner_id equals user.id. Keep the function pure and return a boolean.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-java-money-validation",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair java/PriceService.java. totalCents(unitPriceCents, quantity, discountCents) must reject negative unit price/discount and non-positive quantity with IllegalArgumentException, calculate integer-cent total exactly, and reject discounts larger than the gross line total. Do not switch to floating point.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-dotnet-order-authorization",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair dotnet/OrderService.cs. CanUpdate(User user, Order order) must deny null inputs and suspended users, require matching TenantId for every role, allow Admin within the same tenant, and otherwise require order.OwnerId == user.Id. Return bool without mutating inputs.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-nextjs-api-errors",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair next/app/api/products/route.ts. GET must return JSON with status 200 on success, map a NOT_FOUND error to a sanitized 404 body {error:{code:'NOT_FOUND',message:'Not found'}}, and map unknown errors to 500 INTERNAL without exposing stack/message details. Preserve the route export.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-react-native-keyboard",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair react-native/keyboard.ts. keyboardOffset(platform, safeAreaTop, headerHeight) must validate non-negative finite offsets, accept only ios/android, return safeAreaTop+headerHeight for iOS and headerHeight for Android, and throw on invalid input.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-safe-sql-migration",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair db/migrations/20260920_add_order_key.sql as a forward-compatible migration: add order_key as nullable first, backfill existing rows deterministically from id, then make it NOT NULL and add a UNIQUE index. Do not drop/truncate tables or delete data.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-monorepo-workspace-boundary",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair the monorepo dependency boundary in monorepo/package.json and monorepo/packages/web/package.json. Root workspaces must include packages/* and web must depend on @demo/api using workspace:*. Do not edit the generated monorepo/pnpm-lock.yaml.",
+      "grader": "graders/polyglot-bench.mjs"
+    },
+    {
+      "id": "polyglot-generated-contract-discipline",
+      "fixture": "fixtures/polyglot-bench",
+      "prompt": "Repair api/openapi.json so the User schema preserves the legacy name field and also exposes displayName, with id and displayName required. Do not edit api/generated/client.ts because it is generated output; only the source contract should change.",
+      "grader": "graders/polyglot-bench.mjs"
+    }
+  ]
+}

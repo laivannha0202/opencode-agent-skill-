@@ -75,7 +75,7 @@ Keep constant:
 Compare observable success, regressions, elapsed time, tool behavior and cost rather than narrative confidence.
 
 
-## V7 runtime fields
+## V8 runtime and evidence fields
 
 Each live result may additionally contain:
 
@@ -86,7 +86,7 @@ Each live result may additionally contain:
 - configured heartbeat/hard/idle timeout values
 - long-suite receipt coverage inside orchestration inspection
 
-Long-task `EVIDENCE.json` schema 3 may contain a `receipts` array. Receipt fields include:
+Long-task `EVIDENCE.json` schema 3 may contain `receipts` and `gateReceipts` arrays. Command receipt fields include:
 
 ```json
 {
@@ -107,3 +107,16 @@ Long-task `EVIDENCE.json` schema 3 may contain a `receipts` array. Receipt field
 ```
 
 Full stdout/stderr are not stored in receipts; hashes provide binding without persisting potentially sensitive logs.
+
+
+### Structured gate receipts
+
+Strict plan/integration gates use receipt schema version 1. A plan receipt includes the exact `planHash`; an integration receipt includes the exact `workspaceFingerprint`. Both include verifier identity, optional session/run IDs, evidence text and an optional report hash.
+
+### Runtime event journal
+
+Each long work item may include `EVENTS.jsonl`. Every line is an independent JSON event with schema version, UUID, event type, timestamp and task/work metadata. It records operational events only and never hidden chain-of-thought.
+
+### Benchmark matrix summary
+
+`scripts/eval-matrix.mjs` writes a matrix summary containing selected suites/model/trials, expected runs per mode, actual baseline/UES counts, coverage completeness and aggregated pass-rate statistics.

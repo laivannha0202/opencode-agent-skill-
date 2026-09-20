@@ -145,6 +145,10 @@ async function inspectLongOrchestration(workspace) {
         slug: entry.name,
         taskCount: Array.isArray(plan.tasks) ? plan.tasks.length : 0,
         planApproved: state.planApproval?.status === "passed",
+        structuredPlanReceipt:
+          state.planApproval?.receipt?.kind === "plan-verification" &&
+          state.planApproval?.receipt?.verdict === "PASS" &&
+          state.planApproval?.receipt?.planHash === state.planHash,
         attemptedTasks: tasks.filter((task) => Number(task.attempts || 0) > 0).length,
         completedTasks: tasks.filter((task) => task.status === "completed").length,
         receiptBackedTasks: plannedIDs.filter((id) => receiptBackedTasks.has(id)).length,
@@ -152,6 +156,10 @@ async function inspectLongOrchestration(workspace) {
           ? plannedIDs.filter((id) => receiptBackedTasks.has(id)).length / plannedIDs.length
           : 0,
         integrationPassed: state.integrationVerification?.status === "PASS",
+        structuredIntegrationReceipt:
+          state.integrationVerification?.receipt?.kind === "integration-verification" &&
+          state.integrationVerification?.receipt?.verdict === "PASS" &&
+          state.integrationVerification?.receipt?.workspaceFingerprint === state.integrationVerification?.fingerprint,
         integrationEvidence: evidenceTasks.has("__integration_verification__"),
         finalizedEvidence: evidenceTasks.has("__integration__"),
         completed: state.status === "completed",
@@ -159,10 +167,12 @@ async function inspectLongOrchestration(workspace) {
       item.valid =
         item.taskCount >= 2 &&
         item.planApproved &&
+        item.structuredPlanReceipt &&
         item.attemptedTasks === item.taskCount &&
         item.completedTasks === item.taskCount &&
         item.receiptBackedTasks === item.taskCount &&
         item.integrationPassed &&
+        item.structuredIntegrationReceipt &&
         item.integrationEvidence &&
         item.finalizedEvidence &&
         item.completed
@@ -193,7 +203,7 @@ const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep] [--timeout-ms N] [--idle-timeout-ms N] [--heartbeat-ms N]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long|polyglot] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep] [--timeout-ms N] [--idle-timeout-ms N] [--heartbeat-ms N]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -221,8 +231,8 @@ if (parsedOpenCodeMajor === null) {
   console.warn("[eval] could not parse OpenCode version; using the conservative OpenCode 1.x invocation.")
 }
 
-if (!["live", "long"].includes(suiteName)) {
-  console.error("--suite must be live or long")
+if (!["live", "long", "polyglot"].includes(suiteName)) {
+  console.error("--suite must be live, long, or polyglot")
   process.exit(2)
 }
 

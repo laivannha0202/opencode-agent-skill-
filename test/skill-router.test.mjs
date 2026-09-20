@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { routeSkills } from "../global-config/plugins/ues-router/router.js"
+import { classifyIntent, routeSkills } from "../global-config/plugins/ues-router/router.js"
 
 test("v2 router selects focused process and domain skills", () => {
   assert.deepEqual(
@@ -148,4 +148,44 @@ test("router leaves non-truncated routing output unchanged", () => {
       "ues-accessibility",
     ],
   )
+})
+
+
+test("router handles Vietnamese engineering prompts", () => {
+  const routed = routeSkills(
+    "Sửa lỗi phân quyền thanh toán trong toàn bộ dự án, kiểm tra cơ sở dữ liệu và API công khai.",
+    6,
+  )
+  assert.ok(routed.includes("ues-engineering-orchestrator"))
+  assert.ok(routed.includes("ues-auth-security"))
+  assert.ok(routed.includes("ues-payment-engineering"))
+  assert.ok(routed.includes("ues-database-engineering"))
+})
+
+test("router recognizes backend framework domains", () => {
+  assert.ok(routeSkills("Fix FastAPI pydantic validation regression", 6).includes("ues-fastapi-engineering"))
+  assert.ok(routeSkills("Review Django REST permission handling", 6).includes("ues-django-engineering"))
+  assert.ok(routeSkills("Debug NestJS dependency injection failure", 6).includes("ues-nestjs-engineering"))
+})
+
+
+test("router structured intent uses repository stack facts without overriding explicit domains", () => {
+  const intent = classifyIntent("Fix failing tests in the mobile app", {
+    repoStacks: ["react-native", "typescript"],
+    feedbackDomains: ["react-native"],
+  })
+  assert.equal(intent.scope, "standard")
+  assert.ok(intent.domains.includes("react-native"))
+  assert.deepEqual(intent.feedbackDomains, ["react-native"])
+
+  const routed = routeSkills("Fix failing tests in the mobile app", 6, {
+    repoStacks: ["react-native", "typescript"],
+  })
+  assert.ok(routed.includes("ues-react-native-engineering"))
+
+  const explicit = routeSkills("Fix FastAPI validation", 6, {
+    repoStacks: ["react-native"],
+  })
+  assert.ok(explicit.includes("ues-fastapi-engineering"))
+  assert.ok(!explicit.includes("ues-react-native-engineering"))
 })

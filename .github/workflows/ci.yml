@@ -21,6 +21,7 @@ jobs:
           - evals:router
           - evals:live:validate
           - evals:long:validate
+          - evals:polyglot:validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -98,3 +99,6 @@ jobs:
 
       - name: Packed global-install smoke
         run: npm run smoke:pack
+
+      - name: Plain one-command install smoke
+        run: npm run smoke:plain-install

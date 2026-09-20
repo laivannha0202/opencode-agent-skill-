@@ -3,9 +3,27 @@ import assert from "node:assert/strict"
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { acceptLearning, analyzeEvalTraces, readLearningState, saveLearningAnalysis } from "../lib/learning-engine.mjs"
+import { acceptLearning, analyzeEvalTraces, promoteLearning, readLearningState, relevantAcceptedLearnings, saveLearningAnalysis } from "../lib/learning-engine.mjs"
 
-test("learning loop proposes and accepts evidence-backed eval lessons", async () => {
+async function writeMatrix(file, baselinePassRate, uesPassRate, total = 4) {
+  await writeFile(file, JSON.stringify({
+    schemaVersion: 1,
+    kind: "ues-benchmark-matrix",
+    model: "test/provider-model",
+    suites: ["live"],
+    coverageComplete: true,
+    finishedAt: new Date().toISOString(),
+    summary: {
+      modes: {
+        baseline: { passed: Math.round(baselinePassRate * total), total, passRate: baselinePassRate },
+        ues: { passed: Math.round(uesPassRate * total), total, passRate: uesPassRate },
+      },
+      passRateDelta: uesPassRate - baselinePassRate,
+    },
+  }, null, 2))
+}
+
+test("learning loop promotes only from an accepted benchmark artifact with measured improvement", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-learning-"))
   try {
     const evalDir = path.join(root, ".ues-evals")
@@ -23,9 +41,34 @@ test("learning loop proposes and accepts evidence-backed eval lessons", async ()
     const analysis = await analyzeEvalTraces(evalDir)
     assert.ok(analysis.proposals.some((item) => item.key === "grader-failure"))
     const state = await saveLearningAnalysis(root, analysis)
+
+    await assert.rejects(
+      promoteLearning(root, state.proposals[0].id, { report: path.join(evalDir, "missing.json") }),
+      /explicitly accepted/,
+    )
+
     const accepted = await acceptLearning(root, state.proposals[0].id)
-    assert.equal(accepted.status, "accepted")
+    assert.equal(accepted.status, "accepted-awaiting-shadow")
     assert.equal((await readLearningState(root)).accepted.length, 1)
+    assert.deepEqual(await relevantAcceptedLearnings(root, "checkout failure"), [])
+
+    await assert.rejects(promoteLearning(root, accepted.id, {}), /requires --report/)
+
+    const noGain = path.join(evalDir, "matrix-no-gain.json")
+    await writeMatrix(noGain, 0.5, 0.5)
+    await assert.rejects(
+      promoteLearning(root, accepted.id, { report: noGain }),
+      /measured shadow benchmark improvement/,
+    )
+
+    const improved = path.join(evalDir, "matrix-improved.json")
+    await writeMatrix(improved, 0.5, 0.75)
+    const promoted = await promoteLearning(root, accepted.id, { report: improved })
+    assert.equal(promoted.status, "promoted")
+    assert.equal(promoted.shadowValidation.delta, 0.25)
+    assert.equal(promoted.shadowValidation.samples, 4)
+    assert.equal(promoted.shadowValidation.model, "test/provider-model")
+    assert.equal(promoted.shadowValidation.reportHash.length, 64)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

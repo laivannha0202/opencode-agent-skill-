@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **Bản hiện tại: 7.7.0**  
+> **Bản hiện tại: 8.0.0**  
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -80,27 +80,27 @@ ocskill dashboard . --serve
 
 ---
 
-## UES 7.7.0 có gì?
+## UES 8.0.0 có gì?
 
-UES 7.7.0 hiện cung cấp:
+UES 8.0.0 hiện cung cấp:
 
 - **39 engineering skills**;
 - **11 slash commands**;
 - **10 subagents**;
 - long-task engine bền vững dưới `.ues-work/<slug>/`;
-- `PLAN.json`, `STATE.json` và `EVIDENCE.json` có thể kiểm tra bằng máy;
-- plan approval gate và integration verification gate;
-- task lease với `runId`, heartbeat, lease expiry và stale-task recovery;
-- structured verification receipt chứa command, exit code, thời gian chạy, output hash và workspace fingerprint;
-- context manifest tự chọn file liên quan, import neighbors, likely tests, manifest và accepted lessons;
-- task policy tự phân loại `inline / standard / long-horizon`;
-- model tier `light / standard / heavy` có attempt-based escalation;
-- safe-wave scheduling dựa trên read/write scope;
-- Git worktree sandbox primitive cho tác vụ ghi song song;
-- learning loop có evidence gate;
+- `PLAN.json`, `STATE.json`, `EVIDENCE.json` và append-only `EVENTS.jsonl`;
+- structured plan/integration receipts gắn với plan hash hoặc workspace fingerprint;
+- task lease với `runId`, heartbeat, session owner, lease expiry và task-scoped stale recovery;
+- strict verification cho long/high-risk task: receipt phải PASS đúng active run và đúng workspace hiện tại;
+- context manifest v3 với Git-change awareness, symbol hits, TF-IDF-style relevance, tests/instructions và centered excerpts;
+- task policy `inline / standard / long-horizon` cùng model tier `light / standard / heavy`;
+- bounded fresh executor với hard timeout, interrupt/cancel và recovery;
+- safe-wave scheduling cùng Git worktree isolation/integration có conflict detection;
+- learning v2: failure clustering, explicit acceptance và shadow-benchmark promotion;
+- benchmark matrix standard + long-horizon + polyglot;
 - optional Hermes adapter;
-- local UES Control Center;
-- OpenCode V2 router plugin với routing, safety gate và fresh-session task dispatch.
+- UES Control Center hiển thị runtime events, receipts và stale recovery;
+- OpenCode V2 router plugin với multilingual routing, safety gate, cancel/recover tools và fresh-session dispatch.
 
 ---
 
@@ -144,6 +144,7 @@ Mỗi work item dùng cấu trúc:
 ├── PLAN.json
 ├── STATE.json
 ├── EVIDENCE.json
+├── EVENTS.jsonl
 ├── tasks/
 └── reports/
 ```
@@ -158,13 +159,14 @@ Sau khi tạo plan, task chưa được chạy ngay. Trạng thái sẽ ở:
 awaiting-plan-approval
 ```
 
-Sau khi `ues-plan-checker` trả PASS:
+Sau khi `ues-plan-checker` trả PASS, với long/high-risk work hãy tạo receipt gắn với đúng plan hiện tại rồi mới approve:
 
 ```cmd
-ocskill work approve-plan <slug> . --evidence "plan checker PASS: ..."
+ocskill work gate-receipt <slug> plan . --verifier ues-plan-checker --evidence "plan checker PASS" --out .ues-work/<slug>/reports/plan-receipt.json
+ocskill work approve-plan <slug> . --evidence "plan checker PASS" --receipt-file .ues-work/<slug>/reports/plan-receipt.json
 ```
 
-Nếu chưa có approval hợp lệ, `ocskill work start` sẽ từ chối chạy.
+Nếu thiếu structured receipt ở workflow strict, `ocskill work start` sẽ không được mở gate.
 
 ### Gate 2 — Bằng chứng cho từng task
 
@@ -174,14 +176,15 @@ Có thể ghi verification receipt trực tiếp từ command:
 ocskill work verify-command <slug> <task-id> . --run-id <run-id> -- npm test
 ```
 
-Receipt gắn kết kết quả command với đúng task run, giúp giảm việc đánh dấu hoàn tất chỉ dựa vào mô tả bằng lời.
+Receipt gắn kết kết quả command với đúng task run. Với long/high-risk work, receipt PASS còn phải khớp workspace fingerprint hiện tại; nếu code thay đổi sau khi test thì phải verify lại.
 
 ### Gate 3 — Kiểm tra tích hợp
 
-Sau khi toàn bộ task hoàn tất:
+Sau khi toàn bộ task hoàn tất, tạo integration receipt gắn với workspace hiện tại rồi ghi PASS:
 
 ```cmd
-ocskill work verify-integration <slug> . --verdict PASS --evidence "..."
+ocskill work gate-receipt <slug> integration . --verifier ues-integration-verifier --verdict PASS --evidence "integration PASS" --out .ues-work/<slug>/reports/integration-receipt.json
+ocskill work verify-integration <slug> . --verdict PASS --evidence "integration PASS" --receipt-file .ues-work/<slug>/reports/integration-receipt.json
 ```
 
 Sau đó:
@@ -219,7 +222,11 @@ switchModel(...) nếu đã cấu hình
   ↓
 gửi đúng một task
   ↓
-chờ kết quả
+heartbeat + bounded wait
+  ↓
+interrupt nếu timeout/cancel
+  ↓
+isolate writer khi cần
   ↓
 trả child-session report
 ```
@@ -436,13 +443,19 @@ Xem trạng thái:
 ocskill learn status .
 ```
 
-Chấp nhận một proposal:
+Chấp nhận một proposal trước khi thử nghiệm:
 
 ```cmd
 ocskill learn accept <proposal-id> .
 ```
 
-Learning chỉ được đưa trở lại context sau khi có evidence và được chấp nhận rõ ràng.
+Sau khi shadow benchmark chứng minh candidate tốt hơn baseline:
+
+```cmd
+ocskill learn promote <proposal-id> . --baseline 0.50 --candidate 0.75 --samples 4
+```
+
+Proposal có `shadowRequired` chỉ được đưa trở lại context sau khi vừa được chấp nhận rõ ràng vừa có benchmark improvement đo được.
 
 ---
 
@@ -474,7 +487,7 @@ Chạy dashboard có tự refresh:
 ocskill dashboard . --serve --port 4177
 ```
 
-Control Center hiển thị dữ liệu về work state, evidence, learning proposal và eval summary.
+Control Center hiển thị work state, verification receipts, runtime events, learning proposals và eval summary; server mode có safe stale-recovery action.
 
 ---
 
@@ -486,24 +499,32 @@ Tạo isolated Git worktree:
 ocskill sandbox create <slug> <task-id> .
 ```
 
+Tích hợp sandbox sau khi đã inspect/verify:
+
+```cmd
+ocskill sandbox integrate <worktree-path> .
+```
+
 Liệt kê sandbox:
 
 ```cmd
 ocskill sandbox list .
 ```
 
-Safe-wave scheduling chỉ bảo vệ declared file scope. Generated file, lockfile hoặc shared write surface ngầm định vẫn nên được serialize khi cần.
+Integration sẽ từ chối ghi đè lên file đang dirty ở root. Safe-wave scheduling chỉ bảo vệ declared file scope. Generated file, lockfile hoặc shared write surface ngầm định vẫn nên được serialize khi cần.
 
 ---
 
 ## Evaluation
 
-UES 7.7.0 hiện có:
+UES 8.0.0 hiện có:
 
 - **34 static skill-routing scenarios** phủ 39 skills;
 - **120 V2 router cases** với required routes và negative guards;
 - **20 standard live tasks**;
 - **5 long-horizon tasks**;
+- **8 polyglot tasks** cho Python, Java, .NET, Next.js, React Native, SQL migration, monorepo và generated contract;
+- benchmark matrix baseline-vs-UES nhiều trial;
 - một long task tích hợp tới **15 source modules**.
 
 Kiểm tra static routing:
@@ -524,10 +545,11 @@ Kiểm tra standard hidden graders:
 npm run evals:live:validate
 ```
 
-Kiểm tra long-horizon suite:
+Kiểm tra long-horizon và polyglot suite:
 
 ```cmd
 npm run evals:long:validate
+npm run evals:polyglot:validate
 ```
 
 Chạy benchmark với model thật:
@@ -535,6 +557,7 @@ Chạy benchmark với model thật:
 ```cmd
 ocskill eval-live --model provider/model --trials 3
 ocskill eval-live --suite long --model provider/model --trials 3
+npm run evals:matrix -- --model provider/model --trials 3
 ```
 
 Live eval hỗ trợ heartbeat, hard timeout, idle timeout và Ctrl+C process-tree cancellation.
@@ -572,9 +595,11 @@ syntax
 → V2 router matrix
 → standard hidden-grader integrity
 → long hidden-grader integrity
+→ polyglot hidden-grader integrity
 → Node tests
 → npm pack --dry-run
 → packed global-install smoke
+→ plain one-command install compatibility smoke
 ```
 
 Packed smoke xác minh package cài được từ tarball và kiểm tra OpenCode V2 path, skills, commands, subagents, router plugin, task graph, durable state và model config.
@@ -609,6 +634,7 @@ UES chỉ quản lý resource có namespace/marker của chính nó và cố g�
 - [Hướng dẫn publish npm](docs/NPM-PUBLISH.md)
 - [Nguồn nghiên cứu](docs/RESEARCH-SOURCES.md)
 - [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
+- [V8 Intelligence & Reliability](docs/V8-INTELLIGENCE-RELIABILITY.md)
 
 ---
 
@@ -629,7 +655,7 @@ npm install -g opencode-agent-skill
 Phiên bản hiện tại:
 
 ```text
-7.7.0
+8.0.0
 ```
 
 ---

@@ -1,6 +1,6 @@
 # UES engineering design
 
-UES 6 evolves the project from an engineering workflow harness into a **long-horizon execution engine** designed to reduce context pressure on coding models.
+UES 8 evolves the project from an engineering workflow harness into a **long-horizon execution engine** designed to reduce context pressure on coding models.
 
 The selected model remains the selected model. UES improves orchestration, evidence, task boundaries, state persistence and verification; it does not claim model equivalence.
 
@@ -48,11 +48,13 @@ The catalog remains 39 skills. UES prefers a small active skill set and loads de
 
 ### Hard gates, not reminders
 
-Three V6 gates are machine-enforced:
+V8 machine-enforces the important boundaries:
 
-1. imported plans are not executable until plan-checker PASS is recorded;
-2. durable mutations are serialized with a per-work-item lock and atomic replacement;
-3. finalization requires integration PASS and an unchanged workspace fingerprint.
+1. long/high-risk plans are not executable until a structured plan-verification receipt matches the current plan hash;
+2. long/high-risk task completion requires a successful verification receipt for the active run and the current workspace fingerprint;
+3. durable state/evidence mutations are serialized with a per-work-item lock and atomic replacement;
+4. integration PASS for strict work requires a structured integration receipt bound to the current workspace fingerprint;
+5. finalization requires PASS and rejects any later workspace change.
 
 These checks do not depend on a model remembering an instruction.
 
@@ -64,6 +66,7 @@ These checks do not depend on a model remembering an instruction.
   PLAN.json
   STATE.json
   EVIDENCE.json
+  EVENTS.jsonl
   tasks/
   reports/
 ```
@@ -79,13 +82,15 @@ On OpenCode V2, the managed plugin exposes `ues.dispatch_task`.
 It:
 
 1. calls the state engine to start one ready task;
-2. obtains the bounded context pack;
+2. obtains the bounded Context Manifest v3 pack;
 3. resolves the configured model tier for the executor attempt;
-4. creates a fresh OpenCode session;
-5. switches to `ues-executor`;
-6. optionally switches to the configured model;
-7. prompts exactly the approved task;
-8. waits and returns child-session context.
+4. optionally isolates a concurrent writer in a Git worktree;
+5. creates a fresh OpenCode session rooted at the execution directory;
+6. binds the session ID to the durable lease;
+7. switches to `ues-executor` and optionally to the configured model;
+8. prompts exactly the approved task;
+9. heartbeats while waiting under a bounded timeout;
+10. interrupts the child on timeout/cancel and returns a bounded report.
 
 The parent is still responsible for inspecting the child diff and recording completion/failure evidence.
 
@@ -131,7 +136,9 @@ UES separates:
 1. **static skill contract** — 34 scenarios covering the 39-skill catalog;
 2. **V2 router precision matrix** — 120 required-route/negative-guard cases;
 3. **standard live benchmark** — 20 executable hidden-graded tasks;
-4. **long-horizon benchmark** — 5 tasks, including one 15-source-file integration workload.
+4. **long-horizon benchmark** — 5 tasks, including one 15-source-file integration workload;
+5. **polyglot benchmark** — 8 tasks spanning Python, Java, .NET, Next.js, React Native, SQL migration, monorepo boundaries and generated contracts;
+6. **matrix runner** — baseline vs UES across multiple suites/trials with coverage validation.
 
 For long-suite UES mode, final behavior alone is insufficient. A PASS also requires a completed durable work item with plan approval, at least two tasks, attempted/completed task records, integration PASS and finalization evidence.
 
@@ -173,4 +180,15 @@ The V2 plugin probes actual session capabilities before dispatch rather than tre
 
 Hermes is deliberately adapter-only. UES can detect Hermes and generate a bounded task handoff, but does not embed Hermes' runtime, memory, scheduler or gateway into core.
 
-The local Control Center is observational. It reads durable artifacts and eval summaries; it does not bypass plan, verification, safety or finalization gates.
+## V8 intelligence and reliability additions
+
+V8 adds six control loops around the V7 runtime:
+
+1. **hard evidence binding** — structured plan/integration receipts plus current-workspace task receipts;
+2. **bounded executor lifecycle** — session binding, timeout interrupt, cancellation and task-scoped recovery;
+3. **event sourcing for observability** — append-only `EVENTS.jsonl` alongside snapshot state;
+4. **context manifest v3** — Git-change awareness, symbol hits, TF-IDF-style ranking and centered excerpts;
+5. **safe parallel integration** — isolated worktrees with dirty-root conflict refusal and UES-only branch cleanup;
+6. **benchmark-gated learning** — clustered proposals require explicit acceptance and measured shadow improvement before retrieval.
+
+The local Control Center remains a safe local observer/controller. It can inspect receipts/events and request stale recovery, but it does not bypass plan, verification, safety or finalization gates and does not directly own OpenCode sessions.
