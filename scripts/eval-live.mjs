@@ -9,6 +9,7 @@ import { copyCurrentOpenCodeAuth } from "../lib/eval-auth.mjs"
 import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
 import { buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
+import { runProcess } from "../lib/process-runner.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
@@ -79,6 +80,34 @@ function runCommand(executable, commandArgs, options = {}) {
   return spawnSync(resolved, commandArgs, options)
 }
 
+
+function runAsyncCommand(executable, commandArgs, options = {}) {
+  if (process.platform !== "win32") return runProcess(executable, commandArgs, options)
+
+  const resolved = findWindowsCommand(executable)
+  if (!resolved) {
+    return Promise.resolve({
+      status: 127,
+      signal: null,
+      stdout: "",
+      stderr: "Command not found: " + executable,
+      durationMs: 0,
+      timedOut: false,
+      idleTimedOut: false,
+      aborted: false,
+    })
+  }
+
+  if (/\.(cmd|bat)$/i.test(resolved)) {
+    const entry = findNodeShimEntry(resolved)
+    if (entry) return runProcess(process.execPath, [entry, ...commandArgs], options)
+    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
+    return runProcess(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], options)
+  }
+
+  return runProcess(resolved, commandArgs, options)
+}
+
 function excerpt(value, limit = 12000) {
   if (!value) return ""
   const text = String(value)
@@ -142,10 +171,13 @@ const requestedMode = argValue("--mode", "both")
 const keep = hasArg("--keep")
 const authMode = argValue("--auth", "env-only")
 const suiteName = argValue("--suite", "live")
+const timeoutMs = positiveInt(argValue("--timeout-ms"), 15 * 60_000)
+const idleTimeoutMs = positiveInt(argValue("--idle-timeout-ms"), 5 * 60_000)
+const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep]")
+  console.error("Usage: node scripts/eval-live.mjs --model provider/model [--suite live|long] [--variant high] [--trials N] [--task id] [--mode baseline|ues|both] [--auth env-only|current] [--output-dir path] [--keep] [--timeout-ms N] [--idle-timeout-ms N] [--heartbeat-ms N]")
   console.error("You can also set UES_EVAL_MODEL and UES_EVAL_VARIANT.")
   process.exit(2)
 }
@@ -252,14 +284,23 @@ try {
           prompt: task.prompt,
         })
 
-        const started = Date.now()
-        const agentRun = runCommand("opencode", opencodeArgs, {
+        console.log("[" + mode + "] " + task.id + " trial " + trial + ": starting agent")
+        const agentRun = await runAsyncCommand("opencode", opencodeArgs, {
           cwd: workspace,
           env: childEnv,
-          encoding: "utf8",
           maxBuffer: 4 * 1024 * 1024,
+          heartbeatMs,
+          timeoutMs,
+          idleTimeoutMs,
+          onHeartbeat: ({ elapsedMs, idleMs }) => {
+            console.log(
+              "[" + mode + "] " + task.id + " trial " + trial +
+              ": still running (" + Math.round(elapsedMs / 1000) + "s elapsed, " +
+              Math.round(idleMs / 1000) + "s since output)",
+            )
+          },
         })
-        const durationMs = Date.now() - started
+        const durationMs = agentRun.durationMs
 
         const graderPath = path.join(suiteRoot, task.grader)
         const graderRun = spawnSync(process.execPath, [graderPath], {
@@ -290,6 +331,9 @@ try {
           agentExit: agentRun.status,
           graderExit: graderRun.status,
           durationMs,
+          timedOut: agentRun.timedOut,
+          idleTimedOut: agentRun.idleTimedOut,
+          aborted: agentRun.aborted,
           authMode,
           opencodeVersion,
           opencodeMajor,
@@ -309,6 +353,7 @@ try {
           (passed ? "PASS" : "FAIL") +
           " (agent=" + agentRun.status + ", grader=" + graderRun.status +
           (orchestration.required ? ", orchestration=" + (orchestration.valid ? "PASS" : "FAIL") : "") +
+          (agentRun.timedOut ? ", timeout=hard" : agentRun.idleTimedOut ? ", timeout=idle" : "") +
           ", " + durationMs + "ms)",
         )
       }
@@ -347,6 +392,9 @@ await writeFile(
       trials,
       taskFilter: taskFilter || null,
       authMode,
+      timeoutMs,
+      idleTimeoutMs,
+      heartbeatMs,
       opencodeVersion,
       opencodeMajor,
       modes,
