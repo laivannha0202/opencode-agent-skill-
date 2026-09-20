@@ -477,3 +477,24 @@ test("active task mutations require the current runId", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("stale executor cannot fail a recovered inactive task", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-stale-fail-fence-"))
+  try {
+    const plan = { ...fixturePlan, tasks: [fixturePlan.tasks[0]] }
+    await initWork(root, "stale-fail-fence", plan.goal)
+    await importAndApprove(root, "stale-fail-fence", plan)
+    const started = await startTask(root, "stale-fail-fence", "T1")
+    await recoverTask(root, "stale-fail-fence", "T1", { force: true })
+
+    await assert.rejects(
+      failTask(root, "stale-fail-fence", "T1", "late stale failure", {
+        runId: started.record.runId,
+      }),
+      /must be running/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
