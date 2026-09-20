@@ -115,3 +115,17 @@ test("runProcess reports cancellation as nonzero even when child exits cleanly",
   assert.equal(result.aborted, true)
   assert.notEqual(result.status, 0)
 })
+
+
+test("runProcess bounds captured stdout and stderr", async () => {
+  const result = await runProcess(
+    process.execPath,
+    ["-e", "process.stdout.write('x'.repeat(5000)); process.stderr.write('y'.repeat(5000))"],
+    { maxBuffer: 1024, heartbeatMs: 0 },
+  )
+  assert.equal(result.status, 0)
+  assert.ok(result.stdout.length <= 1024)
+  assert.ok(result.stderr.length <= 1024)
+  assert.ok(result.stdout.endsWith("x"))
+  assert.ok(result.stderr.endsWith("y"))
+})
