@@ -480,6 +480,13 @@ async function workControl() {
         env: process.env,
         timeoutMs: Number.parseInt(optionValue("--timeout-ms") || "", 10) || 15 * 60_000,
         idleTimeoutMs: Number.parseInt(optionValue("--idle-timeout-ms") || "", 10) || 5 * 60_000,
+        heartbeatMs: 30_000,
+        onHeartbeat: ({ elapsedMs, idleMs }) => {
+          console.error(
+            "[ocskill] verification running: elapsed=" + Math.round(elapsedMs / 1000) +
+            "s idle=" + Math.round(idleMs / 1000) + "s",
+          )
+        },
       })
       const finishedAt = new Date().toISOString()
       const receipt = buildVerificationReceipt({
