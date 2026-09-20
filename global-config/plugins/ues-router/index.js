@@ -184,6 +184,47 @@ export default Plugin.define({
         }),
       })
       editor.add({
+        name: "recover_task",
+        description: "Safely recover one stale UES task attempt. If an attached executor session still exists, interrupt it before releasing the durable lease.",
+        input: {
+          type: "object",
+          properties: {
+            slug: { type: "string" },
+            task: { type: "string" },
+            force: { type: "boolean" },
+            reason: { type: "string" },
+          },
+          required: ["slug", "task"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => {
+          const status = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const running = (status.running || []).find((item) => item.taskID === input.task)
+          if (!running) throw new Error("task is not currently running: " + input.task)
+
+          let interrupted = false
+          if (running.sessionID && capabilities.sessionInterrupt) {
+            try {
+              await ctx.session.interrupt({ sessionID: running.sessionID, continue: false })
+              interrupted = true
+            } catch {}
+          }
+
+          const recoverArgs = ["work", "recover-task", input.slug, input.task, projectRoot]
+          if (input.force) recoverArgs.push("--force")
+          if (input.reason) recoverArgs.push("--reason", input.reason)
+          const recovered = runOcskillJSON(recoverArgs, projectRoot)
+          return {
+            content: JSON.stringify({
+              interrupted,
+              sessionID: running.sessionID || null,
+              recovered,
+            }, null, 2),
+          }
+        },
+      })
+      editor.add({
         name: "cancel_task",
         description: "Interrupt a running UES executor session and mark its durable task attempt failed.",
         input: {
