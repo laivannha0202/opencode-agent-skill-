@@ -189,3 +189,11 @@ test("router structured intent uses repository stack facts without overriding ex
   assert.ok(explicit.includes("ues-fastapi-engineering"))
   assert.ok(!explicit.includes("ues-react-native-engineering"))
 })
+
+
+test("performance investigation keeps orchestrator without forcing bug diagnosis", () => {
+  const routed = routeSkills("Investigate a slow API endpoint with high latency.", 6)
+  assert.ok(routed.includes("ues-engineering-orchestrator"))
+  assert.ok(routed.includes("ues-performance-engineering"))
+  assert.ok(!routed.includes("ues-bug-diagnosis"))
+})
