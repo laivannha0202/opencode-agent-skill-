@@ -162,7 +162,7 @@ export default Plugin.define({
             "--risk", String(started?.task?.risk || "medium"),
             "--files", String(fileCount),
             "--context-bytes", String(contextBytes),
-            ...(started?.record?.lastFailure ? ["--failure", String(started.record.lastFailure)] : []),
+            ...(started?.record?.previousFailure ? ["--failure", String(started.record.lastFailure)] : []),
           ], projectRoot)
 
           const heartbeat = setInterval(() => {
