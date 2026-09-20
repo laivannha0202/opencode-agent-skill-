@@ -2,7 +2,7 @@
 import { createServer } from "node:http"
 import { readFile } from "node:fs/promises"
 import path from "node:path"
-import { writeControlCenter } from "../lib/control-center.mjs"
+import { collectControlCenterData, writeControlCenter } from "../lib/control-center.mjs"
 
 const args = process.argv.slice(2)
 const root = path.resolve(args[0] && !args[0].startsWith("--") ? args[0] : process.cwd())
@@ -18,8 +18,12 @@ console.log("[ues] Control Center: " + result.file)
 if (serve) {
   const server = createServer(async (req, res) => {
     if (req.url === "/data.json") {
-      const body = await readFile(path.join(result.dir, "data.json"))
-      res.writeHead(200, { "content-type": "application/json; charset=utf-8" })
+      const current = await collectControlCenterData(root)
+      const body = JSON.stringify(current, null, 2) + "\n"
+      res.writeHead(200, {
+        "content-type": "application/json; charset=utf-8",
+        "cache-control": "no-store",
+      })
       res.end(body)
       return
     }
