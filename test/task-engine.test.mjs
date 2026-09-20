@@ -281,3 +281,32 @@ test("finalization requires recorded integration PASS and unchanged workspace", 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("strict completion rejects a stale workspace receipt", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-task-stale-receipt-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "core.js"), "export const x = 1\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    await initWork(root, "stale-receipt", fixturePlan.goal)
+    await importAndApprove(root, "stale-receipt", fixturePlan)
+    const started = await startTask(root, "stale-receipt", "T1")
+    await addPassingReceipt(root, "stale-receipt", "T1", started.record.runId)
+
+    await writeFile(path.join(root, "src", "core.js"), "export const x = 2\n")
+
+    await assert.rejects(
+      completeTask(root, "stale-receipt", "T1", {
+        runId: started.record.runId,
+        evidence: "stale receipt should not pass",
+      }),
+      /current workspace fingerprint/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
