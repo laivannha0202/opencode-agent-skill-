@@ -335,7 +335,7 @@ export default Plugin.define({
           } catch (error) {
             if (sandbox?.dir) {
               try {
-                runOcskill(["sandbox", "remove", sandbox.dir, projectRoot, "--force"], projectRoot)
+                runOcskill(["sandbox", "remove", sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot)
               } catch {}
             }
             try {
