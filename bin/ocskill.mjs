@@ -53,7 +53,7 @@ import { buildVerificationPlan } from "../lib/verification-plan.mjs"
 import { resolveAdaptiveModel, resolveModel } from "../lib/model-policy.mjs"
 import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
-import { createTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
+import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
@@ -90,7 +90,7 @@ Usage:
   ocskill model-policy <role> [--attempt N]
                               Resolve light/standard/heavy escalation tier
   ocskill task-policy <text>    Classify task mode/risk/context/model tier
-  ocskill sandbox <action> ...  Manage isolated Git worktree task sandboxes
+  ocskill sandbox <action> ...  Create, integrate and clean isolated Git worktree sandboxes
   ocskill learn <action> ...    Analyze eval traces and promote benchmark-validated lessons
   ocskill hermes <action> ...   Optional Hermes adapter/status
   ocskill dashboard [dir] [--serve] [--port N]
@@ -735,6 +735,13 @@ async function sandboxControl() {
       printJson(await createTaskSandbox(root, slug, taskID))
       return
     }
+    if (action === "integrate") {
+      const dir = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!dir) throw new Error("Usage: ocskill sandbox integrate <worktree-path> [dir] [--keep]")
+      printJson(await integrateTaskSandbox(root, dir, { keep: args.includes("--keep") }))
+      return
+    }
     if (action === "remove") {
       const dir = args[2]
       const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
@@ -742,7 +749,7 @@ async function sandboxControl() {
       printJson(await removeTaskSandbox(root, dir, { force: args.includes("--force") }))
       return
     }
-    throw new Error("Usage: ocskill sandbox <list|create|remove> ...")
+    throw new Error("Usage: ocskill sandbox <list|create|integrate|remove> ...")
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
