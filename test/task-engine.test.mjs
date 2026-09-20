@@ -20,6 +20,7 @@ import {
   startTask,
   workStatus,
   recordVerificationReceipt,
+  workspaceFingerprint,
 } from "../lib/task-engine.mjs"
 
 const fixturePlan = {
@@ -61,6 +62,7 @@ async function importAndApprove(root, slug, plan = fixturePlan) {
 }
 
 async function addPassingReceipt(root, slug, taskID, runId) {
+  const fingerprint = workspaceFingerprint(root)
   const receipt = createVerificationReceipt({
     task: taskID,
     runId,
@@ -69,6 +71,8 @@ async function addPassingReceipt(root, slug, taskID, runId) {
     exitCode: 0,
     stdout: "v-test",
     stderr: "",
+    workspaceBefore: fingerprint,
+    workspaceAfter: fingerprint,
   })
   await recordVerificationReceipt(root, slug, taskID, receipt)
 }
