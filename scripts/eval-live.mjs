@@ -221,8 +221,17 @@ await mkdir(resultDir, { recursive: true })
 
 const results = []
 const oldConfigDir = process.env.OPENCODE_CONFIG_DIR
+const abortController = new AbortController()
+let cancelledByUser = false
+const cancelEval = () => {
+  cancelledByUser = true
+  abortController.abort()
+}
+process.once("SIGINT", cancelEval)
+process.once("SIGTERM", cancelEval)
 
 try {
+  evaluationLoop:
   for (const task of tasks) {
     for (const mode of modes) {
       for (let trial = 1; trial <= trials; trial += 1) {
@@ -289,6 +298,7 @@ try {
           timeoutMs: timeoutMinutes * 60_000,
           idleTimeoutMs: idleTimeoutMinutes * 60_000,
           heartbeatMs: heartbeatSeconds * 1000,
+          signal: abortController.signal,
           onHeartbeat: ({ elapsedMs, idleMs, pid }) => {
             console.log(
               "[" + mode + "] " + task.id + " trial " + trial +
@@ -357,10 +367,16 @@ try {
           (orchestration.required ? ", orchestration=" + (orchestration.valid ? "PASS" : "FAIL") : "") +
           ", " + durationMs + "ms)",
         )
+        if (cancelledByUser) {
+          console.warn("[eval] cancellation requested; stopping after current run cleanup.")
+          break evaluationLoop
+        }
       }
     }
   }
 } finally {
+  process.removeListener("SIGINT", cancelEval)
+  process.removeListener("SIGTERM", cancelEval)
   if (oldConfigDir === undefined) delete process.env.OPENCODE_CONFIG_DIR
   else process.env.OPENCODE_CONFIG_DIR = oldConfigDir
 
@@ -415,3 +431,4 @@ for (const [mode, item] of Object.entries(summary)) {
 }
 console.log("Result: " + resultFile)
 if (keep) console.log("Temporary workspaces kept under: " + runRoot)
+if (cancelledByUser) process.exitCode = 130
