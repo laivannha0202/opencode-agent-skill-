@@ -35,12 +35,16 @@ test("context manifest ranks task terms, tests and changed references", async ()
       verification: ["node --test"],
     }, { budget: 12000 })
 
-    assert.equal(manifest.schemaVersion, 2)
+    assert.equal(manifest.schemaVersion, 3)
     assert.ok(manifest.queryTerms.includes("tenant"))
     assert.ok(manifest.changed.includes("src/policy.js"))
     assert.ok(manifest.tests.includes("test/auth.test.js"))
-    assert.ok(manifest.rankedReferences.some((item) => item.path === "src/policy.js"))
+    const rankedPolicy = manifest.rankedReferences.find((item) => item.path === "src/policy.js")
+    assert.ok(rankedPolicy)
+    assert.ok(rankedPolicy.score > 0)
+    assert.ok(Array.isArray(rankedPolicy.symbolHits))
     assert.ok(manifest.excerpts.some((item) => item.role === "declared"))
+    assert.ok(manifest.excerpts.some((item) => Object.hasOwn(item, "startOffset")))
   } finally {
     await rm(root, { recursive: true, force: true })
   }
