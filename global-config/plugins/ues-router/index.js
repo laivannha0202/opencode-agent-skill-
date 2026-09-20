@@ -68,6 +68,15 @@ function messageExcerpt(messages) {
   return text.length <= 24000 ? text : text.slice(-24000)
 }
 
+function taskHasWrites(task) {
+  const files = task?.files
+  if (Array.isArray(files)) return files.length > 0
+  if (!files || typeof files !== "object") return false
+  return ["create", "modify", "test", "delete"].some(
+    (key) => Array.isArray(files[key]) && files[key].length > 0,
+  )
+}
+
 export default Plugin.define({
   id: "ues-router",
   async setup(ctx) {
@@ -158,6 +167,8 @@ export default Plugin.define({
             slug: { type: "string" },
             task: { type: "string" },
             timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
+            isolate: { type: "boolean" },
+            integrate: { type: "boolean" },
           },
           required: ["slug", "task"],
           additionalProperties: false,
@@ -184,6 +195,21 @@ export default Plugin.define({
           const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
+          const workStatus = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          const autoIsolate =
+            input.isolate === true ||
+            (input.isolate !== false &&
+              Number(workStatus?.counts?.running || 0) > 1 &&
+              taskHasWrites(started?.contextPack?.task))
+          let sandbox = null
+          let executionDir = projectRoot
+          if (autoIsolate) {
+            sandbox = runOcskillJSON(
+              ["sandbox", "create", input.slug, input.task, projectRoot],
+              projectRoot,
+            )
+            executionDir = sandbox.dir
+          }
           const heartbeatStarted = Date.now()
           const heartbeat = setInterval(() => {
             try {
@@ -195,7 +221,10 @@ export default Plugin.define({
           }, 30_000)
 
           try {
-            const created = await ctx.session.create({ title: "UES " + input.slug + " " + input.task })
+            const created = await ctx.session.create({
+              title: "UES " + input.slug + " " + input.task,
+              location: { directory: executionDir },
+            })
             await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
             const selectedModel = modelRef(policy?.model)
             if (selectedModel) {
@@ -231,6 +260,14 @@ export default Plugin.define({
             }
 
             const messages = await ctx.session.context({ sessionID: created.id })
+            let integration = null
+            if (sandbox && input.integrate !== false) {
+              integration = runOcskillJSON(
+                ["sandbox", "integrate", sandbox.dir, projectRoot],
+                projectRoot,
+              )
+              sandbox = null
+            }
             return {
               content: JSON.stringify({
                 sessionID: created.id,
@@ -240,11 +277,20 @@ export default Plugin.define({
                 taskPolicy,
                 model: policy,
                 timeoutMs,
+                executionDir,
+                isolated: executionDir !== projectRoot,
+                sandbox,
+                integration,
                 messages: messageExcerpt(messages),
                 next: "Inspect the child diff and verification, then call ocskill work complete or fail.",
               }, null, 2),
             }
           } catch (error) {
+            if (sandbox?.dir) {
+              try {
+                runOcskill(["sandbox", "remove", sandbox.dir, projectRoot, "--force"], projectRoot)
+              } catch {}
+            }
             try {
               const failArgs = [
                 "work", "fail", input.slug, input.task, projectRoot,
