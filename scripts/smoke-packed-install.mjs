@@ -7,7 +7,8 @@ import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
-const packageName = "@laivannha0202/opencode-agent-skill"
+const sourcePackageJson = JSON.parse(await readFile(path.join(repoRoot, "package.json"), "utf8"))
+const packageName = sourcePackageJson.name
 
 function runNpm(args, options = {}) {
   const common = {
@@ -67,7 +68,7 @@ try {
   const globalRoot = root.stdout.trim()
   assert.ok(globalRoot, "npm root -g returned an empty path")
 
-  const packageDir = path.join(globalRoot, "@laivannha0202", "opencode-agent-skill")
+  const packageDir = path.join(globalRoot, ...packageName.split("/"))
   const packedReal = await realpath(packageDir)
   const repoReal = await realpath(repoRoot)
   assert.notEqual(

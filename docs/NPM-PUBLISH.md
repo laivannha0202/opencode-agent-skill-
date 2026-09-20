@@ -3,12 +3,12 @@
 The package is published as:
 
 ```text
-@laivannha0202/opencode-agent-skill
+opencode-agent-skill
 ```
 
 ## Release prerequisites
 
-1. The npm account must have publish rights to the `@laivannha0202` scope.
+1. The npm account must have publish rights to the unscoped `opencode-agent-skill` package name.
 2. `package.json` and `package-lock.json` versions must match.
 3. `CHANGELOG.md` must contain the release.
 4. Run the complete local validation:
@@ -27,7 +27,7 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\laivannha0202-opencode-agent-skill-7.7.0.tgz --allow-scripts=@laivannha0202/opencode-agent-skill
+npm install -g .\opencode-agent-skill-7.7.0.tgz --allow-scripts=opencode-agent-skill
 ocskill status
 ocskill doctor
 ```
@@ -46,9 +46,9 @@ npm publish --access public
 After publication verify:
 
 ```cmd
-npm view @laivannha0202/opencode-agent-skill versions --json
-npm view @laivannha0202/opencode-agent-skill@7.7.0 version
-npm dist-tag ls @laivannha0202/opencode-agent-skill
+npm view opencode-agent-skill versions --json
+npm view opencode-agent-skill@7.7.0 version
+npm dist-tag ls opencode-agent-skill
 ```
 
 The expected release tag is:
@@ -92,7 +92,7 @@ Until that npm-side setup is complete, keep a valid publish credential configure
 After publication:
 
 ```cmd
-npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
+npm install -g opencode-agent-skill
 ```
 
 If lifecycle execution is blocked by local npm policy:

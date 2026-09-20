@@ -203,6 +203,27 @@ test("legacy UES state without a package field still re-syncs and is re-owned", 
   await rm(temp, { recursive: true, force: true })
 })
 
+test("renamed package accepts scoped legacy state without force", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-package-rename-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  const module = await import(`../lib/installer.mjs?package-rename=${Date.now()}`)
+  await module.installResources()
+
+  const stateFile = path.join(temp, ".ues", "state.json")
+  const state = JSON.parse(await readFile(stateFile, "utf8"))
+  state.package = module.LEGACY_PACKAGE_NAME
+  await writeFile(stateFile, JSON.stringify(state, null, 2) + "\n", "utf8")
+
+  const result = await module.installResources()
+  assert.equal(result.stateError, undefined)
+
+  const migrated = JSON.parse(await readFile(stateFile, "utf8"))
+  assert.equal(migrated.package, module.PACKAGE_NAME)
+
+  await rm(temp, { recursive: true, force: true })
+})
+
 test("installer skips command and agent sources whose IDs are not managed-safe", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-invalid-id-"))
   process.env.OPENCODE_CONFIG_DIR = temp

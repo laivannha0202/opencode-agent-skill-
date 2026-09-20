@@ -6,6 +6,13 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- The public npm distribution name is now the unscoped `opencode-agent-skill`, so users install it with `npm install -g opencode-agent-skill`.
+
+### Fixed
+- Packed global-install smoke derives the package install path from package metadata instead of assuming the former scoped npm name.
+- The installer accepts the former `@laivannha0202/opencode-agent-skill` state owner as legacy UES ownership and re-owns it as `opencode-agent-skill` during the next install.
+
 ## [7.7.0] - 2026-09-20
 
 ### Added

@@ -85,7 +85,7 @@ finalize
 ## Cài đặt
 
 ```cmd
-npm install -g @laivannha0202/opencode-agent-skill --allow-scripts=@laivannha0202/opencode-agent-skill
+npm install -g opencode-agent-skill
 ```
 
 Kiểm tra:
