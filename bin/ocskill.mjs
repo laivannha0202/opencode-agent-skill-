@@ -112,7 +112,7 @@ Usage:
     ocskill work gate-receipt <slug> <plan|integration> [dir] --evidence <text> [--verdict PASS|FAIL|PARTIAL] [--verifier <role>] [--session-id <id>] [--report-file <file>] [--out <file>]
     ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence> [--receipt-file <file>]
     ocskill work start <slug> <task-id> [dir] [--lease-ms N]
-    ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id>
+    ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id> [--execution-dir <dir>] [--sandbox-dir <dir>]
     ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]
     ocskill work recover <slug> [dir] [--force]
     ocskill work events <slug> [dir] [--limit N]
@@ -481,6 +481,10 @@ async function workControl() {
         taskID,
         optionValue("--run-id"),
         optionValue("--session-id"),
+        {
+          executionDir: optionValue("--execution-dir"),
+          sandboxDir: optionValue("--sandbox-dir"),
+        },
       ))
       return
     }
