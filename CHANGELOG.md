@@ -31,9 +31,6 @@ The project follows Semantic Versioning.
 ### Fixed
 - Interrupted executors can no longer leave a task permanently stuck in `running` once its lease expires and the work item is resumed/recovered.
 - Long live benchmarks no longer appear frozen indefinitely; progress and timeout state are observable.
-
-
-### Fixed
 - Live baseline/UES evaluation now detects the OpenCode major version: OpenCode 1.x runs omit the V2-only `--standalone` flag, while OpenCode 2.x+ keeps it. Eval JSON also records the detected OpenCode version/major for reproducibility.
 - The V2 automatic router now retains domain/impact skills and `ues-engineering-orchestrator` ahead of generic process skills when the configured skill cap (default 4) is exceeded, so cross-cutting and long-running prompts no longer silently lose their domain guidance. Under cap pressure a generic process skill such as `ues-bug-diagnosis` may be evicted before domain skills by design; when the cap is not exceeded, routing output is unchanged.
 
