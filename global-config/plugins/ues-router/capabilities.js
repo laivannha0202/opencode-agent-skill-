@@ -4,6 +4,7 @@ export function runtimeCapabilities(ctx) {
     sessionCreate: typeof session.create === "function",
     sessionPrompt: typeof session.prompt === "function",
     sessionWait: typeof session.wait === "function",
+    sessionInterrupt: typeof session.interrupt === "function",
     sessionContext: typeof session.context === "function",
     sessionSwitchAgent: typeof session.switchAgent === "function",
     sessionSwitchModel: typeof session.switchModel === "function",
@@ -13,6 +14,7 @@ export function runtimeCapabilities(ctx) {
     capabilities.sessionCreate &&
     capabilities.sessionPrompt &&
     capabilities.sessionWait &&
+    capabilities.sessionInterrupt &&
     capabilities.sessionContext &&
     capabilities.sessionSwitchAgent
   capabilities.modelSwitch = capabilities.sessionSwitchModel
