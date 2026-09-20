@@ -1,6 +1,6 @@
-# UES engineering design
+# UES 7.7 engineering design
 
-UES 6 evolves the project from an engineering workflow harness into a **long-horizon execution engine** designed to reduce context pressure on coding models.
+UES 7.7 evolves the project into a **crash-safe adaptive long-horizon execution runtime** designed to reduce context pressure, unverifiable completion claims and interruption risk.
 
 The selected model remains the selected model. UES improves orchestration, evidence, task boundaries, state persistence and verification; it does not claim model equivalence.
 
@@ -156,3 +156,18 @@ UES deliberately avoids:
 - claiming that one benchmark proves general model equivalence
 
 The target is a small number of strong control loops: correct context, small tasks, durable state, deterministic checks and independent verification.
+
+
+## V7.7 runtime layers
+
+The V7.7 control plane adds seven concrete layers on top of the V6 durable engine:
+
+1. task leases, heartbeats, event log and stale-run recovery;
+2. structured verification receipts bound to run/workspace state;
+3. bounded repository context manifests;
+4. adaptive risk/context/attempt-aware execution policy;
+5. optional isolated Git worktrees for parallel edits;
+6. proposal-only learning from eval traces plus optional Hermes handoff;
+7. a local read-only Control Center.
+
+See [V7 intelligence runtime](V7-INTELLIGENCE-RUNTIME.md) for the operational contract.
