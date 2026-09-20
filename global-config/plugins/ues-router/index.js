@@ -381,6 +381,14 @@ export default Plugin.define({
               if (timer) clearTimeout(timer)
             }
 
+            const afterWait = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+            const activeAttempt = (afterWait.running || []).find(
+              (item) => item.taskID === input.task && (!runId || item.runId === runId),
+            )
+            if (!activeAttempt) {
+              throw new Error("UES executor attempt is no longer active; refusing post-cancel integration or completion handoff")
+            }
+
             const messages = await ctx.session.context({ sessionID: created.id })
             let integration = null
             if (sandbox && input.integrate === true) {
