@@ -102,3 +102,16 @@ test("runProcess escalates SIGTERM-resistant children", { skip: process.platform
   assert.notEqual(result.status, 0)
   assert.ok(Date.now() - started < 2500, "timeout escalation did not terminate the process promptly")
 })
+
+
+test("runProcess reports cancellation as nonzero even when child exits cleanly", { skip: process.platform === "win32" }, async () => {
+  const controller = new AbortController()
+  setTimeout(() => controller.abort(), 80)
+  const result = await runProcess(
+    process.execPath,
+    ["-e", "process.on('SIGTERM',()=>process.exit(0)); setInterval(()=>{},1000)"],
+    { signal: controller.signal, heartbeatMs: 0, killGraceMs: 100 },
+  )
+  assert.equal(result.aborted, true)
+  assert.notEqual(result.status, 0)
+})
