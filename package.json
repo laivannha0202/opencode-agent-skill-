@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "7.7.0",
+  "version": "8.0.0",
   "description": "Adaptive crash-safe engineering runtime, durable orchestration, structured evidence, learning loop and control center for OpenCode",
   "type": "module",
   "bin": {
