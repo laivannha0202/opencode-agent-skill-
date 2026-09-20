@@ -77,6 +77,31 @@ function taskHasWrites(task) {
   )
 }
 
+function policySkills(policy) {
+  const selected = []
+  const add = (id) => { if (id && !selected.includes(id)) selected.push(id) }
+  if (policy?.mode === "long-horizon") {
+    add("ues-engineering-orchestrator")
+    add("ues-long-task-state")
+    add("ues-task-planner")
+  } else if (policy?.mode === "standard" || policy?.risk === "high") {
+    add("ues-engineering-orchestrator")
+  }
+  const map = {
+    "auth-security": "ues-auth-security",
+    payment: "ues-payment-engineering",
+    database: "ues-database-engineering",
+    "api-contract": "ues-api-contract",
+    "react-native": "ues-react-native-engineering",
+    nextjs: "ues-nextjs-engineering",
+    react: "ues-react-engineering",
+    devops: "ues-devops-engineering",
+  }
+  for (const domain of policy?.domains || []) add(map[domain])
+  if (policy?.risk === "high") add("ues-change-impact-analysis")
+  return selected
+}
+
 export default Plugin.define({
   id: "ues-router",
   async setup(ctx) {
@@ -358,7 +383,7 @@ export default Plugin.define({
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES V7 runtime: classify task complexity/risk, trust durable .ues-work state over conversation memory, use lease-backed fresh execution when supported, prefer structured verification receipts, recover stale work after interruption, and require integration evidence before completion.",
+        text: "UES V8 runtime: classify task complexity/risk, trust durable .ues-work state and EVENTS.jsonl over conversation memory, use bounded interruptible fresh execution, require structured receipts for long/high-risk gates, isolate parallel writers when needed, recover stale work after interruption, and require integration evidence before completion.",
       })
     })
 
@@ -366,7 +391,15 @@ export default Plugin.define({
       const config = routerConfig()
       if (!config.enabled) return
 
-      const selected = routeSkills(event.prompt.text, config.maxSkills)
+      let policy = null
+      try {
+        policy = runOcskillJSON(["task-policy", event.prompt.text], projectRoot)
+      } catch {}
+      const selected = []
+      for (const id of [...routeSkills(event.prompt.text, config.maxSkills), ...policySkills(policy)]) {
+        if (!selected.includes(id)) selected.push(id)
+        if (selected.length >= config.maxSkills) break
+      }
       if (selected.length === 0) return
 
       event.prompt.skills ??= []
@@ -380,7 +413,8 @@ export default Plugin.define({
         ...event.metadata,
         uesRouter: {
           selected,
-          version: 3,
+          policy,
+          version: 4,
         },
       }
     })
