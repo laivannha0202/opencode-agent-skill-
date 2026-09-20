@@ -29,6 +29,9 @@ jobs:
       - name: Validate package
         run: npm run ci
 
+      - name: Verify release tag
+        run: npm run release:check-tag
+
       - name: Publish
         run: npm publish --access public --provenance
         env:
