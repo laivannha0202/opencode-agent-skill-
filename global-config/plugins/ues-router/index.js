@@ -295,6 +295,8 @@ export default Plugin.define({
                 "--session-id", created.id,
               ]
               if (runId) attachArgs.push("--run-id", runId)
+              attachArgs.push("--execution-dir", executionDir)
+              if (sandbox?.dir) attachArgs.push("--sandbox-dir", sandbox.dir)
               runOcskill(attachArgs, projectRoot)
             }
             await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
