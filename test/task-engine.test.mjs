@@ -12,6 +12,7 @@ import {
   createPlanVerificationReceipt,
   createIntegrationVerificationReceipt,
   failTask,
+  heartbeatTask,
   finalizeWork,
   importPlan,
   initWork,
