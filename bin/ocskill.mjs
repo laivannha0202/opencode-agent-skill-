@@ -493,8 +493,9 @@ async function workControl() {
     if (action === "heartbeat") {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
-      if (!taskID) throw new Error("Usage: ocskill work heartbeat <slug> <task-id> [dir] [--run-id <id>]")
-      printJson(await heartbeatTask(root, slug, taskID, optionValue("--run-id"), {
+      const runId = optionValue("--run-id")
+      if (!taskID || !runId) throw new Error("Usage: ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>")
+      printJson(await heartbeatTask(root, slug, taskID, runId, {
         leaseMs: Number.parseInt(optionValue("--lease-ms") || "0", 10) || undefined,
       }))
       return
@@ -526,8 +527,9 @@ async function workControl() {
       const separator = args.indexOf("--")
       const executable = separator >= 0 ? args[separator + 1] : null
       const commandArgs = separator >= 0 ? args.slice(separator + 2) : []
-      if (!taskID || !executable) {
-        throw new Error("Usage: ocskill work verify-command <slug> <task-id> [dir] [--run-id <id>] -- <command> [args...]")
+      const runId = optionValue("--run-id")
+      if (!taskID || !runId || !executable) {
+        throw new Error("Usage: ocskill work verify-command <slug> <task-id> [dir] --run-id <id> -- <command> [args...]")
       }
       const startedAt = new Date().toISOString()
       const before = workspaceFingerprint(root)
@@ -538,7 +540,7 @@ async function workControl() {
       })
       const receipt = createVerificationReceipt({
         task: taskID,
-        runId: optionValue("--run-id"),
+        runId,
         command: executable,
         args: commandArgs,
         cwd: path.resolve(root),
@@ -569,21 +571,23 @@ async function workControl() {
     if (action === "complete") {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
-      if (!taskID) throw new Error("Usage: ocskill work complete <slug> <task-id> [dir] --evidence <text>")
+      const runId = optionValue("--run-id")
+      if (!taskID || !runId) throw new Error("Usage: ocskill work complete <slug> <task-id> [dir] --run-id <id> --evidence <text>")
       const reportFile = optionValue("--report-file")
       const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
       printJson(await completeTask(root, slug, taskID, {
         evidence: optionValue("--evidence"),
         report,
-        runId: optionValue("--run-id"),
+        runId,
       }))
       return
     }
     if (action === "fail") {
       const taskID = args[3]
       const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
-      if (!taskID) throw new Error("Usage: ocskill work fail <slug> <task-id> [dir] --reason <text>")
-      printJson(await failTask(root, slug, taskID, optionValue("--reason"), { runId: optionValue("--run-id") }))
+      const runId = optionValue("--run-id")
+      if (!taskID || !runId) throw new Error("Usage: ocskill work fail <slug> <task-id> [dir] --run-id <id> --reason <text>")
+      printJson(await failTask(root, slug, taskID, optionValue("--reason"), { runId }))
       return
     }
     if (action === "decision") {
