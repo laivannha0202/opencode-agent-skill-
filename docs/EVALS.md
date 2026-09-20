@@ -1,6 +1,6 @@
 # UES evaluations
 
-UES 6 separates catalog correctness, routing precision, benchmark integrity, final behavior and long-horizon orchestration.
+UES 7.7 separates catalog correctness, routing precision, benchmark integrity, final behavior and long-horizon orchestration.
 
 ## 1. Static skill-routing contract
 
@@ -70,7 +70,9 @@ For `--suite long`, a UES-mode result is PASS only if:
 6. every planned task has an attempt and ends `completed`;
 7. integration verification is `PASS`;
 8. integration and finalization evidence exist;
-9. work item status is `completed`.
+9. work item status is `completed`;
+10. every planned task has passing structured receipt-backed evidence for the current run/workspace;
+11. integration verification has a passing structured receipt for the verified workspace.
 
 Therefore a model that directly patches all files in its main context but bypasses the long-task engine is not counted as a successful UES long-horizon run.
 
@@ -117,3 +119,8 @@ ocskill eval-report .ues-evals
 Compare the same model, variant, prompt, fixture, grader and environment. Report multiple trials.
 
 A benchmark result is evidence only for the measured workload. UES does not claim to turn one base model into another.
+
+
+### Runtime observability
+
+Live evals support `--heartbeat-seconds`, `--timeout-minutes` and `--idle-timeout-minutes`. Result items include runtime timeout/cancellation metadata and the probed OpenCode capability set. This makes a provider/model hang distinguishable from a hidden-grader failure.
