@@ -179,7 +179,7 @@ export default Plugin.define({
             const created = await ctx.session.create({ title: "UES " + input.slug + " " + input.task })
             await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
             const selectedModel = modelRef(policy?.model)
-            if (selectedModel) {
+            if (selectedModel && typeof ctx.session.switchModel === "function") {
               await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
             }
 
