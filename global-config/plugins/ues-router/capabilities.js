@@ -1,5 +1,6 @@
 export function runtimeCapabilities(ctx) {
   const session = ctx?.session || {}
+  const permission = ctx?.permission || {}
   const capabilities = {
     sessionCreate: typeof session.create === "function",
     sessionPrompt: typeof session.prompt === "function",
@@ -9,6 +10,7 @@ export function runtimeCapabilities(ctx) {
     sessionSwitchAgent: typeof session.switchAgent === "function",
     sessionSwitchModel: typeof session.switchModel === "function",
     sessionHook: typeof session.hook === "function",
+    permissionHook: typeof permission.hook === "function",
   }
   capabilities.freshDispatch =
     capabilities.sessionCreate &&
