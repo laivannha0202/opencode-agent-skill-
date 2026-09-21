@@ -6,6 +6,13 @@ import { spawnSync } from "node:child_process"
 import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
+import {
+  budgetToolResult,
+  classifyProviderFailure,
+  createRuntimeGuard,
+  providerRecoveryPlan,
+  stableRuntimeHash,
+} from "./runtime-guard.js"
 
 const CONFIG_FILE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -114,6 +121,33 @@ function taskHasWrites(task) {
   )
 }
 
+function workspaceSignal(root) {
+  const result = spawnSync(
+    "git",
+    [
+      "status",
+      "--porcelain=v1",
+      "--untracked-files=all",
+      "--",
+      ".",
+      ":(exclude).ues-work",
+      ":(exclude).ues-learning",
+      ":(exclude).ues-dashboard",
+      ":(exclude).ues-sandboxes",
+      ":(exclude).ues-cache",
+      ":(exclude).ues-traces",
+    ],
+    { cwd: root, encoding: "utf8", maxBuffer: 512 * 1024 },
+  )
+  if (result.status !== 0) return stableRuntimeHash("non-git:" + root)
+  return stableRuntimeHash(result.stdout || "")
+}
+
+function sessionContextDigest(messages) {
+  const recent = Array.isArray(messages) ? messages.slice(-12) : messages
+  return stableRuntimeHash(recent || [])
+}
+
 function policySkills(policy) {
   const selected = []
   const add = (id) => { if (id && !selected.includes(id)) selected.push(id) }
@@ -166,6 +200,170 @@ export default Plugin.define({
   async setup(ctx) {
     const projectRoot = ctx.location.project?.canonical || ctx.location.directory
     const capabilities = runtimeCapabilities(ctx)
+    const runtimeGuard = createRuntimeGuard({ duplicateLimit: 3, loopLimit: 6 })
+    const sessionAssignments = new Map()
+
+    async function waitForExecutorProgress(sessionID, options = {}) {
+      const timeoutMs = Math.max(30_000, Number(options.timeoutMs || 10 * 60_000))
+      const stallMs = Math.max(30_000, Math.min(Number(options.stallMs || 60_000), 5 * 60_000))
+      const startedAt = Date.now()
+      let lastContext = null
+      let polling = false
+      let rejectWatchdog = null
+
+      try {
+        const initial = await ctx.session.context({ sessionID })
+        lastContext = sessionContextDigest(initial)
+      } catch {}
+      runtimeGuard.touch(sessionID)
+
+      const watchdog = new Promise((_, reject) => {
+        rejectWatchdog = reject
+      })
+      const timer = setInterval(async () => {
+        if (polling) return
+        polling = true
+        try {
+          const now = Date.now()
+          if (now - startedAt >= timeoutMs) {
+            const error = new Error("UES executor timed out after " + timeoutMs + "ms")
+            error.code = "UES_TIMEOUT"
+            rejectWatchdog?.(error)
+            return
+          }
+
+          try {
+            const messages = await ctx.session.context({ sessionID })
+            const digest = sessionContextDigest(messages)
+            if (lastContext === null || digest !== lastContext) {
+              lastContext = digest
+              runtimeGuard.touch(sessionID, now)
+            }
+          } catch {}
+
+          const snapshot = runtimeGuard.snapshot(sessionID)
+          if (
+            snapshot.activeToolCalls === 0 &&
+            now - Number(snapshot.lastProgressAt || startedAt) >= stallMs
+          ) {
+            const error = new Error("UES no-progress watchdog: executor stalled for " + stallMs + "ms")
+            error.code = "UES_STALLED"
+            rejectWatchdog?.(error)
+          }
+        } finally {
+          polling = false
+        }
+      }, 5_000)
+      timer.unref?.()
+
+      try {
+        await Promise.race([
+          ctx.session.wait({ sessionID }),
+          watchdog,
+        ])
+      } finally {
+        clearInterval(timer)
+      }
+      return ctx.session.context({ sessionID })
+    }
+
+    if (typeof ctx.tool?.hook === "function") {
+      await ctx.tool.hook("execute.before", (event) => {
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (!assignment) return
+        const signal = workspaceSignal(assignment.executionDir || projectRoot)
+        const decision = runtimeGuard.before({
+          sessionID: event.sessionID,
+          tool: event.tool,
+          input: event.input,
+          callID: event.callID,
+          cwd: assignment.executionDir || projectRoot,
+          workspaceSignal: signal,
+        })
+        if (decision.blocked) throw new Error(decision.message)
+
+        if (assignment.resumeRequired) {
+          try {
+            const args = [
+              "work", "checkpoint-resumed", assignment.slug, assignment.task, projectRoot,
+              "--run-id", assignment.runId,
+              "--reason", "tool-action-observed-after-compaction",
+            ]
+            runOcskill(args, projectRoot)
+          } catch {}
+          assignment.resumeRequired = false
+        }
+      })
+
+      await ctx.tool.hook("execute.after", (event) => {
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (!assignment) return
+        const signal = workspaceSignal(assignment.executionDir || projectRoot)
+        if (event.status === "completed") {
+          event.result = budgetToolResult(event.tool, event.result)
+          runtimeGuard.after({
+            sessionID: event.sessionID,
+            tool: event.tool,
+            input: event.input,
+            callID: event.callID,
+            cwd: assignment.executionDir || projectRoot,
+            workspaceSignal: signal,
+            status: "completed",
+            result: event.result,
+          })
+        } else {
+          runtimeGuard.after({
+            sessionID: event.sessionID,
+            tool: event.tool,
+            input: event.input,
+            callID: event.callID,
+            cwd: assignment.executionDir || projectRoot,
+            workspaceSignal: signal,
+            status: "error",
+            error: event.error,
+          })
+        }
+      })
+    }
+
+    if (capabilities.sessionHook) {
+      await ctx.session.hook("retry", (event) => {
+        const kind = classifyProviderFailure(event.error || {})
+        if (kind === "AUTH" || kind === "CONTEXT_TOO_LARGE") {
+          event.decision = { retry: false }
+          return
+        }
+        if (["RATE_LIMIT", "PROVIDER_5XX", "TIMEOUT", "NO_TOKEN"].includes(kind) && event.attempt < 3) {
+          event.decision = {
+            retry: true,
+            delay: kind === "RATE_LIMIT" ? Math.min(10_000, 1_000 * event.attempt) : 0,
+          }
+        }
+      })
+
+      await ctx.session.hook("compaction", (event) => {
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (!assignment) return
+        try {
+          const checkpoint = runOcskillJSON([
+            "work", "checkpoint", assignment.slug, assignment.task, projectRoot,
+            "--run-id", assignment.runId,
+            "--reason", "pre-compaction",
+          ], projectRoot)
+          assignment.checkpoint = checkpoint
+          assignment.resumeRequired = true
+          assignment.compactionAt = Date.now()
+          runtimeGuard.compacted(event.sessionID, assignment.compactionAt)
+          event.system.push({
+            type: "text",
+            text:
+              "UES durable checkpoint persisted before compaction. Preserve currentTaskId/runId/planHash/evidence pointers. " +
+              "After compaction, execute checkpoint.nextAction before explanatory prose. Checkpoint: " +
+              JSON.stringify(checkpoint),
+          })
+        } catch {}
+      })
+    }
 
     await ctx.tool.transform((editor) => {
       editor.namespace({
