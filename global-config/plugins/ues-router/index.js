@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -28,13 +28,43 @@ function routerConfig() {
 }
 
 
+function findWindowsCommand(name) {
+  const result = spawnSync("where", [name], { encoding: "utf8" })
+  if (result.status !== 0 || !result.stdout) return null
+  const matches = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  return matches.find((item) => /\.(cmd|bat)$/i.test(item)) || matches[0] || null
+}
+
+function findNodeShimEntry(cmdPath) {
+  const dir = path.dirname(cmdPath)
+  let shim = ""
+  try { shim = readFileSync(cmdPath, "utf8") } catch {}
+  const match = shim.match(/node_modules[\\/][^\s"]+?\.(?:js|mjs)/gi)?.at(-1)
+  if (!match) return null
+  const entry = path.resolve(dir, match)
+  return existsSync(entry) ? entry : null
+}
+
 function runOcskill(args, cwd) {
-  const result = spawnSync("ocskill", args, {
+  const common = {
     cwd,
     encoding: "utf8",
-    shell: process.platform === "win32",
     maxBuffer: 4 * 1024 * 1024,
-  })
+  }
+  let result
+  if (process.platform !== "win32") {
+    result = spawnSync("ocskill", args, common)
+  } else {
+    const resolved = findWindowsCommand("ocskill")
+    if (!resolved) throw new Error("ocskill command was not found on PATH")
+    if (/\.(cmd|bat)$/i.test(resolved)) {
+      const entry = findNodeShimEntry(resolved)
+      if (!entry) throw new Error("refusing to execute an unrecognized ocskill batch shim through cmd.exe")
+      result = spawnSync(process.execPath, [entry, ...args], common)
+    } else {
+      result = spawnSync(resolved, args, common)
+    }
+  }
   if (result.status !== 0) {
     throw new Error((result.stderr || result.stdout || "ocskill command failed").trim())
   }
