@@ -31,6 +31,7 @@ const onlyLong = has("--long-only")
 const onlyLive = has("--standard-only")
 const onlyPolyglot = has("--polyglot-only")
 const withoutPolyglot = has("--without-polyglot")
+const requireConfidence = has("--require-confidence")
 
 if (!model) {
   console.error("Usage: node scripts/eval-matrix.mjs --model provider/model [--trials 3] [--auth current|env-only] [--variant high] [--without-polyglot|--long-only|--standard-only|--polyglot-only]")
@@ -148,6 +149,7 @@ console.log("- UES: " + (summary.modes.ues?.passed || 0) + "/" + (summary.modes.
 console.log("- pass-rate delta: " + (summary.passRateDelta == null ? "n/a" : (summary.passRateDelta * 100).toFixed(1) + " pp"))
 console.log("- coverage: " + (coverageComplete ? "COMPLETE" : "INCOMPLETE"))
 console.log("- paired confidence: " + (confidence.promotionEligible ? "SUPPORTED" : "NOT YET SUPPORTED") + " (pairs=" + confidence.pairs + ", p=" + confidence.pValue.toFixed(4) + ")")
+console.log("- confidence gate: " + (requireConfidence ? "REQUIRED" : "report-only"))
 console.log("- report: " + reportFile)
 
-if (!coverageComplete) process.exitCode = 1
+if (!coverageComplete || (requireConfidence && !confidence.promotionEligible)) process.exitCode = 1
