@@ -11,6 +11,7 @@ import {
   classifyProviderFailure,
   createRuntimeGuard,
   providerRecoveryPlan,
+  progressWatchdogDecision,
   stableRuntimeHash,
 } from "./runtime-guard.js"
 
@@ -259,11 +260,9 @@ export default Plugin.define({
           } catch {}
 
           const snapshot = runtimeGuard.snapshot(sessionID)
-          if (
-            snapshot.activeToolCalls === 0 &&
-            now - Number(snapshot.lastProgressAt || startedAt) >= stallMs
-          ) {
-            const error = new Error("UES no-progress watchdog: executor stalled for " + stallMs + "ms")
+          const watchdogState = progressWatchdogDecision(snapshot, now, stallMs)
+          if (watchdogState.stalled) {
+            const error = new Error("UES no-progress watchdog: executor stalled for " + watchdogState.idleMs + "ms")
             error.code = "UES_STALLED"
             rejectWatchdog?.(error)
           }
