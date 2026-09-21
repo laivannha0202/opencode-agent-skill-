@@ -323,7 +323,12 @@ export default Plugin.define({
         if (!assignment) return
         const signal = workspaceSignal(assignment.executionDir || projectRoot)
         if (event.status === "completed") {
-          event.result = budgetToolResult(event.tool, event.result)
+          const shellInput = JSON.stringify(event.input || {})
+          const budgetTool =
+            event.tool === "bash" && /(?:ocskill\s+repo-graph|\brg\b|\bgrep\b|\bglob\b)/i.test(shellInput)
+              ? "repo-graph"
+              : event.tool
+          event.result = budgetToolResult(budgetTool, event.result)
           runtimeGuard.after({
             sessionID: event.sessionID,
             tool: event.tool,
