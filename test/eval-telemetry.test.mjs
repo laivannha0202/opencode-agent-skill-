@@ -21,6 +21,7 @@ test("live eval telemetry extracts tools, skills, subagents, tokens and cost wit
   assert.equal(result.tokens.input, 120)
   assert.equal(result.tokens.output, 30)
   assert.equal(result.tokens.total, 150)
+  assert.deepEqual(result.firstUsage, { input: 120, output: 30, total: 150 })
   assert.equal(result.usageSamples, 1)
   assert.equal(result.cost, 0.012)
   assert.equal(result.costSamples, 1)
@@ -46,6 +47,19 @@ test("live eval telemetry reads OpenCode step_finish part.tokens payloads", () =
   assert.equal(result.tokens.input, 6360)
   assert.equal(result.tokens.output, 100)
   assert.equal(result.tokens.total, 8252)
+  assert.deepEqual(result.firstUsage, { input: 6360, output: 100, total: 8252 })
   assert.equal(result.usageSamples, 1)
+})
+
+test("live eval telemetry preserves the first usage sample separately from cumulative usage", () => {
+  const stdout = [
+    JSON.stringify({ type: "step_finish", part: { tokens: { input: 6000, output: 10, total: 6010 } } }),
+    JSON.stringify({ type: "step_finish", part: { tokens: { input: 3000, output: 20, total: 3020 } } }),
+  ].join("\n")
+
+  const result = parseOpenCodeTelemetry(stdout)
+  assert.deepEqual(result.firstUsage, { input: 6000, output: 10, total: 6010 })
+  assert.deepEqual(result.tokens, { input: 9000, output: 30, total: 9030 })
+  assert.equal(result.usageSamples, 2)
 })
 
