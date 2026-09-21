@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -202,6 +202,23 @@ export default Plugin.define({
     const capabilities = runtimeCapabilities(ctx)
     const runtimeGuard = createRuntimeGuard({ duplicateLimit: 3, loopLimit: 6 })
     const sessionAssignments = new Map()
+    const leaseSupervisor = setInterval(() => {
+      const workRoot = path.join(projectRoot, ".ues-work")
+      if (!existsSync(workRoot)) return
+      let entries = []
+      try {
+        entries = readdirSync(workRoot, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name)) continue
+        try {
+          runOcskill(["work", "recover", entry.name, projectRoot], projectRoot)
+        } catch {}
+      }
+    }, 60_000)
+    leaseSupervisor.unref?.()
 
     async function waitForExecutorProgress(sessionID, options = {}) {
       const timeoutMs = Math.max(30_000, Number(options.timeoutMs || 10 * 60_000))
@@ -263,6 +280,13 @@ export default Plugin.define({
         ])
       } finally {
         clearInterval(timer)
+      }
+
+      const assignment = sessionAssignments.get(sessionID)
+      if (assignment?.resumeRequired) {
+        const error = new Error("UES no-progress post-compaction resume: checkpoint.nextAction was not executed before session completion")
+        error.code = "UES_RESUME_STALLED"
+        throw error
       }
       return ctx.session.context({ sessionID })
     }
@@ -953,6 +977,12 @@ export default Plugin.define({
         event.effect = "ask"
         event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
       })
+    }
+
+    return () => {
+      clearInterval(leaseSupervisor)
+      for (const sessionID of sessionAssignments.keys()) runtimeGuard.clear(sessionID)
+      sessionAssignments.clear()
     }
   },
 })
