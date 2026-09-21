@@ -200,7 +200,7 @@ export function routeSkillsForPolicy(text, policy = {}, maxSkills = 4, facts = {
 
   if (!fast) return routed.slice(0, limit)
 
-  const selected = routed.filter((id) =>
+  const eligible = routed.filter((id) =>
     ![
       "ues-engineering-orchestrator",
       "ues-change-impact-analysis",
@@ -208,6 +208,10 @@ export function routeSkillsForPolicy(text, policy = {}, maxSkills = 4, facts = {
       "ues-long-task-state",
     ].includes(id),
   )
+  const selected = [
+    ...eligible.filter((id) => !PROCESS_SKILLS.has(id)),
+    ...eligible.filter((id) => PROCESS_SKILLS.has(id)),
+  ]
 
   const value = String(text || "").toLowerCase()
   if (/(review|audit|kiểm tra code|đánh giá)/.test(value)) add(selected, "ues-code-review")
