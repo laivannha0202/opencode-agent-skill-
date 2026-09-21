@@ -11,13 +11,13 @@
     {
       "id": "auth-resource-ownership",
       "fixture": "fixtures/engineering-bench",
-      "prompt": "Fix canEditResource(user, resource) in src/authz.mjs. Missing inputs deny. Suspended users always deny. Admin users may edit any non-missing resource. Non-admin users may edit only when user.id equals resource.ownerId AND user.tenantId equals resource.tenantId. Return a boolean and do not mutate inputs.",
+      "prompt": "Fix canEditResource(user, resource) in src/authz.mjs. Missing inputs deny. Treat user.role === 'admin' as admin. Treat user.suspended === true as suspended; suspended users always deny, including admins. Admin users may edit any non-missing resource. Non-admin users may edit only when user.id equals resource.ownerId AND user.tenantId equals resource.tenantId. Return a boolean and do not mutate inputs.",
       "grader": "graders/engineering-bench.mjs"
     },
     {
       "id": "api-pagination-contract",
       "fixture": "fixtures/engineering-bench",
-      "prompt": "Fix paginate(items, options) in src/pagination.mjs. pages are 1-indexed; defaults are page=1 and pageSize=10. items must be an array. page/pageSize must be positive integers. Return {items,total,page,pageSize,totalPages}; out-of-range pages return an empty items array. Use TypeError for wrong types and RangeError for invalid numeric ranges.",
+      "prompt": "Fix paginate(items, options) in src/pagination.mjs. Pages are 1-indexed; defaults are page=1 and pageSize=10. items must be an array. page/pageSize must be finite integers: non-number, non-finite, or non-integer values throw TypeError; integer values <= 0 throw RangeError. Return {items,total,page,pageSize,totalPages}; out-of-range pages return an empty items array.",
       "grader": "graders/engineering-bench.mjs"
     },
     {
@@ -29,7 +29,7 @@
     {
       "id": "payment-idempotency",
       "fixture": "fixtures/engineering-bench",
-      "prompt": "Fix applyPaymentEvent(order, event) in src/payment.mjs. Do not mutate order. Duplicate event.id values already in order.processedEvents must be idempotent. A new event must have a non-empty id. For status='succeeded', amountCents and currency must exactly match order.totalCents/order.currency or throw RangeError, then mark status paid. Failed events must not mark paid. Record each new event id exactly once.",
+      "prompt": "Fix applyPaymentEvent(order, event) in src/payment.mjs. Do not mutate order. Duplicate event.id values already in order.processedEvents must be idempotent. A new event.id must be a non-empty string; malformed, missing, or empty ids throw TypeError. For status='succeeded', amountCents and currency must exactly match order.totalCents/order.currency or throw RangeError, then mark status paid. Failed events must not mark paid. Record each new event id exactly once.",
       "grader": "graders/engineering-bench.mjs"
     },
     {
@@ -77,7 +77,7 @@
     {
       "id": "money-integer-invariants",
       "fixture": "fixtures/engineering-bench",
-      "prompt": "Fix orderTotal(lines) in src/money.mjs. Each line uses integer unitPriceCents>=0, integer quantity>0, optional integer discountCents>=0. Line total is unitPriceCents*quantity-discountCents and may not go below zero. Return an integer cent total. Malformed numeric types use TypeError; invalid ranges use RangeError.",
+      "prompt": "Fix orderTotal(lines) in src/money.mjs. Each line uses integer unitPriceCents>=0, integer quantity>0, optional integer discountCents>=0. Non-number, non-finite, or non-integer numeric fields throw TypeError. Range violations throw RangeError. discountCents may not exceed unitPriceCents*quantity; treat that as a RangeError rather than clamping. Return the sum as an integer cent total.",
       "grader": "graders/engineering-bench.mjs"
     },
     {
@@ -113,7 +113,7 @@
     {
       "id": "cache-invalidation-tags",
       "fixture": "fixtures/engineering-bench",
-      "prompt": "Fix tagsForProductMutation(product) in src/cache-tags.mjs. product must contain a non-empty id. Return unique tags in this order: 'products', 'product:<id>', then optional 'category:<categoryId>' and 'seller:<sellerId>' when those values are non-null/non-empty. Do not emit undefined/empty tags and do not mutate product.",
+      "prompt": "Fix tagsForProductMutation(product) in src/cache-tags.mjs. product must contain a non-empty string id; malformed product/id or an empty id throws TypeError. Return unique tags in this order: 'products', 'product:<id>', then optional 'category:<categoryId>' and 'seller:<sellerId>' when those values are non-null/non-empty. Do not emit undefined/empty tags and do not mutate product.",
       "grader": "graders/engineering-bench.mjs"
     },
     {
