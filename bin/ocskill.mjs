@@ -15,6 +15,7 @@ import {
 import { compareVersions } from "../lib/version.mjs"
 import { resolveLatestPublishedVersion } from "../lib/update-resolver.mjs"
 import { readRouterConfig, writeRouterConfig } from "../lib/router-config.mjs"
+import { resolveNodeShimEntry } from "../lib/windows-shim.mjs"
 import {
   detectStack,
   detectTestCommands,
@@ -157,23 +158,6 @@ function findWindowsCommand(name) {
 }
 
 
-function findNodeShimEntry(cmdPath) {
-  const dir = path.dirname(cmdPath)
-
-  if (/^npm(?:\.cmd|\.exe)?$/i.test(path.basename(cmdPath))) {
-    const entry = path.join(dir, "node_modules", "npm", "bin", "npm-cli.js")
-    if (existsSync(entry)) return entry
-  }
-
-  let shim = ""
-  try {
-    shim = readFileSync(cmdPath, "utf8")
-  } catch {}
-  const match = shim.match(/node_modules[\\/][^\s"]+?\.(?:js|mjs)/gi)?.at(-1)
-  if (!match) return null
-  const entry = path.resolve(dir, match)
-  return existsSync(entry) ? entry : null
-}
 
 function run(executable, commandArgs, options = {}) {
   const common = { stdio: "inherit", ...options }
@@ -187,7 +171,7 @@ function run(executable, commandArgs, options = {}) {
   if (!resolved) return 127
 
   if (/\.(cmd|bat)$/i.test(resolved)) {
-    const entry = findNodeShimEntry(resolved)
+    const entry = resolveNodeShimEntry(resolved)
     if (entry) {
       const result = spawnSync(process.execPath, [entry, ...commandArgs], common)
       return result.status ?? 1
@@ -216,7 +200,7 @@ function runCapture(executable, commandArgs, options = {}) {
   if (!resolved) return { status: 127, stdout: "", stderr: `Command not found: ${executable}` }
 
   if (/\.(cmd|bat)$/i.test(resolved)) {
-    const entry = findNodeShimEntry(resolved)
+    const entry = resolveNodeShimEntry(resolved)
     if (entry) return spawnSync(process.execPath, [entry, ...commandArgs], common)
     return {
       status: 126,
