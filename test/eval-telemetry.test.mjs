@@ -25,3 +25,27 @@ test("live eval telemetry extracts tools, skills, subagents, tokens and cost wit
   assert.equal(result.cost, 0.012)
   assert.equal(result.costSamples, 1)
 })
+
+test("live eval telemetry reads OpenCode step_finish part.tokens payloads", () => {
+  const stdout = JSON.stringify({
+    type: "step_finish",
+    part: {
+      type: "step-finish",
+      tokens: {
+        input: 6360,
+        output: 100,
+        total: 8252,
+        cache: { write: 0, read: 1792 },
+      },
+    },
+  })
+
+  const result = parseOpenCodeTelemetry(stdout)
+  assert.equal(result.jsonLines, 1)
+  assert.equal(result.parseErrors, 0)
+  assert.equal(result.tokens.input, 6360)
+  assert.equal(result.tokens.output, 100)
+  assert.equal(result.tokens.total, 8252)
+  assert.equal(result.usageSamples, 1)
+})
+
