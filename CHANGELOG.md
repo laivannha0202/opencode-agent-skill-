@@ -6,6 +6,23 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [10.0.0-rc.1] - 2026-09-22
+
+### Added
+- Initial-input token telemetry and aggregate reporting for baseline-vs-UES evaluation.
+- Attempt-aware recovery policy with bounded context/skill escalation from initial execution to diagnosis and deep recovery.
+- Policy-aware FAST runtime routing that prioritizes direct domain/debug/review skills over generic orchestration.
+- Benchmark efficiency gates for initial input tokens and total tokens.
+- Reference-vs-candidate ablation CLI that requires pass-rate preservation and measurable initial-context reduction.
+
+### Changed
+- FAST context budget is 8k and STANDARD is 20k; DEEP remains 48k to preserve high-risk/long-horizon capability.
+- Always-loaded global engineering instructions are compressed while retaining exact-contract, evidence, verification, safety and durable-work invariants.
+- Retry context expands only after failure; repeated failures add graph/critic evidence instead of repeating speculative patches.
+- Adaptive model policy exposes recovery stage and does not silently downshift the configured/default executor tier for FAST tasks.
+- OpenCode V2 router metadata is versioned for the V10 policy-aware path.
+- Package version is 10.0.0-rc.1; npm publication/tagging is intentionally deferred until RC verification passes.
+
 ## [9.0.0] - 2026-09-22
 
 ### Added
