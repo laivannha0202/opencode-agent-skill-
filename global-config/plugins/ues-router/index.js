@@ -203,6 +203,27 @@ export default Plugin.define({
     const capabilities = runtimeCapabilities(ctx)
     const runtimeGuard = createRuntimeGuard({ duplicateLimit: 3, loopLimit: 6 })
     const sessionAssignments = new Map()
+    const eventController = new AbortController()
+
+    if (typeof ctx.event?.subscribe === "function") {
+      void (async () => {
+        try {
+          for await (const event of ctx.event.subscribe({ signal: eventController.signal })) {
+            if (!["message.part.updated", "message.part.delta", "message.updated"].includes(event?.type)) continue
+            const properties = event?.properties || {}
+            const sessionID =
+              properties.sessionID ||
+              properties.part?.sessionID ||
+              properties.info?.sessionID ||
+              null
+            if (sessionID && sessionAssignments.has(sessionID)) {
+              runtimeGuard.touch(sessionID)
+            }
+          }
+        } catch {}
+      })()
+    }
+
     const leaseSupervisor = setInterval(() => {
       const workRoot = path.join(projectRoot, ".ues-work")
       if (!existsSync(workRoot)) return
@@ -984,6 +1005,7 @@ export default Plugin.define({
     }
 
     return () => {
+      eventController.abort()
       clearInterval(leaseSupervisor)
       for (const sessionID of sessionAssignments.keys()) runtimeGuard.clear(sessionID)
       sessionAssignments.clear()
