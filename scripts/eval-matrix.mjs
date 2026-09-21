@@ -126,6 +126,15 @@ const report = {
   uesCount,
   coverageComplete,
   runs,
+  pairedResults: results.map((item) => ({
+    suite: item.suite || null,
+    task: item.task,
+    trial: item.trial,
+    mode: item.mode,
+    passed: item.passed === true,
+    durationMs: item.durationMs ?? null,
+    telemetry: item.telemetry?.costSamples > 0 ? { cost: item.telemetry.cost } : {},
+  })),
   summary,
   confidence,
 }
