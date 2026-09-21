@@ -31,6 +31,7 @@ The project follows Semantic Versioning.
 - Windows doctor/OpenCode compatibility probing safely resolves extensionless Node-backed npm shims and fails closed instead of invoking `cmd.exe`.
 - Live benchmark execution now uses the same shell-free Windows resolver as `doctor`, skips unsupported batch shims in favor of safe native executables, and normalizes shim paths cross-platform.
 - Windows npm shim resolution can recover from non-standard `.cmd` formatting by resolving only an adjacent package's explicit `package.json` bin mapping, including extensionless Node launchers such as OpenCode.
+- Windows shim resolution also accepts validated native PE targets declared by npm package metadata, covering `opencode-ai` installs whose `bin.opencode` points to `bin/opencode.exe`.
 
 
 ## [8.0.0] - 2026-09-20
