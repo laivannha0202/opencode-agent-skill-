@@ -144,6 +144,19 @@ test("persistent work state resumes from dependency-safe boundaries", async () =
     })
     assert.equal(failed.attempts, 1)
 
+    const retryT2 = await startTask(root, "checkout-upgrade", "T2")
+    assert.equal(retryT2.record.attempts, 2)
+    assert.equal(retryT2.contextPack.attempt, 2)
+    assert.equal(retryT2.contextPack.contextPolicy.recovery.stage, "diagnose")
+    assert.equal(retryT2.contextPack.contextPolicy.recovery.requireDiagnosis, true)
+    assert.ok(
+      retryT2.contextPack.contextPolicy.effectiveContextBudget >=
+      retryT2.contextPack.contextPolicy.profile.contextBudget,
+    )
+    await failTask(root, "checkout-upgrade", "T2", "retry remains unresolved", {
+      runId: retryT2.record.runId,
+    })
+
     const resumed = await resumeWork(root, "checkout-upgrade")
     assert.deepEqual(resumed.status.ready, ["T2"])
     assert.equal(resumed.completedEvidence.length, 1)
