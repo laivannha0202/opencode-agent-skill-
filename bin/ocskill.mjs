@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync, writeFileSync } from "node:fs"
+import { writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
@@ -64,6 +64,16 @@ import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskS
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
+import {
+  clipOutput,
+  errorMessage,
+  optionInt,
+  optionIntOrUndefined,
+  optionValue,
+  positionalArg,
+  readJsonFile,
+  readTextFile,
+} from "../lib/cli-utils.mjs"
 
 const args = process.argv.slice(2)
 const command = args[0] || "help"
@@ -295,7 +305,7 @@ async function evaluateReport() {
 }
 
 async function inspectRepository() {
-  printJson(await repoMap(args[1] || process.cwd()))
+  printJson(await repoMap(positionalArg(args, 1) || process.cwd()))
 }
 
 async function inspectImpact() {
@@ -305,37 +315,32 @@ async function inspectImpact() {
     process.exitCode = 2
     return
   }
-  printJson(await impactMap(args[2] || process.cwd(), query))
+  printJson(await impactMap(positionalArg(args, 2) || process.cwd(), query))
 }
 
 async function inspectEvidence() {
-  printJson(await collectEvidence(args[1] || process.cwd()))
+  printJson(await collectEvidence(positionalArg(args, 1) || process.cwd()))
 }
 
 async function inspectWorkingTree() {
-  printJson(await checkWorkingTree(args[1] || process.cwd()))
+  printJson(await checkWorkingTree(positionalArg(args, 1) || process.cwd()))
 }
 
 async function inspectStack() {
-  printJson(await detectStack(args[1] || process.cwd()))
+  printJson(await detectStack(positionalArg(args, 1) || process.cwd()))
 }
 
 async function inspectTests() {
-  printJson(await detectTestCommands(args[1] || process.cwd()))
-}
-
-function optionValue(name) {
-  const index = args.indexOf(name)
-  return index >= 0 ? args[index + 1] : null
+  printJson(await detectTestCommands(positionalArg(args, 1) || process.cwd()))
 }
 
 async function inspectRepoGraph() {
-  printJson(await buildRepoGraph(args[1] || process.cwd()))
+  printJson(await buildRepoGraph(positionalArg(args, 1) || process.cwd()))
 }
 
 async function semanticIndexControl() {
   const action = args[1] || "status"
-  const root = args[2] && !args[2].startsWith("--") ? args[2] : process.cwd()
+  const root = positionalArg(args, 2) || process.cwd()
   try {
     if (action === "status") {
       printJson(await semanticIndexStatus(root))
@@ -348,7 +353,7 @@ async function semanticIndexControl() {
     }
     throw new Error("Usage: ocskill index <status|build|rebuild> [dir]")
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
   }
 }
@@ -358,39 +363,39 @@ async function aciControl() {
   try {
     if (action === "search") {
       const query = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!query) throw new Error("Usage: ocskill aci search <query> [dir] [--limit N]")
-      printJson(await aciSearch(root, query, { limit: Number(optionValue("--limit") || 20) }))
+      printJson(await aciSearch(root, query, { limit: optionInt(args, "--limit", 20) }))
       return
     }
     if (action === "refs") {
       const symbol = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!symbol) throw new Error("Usage: ocskill aci refs <symbol> [dir] [--limit N]")
-      printJson(await aciReferences(root, symbol, { limit: Number(optionValue("--limit") || 40) }))
+      printJson(await aciReferences(root, symbol, { limit: optionInt(args, "--limit", 40) }))
       return
     }
     if (action === "view") {
       const file = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!file) throw new Error("Usage: ocskill aci view <file> [dir] [--line N] [--lines N]")
       printJson(await aciView(root, file, {
-        line: Number(optionValue("--line") || 1),
-        startLine: Number(optionValue("--start-line") || 0),
-        lines: Number(optionValue("--lines") || 120),
+        line: optionInt(args, "--line", 1),
+        startLine: optionInt(args, "--start-line", 0),
+        lines: optionInt(args, "--lines", 120),
       }))
       return
     }
     if (action === "text") {
       const query = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!query) throw new Error("Usage: ocskill aci text <query> [dir] [--limit N]")
-      printJson(await aciTextSearch(root, query, { limit: Number(optionValue("--limit") || 80) }))
+      printJson(await aciTextSearch(root, query, { limit: optionInt(args, "--limit", 80) }))
       return
     }
     throw new Error("Usage: ocskill aci <search|refs|view|text> ...")
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
   }
 }
@@ -400,16 +405,16 @@ async function traceControl() {
   try {
     if (action === "show") {
       const traceID = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!traceID) throw new Error("Usage: ocskill trace show <trace-id> [dir] [--limit N]")
-      printJson(await readTrajectory(root, traceID, { limit: Number(optionValue("--limit") || 200) }))
+      printJson(await readTrajectory(root, traceID, { limit: optionInt(args, "--limit", 200) }))
       return
     }
     if (action === "append") {
       const traceID = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      const type = optionValue("--type")
-      const payload64 = optionValue("--payload-b64")
+      const root = positionalArg(args, 3) || process.cwd()
+      const type = optionValue(args, "--type")
+      const payload64 = optionValue(args, "--payload-b64")
       if (!traceID || !type) throw new Error("Usage: ocskill trace append <trace-id> [dir] --type <type> [--payload-b64 <base64-json>]")
       let payload = {}
       if (payload64) {
@@ -420,19 +425,19 @@ async function traceControl() {
     }
     throw new Error("Usage: ocskill trace <show|append> ...")
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
   }
 }
 
 async function inspectReviewScope() {
-  const base = args[1] && !args[1].startsWith("--") ? args[1] : null
-  const root = args[2] && !args[2].startsWith("--") ? args[2] : process.cwd()
+  const base = positionalArg(args, 1)
+  const root = positionalArg(args, 2) || process.cwd()
   printJson(reviewScope(root, base))
 }
 
 async function inspectVerificationPlan() {
-  printJson(await buildVerificationPlan(args[1] || process.cwd(), optionValue("--base")))
+  printJson(await buildVerificationPlan(positionalArg(args, 1) || process.cwd(), optionValue(args, "--base")))
 }
 
 async function inspectTaskGraph() {
@@ -443,12 +448,12 @@ async function inspectTaskGraph() {
     return
   }
   try {
-    const plan = JSON.parse(readFileSync(path.resolve(file), "utf8"))
+    const plan = readJsonFile(file)
     const analysis = analyzePlan(plan)
     printJson(analysis)
     if (!analysis.valid) process.exitCode = 1
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
   }
 }
@@ -461,7 +466,7 @@ async function inspectContextPack() {
     process.exitCode = 2
     return
   }
-  printJson(await contextPack(args[3] || process.cwd(), slug, taskID))
+  printJson(await contextPack(positionalArg(args, 3) || process.cwd(), slug, taskID))
 }
 
 async function workControl() {
@@ -475,48 +480,48 @@ async function workControl() {
 
   try {
     if (action === "init") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await initWork(root, slug, optionValue("--goal")))
+      const root = positionalArg(args, 3) || process.cwd()
+      printJson(await initWork(root, slug, optionValue(args, "--goal")))
       return
     }
     if (action === "plan") {
       const planFile = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       if (!planFile) throw new Error("Usage: ocskill work plan <slug> <plan.json> [dir]")
       const result = await importPlan(root, slug, planFile)
       printJson({ state: result.state, analysis: result.analysis, dir: result.paths.dir })
       return
     }
     if (action === "status") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       printJson(await workStatus(root, slug))
       return
     }
     if (action === "resume") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       printJson(await resumeWork(root, slug))
       return
     }
     if (action === "gate-receipt") {
       const kind = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       if (!["plan", "integration"].includes(kind)) {
         throw new Error("Usage: ocskill work gate-receipt <slug> <plan|integration> [dir] --evidence <text>")
       }
-      const reportFile = optionValue("--report-file")
-      const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
+      const reportFile = optionValue(args, "--report-file")
+      const report = reportFile ? readTextFile(reportFile) : null
       const input = {
-        verdict: optionValue("--verdict") || "PASS",
-        verifier: optionValue("--verifier") || undefined,
-        sessionID: optionValue("--session-id"),
-        runId: optionValue("--run-id"),
-        evidence: optionValue("--evidence"),
+        verdict: optionValue(args, "--verdict") || "PASS",
+        verifier: optionValue(args, "--verifier") || undefined,
+        sessionID: optionValue(args, "--session-id"),
+        runId: optionValue(args, "--run-id"),
+        evidence: optionValue(args, "--evidence"),
         report,
       }
       const receipt = kind === "plan"
         ? await createPlanVerificationReceipt(root, slug, input)
         : await createIntegrationVerificationReceipt(root, slug, input)
-      const outputFile = optionValue("--out")
+      const outputFile = optionValue(args, "--out")
       if (outputFile) {
         const resolved = path.resolve(outputFile)
         writeFileSync(resolved, JSON.stringify(receipt, null, 2) + "\n", "utf8")
@@ -527,76 +532,76 @@ async function workControl() {
       return
     }
     if (action === "approve-plan") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      const receiptFile = optionValue("--receipt-file")
-      const receipt = receiptFile ? JSON.parse(readFileSync(path.resolve(receiptFile), "utf8")) : null
-      printJson(await approvePlan(root, slug, optionValue("--evidence"), { receipt }))
+      const root = positionalArg(args, 3) || process.cwd()
+      const receiptFile = optionValue(args, "--receipt-file")
+      const receipt = receiptFile ? readJsonFile(receiptFile) : null
+      printJson(await approvePlan(root, slug, optionValue(args, "--evidence"), { receipt }))
       return
     }
     if (action === "start") {
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work start <slug> <task-id> [dir]")
       printJson(await startTask(root, slug, taskID, {
-        leaseMs: Number.parseInt(optionValue("--lease-ms") || "0", 10) || undefined,
+        leaseMs: optionIntOrUndefined(args, "--lease-ms"),
       }))
       return
     }
     if (action === "attach-session") {
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id>")
       printJson(await attachTaskSession(
         root,
         slug,
         taskID,
-        optionValue("--run-id"),
-        optionValue("--session-id"),
+        optionValue(args, "--run-id"),
+        optionValue(args, "--session-id"),
         {
-          executionDir: optionValue("--execution-dir"),
-          sandboxDir: optionValue("--sandbox-dir"),
+          executionDir: optionValue(args, "--execution-dir"),
+          sandboxDir: optionValue(args, "--sandbox-dir"),
         },
       ))
       return
     }
     if (action === "heartbeat") {
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
-      const runId = optionValue("--run-id")
+      const root = positionalArg(args, 4) || process.cwd()
+      const runId = optionValue(args, "--run-id")
       if (!taskID || !runId) throw new Error("Usage: ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>")
       printJson(await heartbeatTask(root, slug, taskID, runId, {
-        leaseMs: Number.parseInt(optionValue("--lease-ms") || "0", 10) || undefined,
+        leaseMs: optionIntOrUndefined(args, "--lease-ms"),
       }))
       return
     }
     if (action === "recover") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       printJson(await recoverStaleTasks(root, slug, { force: args.includes("--force") }))
       return
     }
     if (action === "recover-task") {
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       if (!taskID) throw new Error("Usage: ocskill work recover-task <slug> <task-id> [dir] [--force] [--reason <text>]")
       printJson(await recoverTask(root, slug, taskID, {
         force: args.includes("--force"),
-        reason: optionValue("--reason"),
+        reason: optionValue(args, "--reason"),
       }))
       return
     }
     if (action === "events") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      const limit = Number.parseInt(optionValue("--limit") || "200", 10)
+      const root = positionalArg(args, 3) || process.cwd()
+      const limit = optionInt(args, "--limit", 200)
       printJson(await runtimeEvents(root, slug, { limit }))
       return
     }
     if (action === "verify-command") {
       const taskID = args[3]
-      const root = args[4] && args[4] !== "--" && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       const separator = args.indexOf("--")
       const executable = separator >= 0 ? args[separator + 1] : null
       const commandArgs = separator >= 0 ? args.slice(separator + 2) : []
-      const runId = optionValue("--run-id")
+      const runId = optionValue(args, "--run-id")
       if (!taskID || !runId || !executable) {
         throw new Error("Usage: ocskill work verify-command <slug> <task-id> [dir] --run-id <id> -- <command> [args...]")
       }
@@ -623,15 +628,11 @@ async function workControl() {
         workspaceAfter: workspaceFingerprint(root),
       })
       const recorded = await recordVerificationReceipt(root, slug, taskID, receipt)
-      const clip = (value) => {
-        const text = String(value || "")
-        return text.length <= 8000 ? text : "...[truncated]\n" + text.slice(-8000)
-      }
       printJson({
         receipt: recorded,
         output: {
-          stdout: clip(result.stdout),
-          stderr: clip(result.stderr),
+          stdout: clipOutput(result.stdout),
+          stderr: clipOutput(result.stderr),
         },
       })
       if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
@@ -639,13 +640,13 @@ async function workControl() {
     }
     if (action === "complete") {
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
-      const runId = optionValue("--run-id")
+      const root = positionalArg(args, 4) || process.cwd()
+      const runId = optionValue(args, "--run-id")
       if (!taskID || !runId) throw new Error("Usage: ocskill work complete <slug> <task-id> [dir] --run-id <id> --evidence <text>")
-      const reportFile = optionValue("--report-file")
-      const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
+      const reportFile = optionValue(args, "--report-file")
+      const report = reportFile ? readTextFile(reportFile) : null
       printJson(await completeTask(root, slug, taskID, {
-        evidence: optionValue("--evidence"),
+        evidence: optionValue(args, "--evidence"),
         report,
         runId,
       }))
@@ -653,52 +654,52 @@ async function workControl() {
     }
     if (action === "fail") {
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
-      const runId = optionValue("--run-id")
+      const root = positionalArg(args, 4) || process.cwd()
+      const runId = optionValue(args, "--run-id")
       if (!taskID || !runId) throw new Error("Usage: ocskill work fail <slug> <task-id> [dir] --run-id <id> --reason <text>")
-      printJson(await failTask(root, slug, taskID, optionValue("--reason"), { runId }))
+      printJson(await failTask(root, slug, taskID, optionValue(args, "--reason"), { runId }))
       return
     }
     if (action === "decision") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await addDecision(root, slug, optionValue("--text")))
+      const root = positionalArg(args, 3) || process.cwd()
+      printJson(await addDecision(root, slug, optionValue(args, "--text")))
       return
     }
     if (action === "block") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await addBlocker(root, slug, optionValue("--text")))
+      const root = positionalArg(args, 3) || process.cwd()
+      printJson(await addBlocker(root, slug, optionValue(args, "--text")))
       return
     }
     if (action === "unblock") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await resolveBlocker(root, slug, optionValue("--text")))
+      const root = positionalArg(args, 3) || process.cwd()
+      printJson(await resolveBlocker(root, slug, optionValue(args, "--text")))
       return
     }
     if (action === "verify-integration") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      const reportFile = optionValue("--report-file")
-      const report = reportFile ? readFileSync(path.resolve(reportFile), "utf8") : null
-      const receiptFile = optionValue("--receipt-file")
-      const receipt = receiptFile ? JSON.parse(readFileSync(path.resolve(receiptFile), "utf8")) : null
+      const root = positionalArg(args, 3) || process.cwd()
+      const reportFile = optionValue(args, "--report-file")
+      const report = reportFile ? readTextFile(reportFile) : null
+      const receiptFile = optionValue(args, "--receipt-file")
+      const receipt = receiptFile ? readJsonFile(receiptFile) : null
       printJson(await recordIntegrationVerification(
         root,
         slug,
-        optionValue("--verdict"),
-        optionValue("--evidence"),
+        optionValue(args, "--verdict"),
+        optionValue(args, "--evidence"),
         report,
         { receipt },
       ))
       return
     }
     if (action === "finalize") {
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
-      printJson(await finalizeWork(root, slug, optionValue("--evidence")))
+      const root = positionalArg(args, 3) || process.cwd()
+      printJson(await finalizeWork(root, slug, optionValue(args, "--evidence")))
       return
     }
 
     throw new Error("Unknown work action: " + action)
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     if (error?.validation) printJson(error.validation)
     process.exitCode = 1
   }
@@ -711,10 +712,10 @@ async function modelPolicy() {
     process.exitCode = 2
     return
   }
-  const attempt = Number.parseInt(optionValue("--attempt") || "1", 10)
+  const attempt = optionInt(args, "--attempt", 1)
   const policy = await readModelPolicy(getConfigDir())
   const normalizedAttempt = Number.isInteger(attempt) && attempt > 0 ? attempt : 1
-  const taskText = optionValue("--text")
+  const taskText = optionValue(args, "--text")
   if (taskText) {
     printJson(resolveAdaptiveModel(role, normalizedAttempt, classifyEngineeringTask(taskText), policy))
     return
@@ -776,7 +777,7 @@ async function modelsControl() {
 async function routerControl() {
   const action = args[1] || "status"
   const maxIndex = args.indexOf("--max")
-  const maxValue = maxIndex >= 0 ? Number.parseInt(args[maxIndex + 1] || "", 10) : null
+  const maxValue = maxIndex >= 0 ? Number.parseInt(optionValue(args, "--max") ?? "", 10) : null
 
   if (!["status", "on", "off"].includes(action)) {
     console.error("Usage: ocskill router [status|on|off] [--max 1..6]")
@@ -828,55 +829,51 @@ async function sandboxControl() {
   const action = args[1] || "list"
   try {
     if (action === "capability") {
-      printJson(containerSandboxCapability(optionValue("--engine")))
+      printJson(containerSandboxCapability(optionValue(args, "--engine")))
       return
     }
     if (action === "exec") {
       const separator = args.indexOf("--")
-      const root = args[2] && args[2] !== "--" && !args[2].startsWith("--") ? args[2] : process.cwd()
+      const root = positionalArg(args, 2) || process.cwd()
       const executable = separator >= 0 ? args[separator + 1] : null
       const commandArgs = separator >= 0 ? args.slice(separator + 2) : []
-      const image = optionValue("--image")
+      const image = optionValue(args, "--image")
       if (!image || !executable) {
         throw new Error("Usage: ocskill sandbox exec [dir] --image <image> [--engine docker|podman] -- <command> [args...]")
       }
       const result = runContainerSandbox(root, {
-        engine: optionValue("--engine"),
+        engine: optionValue(args, "--engine"),
         image,
         command: executable,
         args: commandArgs,
-        timeoutMs: Number(optionValue("--timeout-ms") || 10 * 60_000),
+        timeoutMs: optionInt(args, "--timeout-ms", 10 * 60_000),
       })
-      const clip = (value) => {
-        const text = String(value || "")
-        return text.length <= 16000 ? text : text.slice(0, 8000) + "\n...[truncated]\n" + text.slice(-8000)
-      }
-      printJson({ ...result, stdout: clip(result.stdout), stderr: clip(result.stderr) })
+      printJson({ ...result, stdout: clipOutput(result.stdout), stderr: clipOutput(result.stderr) })
       if (result.status !== 0) process.exitCode = result.status
       return
     }
     if (action === "list") {
-      printJson(listTaskSandboxes(args[2] || process.cwd()))
+      printJson(listTaskSandboxes(positionalArg(args, 2) || process.cwd()))
       return
     }
     if (action === "create") {
       const slug = args[2]
       const taskID = args[3]
-      const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+      const root = positionalArg(args, 4) || process.cwd()
       if (!slug || !taskID) throw new Error("Usage: ocskill sandbox create <slug> <task-id> [dir]")
       printJson(await createTaskSandbox(root, slug, taskID))
       return
     }
     if (action === "integrate") {
       const dir = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!dir) throw new Error("Usage: ocskill sandbox integrate <worktree-path> [dir] [--keep]")
       printJson(await integrateTaskSandbox(root, dir, { keep: args.includes("--keep") }))
       return
     }
     if (action === "remove") {
       const dir = args[2]
-      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const root = positionalArg(args, 3) || process.cwd()
       if (!dir) throw new Error("Usage: ocskill sandbox remove <worktree-path> [dir] [--force] [--delete-branch]")
       printJson(await removeTaskSandbox(root, dir, {
         force: args.includes("--force"),
@@ -886,21 +883,21 @@ async function sandboxControl() {
     }
     throw new Error("Usage: ocskill sandbox <capability|exec|list|create|integrate|remove> ...")
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
   }
 }
 
 async function learningControl() {
   const action = args[1] || "status"
-  const root = args[2] && !args[2].startsWith("--") ? args[2] : process.cwd()
+  const root = positionalArg(args, 2) || process.cwd()
   try {
     if (action === "status") {
       printJson(await readLearningState(root))
       return
     }
     if (action === "analyze") {
-      const evalDir = optionValue("--eval-dir") || path.join(path.resolve(root), ".ues-evals")
+      const evalDir = optionValue(args, "--eval-dir") || path.join(path.resolve(root), ".ues-evals")
       const analysis = await analyzeEvalTraces(evalDir)
       const state = await saveLearningAnalysis(root, analysis)
       printJson({ analysis, state })
@@ -908,23 +905,23 @@ async function learningControl() {
     }
     if (action === "accept") {
       const id = args[2]
-      const acceptRoot = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const acceptRoot = positionalArg(args, 3) || process.cwd()
       if (!id) throw new Error("Usage: ocskill learn accept <proposal-id> [dir]")
       printJson(await acceptLearning(acceptRoot, id))
       return
     }
     if (action === "promote") {
       const id = args[2]
-      const promoteRoot = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const promoteRoot = positionalArg(args, 3) || process.cwd()
       if (!id) throw new Error("Usage: ocskill learn promote <proposal-id> [dir] --report <matrix-summary.json>")
       printJson(await promoteLearning(promoteRoot, id, {
-        report: optionValue("--report"),
+        report: optionValue(args, "--report"),
       }))
       return
     }
     throw new Error("Usage: ocskill learn <status|analyze|accept|promote> ...")
   } catch (error) {
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
   }
 }
@@ -938,7 +935,7 @@ async function hermesControl() {
   if (action === "prompt" || action === "exec") {
     const slug = args[2]
     const taskID = args[3]
-    const root = args[4] && !args[4].startsWith("--") ? args[4] : process.cwd()
+    const root = positionalArg(args, 4) || process.cwd()
     if (!slug || !taskID) {
       console.error("Usage: ocskill hermes <prompt|exec> <slug> <task-id> [dir]")
       process.exitCode = 2
@@ -992,7 +989,7 @@ async function update() {
     })
   } catch (error) {
     console.error("[ocskill] Could not determine the latest published npm version; refusing an unsafe self-update.")
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = error?.exitCode || 1
     return
   }
@@ -1004,7 +1001,7 @@ async function update() {
     compared = compareVersions(latestVersion, currentVersion)
   } catch (error) {
     console.error("[ocskill] npm returned a version that could not be compared safely; refusing update.")
-    console.error(error instanceof Error ? error.message : error)
+    console.error(errorMessage(error))
     process.exitCode = 1
     return
   }

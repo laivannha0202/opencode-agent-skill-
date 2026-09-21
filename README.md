@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **Bản hiện tại: 8.0.0**  
+> **Bản hiện tại: 9.0.0**
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -80,9 +80,9 @@ ocskill dashboard . --serve
 
 ---
 
-## UES 8.0.0 có gì?
+## UES 9.0.0 có gì?
 
-UES 8.0.0 hiện cung cấp:
+UES 9.0.0 cung cấp các khả năng sau (kế thừa từ 8.0.0):
 
 - **39 engineering skills**;
 - **11 slash commands**;
@@ -101,6 +101,15 @@ UES 8.0.0 hiện cung cấp:
 - optional Hermes adapter;
 - UES Control Center hiển thị runtime events, receipts và stale recovery;
 - OpenCode V2 router plugin với multilingual routing, safety gate, cancel/recover tools và fresh-session dispatch.
+
+V9 bổ sung:
+
+- persistent incremental source index dưới `.ues-cache/semantic-index-v1.json` cùng ACI search/refs/view/text;
+- FAST / STANDARD / DEEP execution profiles với bounded context budget, skill cap và verification depth;
+- context manifest v4 tiêu thụ incremental evidence index trước khi mở rộng graph;
+- redacted operational trajectory dưới `.ues-traces/*.jsonl` để replay/debug mà không lưu hidden chain-of-thought;
+- optional container verification sandbox (Docker/Podman) với network-off, dropped capabilities và resource bounds;
+- paired baseline-vs-UES confidence gate qua `npm run evals:matrix:gate`.
 
 ---
 
@@ -517,7 +526,7 @@ Integration sẽ từ chối ghi đè lên file đang dirty ở root. Safe-wave 
 
 ## Evaluation
 
-UES 8.0.0 hiện có:
+UES 9.0.0 hiện có:
 
 - **34 static skill-routing scenarios** phủ 39 skills;
 - **120 V2 router cases** với required routes và negative guards;
@@ -635,6 +644,7 @@ UES chỉ quản lý resource có namespace/marker của chính nó và cố g�
 - [Nguồn nghiên cứu](docs/RESEARCH-SOURCES.md)
 - [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 - [V8 Intelligence & Reliability](docs/V8-INTELLIGENCE-RELIABILITY.md)
+- [V9 Speed & Intelligence](docs/V9-SPEED-INTELLIGENCE.md)
 
 ---
 
@@ -655,7 +665,7 @@ npm install -g opencode-agent-skill
 Phiên bản hiện tại:
 
 ```text
-8.0.0
+9.0.0
 ```
 
 ---

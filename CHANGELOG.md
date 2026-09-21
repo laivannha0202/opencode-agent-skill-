@@ -6,6 +6,12 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Changed
+- CLI refactor: extracted shared `lib/cli-utils.mjs` helpers (`optionValue`, `optionInt`, `optionIntOrUndefined`, `positionalArg`, `readTextFile`, `readJsonFile`, `clipOutput`, `errorMessage`) and converted the whole `bin/ocskill.mjs` option/positional/read/truncation/error-handling surface to them: zero bare one-argument `optionValue` calls remain, and no `Number(optionValue(...))` ad-hoc int parsing is left except the null-guarded `routerControl` `--max` read. Output truncation is unified through `clipOutput`, which keeps both ends of long output with a marker.
+- Accepted micro-semantic deltas: `optionInt` uses `Number.parseInt`, so malformed int flags like `--limit 1.5` now yield 1 and `--lines 120abc` yield 120, where the old `Number(...)` expression produced 1.5/NaN (malformed values only; normal inputs are identical). `positionalArg` rejects `"--"`, empty strings and `--flag`-looking tokens as optional directory positionals, leaving real paths unaffected. `routerControl` `--max` keeps its null-guarded semantics: an absent flag writes nothing on `router status`, while a present-but-tokenless or out-of-range (1..6) `--max` exits with status 2 and the existing message.
+- Added CLI smoke regression tests that spawn read-only `ocskill` commands and assert parseable output, plus unit tests for the CLI helpers.
+- Resolved README version drift for 9.0.0 and documented V9 capabilities.
+
 ## [9.0.0] - 2026-09-21
 
 ### Added
