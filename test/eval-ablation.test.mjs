@@ -43,3 +43,13 @@ test("V10 ablation fails closed when initial-input telemetry is unavailable", ()
   assert.equal(report.telemetrySufficient, false)
   assert.equal(report.gateEligible, false)
 })
+
+test("V10 ablation does not treat missing candidate telemetry as zero tokens", () => {
+  const report = compareEvalSummaries(
+    summary({ passRate: 0.80, initial: 10000, tokens: 30000, duration: 1000 }),
+    summary({ passRate: 0.82, initial: null, tokens: 28000, duration: 900 }),
+  )
+  assert.equal(report.checks.initialInputReduced, null)
+  assert.equal(report.telemetrySufficient, false)
+  assert.equal(report.gateEligible, false)
+})
