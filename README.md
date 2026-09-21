@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **Nhánh V10 RC: 10.0.0-rc.1** — npm `latest` vẫn là **9.0.0** cho tới khi V10 được kiểm chứng và phát hành.
+> **Nhánh V10 RC: 10.0.0-rc.2** — npm `latest` vẫn là **9.0.0** cho tới khi V10 được kiểm chứng và phát hành.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -91,7 +91,11 @@ V10 tập trung vào **minimum context necessary for maximum task success**: gi�
 - failed attempt tự mở rộng context theo tầng `initial -> diagnose -> deep-recovery`; retry tăng evidence, graph/critic và model tier khi cấu hình cho phép;
 - FAST không tự hạ executor thấp hơn tier đã cấu hình, nên tối ưu context không đồng nghĩa hạ năng lực model;
 - benchmark confidence gate kiểm tra thêm initial-input ratio và total-token ratio;
-- `npm run evals:ablation -- <reference> <candidate> --require-gate` so V10 với một reference run và từ chối candidate giảm pass-rate dù token có thấp hơn.
+- `npm run evals:ablation -- <reference> <candidate> --require-gate` so V10 với một reference run và từ chối candidate giảm pass-rate dù token có thấp hơn;
+- runtime reliability guard phát hiện no-progress/stall, chặn duplicate `read/grep/glob`, phát hiện loop và cắt output exploration quá lớn trước khi nó làm ngập context;
+- pre-compaction checkpoint lưu `currentTaskId`, `runId`, plan hash, workspace fingerprint, evidence pointers và structured `nextAction`; post-compaction bắt buộc thực thi action trước khi session được coi là hoàn tất;
+- provider recovery thử fresh session cùng model một lần, sau lỗi lặp lại dùng configured escalation model/provider nếu có;
+- lease supervisor tự thu hồi executor lease hết hạn sang trạng thái `retryable`, và explicit `long/high-risk` hard-override FAST thành DEEP/heavy.
 
 V10 RC **chưa phải npm release**. Trước khi phát hành chính thức cần CI/package smoke PASS và benchmark thật trên model mục tiêu.
 
