@@ -6,6 +6,30 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [9.0.0] - 2026-09-21
+
+### Added
+- Persistent incremental source index with bounded syntax-aware symbol/reference evidence and deterministic cache reuse.
+- Weak-model-oriented ACI commands for semantic search, exact text search, bounded file viewing and reference lookup.
+- FAST / STANDARD / DEEP execution profiles with adaptive context budgets, skill caps and verification depth.
+- Redacted operational trajectory JSONL for replay/debugging without recording hidden chain-of-thought.
+- Optional Docker/Podman verification sandbox with network-off, dropped capabilities, no-new-privileges and resource bounds.
+- Paired baseline-vs-UES confidence analysis with exact sign-test evidence, per-suite no-regression checks and speed limits.
+- Fail-closed `npm run evals:matrix:gate -- --model provider/model` release benchmark gate.
+- Regression tests for semantic index, ACI, trajectory redaction, sandbox arguments, benchmark confidence and stale lock takeover.
+
+### Changed
+- Context Manifest v4 consumes the incremental evidence index before broader graph expansion and keeps evidence labels explicit.
+- Learning promotion now requires complete paired benchmark evidence, statistically supported uplift and no suite regression.
+- OpenCode V2 dispatch records bounded redacted operational traces and adaptive execution-profile metadata.
+- Package version is 9.0.0.
+
+### Fixed
+- State locks use unique ownership tokens, heartbeat refresh and rename-based stale takeover so an expired owner cannot delete a replacement lock.
+- Generated `.ues-cache/` and `.ues-traces/` state no longer invalidates workspace verification fingerprints.
+- Windows CLI/router execution no longer falls back to shell-based `.cmd/.bat` invocation for unrecognized shims.
+
+
 ## [8.0.0] - 2026-09-20
 
 ### Added

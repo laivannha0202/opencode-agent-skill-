@@ -4,6 +4,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import { summarizeEvalResults } from "../lib/eval-report.mjs"
+import { pairedBenchmarkConfidence } from "../lib/benchmark-confidence.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
@@ -30,6 +31,7 @@ const onlyLong = has("--long-only")
 const onlyLive = has("--standard-only")
 const onlyPolyglot = has("--polyglot-only")
 const withoutPolyglot = has("--without-polyglot")
+const requireConfidence = has("--require-confidence")
 
 if (!model) {
   console.error("Usage: node scripts/eval-matrix.mjs --model provider/model [--trials 3] [--auth current|env-only] [--variant high] [--without-polyglot|--long-only|--standard-only|--polyglot-only]")
@@ -95,7 +97,7 @@ for (const name of created) {
     trials: payload.trials,
     results: payload.results?.length || 0,
   })
-  results.push(...(payload.results || []))
+  results.push(...(payload.results || []).map((item) => ({ ...item, suite: payload.suite })))
 }
 
 const expectedPerMode = suites.reduce((sum, suite) => {
@@ -108,6 +110,7 @@ const baselineCount = results.filter((item) => item.mode === "baseline").length
 const uesCount = results.filter((item) => item.mode === "ues").length
 const coverageComplete = baselineCount === expectedPerMode && uesCount === expectedPerMode
 const summary = summarizeEvalResults(results)
+const confidence = pairedBenchmarkConfidence(results)
 
 const report = {
   schemaVersion: 1,
@@ -124,7 +127,17 @@ const report = {
   uesCount,
   coverageComplete,
   runs,
+  pairedResults: results.map((item) => ({
+    suite: item.suite || null,
+    task: item.task,
+    trial: item.trial,
+    mode: item.mode,
+    passed: item.passed === true,
+    durationMs: item.durationMs ?? null,
+    telemetry: item.telemetry?.costSamples > 0 ? { cost: item.telemetry.cost } : {},
+  })),
   summary,
+  confidence,
 }
 const stamp = new Date().toISOString().replace(/[:.]/g, "-")
 const reportFile = path.join(outputDir, "matrix-summary-" + stamp + ".json")
@@ -135,6 +148,8 @@ console.log("- baseline: " + (summary.modes.baseline?.passed || 0) + "/" + (summ
 console.log("- UES: " + (summary.modes.ues?.passed || 0) + "/" + (summary.modes.ues?.total || 0))
 console.log("- pass-rate delta: " + (summary.passRateDelta == null ? "n/a" : (summary.passRateDelta * 100).toFixed(1) + " pp"))
 console.log("- coverage: " + (coverageComplete ? "COMPLETE" : "INCOMPLETE"))
+console.log("- paired confidence: " + (confidence.promotionEligible ? "SUPPORTED" : "NOT YET SUPPORTED") + " (pairs=" + confidence.pairs + ", p=" + confidence.pValue.toFixed(4) + ")")
+console.log("- confidence gate: " + (requireConfidence ? "REQUIRED" : "report-only"))
 console.log("- report: " + reportFile)
 
-if (!coverageComplete) process.exitCode = 1
+if (!coverageComplete || (requireConfidence && !confidence.promotionEligible)) process.exitCode = 1
