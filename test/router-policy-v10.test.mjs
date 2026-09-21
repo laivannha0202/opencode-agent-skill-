@@ -35,3 +35,24 @@ test("DEEP runtime routing preserves orchestrated high-risk skills", () => {
   assert.ok(routed.includes("ues-auth-security"))
   assert.ok(routed.includes("ues-change-impact-analysis"))
 })
+
+
+test("explicit long/high-risk annotations hard-override FAST routing", () => {
+  const policy = classifyEngineeringTask("Treat this as long/high-risk and finish the approved refactor safely.")
+  assert.equal(policy.risk, "high")
+  assert.equal(policy.mode, "long-horizon")
+  assert.equal(policy.executionProfile, "deep")
+  assert.equal(policy.modelTier, "heavy")
+  assert.equal(policy.contextBudget, 48_000)
+  assert.equal(policy.profile.durableState, true)
+})
+
+test("structured facts can force long/high-risk without depending on score", () => {
+  const policy = classifyEngineeringTask("Small textual description.", {
+    risk: "high",
+    longHorizon: true,
+  })
+  assert.equal(policy.risk, "high")
+  assert.equal(policy.mode, "long-horizon")
+  assert.equal(policy.executionProfile, "deep")
+})
