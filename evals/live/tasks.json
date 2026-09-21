@@ -35,7 +35,7 @@
     {
       "id": "webhook-ordering",
       "fixture": "fixtures/engineering-bench",
-      "prompt": "Fix advancePaymentState(state, event) in src/webhook.mjs. Ignore duplicate/stale events whose integer sequence <= state.lastSequence. Newer events must follow legal transitions pending->authorized|failed, authorized->paid|failed, paid->refunded; same-status newer events are allowed. Illegal transitions throw RangeError. Return a new state and never mutate inputs.",
+      "prompt": "Fix advancePaymentState(state, event) in src/webhook.mjs. Ignore duplicate/stale events whose integer sequence <= state.lastSequence by returning the original state object unchanged (the exact same reference). Newer events must follow legal transitions pending->authorized|failed, authorized->paid|failed, paid->refunded; same-status newer events are allowed. Illegal transitions throw RangeError. For accepted newer events, return a new state object and never mutate inputs.",
       "grader": "graders/engineering-bench.mjs"
     },
     {
