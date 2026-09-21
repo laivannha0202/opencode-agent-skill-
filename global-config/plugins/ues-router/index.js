@@ -123,25 +123,32 @@ function taskHasWrites(task) {
 }
 
 function workspaceSignal(root) {
-  const result = spawnSync(
-    "git",
-    [
-      "status",
-      "--porcelain=v1",
-      "--untracked-files=all",
-      "--",
-      ".",
-      ":(exclude).ues-work",
-      ":(exclude).ues-learning",
-      ":(exclude).ues-dashboard",
-      ":(exclude).ues-sandboxes",
-      ":(exclude).ues-cache",
-      ":(exclude).ues-traces",
-    ],
-    { cwd: root, encoding: "utf8", maxBuffer: 512 * 1024 },
-  )
-  if (result.status !== 0) return stableRuntimeHash("non-git:" + root)
-  return stableRuntimeHash(result.stdout || "")
+  const scope = [
+    "--",
+    ".",
+    ":(exclude).ues-work",
+    ":(exclude).ues-learning",
+    ":(exclude).ues-dashboard",
+    ":(exclude).ues-sandboxes",
+    ":(exclude).ues-cache",
+    ":(exclude).ues-traces",
+  ]
+  const commands = [
+    ["status", "--porcelain=v1", "--untracked-files=all", ...scope],
+    ["diff", "--binary", "--no-ext-diff", ...scope],
+    ["diff", "--cached", "--binary", "--no-ext-diff", ...scope],
+  ]
+  const parts = []
+  for (const args of commands) {
+    const result = spawnSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    })
+    if (result.status !== 0) return stableRuntimeHash("non-git:" + root)
+    parts.push(result.stdout || "")
+  }
+  return stableRuntimeHash(parts.join("\n---UES-WORKSPACE-SIGNAL---\n"))
 }
 
 function sessionContextDigest(messages) {
