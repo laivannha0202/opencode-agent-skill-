@@ -440,6 +440,10 @@ test("non-git workspace fingerprint tracks source changes but ignores UES runtim
 
     await mkdir(path.join(root, ".ues-work", "demo"), { recursive: true })
     await writeFile(path.join(root, ".ues-work", "demo", "STATE.json"), "{\"status\":\"running\"}\n")
+    await mkdir(path.join(root, ".ues-cache"), { recursive: true })
+    await writeFile(path.join(root, ".ues-cache", "semantic-index-v1.json"), "{}\n")
+    await mkdir(path.join(root, ".ues-traces"), { recursive: true })
+    await writeFile(path.join(root, ".ues-traces", "run.jsonl"), "{\"type\":\"tool.call\"}\n")
     assert.equal(workspaceFingerprint(root), first)
 
     await writeFile(path.join(root, "src", "value.txt"), "two\n")
