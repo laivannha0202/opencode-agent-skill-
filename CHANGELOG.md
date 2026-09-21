@@ -6,6 +6,27 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [10.0.0-rc.2] - 2026-09-22
+
+### Added
+- No-progress watchdog for fresh executor sessions with active-tool grace so legitimate long-running tools are not killed merely for being quiet.
+- Duplicate exploration guard and loop detector for repeated read/grep/glob-style calls without new workspace/evidence progress.
+- Runtime tool-output budgets for large grep/glob/read/repo-graph style outputs.
+- Durable pre-compaction checkpoints containing current task, runId, plan hash, workspace fingerprint, evidence pointers and a structured next action.
+- Post-compaction resume enforcement with automatic fresh-session recovery when the next action is not executed.
+- Provider failure classification and recovery for no-token, timeout, rate-limit, upstream, quota, auth and context-overflow failures.
+- Periodic lease supervisor that recovers expired running executors to an explicit retryable state.
+
+### Changed
+- Provider stalls retry once in a fresh session with the same model; repeated retryable provider failures use the configured escalation model/provider when available.
+- Stale lease recovery now records `retryable` instead of overloading terminal/logical `failed`.
+- Explicit `long/high-risk`, `high-risk`, and structured long/high-risk facts hard-override FAST/light routing to DEEP/heavy.
+- Package version is 10.0.0-rc.2.
+- npm tag releases publish prereleases under `next`; stable versions continue to use `latest`.
+
+### Fixed
+- A post-compaction session that only emits narrative text without executing the persisted next action is treated as stalled instead of silently completing.
+
 ## [10.0.0-rc.1] - 2026-09-22
 
 ### Added
