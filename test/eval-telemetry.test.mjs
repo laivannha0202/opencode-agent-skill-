@@ -63,3 +63,14 @@ test("live eval telemetry preserves the first usage sample separately from cumul
   assert.equal(result.usageSamples, 2)
 })
 
+
+test("initial input telemetry skips output-only usage samples", () => {
+  const stdout = [
+    JSON.stringify({ type: "step_finish", part: { tokens: { input: 0, output: 5, total: 5 } } }),
+    JSON.stringify({ type: "step_finish", part: { tokens: { input: 4200, output: 20, total: 4220 } } }),
+  ].join("\n")
+
+  const result = parseOpenCodeTelemetry(stdout)
+  assert.deepEqual(result.firstUsage, { input: 4200, output: 20, total: 4220 })
+  assert.equal(result.usageSamples, 2)
+})
