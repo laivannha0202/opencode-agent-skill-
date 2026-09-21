@@ -176,6 +176,8 @@ Use them selectively. Keep trivial work inline. The editable `ues-executor` must
 
 ## Implementation discipline
 
+For focused small/FAST fixes where the request names the exact file/function and observable contract, keep the workflow literal and bounded: read the target first, maintain a compact acceptance checklist, and avoid repo-wide discovery unless a concrete uncertainty or dependency requires it. Preserve explicitly requested exception classes, type-vs-range distinctions, return shapes, field names/order, mutation rules, idempotency, and boundary behavior exactly. Do not silently strengthen, weaken, or substitute those semantics. When tests are absent or hidden, use focused runtime probes that cover each stated criterion, especially type/range boundaries, before declaring success.
+
 - Make the smallest coherent change that satisfies the request.
 - Follow the repository's package manager, formatter, linter, tests, build scripts, architecture, and generated-file policy.
 - Preserve unrelated user changes.
