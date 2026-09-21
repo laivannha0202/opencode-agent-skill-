@@ -32,5 +32,18 @@ jobs:
       - name: Verify release tag
         run: npm run release:check-tag
 
+      - name: Check registry for this exact version
+        id: registry
+        shell: bash
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if npm view "opencode-agent-skill@$VERSION" version >/dev/null 2>&1; then
+            echo "published=true" >> "$GITHUB_OUTPUT"
+            echo "opencode-agent-skill@$VERSION is already published; skipping duplicate publish."
+          else
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish with npm Trusted Publishing
+        if: steps.registry.outputs.published != 'true'
         run: npm publish --access public --provenance
