@@ -15,7 +15,7 @@ import {
 import { compareVersions } from "../lib/version.mjs"
 import { resolveLatestPublishedVersion } from "../lib/update-resolver.mjs"
 import { readRouterConfig, writeRouterConfig } from "../lib/router-config.mjs"
-import { resolveNodeShimEntry } from "../lib/windows-shim.mjs"
+import { resolveWindowsCommand } from "../lib/windows-shim.mjs"
 import {
   detectStack,
   detectTestCommands,
@@ -147,17 +147,6 @@ Usage:
 `)
 }
 
-function findWindowsCommand(name) {
-  if (path.isAbsolute(name) && existsSync(name)) return name
-
-  const result = spawnSync("where", [name], { encoding: "utf8" })
-  if (result.status !== 0 || !result.stdout) return null
-
-  const matches = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  return matches.find((item) => /\.(cmd|bat)$/i.test(item)) || matches[0] || null
-}
-
-
 
 function run(executable, commandArgs, options = {}) {
   const common = { stdio: "inherit", ...options }
@@ -167,25 +156,22 @@ function run(executable, commandArgs, options = {}) {
     return result.status ?? 1
   }
 
-  const resolved = findWindowsCommand(executable)
-  if (!resolved) return 127
-
-  if (/\.(cmd|bat)$/i.test(resolved)) {
-    const entry = resolveNodeShimEntry(resolved)
-    if (entry) {
-      const result = spawnSync(process.execPath, [entry, ...commandArgs], common)
-      return result.status ?? 1
-    }
-    console.error("[ocskill] Refusing to execute an unrecognized Windows batch shim through cmd.exe.")
-    return 126
+  const resolved = resolveWindowsCommand(executable)
+  if (!resolved) {
+    console.error("[ocskill] No safely executable Windows command found for: " + executable)
+    return 127
   }
 
-  const result = spawnSync(resolved, commandArgs, common)
+  const result = spawnSync(
+    resolved.executable,
+    [...resolved.argsPrefix, ...commandArgs],
+    common,
+  )
   return result.status ?? 1
 }
 
 function hasCommand(name) {
-  if (process.platform === "win32") return findWindowsCommand(name) !== null
+  if (process.platform === "win32") return resolveWindowsCommand(name) !== null
   return spawnSync("which", [name], { stdio: "ignore" }).status === 0
 }
 
@@ -196,20 +182,20 @@ function runCapture(executable, commandArgs, options = {}) {
     return spawnSync(executable, commandArgs, common)
   }
 
-  const resolved = findWindowsCommand(executable)
-  if (!resolved) return { status: 127, stdout: "", stderr: `Command not found: ${executable}` }
-
-  if (/\.(cmd|bat)$/i.test(resolved)) {
-    const entry = resolveNodeShimEntry(resolved)
-    if (entry) return spawnSync(process.execPath, [entry, ...commandArgs], common)
+  const resolved = resolveWindowsCommand(executable)
+  if (!resolved) {
     return {
-      status: 126,
+      status: 127,
       stdout: "",
-      stderr: "Refusing to execute an unrecognized Windows batch shim through cmd.exe.",
+      stderr: `No safely executable Windows command found for: ${executable}`,
     }
   }
 
-  return spawnSync(resolved, commandArgs, common)
+  return spawnSync(
+    resolved.executable,
+    [...resolved.argsPrefix, ...commandArgs],
+    common,
+  )
 }
 
 
