@@ -29,6 +29,7 @@ The project follows Semantic Versioning.
 - Generated `.ues-cache/` and `.ues-traces/` state no longer invalidates workspace verification fingerprints.
 - Windows CLI/router execution no longer falls back to shell-based `.cmd/.bat` invocation for unrecognized shims.
 - Windows doctor/OpenCode compatibility probing safely resolves extensionless Node-backed npm shims and fails closed instead of invoking `cmd.exe`.
+- Live benchmark execution now uses the same shell-free Windows resolver as `doctor`, skips unsupported batch shims in favor of safe native executables, and normalizes shim paths cross-platform.
 
 
 ## [8.0.0] - 2026-09-20
