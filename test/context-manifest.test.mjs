@@ -35,7 +35,7 @@ test("context manifest ranks task terms, tests and changed references", async ()
       verification: ["node --test"],
     }, { budget: 12000 })
 
-    assert.equal(manifest.schemaVersion, 3)
+    assert.equal(manifest.schemaVersion, 4)
     assert.ok(manifest.queryTerms.includes("tenant"))
     assert.ok(manifest.changed.includes("src/policy.js"))
     assert.ok(manifest.tests.includes("test/auth.test.js"))
