@@ -24,6 +24,10 @@ import {
   checkWorkingTree,
 } from "../lib/repo-inspect.mjs"
 import { buildRepoGraph } from "../lib/repo-graph.mjs"
+import { buildSemanticIndex, semanticIndexStatus } from "../lib/semantic-index.mjs"
+import { aciReferences, aciSearch, aciTextSearch, aciView } from "../lib/aci.mjs"
+import { appendTrajectoryEvent, readTrajectory } from "../lib/trajectory.mjs"
+import { containerSandboxCapability, runContainerSandbox } from "../lib/container-sandbox.mjs"
 import { analyzePlan } from "../lib/task-graph.mjs"
 import {
   addBlocker,
@@ -81,6 +85,11 @@ Usage:
   ocskill evidence [dir]       Collect stack, verification and Git evidence
   ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
   ocskill repo-graph [dir]      Build a bounded source import/dependency graph
+  ocskill index <status|build|rebuild> [dir]
+                              Build/reuse the persistent incremental semantic index
+  ocskill aci <search|refs|view|text> ...
+                              Bounded evidence-first code search/view interface
+  ocskill trace <show|append> ... Inspect or append redacted operational trajectory events
   ocskill review-scope [base] [dir]
                               Enumerate changed files, review coverage and risk
   ocskill verification-plan [dir]
@@ -93,6 +102,7 @@ Usage:
                               Resolve light/standard/heavy escalation tier
   ocskill task-policy <text>    Classify task mode/risk/context/model tier
   ocskill sandbox <action> ...  Create, integrate and clean isolated Git worktree sandboxes
+                              Also supports capability/exec for fail-closed container verification
   ocskill learn <action> ...    Analyze eval traces and promote benchmark-validated lessons
   ocskill hermes <action> ...   Optional Hermes adapter/status
   ocskill dashboard [dir] [--serve] [--port N]
@@ -354,6 +364,98 @@ function optionValue(name) {
 
 async function inspectRepoGraph() {
   printJson(await buildRepoGraph(args[1] || process.cwd()))
+}
+
+async function semanticIndexControl() {
+  const action = args[1] || "status"
+  const root = args[2] && !args[2].startsWith("--") ? args[2] : process.cwd()
+  try {
+    if (action === "status") {
+      printJson(await semanticIndexStatus(root))
+      return
+    }
+    if (action === "build" || action === "rebuild") {
+      const built = await buildSemanticIndex(root, { rebuild: action === "rebuild" })
+      printJson({ action, stats: built.stats })
+      return
+    }
+    throw new Error("Usage: ocskill index <status|build|rebuild> [dir]")
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
+}
+
+async function aciControl() {
+  const action = args[1]
+  try {
+    if (action === "search") {
+      const query = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!query) throw new Error("Usage: ocskill aci search <query> [dir] [--limit N]")
+      printJson(await aciSearch(root, query, { limit: Number(optionValue("--limit") || 20) }))
+      return
+    }
+    if (action === "refs") {
+      const symbol = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!symbol) throw new Error("Usage: ocskill aci refs <symbol> [dir] [--limit N]")
+      printJson(await aciReferences(root, symbol, { limit: Number(optionValue("--limit") || 40) }))
+      return
+    }
+    if (action === "view") {
+      const file = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!file) throw new Error("Usage: ocskill aci view <file> [dir] [--line N] [--lines N]")
+      printJson(await aciView(root, file, {
+        line: Number(optionValue("--line") || 1),
+        startLine: Number(optionValue("--start-line") || 0),
+        lines: Number(optionValue("--lines") || 120),
+      }))
+      return
+    }
+    if (action === "text") {
+      const query = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!query) throw new Error("Usage: ocskill aci text <query> [dir] [--limit N]")
+      printJson(await aciTextSearch(root, query, { limit: Number(optionValue("--limit") || 80) }))
+      return
+    }
+    throw new Error("Usage: ocskill aci <search|refs|view|text> ...")
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
+}
+
+async function traceControl() {
+  const action = args[1] || "show"
+  try {
+    if (action === "show") {
+      const traceID = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      if (!traceID) throw new Error("Usage: ocskill trace show <trace-id> [dir] [--limit N]")
+      printJson(await readTrajectory(root, traceID, { limit: Number(optionValue("--limit") || 200) }))
+      return
+    }
+    if (action === "append") {
+      const traceID = args[2]
+      const root = args[3] && !args[3].startsWith("--") ? args[3] : process.cwd()
+      const type = optionValue("--type")
+      const payload64 = optionValue("--payload-b64")
+      if (!traceID || !type) throw new Error("Usage: ocskill trace append <trace-id> [dir] --type <type> [--payload-b64 <base64-json>]")
+      let payload = {}
+      if (payload64) {
+        payload = JSON.parse(Buffer.from(payload64, "base64").toString("utf8"))
+      }
+      printJson(await appendTrajectoryEvent(root, traceID, type, payload))
+      return
+    }
+    throw new Error("Usage: ocskill trace <show|append> ...")
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : error)
+    process.exitCode = 1
+  }
 }
 
 async function inspectReviewScope() {
@@ -758,6 +860,34 @@ async function taskPolicyControl() {
 async function sandboxControl() {
   const action = args[1] || "list"
   try {
+    if (action === "capability") {
+      printJson(containerSandboxCapability(optionValue("--engine")))
+      return
+    }
+    if (action === "exec") {
+      const separator = args.indexOf("--")
+      const root = args[2] && args[2] !== "--" && !args[2].startsWith("--") ? args[2] : process.cwd()
+      const executable = separator >= 0 ? args[separator + 1] : null
+      const commandArgs = separator >= 0 ? args.slice(separator + 2) : []
+      const image = optionValue("--image")
+      if (!image || !executable) {
+        throw new Error("Usage: ocskill sandbox exec [dir] --image <image> [--engine docker|podman] -- <command> [args...]")
+      }
+      const result = runContainerSandbox(root, {
+        engine: optionValue("--engine"),
+        image,
+        command: executable,
+        args: commandArgs,
+        timeoutMs: Number(optionValue("--timeout-ms") || 10 * 60_000),
+      })
+      const clip = (value) => {
+        const text = String(value || "")
+        return text.length <= 16000 ? text : text.slice(0, 8000) + "\n...[truncated]\n" + text.slice(-8000)
+      }
+      printJson({ ...result, stdout: clip(result.stdout), stderr: clip(result.stderr) })
+      if (result.status !== 0) process.exitCode = result.status
+      return
+    }
     if (action === "list") {
       printJson(listTaskSandboxes(args[2] || process.cwd()))
       return
@@ -787,7 +917,7 @@ async function sandboxControl() {
       }))
       return
     }
-    throw new Error("Usage: ocskill sandbox <list|create|integrate|remove> ...")
+    throw new Error("Usage: ocskill sandbox <capability|exec|list|create|integrate|remove> ...")
   } catch (error) {
     console.error(error instanceof Error ? error.message : error)
     process.exitCode = 1
@@ -1004,6 +1134,15 @@ switch (command) {
     break
   case "repo-graph":
     await inspectRepoGraph()
+    break
+  case "index":
+    await semanticIndexControl()
+    break
+  case "aci":
+    await aciControl()
+    break
+  case "trace":
+    await traceControl()
     break
   case "review-scope":
     await inspectReviewScope()
