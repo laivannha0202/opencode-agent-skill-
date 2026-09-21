@@ -9,3 +9,5 @@ Thumbs.db
 .ues-learning/
 .ues-dashboard/
 .ues-sandboxes/
+.ues-cache/
+.ues-traces/
