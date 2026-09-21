@@ -598,6 +598,7 @@ export default Plugin.define({
             slug: { type: "string" },
             task: { type: "string" },
             timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
+            stallMs: { type: "integer", minimum: 30000, maximum: 300000 },
             isolate: { type: "boolean" },
             integrate: { type: "boolean" },
           },
@@ -639,6 +640,10 @@ export default Plugin.define({
             30_000,
             Math.min(Number(input.timeoutMs || (taskPolicy.mode === "long-horizon" ? 20 * 60_000 : 10 * 60_000)), 60 * 60_000),
           )
+          const stallMs = Math.max(
+            30_000,
+            Math.min(Number(input.stallMs || 60_000), 5 * 60_000),
+          )
           const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
@@ -675,63 +680,131 @@ export default Plugin.define({
           }, 30_000)
 
           try {
-            const created = await ctx.session.create({
-              title: "UES " + input.slug + " " + input.task,
-              location: { directory: executionDir },
-            })
-            appendTrace(traceID, "dispatch.session-created", {
-              sessionID: created.id,
-              executionDir,
-              isolated: executionDir !== projectRoot,
-            }, projectRoot)
-            {
-              const attachArgs = [
-                "work", "attach-session", input.slug, input.task, projectRoot,
-                "--session-id", created.id,
-              ]
-              if (runId) attachArgs.push("--run-id", runId)
-              attachArgs.push("--execution-dir", executionDir)
-              if (sandbox?.dir) attachArgs.push("--sandbox-dir", sandbox.dir)
-              runOcskill(attachArgs, projectRoot)
-            }
-            await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
-            const selectedModel = modelRef(policy?.model)
-            if (selectedModel) {
-              await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
-            }
+            const escalationArgs = ["model-policy", "executor", "--attempt", String(attempt + 1)]
+            if (taskText) escalationArgs.push("--text", taskText)
+            const escalatedPolicy = runOcskillJSON(escalationArgs, projectRoot)
+            let selectedPolicy = policy
+            let created = null
+            let messages = null
+            const providerRecovery = []
+            let physicalAttempt = 0
 
-            const recovery = started?.contextPack?.contextPolicy?.recovery
-            const recoveryText = recovery?.requireDiagnosis
-              ? " This is recovery attempt " + attempt + ". Diagnose the previous failure from fresh evidence before editing. " +
-                (recovery.directives || []).join("; ") + "."
-              : ""
-            await ctx.session.prompt({
-              sessionID: created.id,
-              text:
-                "Implement exactly this approved UES task in the current repository. " +
-                "Do not broaden scope or launch child agents. Run the declared verification and return the executor report." +
-                recoveryText + "\n\n" +
-                JSON.stringify(started.contextPack, null, 2),
-            })
+            while (physicalAttempt < 3) {
+              physicalAttempt += 1
+              created = await ctx.session.create({
+                title: "UES " + input.slug + " " + input.task + " p" + physicalAttempt,
+                location: { directory: executionDir },
+              })
+              sessionAssignments.set(created.id, {
+                slug: input.slug,
+                task: input.task,
+                runId,
+                executionDir,
+                sandboxDir: sandbox?.dir || null,
+                resumeRequired: false,
+                checkpoint: null,
+                compactionAt: null,
+              })
+              runtimeGuard.touch(created.id)
 
-            let timer = null
-            try {
-              await Promise.race([
-                ctx.session.wait({ sessionID: created.id }),
-                new Promise((_, reject) => {
-                  timer = setTimeout(
-                    () => reject(new Error("UES executor timed out after " + timeoutMs + "ms")),
-                    timeoutMs,
-                  )
-                }),
-              ])
-            } catch (error) {
+              appendTrace(traceID, "dispatch.session-created", {
+                sessionID: created.id,
+                executionDir,
+                isolated: executionDir !== projectRoot,
+                physicalAttempt,
+                model: selectedPolicy?.model || null,
+              }, projectRoot)
+
+              {
+                const attachArgs = [
+                  "work", "attach-session", input.slug, input.task, projectRoot,
+                  "--session-id", created.id,
+                ]
+                if (runId) attachArgs.push("--run-id", runId)
+                attachArgs.push("--execution-dir", executionDir)
+                if (sandbox?.dir) attachArgs.push("--sandbox-dir", sandbox.dir)
+                runOcskill(attachArgs, projectRoot)
+              }
+
+              await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
+              const selectedModel = modelRef(selectedPolicy?.model)
+              if (selectedModel) {
+                await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
+              }
+
+              const recovery = started?.contextPack?.contextPolicy?.recovery
+              const recoveryText = recovery?.requireDiagnosis
+                ? " This is recovery attempt " + attempt + ". Diagnose the previous failure from fresh evidence before editing. " +
+                  (recovery.directives || []).join("; ") + "."
+                : ""
+              const providerRecoveryText = providerRecovery.length
+                ? " Provider/session recovery is active. Continue from durable .ues-work state and current workspace evidence; do not repeat already-proven exploration."
+                : ""
+
+              await ctx.session.prompt({
+                sessionID: created.id,
+                text:
+                  "Implement exactly this approved UES task in the current repository. " +
+                  "Do not broaden scope or launch child agents. Run the declared verification and return the executor report." +
+                  recoveryText + providerRecoveryText + "\n\n" +
+                  JSON.stringify(started.contextPack, null, 2),
+              })
+
               try {
-                await ctx.session.interrupt({ sessionID: created.id, continue: false })
-              } catch {}
-              throw error
-            } finally {
-              if (timer) clearTimeout(timer)
+                messages = await waitForExecutorProgress(created.id, { timeoutMs, stallMs })
+                sessionAssignments.delete(created.id)
+                runtimeGuard.clear(created.id)
+                break
+              } catch (error) {
+                try {
+                  await ctx.session.interrupt({ sessionID: created.id, continue: false })
+                } catch {}
+
+                const failureKind = classifyProviderFailure(error)
+                const escalationModel = modelRef(escalatedPolicy?.model)
+                const hasEscalationModel = Boolean(
+                  escalationModel &&
+                  escalatedPolicy?.model &&
+                  escalatedPolicy.model !== selectedPolicy?.model,
+                )
+                const decision = providerRecoveryPlan(failureKind, physicalAttempt, {
+                  hasEscalationModel,
+                })
+                providerRecovery.push({
+                  physicalAttempt,
+                  sessionID: created.id,
+                  failureKind,
+                  action: decision.action,
+                  model: selectedPolicy?.model || null,
+                })
+                appendTrace(traceID, "dispatch.provider-recovery", {
+                  task: input.task,
+                  runId,
+                  physicalAttempt,
+                  sessionID: created.id,
+                  failureKind,
+                  decision,
+                  model: selectedPolicy?.model || null,
+                  escalationModel: escalatedPolicy?.model || null,
+                }, projectRoot)
+
+                sessionAssignments.delete(created.id)
+                runtimeGuard.clear(created.id)
+
+                if (!decision.retry || physicalAttempt >= 3) throw error
+                if (decision.action === "fresh-session-escalated-model") {
+                  selectedPolicy = escalatedPolicy
+                }
+                await tool.progress({
+                  status:
+                    "provider recovery " + decision.action +
+                    " after " + failureKind.toLowerCase().replaceAll("_", "-"),
+                })
+              }
+            }
+
+            if (!created || !messages) {
+              throw new Error("UES provider recovery exhausted without a completed executor session")
             }
 
             const afterWait = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
@@ -742,12 +815,12 @@ export default Plugin.define({
               throw new Error("UES executor attempt is no longer active; refusing post-cancel integration or completion handoff")
             }
 
-            const messages = await ctx.session.context({ sessionID: created.id })
             appendTrace(traceID, "dispatch.completed", {
               sessionID: created.id,
               task: input.task,
               runId,
               messageCount: Array.isArray(messages) ? messages.length : null,
+              providerRecovery,
             }, projectRoot)
             let integration = null
             if (sandbox && input.integrate === true) {
@@ -765,12 +838,14 @@ export default Plugin.define({
                 runId,
                 traceID,
                 taskPolicy,
-                model: policy,
+                model: selectedPolicy,
                 timeoutMs,
+                stallMs,
                 executionDir,
                 isolated: executionDir !== projectRoot,
                 sandbox,
                 integration,
+                providerRecovery,
                 messages: messageExcerpt(messages),
                 next: sandbox
                   ? "Inspect and verify the isolated worktree first. If accepted, integrate it with ocskill sandbox integrate <worktree> . before recording work complete."
