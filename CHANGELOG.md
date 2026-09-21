@@ -28,6 +28,7 @@ The project follows Semantic Versioning.
 - State locks use unique ownership tokens, heartbeat refresh and rename-based stale takeover so an expired owner cannot delete a replacement lock.
 - Generated `.ues-cache/` and `.ues-traces/` state no longer invalidates workspace verification fingerprints.
 - Windows CLI/router execution no longer falls back to shell-based `.cmd/.bat` invocation for unrecognized shims.
+- Windows doctor/OpenCode compatibility probing safely resolves extensionless Node-backed npm shims and fails closed instead of invoking `cmd.exe`.
 
 
 ## [8.0.0] - 2026-09-20
