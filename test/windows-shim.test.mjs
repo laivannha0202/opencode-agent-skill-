@@ -48,7 +48,7 @@ test("Windows command resolution skips unsupported batch shims in favor of a nat
     const badShim = path.join(root, "opencode.cmd")
     const native = path.join(root, "opencode.exe")
     await writeFile(badShim, "@ECHO off\r\necho unsupported\r\n")
-    await writeFile(native, "placeholder")
+    await writeFile(native, Buffer.from([0x4d, 0x5a, 0x90, 0x00]))
 
     const resolved = resolveWindowsCommandCandidates([badShim, native])
     assert.equal(resolved?.kind, "native")
@@ -80,6 +80,34 @@ test("Windows shim resolver falls back to adjacent package.json bin metadata", a
     await writeFile(shim, "@ECHO off\r\nREM intentionally non-standard shim text\r\n")
 
     assert.equal(resolveNodeShimEntry(shim), entry)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("Windows shim resolver accepts an explicit native package bin target", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-win-native-bin-"))
+  try {
+    const packageDir = path.join(root, "node_modules", "opencode-ai")
+    const entry = path.join(packageDir, "bin", "opencode.exe")
+    await mkdir(path.dirname(entry), { recursive: true })
+    await writeFile(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "opencode-ai",
+        version: "1.18.31",
+        bin: { opencode: "./bin/opencode.exe" },
+      }),
+    )
+    await writeFile(entry, Buffer.from([0x4d, 0x5a, 0x90, 0x00]))
+    const shim = path.join(root, "opencode.cmd")
+    await writeFile(shim, "@ECHO off\r\nREM package metadata resolves native target\r\n")
+
+    const resolved = resolveWindowsCommandCandidates([shim])
+    assert.equal(resolved?.kind, "native")
+    assert.equal(resolved?.executable, entry)
+    assert.deepEqual(resolved?.argsPrefix, [])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
