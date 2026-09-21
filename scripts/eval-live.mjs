@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync } from "node:fs"
 import { cp, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -10,6 +10,7 @@ import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
 import { buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
 import { runProcess } from "../lib/process-runner.mjs"
+import { resolveWindowsCommand } from "../lib/windows-shim.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
@@ -35,69 +36,39 @@ function positiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
-function findWindowsCommand(name) {
-  if (path.isAbsolute(name) && existsSync(name)) return name
-  const result = spawnSync("where", [name], { encoding: "utf8" })
-  if (result.status !== 0 || !result.stdout) return null
-  const matches = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
-  return matches.find((item) => /\.(exe|cmd|bat)$/i.test(item)) || matches[0] || null
-}
-
-function quoteCmd(value) {
-  if (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(value)) return value
-  return '"' + value.replaceAll('"', '""') + '"'
-}
-
-function findNodeShimEntry(cmdPath) {
-  const dir = path.dirname(cmdPath)
-  let shim = ""
-  try {
-    shim = readFileSync(cmdPath, "utf8")
-  } catch {
-    return null
-  }
-  const match = shim.match(/node_modules[\\/][^\s"]+?\.(?:js|mjs)/gi)?.at(-1)
-  if (!match) return null
-  const entry = path.resolve(dir, match)
-  return existsSync(entry) ? entry : null
-}
 
 function runCommand(executable, commandArgs, options = {}) {
   if (process.platform !== "win32") {
     return spawnSync(executable, commandArgs, options)
   }
 
-  const resolved = findWindowsCommand(executable)
+  const resolved = resolveWindowsCommand(executable)
   if (!resolved) {
-    return { status: 127, stdout: "", stderr: "Command not found: " + executable }
+    return {
+      status: 127,
+      stdout: "",
+      stderr: "No safely executable Windows command found for: " + executable,
+    }
   }
 
-  if (/\.(cmd|bat)$/i.test(resolved)) {
-    const entry = findNodeShimEntry(resolved)
-    if (entry) return spawnSync(process.execPath, [entry, ...commandArgs], options)
-
-    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
-    return spawnSync(
-      process.env.ComSpec || "cmd.exe",
-      ["/d", "/s", "/c", line],
-      options,
-    )
-  }
-
-  return spawnSync(resolved, commandArgs, options)
+  return spawnSync(
+    resolved.executable,
+    [...resolved.argsPrefix, ...commandArgs],
+    options,
+  )
 }
 
 
 function runAsyncCommand(executable, commandArgs, options = {}) {
   if (process.platform !== "win32") return runProcess(executable, commandArgs, options)
 
-  const resolved = findWindowsCommand(executable)
+  const resolved = resolveWindowsCommand(executable)
   if (!resolved) {
     return Promise.resolve({
       status: 127,
       signal: null,
       stdout: "",
-      stderr: "Command not found: " + executable,
+      stderr: "No safely executable Windows command found for: " + executable,
       durationMs: 0,
       timedOut: false,
       idleTimedOut: false,
@@ -105,14 +76,11 @@ function runAsyncCommand(executable, commandArgs, options = {}) {
     })
   }
 
-  if (/\.(cmd|bat)$/i.test(resolved)) {
-    const entry = findNodeShimEntry(resolved)
-    if (entry) return runProcess(process.execPath, [entry, ...commandArgs], options)
-    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
-    return runProcess(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], options)
-  }
-
-  return runProcess(resolved, commandArgs, options)
+  return runProcess(
+    resolved.executable,
+    [...resolved.argsPrefix, ...commandArgs],
+    options,
+  )
 }
 
 function excerpt(value, limit = 12000) {
