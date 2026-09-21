@@ -274,8 +274,12 @@ async function doctor() {
   console.log(`Node:     ${process.version}`)
   console.log(`Config:   ${getConfigDir()}`)
   console.log(`npm:      ${hasCommand("npm") ? "OK" : "MISSING"}`)
-  console.log(`OpenCode: ${hasCommand("opencode") ? "OK" : "MISSING"}`)
-  if (hasCommand("opencode")) run("opencode", ["--version"])
+  const openCodeAvailable = hasCommand("opencode")
+  console.log(`OpenCode: ${openCodeAvailable ? "OK" : "MISSING"}`)
+  if (openCodeAvailable) {
+    const code = run("opencode", ["--version"])
+    if (code !== 0) process.exitCode = code
+  }
   await status()
 }
 
