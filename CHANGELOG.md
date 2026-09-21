@@ -6,18 +6,7 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
-### Changed
-- Hardened live benchmark fairness by making previously implicit hidden-grader contract details explicit in task prompts (auth role representation, exception classes/type-vs-range boundaries, payment/cache id validation, and money over-discount behavior) without weakening hidden graders.
-- Clarified the webhook ordering benchmark contract so stale/duplicate events explicitly return the original state object by reference, while only accepted newer events produce a new state; this matches the existing hidden grader without changing its assertions.
-- Counterbalanced paired live-eval execution order across tasks and trials so baseline/UES comparisons do not systematically place every UES run after all baseline runs, reducing provider warm-up/throttling/order bias.
-- Focused small/FAST fixes now follow a literal acceptance-contract discipline and avoid repo-wide discovery unless evidence requires it.
-- OpenCode live-eval telemetry now reads native `part.tokens` / `tokens` payloads in addition to `usage` payloads, with regression coverage for the observed OpenCode JSONL shape.
-- CLI refactor: extracted shared `lib/cli-utils.mjs` helpers (`optionValue`, `optionInt`, `optionIntOrUndefined`, `positionalArg`, `readTextFile`, `readJsonFile`, `clipOutput`, `errorMessage`) and converted the whole `bin/ocskill.mjs` option/positional/read/truncation/error-handling surface to them: zero bare one-argument `optionValue` calls remain, and no `Number(optionValue(...))` ad-hoc int parsing is left except the null-guarded `routerControl` `--max` read. Output truncation is unified through `clipOutput`, which keeps both ends of long output with a marker.
-- Accepted micro-semantic deltas: `optionInt` uses `Number.parseInt`, so malformed int flags like `--limit 1.5` now yield 1 and `--lines 120abc` yield 120, where the old `Number(...)` expression produced 1.5/NaN (malformed values only; normal inputs are identical). `positionalArg` rejects `"--"`, empty strings and `--flag`-looking tokens as optional directory positionals, leaving real paths unaffected. `routerControl` `--max` keeps its null-guarded semantics: an absent flag writes nothing on `router status`, while a present-but-tokenless or out-of-range (1..6) `--max` exits with status 2 and the existing message.
-- Added CLI smoke regression tests that spawn read-only `ocskill` commands and assert parseable output, plus unit tests for the CLI helpers.
-- Resolved README version drift for 9.0.0 and documented V9 capabilities.
-
-## [9.0.0] - 2026-09-21
+## [9.0.0] - 2026-09-22
 
 ### Added
 - Persistent incremental source index with bounded syntax-aware symbol/reference evidence and deterministic cache reuse.
@@ -33,6 +22,14 @@ The project follows Semantic Versioning.
 - Context Manifest v4 consumes the incremental evidence index before broader graph expansion and keeps evidence labels explicit.
 - Learning promotion now requires complete paired benchmark evidence, statistically supported uplift and no suite regression.
 - OpenCode V2 dispatch records bounded redacted operational traces and adaptive execution-profile metadata.
+- Hardened live benchmark fairness by making previously implicit hidden-grader contract details explicit in task prompts without weakening hidden graders.
+- Clarified webhook stale/duplicate handling to require returning the exact original state reference, matching the hidden contract.
+- Counterbalanced paired live-eval execution order across tasks and trials to reduce provider order/throttling bias.
+- Focused small/FAST fixes now follow literal acceptance-contract discipline and avoid repo-wide discovery unless evidence requires it.
+- OpenCode live-eval telemetry now reads native `part.tokens` / `tokens` payloads in addition to `usage` payloads.
+- Extracted shared CLI parsing/read/truncation/error helpers into `lib/cli-utils.mjs` and added smoke/unit regression coverage.
+- Preserved documented CLI edge semantics while removing ad-hoc option parsing and unifying bounded output clipping.
+- Resolved README version drift and documented V9 capabilities.
 - Package version is 9.0.0.
 
 ### Fixed
