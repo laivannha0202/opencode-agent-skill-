@@ -58,3 +58,29 @@ test("Windows command resolution skips unsupported batch shims in favor of a nat
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("Windows shim resolver falls back to adjacent package.json bin metadata", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-win-shim-metadata-"))
+  try {
+    const packageDir = path.join(root, "node_modules", "opencode-ai")
+    const entry = path.join(packageDir, "bin", "opencode")
+    await mkdir(path.dirname(entry), { recursive: true })
+    await writeFile(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "opencode-ai",
+        version: "1.18.31",
+        bin: { opencode: "./bin/opencode" },
+      }),
+    )
+    await writeFile(entry, "#!/usr/bin/env node\nconsole.log('1.18.31')\n")
+
+    const shim = path.join(root, "opencode.cmd")
+    await writeFile(shim, "@ECHO off\r\nREM intentionally non-standard shim text\r\n")
+
+    assert.equal(resolveNodeShimEntry(shim), entry)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
