@@ -156,10 +156,6 @@ function findWindowsCommand(name) {
   return matches.find((item) => /\.(cmd|bat)$/i.test(item)) || matches[0] || null
 }
 
-function quoteCmd(value) {
-  if (/^[A-Za-z0-9_@%+=:,./\\-]+$/.test(value)) return value
-  return `"${value.replaceAll('"', '""')}"`
-}
 
 function findNodeShimEntry(cmdPath) {
   const dir = path.dirname(cmdPath)
@@ -196,9 +192,8 @@ function run(executable, commandArgs, options = {}) {
       const result = spawnSync(process.execPath, [entry, ...commandArgs], common)
       return result.status ?? 1
     }
-    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
-    const result = spawnSync(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", line], common)
-    return result.status ?? 1
+    console.error("[ocskill] Refusing to execute an unrecognized Windows batch shim through cmd.exe.")
+    return 126
   }
 
   const result = spawnSync(resolved, commandArgs, common)
@@ -223,13 +218,11 @@ function runCapture(executable, commandArgs, options = {}) {
   if (/\.(cmd|bat)$/i.test(resolved)) {
     const entry = findNodeShimEntry(resolved)
     if (entry) return spawnSync(process.execPath, [entry, ...commandArgs], common)
-
-    const line = [resolved, ...commandArgs].map(quoteCmd).join(" ")
-    return spawnSync(
-      process.env.ComSpec || "cmd.exe",
-      ["/d", "/s", "/c", line],
-      common,
-    )
+    return {
+      status: 126,
+      stdout: "",
+      stderr: "Refusing to execute an unrecognized Windows batch shim through cmd.exe.",
+    }
   }
 
   return spawnSync(resolved, commandArgs, common)
