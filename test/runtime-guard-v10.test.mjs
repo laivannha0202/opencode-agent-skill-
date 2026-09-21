@@ -5,6 +5,7 @@ import {
   classifyProviderFailure,
   createRuntimeGuard,
   providerRecoveryPlan,
+  progressWatchdogDecision,
 } from "../global-config/plugins/ues-router/runtime-guard.js"
 
 test("duplicate exploration is blocked only after repeated equivalent calls", () => {
@@ -114,4 +115,23 @@ test("provider recovery retries fresh once then escalates configured model", () 
   )
   assert.equal(providerRecoveryPlan("AUTH", 1).retry, false)
   assert.equal(providerRecoveryPlan("CONTEXT_TOO_LARGE", 1).action, "compact-context")
+})
+
+
+test("no-progress watchdog stalls idle sessions but exempts an active long-running tool", () => {
+  const idle = progressWatchdogDecision(
+    { lastProgressAt: 1_000, activeToolCalls: 0 },
+    61_500,
+    60_000,
+  )
+  assert.equal(idle.stalled, true)
+  assert.equal(idle.reason, "no-progress")
+
+  const active = progressWatchdogDecision(
+    { lastProgressAt: 1_000, activeToolCalls: 1 },
+    180_000,
+    60_000,
+  )
+  assert.equal(active.stalled, false)
+  assert.equal(active.reason, "tool-active")
 })
