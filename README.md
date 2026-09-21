@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **Bản hiện tại: 9.0.0**
+> **Nhánh V10 RC: 10.0.0-rc.1** — npm `latest` vẫn là **9.0.0** cho tới khi V10 được kiểm chứng và phát hành.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -77,6 +77,23 @@ ocskill verification-plan .
 ocskill task-policy "refactor auth across the whole repository"
 ocskill dashboard . --serve
 ```
+
+---
+
+## V10 RC có gì?
+
+V10 tập trung vào **minimum context necessary for maximum task success**: giảm context luôn nạp nhưng không cắt các lớp correctness, verification hay recovery.
+
+- telemetry đo riêng **initial input tokens** bên cạnh total tokens, tool calls, latency và cost;
+- global `AGENTS.md` được nén đáng kể, giữ lại contract, evidence, verification, safety và long-horizon invariants;
+- FAST context budget giảm từ 12k xuống **8k**, STANDARD từ 24k xuống **20k**, còn DEEP vẫn giữ **48k** cho task rủi ro/lớn;
+- OpenCode V2 runtime dùng policy-aware selective routing: FAST ưu tiên domain/debug/review skill trực tiếp thay vì tự động nạp generic orchestrator;
+- failed attempt tự mở rộng context theo tầng `initial -> diagnose -> deep-recovery`; retry tăng evidence, graph/critic và model tier khi cấu hình cho phép;
+- FAST không tự hạ executor thấp hơn tier đã cấu hình, nên tối ưu context không đồng nghĩa hạ năng lực model;
+- benchmark confidence gate kiểm tra thêm initial-input ratio và total-token ratio;
+- `npm run evals:ablation -- <reference> <candidate> --require-gate` so V10 với một reference run và từ chối candidate giảm pass-rate dù token có thấp hơn.
+
+V10 RC **chưa phải npm release**. Trước khi phát hành chính thức cần CI/package smoke PASS và benchmark thật trên model mục tiêu.
 
 ---
 
