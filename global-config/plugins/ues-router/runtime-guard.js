@@ -79,6 +79,23 @@ export function classifyProviderFailure(error = {}) {
   return "OTHER"
 }
 
+export function progressWatchdogDecision(snapshot = {}, now = Date.now(), stallMs = 60_000) {
+  const limit = Math.max(30_000, Math.min(Number(stallMs || 60_000), 5 * 60_000))
+  const lastProgressAt = Number(snapshot.lastProgressAt || 0)
+  const activeToolCalls = Math.max(0, Number(snapshot.activeToolCalls || 0))
+  const idleMs = Math.max(0, Number(now) - lastProgressAt)
+
+  if (activeToolCalls > 0) {
+    return { stalled: false, idleMs, limitMs: limit, reason: "tool-active" }
+  }
+  return {
+    stalled: idleMs >= limit,
+    idleMs,
+    limitMs: limit,
+    reason: idleMs >= limit ? "no-progress" : "within-grace",
+  }
+}
+
 export function providerRecoveryPlan(kind, physicalAttempt = 1, options = {}) {
   const attempt = Math.max(1, Number(physicalAttempt || 1))
   const hasEscalationModel = Boolean(options.hasEscalationModel)
