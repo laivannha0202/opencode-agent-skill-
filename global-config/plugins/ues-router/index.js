@@ -3,7 +3,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { classifyIntent, routeSkills } from "./router.js"
+import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
 
@@ -502,11 +502,17 @@ export default Plugin.define({
               await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
             }
 
+            const recovery = started?.contextPack?.contextPolicy?.recovery
+            const recoveryText = recovery?.requireDiagnosis
+              ? " This is recovery attempt " + attempt + ". Diagnose the previous failure from fresh evidence before editing. " +
+                (recovery.directives || []).join("; ") + "."
+              : ""
             await ctx.session.prompt({
               sessionID: created.id,
               text:
                 "Implement exactly this approved UES task in the current repository. " +
-                "Do not broaden scope or launch child agents. Run the declared verification and return the executor report.\n\n" +
+                "Do not broaden scope or launch child agents. Run the declared verification and return the executor report." +
+                recoveryText + "\n\n" +
                 JSON.stringify(started.contextPack, null, 2),
             })
 
@@ -607,7 +613,7 @@ export default Plugin.define({
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES runtime: choose FAST/STANDARD/DEEP from deterministic task policy, prefer bounded semantic/ACI evidence over broad scans, trust durable .ues-work state and EVENTS.jsonl over conversation memory, never treat lexical matches as semantic proof, require fresh verification for non-trivial completion, and fail closed when a high-risk capability is missing.",
+        text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts, verify fresh behavior, and escalate after failed attempts instead of stacking patches.",
       })
     })
 
@@ -625,7 +631,7 @@ export default Plugin.define({
         Math.min(config.maxSkills, Number(policy?.maxSkills || config.maxSkills)),
       )
       const selected = []
-      for (const id of [...routeSkills(event.prompt.text, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
+      for (const id of [...routeSkillsForPolicy(event.prompt.text, policy, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
         if (!selected.includes(id)) selected.push(id)
         if (selected.length >= effectiveMaxSkills) break
       }
@@ -649,7 +655,7 @@ export default Plugin.define({
             feedbackDomains: routingFacts.feedbackDomains,
             acceptedLearningCount: routingFacts.acceptedLearningCount,
           },
-          version: 6,
+          version: 10,
           effectiveMaxSkills,
         },
       }
