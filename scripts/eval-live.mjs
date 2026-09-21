@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url"
 import { installResources } from "../lib/installer.mjs"
 import { copyCurrentOpenCodeAuth } from "../lib/eval-auth.mjs"
 import { parseOpenCodeTelemetry } from "../lib/eval-telemetry.mjs"
+import { evalModeOrder } from "../lib/eval-order.mjs"
 import { buildOpenCodeRunArgs, parseOpenCodeMajor } from "../lib/opencode-compat.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
 import { runProcess } from "../lib/process-runner.mjs"
@@ -224,11 +225,12 @@ const results = []
 const oldConfigDir = process.env.OPENCODE_CONFIG_DIR
 
 try {
-  for (const task of tasks) {
+  for (const [taskIndex, task] of tasks.entries()) {
     if (interrupted) break
-    for (const mode of modes) {
+    for (let trial = 1; trial <= trials; trial += 1) {
       if (interrupted) break
-      for (let trial = 1; trial <= trials; trial += 1) {
+      const trialModes = evalModeOrder(requestedMode, taskIndex, trial)
+      for (const mode of trialModes) {
         if (interrupted) break
         const isolatedRoot = path.join(runRoot, task.id + "-" + mode + "-" + trial)
         const workspace = path.join(isolatedRoot, "workspace")
@@ -397,6 +399,7 @@ await writeFile(
       opencodeVersion,
       opencodeMajor,
       modes,
+      ordering: requestedMode === "both" ? "counterbalanced-task-trial" : "single-mode",
       summary,
       results,
     },
