@@ -883,12 +883,21 @@ export default Plugin.define({
 
     if (capabilities.sessionHook) {
       await ctx.session.hook("context", (event) => {
-      if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
-      event.system.push({
-        type: "text",
-        text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts, verify fresh behavior, and escalate after failed attempts instead of stacking patches.",
+        event.system.push({
+          type: "text",
+          text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts, verify fresh behavior, and escalate after failed attempts instead of stacking patches.",
+        })
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (assignment?.resumeRequired && assignment.checkpoint) {
+          event.system.push({
+            type: "text",
+            text:
+              "UES post-compaction resume is mandatory. Before explanatory prose, execute this deterministic nextAction now: " +
+              JSON.stringify(assignment.checkpoint.nextAction) +
+              ". Resume only from .ues-work state/evidence and the current workspace; do not replay external/destructive side effects.",
+          })
+        }
       })
-    })
 
       await ctx.session.hook("prompt", (event) => {
       const config = routerConfig()
