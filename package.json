@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
-  "version": "8.0.0",
-  "description": "Adaptive crash-safe engineering runtime, durable orchestration, structured evidence, learning loop and control center for OpenCode",
+  "version": "9.0.0",
+  "description": "Evidence-first engineering runtime with adaptive orchestration, incremental semantic context, bounded ACI, sandboxed verification, replayable traces and benchmark-gated learning for OpenCode",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs"
@@ -44,7 +44,8 @@
     "smoke:plain-install": "node scripts/smoke-plain-install.mjs",
     "release:check-tag": "node scripts/check-release-tag.mjs",
     "evals:polyglot:validate": "node scripts/validate-live-suite.mjs --suite polyglot",
-    "evals:polyglot": "node scripts/eval-live.mjs --suite polyglot"
+    "evals:polyglot": "node scripts/eval-live.mjs --suite polyglot",
+    "evals:matrix:gate": "node scripts/eval-matrix.mjs --require-confidence"
   },
   "keywords": [
     "opencode",
