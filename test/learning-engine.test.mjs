@@ -5,7 +5,28 @@ import os from "node:os"
 import path from "node:path"
 import { acceptLearning, analyzeEvalTraces, promoteLearning, readLearningState, relevantAcceptedLearnings, saveLearningAnalysis } from "../lib/learning-engine.mjs"
 
-async function writeMatrix(file, baselinePassRate, uesPassRate, total = 4) {
+async function writeMatrix(file, baselinePassRate, uesPassRate, total = 24) {
+  const baselinePassed = Math.round(baselinePassRate * total)
+  const uesPassed = Math.round(uesPassRate * total)
+  const pairedResults = []
+  for (let trial = 1; trial <= total; trial += 1) {
+    pairedResults.push({
+      suite: "live",
+      task: "task-" + trial,
+      trial: 1,
+      mode: "baseline",
+      passed: trial <= baselinePassed,
+      durationMs: 100,
+    })
+    pairedResults.push({
+      suite: "live",
+      task: "task-" + trial,
+      trial: 1,
+      mode: "ues",
+      passed: trial <= uesPassed,
+      durationMs: 110,
+    })
+  }
   await writeFile(file, JSON.stringify({
     schemaVersion: 1,
     kind: "ues-benchmark-matrix",
@@ -13,10 +34,11 @@ async function writeMatrix(file, baselinePassRate, uesPassRate, total = 4) {
     suites: ["live"],
     coverageComplete: true,
     finishedAt: new Date().toISOString(),
+    pairedResults,
     summary: {
       modes: {
-        baseline: { passed: Math.round(baselinePassRate * total), total, passRate: baselinePassRate },
-        ues: { passed: Math.round(uesPassRate * total), total, passRate: uesPassRate },
+        baseline: { passed: baselinePassed, total, passRate: baselinePassRate },
+        ues: { passed: uesPassed, total, passRate: uesPassRate },
       },
       passRateDelta: uesPassRate - baselinePassRate,
     },
@@ -66,7 +88,7 @@ test("learning loop promotes only from an accepted benchmark artifact with measu
     const promoted = await promoteLearning(root, accepted.id, { report: improved })
     assert.equal(promoted.status, "promoted")
     assert.equal(promoted.shadowValidation.delta, 0.25)
-    assert.equal(promoted.shadowValidation.samples, 4)
+    assert.equal(promoted.shadowValidation.samples, 24)
     assert.equal(promoted.shadowValidation.model, "test/provider-model")
     assert.equal(promoted.shadowValidation.reportHash.length, 64)
   } finally {
