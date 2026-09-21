@@ -50,6 +50,13 @@ function runOcskillJSON(args, cwd) {
   }
 }
 
+function appendTrace(traceID, type, payload, cwd) {
+  try {
+    const encoded = Buffer.from(JSON.stringify(payload || {}), "utf8").toString("base64")
+    runOcskill(["trace", "append", traceID, cwd, "--type", type, "--payload-b64", encoded], cwd)
+  } catch {}
+}
+
 function modelRef(value) {
   if (!value || typeof value !== "string") return null
   const [base, variant] = value.split("#", 2)
@@ -158,6 +165,75 @@ export default Plugin.define({
         options: { namespace: "ues", codemode: true },
         execute: async (input) => ({
           content: runOcskill(["task-policy", input.text], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "semantic_search",
+        description: "Search the persistent incremental semantic index. Returns bounded path/symbol/reference evidence; never treats lexical evidence as semantic proof.",
+        input: {
+          type: "object",
+          properties: {
+            query: { type: "string" },
+            limit: { type: "integer", minimum: 1, maximum: 50 },
+          },
+          required: ["query"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill(["aci", "search", input.query, projectRoot, "--limit", String(input.limit || 20)], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "references",
+        description: "Find bounded syntax-aware lexical references and concrete definition lines for one identifier.",
+        input: {
+          type: "object",
+          properties: {
+            symbol: { type: "string" },
+            limit: { type: "integer", minimum: 1, maximum: 100 },
+          },
+          required: ["symbol"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill(["aci", "refs", input.symbol, projectRoot, "--limit", String(input.limit || 40)], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "view_file",
+        description: "Read a bounded line-numbered window from a repository file; refuses root escapes and oversized/binary files.",
+        input: {
+          type: "object",
+          properties: {
+            file: { type: "string" },
+            line: { type: "integer", minimum: 1 },
+            lines: { type: "integer", minimum: 1, maximum: 240 },
+          },
+          required: ["file"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "aci", "view", input.file, projectRoot,
+            "--line", String(input.line || 1),
+            "--lines", String(input.lines || 120),
+          ], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "sandbox_capability",
+        description: "Report whether fail-closed Docker/Podman verification isolation is actually available. Never assumes a container runtime exists.",
+        input: {
+          type: "object",
+          properties: {},
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async () => ({
+          content: runOcskill(["sandbox", "capability"], projectRoot),
         }),
       })
       editor.add({
@@ -309,6 +385,7 @@ export default Plugin.define({
           const started = runOcskillJSON(["work", "start", input.slug, input.task, projectRoot], projectRoot)
           const attempt = started?.record?.attempts || 1
           const runId = started?.record?.runId || null
+          const traceID = "dispatch-" + input.slug + "-" + input.task + "-" + String(runId || Date.now()).replace(/[^a-zA-Z0-9._-]+/g, "-")
           const taskText = [
             started?.contextPack?.task?.title,
             started?.contextPack?.task?.summary,
@@ -316,6 +393,20 @@ export default Plugin.define({
             started?.contextPack?.task?.risk ? "risk: " + started.contextPack.task.risk : null,
           ].filter(Boolean).join(" ")
           const taskPolicy = runOcskillJSON(["task-policy", taskText], projectRoot)
+          appendTrace(traceID, "dispatch.started", {
+            slug: input.slug,
+            task: input.task,
+            runId,
+            attempt,
+            taskText,
+            taskPolicy,
+            context: {
+              files: started?.contextPack?.contextManifest?.files || [],
+              strategy: started?.contextPack?.contextManifest?.strategy || null,
+              used: started?.contextPack?.contextManifest?.used || 0,
+              budget: started?.contextPack?.contextManifest?.budget || 0,
+            },
+          }, projectRoot)
           const timeoutMs = Math.max(
             30_000,
             Math.min(Number(input.timeoutMs || (taskPolicy.mode === "long-horizon" ? 20 * 60_000 : 10 * 60_000)), 60 * 60_000),
@@ -360,6 +451,11 @@ export default Plugin.define({
               title: "UES " + input.slug + " " + input.task,
               location: { directory: executionDir },
             })
+            appendTrace(traceID, "dispatch.session-created", {
+              sessionID: created.id,
+              executionDir,
+              isolated: executionDir !== projectRoot,
+            }, projectRoot)
             {
               const attachArgs = [
                 "work", "attach-session", input.slug, input.task, projectRoot,
@@ -413,6 +509,12 @@ export default Plugin.define({
             }
 
             const messages = await ctx.session.context({ sessionID: created.id })
+            appendTrace(traceID, "dispatch.completed", {
+              sessionID: created.id,
+              task: input.task,
+              runId,
+              messageCount: Array.isArray(messages) ? messages.length : null,
+            }, projectRoot)
             let integration = null
             if (sandbox && input.integrate === true) {
               integration = runOcskillJSON(
@@ -427,6 +529,7 @@ export default Plugin.define({
                 task: input.task,
                 attempt,
                 runId,
+                traceID,
                 taskPolicy,
                 model: policy,
                 timeoutMs,
@@ -441,6 +544,11 @@ export default Plugin.define({
               }, null, 2),
             }
           } catch (error) {
+            appendTrace(traceID, "dispatch.failed", {
+              task: input.task,
+              runId,
+              error: String(error?.message || error),
+            }, projectRoot)
             if (sandbox?.dir) {
               try {
                 runOcskill(["sandbox", "remove", sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot)
@@ -469,7 +577,7 @@ export default Plugin.define({
       if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
       event.system.push({
         type: "text",
-        text: "UES V8 runtime: classify task complexity/risk, trust durable .ues-work state and EVENTS.jsonl over conversation memory, use bounded interruptible fresh execution, require structured receipts for long/high-risk gates, isolate parallel writers when needed, recover stale work after interruption, and require integration evidence before completion.",
+        text: "UES runtime: choose FAST/STANDARD/DEEP from deterministic task policy, prefer bounded semantic/ACI evidence over broad scans, trust durable .ues-work state and EVENTS.jsonl over conversation memory, never treat lexical matches as semantic proof, require fresh verification for non-trivial completion, and fail closed when a high-risk capability is missing.",
       })
     })
 
@@ -482,10 +590,14 @@ export default Plugin.define({
         policy = runOcskillJSON(["task-policy", event.prompt.text], projectRoot)
       } catch {}
       const intent = classifyIntent(event.prompt.text, routingFacts)
+      const effectiveMaxSkills = Math.max(
+        1,
+        Math.min(config.maxSkills, Number(policy?.maxSkills || config.maxSkills)),
+      )
       const selected = []
-      for (const id of [...routeSkills(event.prompt.text, config.maxSkills, routingFacts), ...policySkills(policy)]) {
+      for (const id of [...routeSkills(event.prompt.text, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
         if (!selected.includes(id)) selected.push(id)
-        if (selected.length >= config.maxSkills) break
+        if (selected.length >= effectiveMaxSkills) break
       }
       if (selected.length === 0) return
 
@@ -507,7 +619,8 @@ export default Plugin.define({
             feedbackDomains: routingFacts.feedbackDomains,
             acceptedLearningCount: routingFacts.acceptedLearningCount,
           },
-          version: 5,
+          version: 6,
+          effectiveMaxSkills,
         },
       }
     })
