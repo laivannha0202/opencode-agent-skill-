@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, utimes, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { addDecision, initWork, workPaths, workStatus } from "../lib/task-engine.mjs"
+import { addDecision, initWork, workPaths } from "../lib/task-engine.mjs"
 
 test("stale state lock is taken over without leaving an orphan lock", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-state-lock-"))
@@ -23,11 +23,11 @@ test("stale state lock is taken over without leaving an orphan lock", async () =
     await utimes(ownerFile, stale, stale)
     await utimes(paths.lock, stale, stale)
 
-    await addDecision(root, "lock-safe", "state lock takeover succeeded")
+    const state = await addDecision(root, "lock-safe", "state lock takeover succeeded")
     assert.equal(existsSync(paths.lock), false)
-
-    const status = await workStatus(root, "lock-safe")
-    assert.ok(status.decisions.includes("state lock takeover succeeded"))
+    assert.ok(
+      state.decisions.some((item) => item.text === "state lock takeover succeeded"),
+    )
   } finally {
     await rm(root, { recursive: true, force: true })
   }
