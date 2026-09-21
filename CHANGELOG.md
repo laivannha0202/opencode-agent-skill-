@@ -8,6 +8,7 @@ The project follows Semantic Versioning.
 
 ### Changed
 - Hardened live benchmark fairness by making previously implicit hidden-grader contract details explicit in task prompts (auth role representation, exception classes/type-vs-range boundaries, payment/cache id validation, and money over-discount behavior) without weakening hidden graders.
+- Clarified the webhook ordering benchmark contract so stale/duplicate events explicitly return the original state object by reference, while only accepted newer events produce a new state; this matches the existing hidden grader without changing its assertions.
 - Focused small/FAST fixes now follow a literal acceptance-contract discipline and avoid repo-wide discovery unless evidence requires it.
 - OpenCode live-eval telemetry now reads native `part.tokens` / `tokens` payloads in addition to `usage` payloads, with regression coverage for the observed OpenCode JSONL shape.
 - CLI refactor: extracted shared `lib/cli-utils.mjs` helpers (`optionValue`, `optionInt`, `optionIntOrUndefined`, `positionalArg`, `readTextFile`, `readJsonFile`, `clipOutput`, `errorMessage`) and converted the whole `bin/ocskill.mjs` option/positional/read/truncation/error-handling surface to them: zero bare one-argument `optionValue` calls remain, and no `Number(optionValue(...))` ad-hoc int parsing is left except the null-guarded `routerControl` `--max` read. Output truncation is unified through `clipOutput`, which keeps both ends of long output with a marker.
