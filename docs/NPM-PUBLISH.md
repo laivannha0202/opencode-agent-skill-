@@ -17,7 +17,7 @@ opencode-agent-skill
 npm run ci
 ```
 
-V8 CI includes syntax validation, resource validation, static skill routing, the 120-case V2 router matrix, standard/long/polyglot hidden-grader integrity checks, unit/integration tests, package dry-run, packed global-install smoke, and a plain global-install compatibility smoke.
+V9 CI includes syntax validation, resource validation, static skill routing, the 120-case V2 router matrix, standard/long/polyglot hidden-grader integrity checks, unit/integration tests, package dry-run, packed global-install smoke, and a plain global-install compatibility smoke.
 
 ## Manual release-like test
 
@@ -27,7 +27,7 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\opencode-agent-skill-8.0.0.tgz --allow-scripts=opencode-agent-skill
+npm install -g .\opencode-agent-skill-9.0.0.tgz --allow-scripts=opencode-agent-skill
 ocskill status
 ocskill doctor
 ```
@@ -47,14 +47,14 @@ After publication verify:
 
 ```cmd
 npm view opencode-agent-skill versions --json
-npm view opencode-agent-skill@8.0.0 version
+npm view opencode-agent-skill@9.0.0 version
 npm dist-tag ls opencode-agent-skill
 ```
 
 The expected release tag is:
 
 ```text
-latest: 8.0.0
+latest: 9.0.0
 ```
 
 ## GitHub Actions publishing
