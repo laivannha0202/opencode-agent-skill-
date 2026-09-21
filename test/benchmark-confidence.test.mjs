@@ -46,3 +46,47 @@ test("paired confidence rejects excessive slowdown", () => {
   assert.equal(report.checks.speedAcceptable, false)
   assert.equal(report.promotionEligible, false)
 })
+
+test("V10 confidence rejects excessive initial-context overhead when telemetry exists", () => {
+  const results = []
+  for (let index = 0; index < 24; index += 1) {
+    results.push(
+      {
+        suite: "live", task: "ctx-" + index, trial: 1, mode: "baseline",
+        passed: index < 8, durationMs: 100,
+        telemetry: { firstUsage: { input: 1000 }, tokens: { total: 2000 } },
+      },
+      {
+        suite: "live", task: "ctx-" + index, trial: 1, mode: "ues",
+        passed: index < 18, durationMs: 110,
+        telemetry: { firstUsage: { input: 1700 }, tokens: { total: 2500 } },
+      },
+    )
+  }
+  const report = pairedBenchmarkConfidence(results)
+  assert.equal(report.checks.initialInputAcceptable, false)
+  assert.equal(report.checks.tokensAcceptable, true)
+  assert.equal(report.promotionEligible, false)
+})
+
+test("V10 confidence accepts bounded token overhead with stronger correctness", () => {
+  const results = []
+  for (let index = 0; index < 24; index += 1) {
+    results.push(
+      {
+        suite: "live", task: "efficient-" + index, trial: 1, mode: "baseline",
+        passed: index < 8, durationMs: 100,
+        telemetry: { firstUsage: { input: 1000 }, tokens: { total: 2000 } },
+      },
+      {
+        suite: "live", task: "efficient-" + index, trial: 1, mode: "ues",
+        passed: index < 18, durationMs: 110,
+        telemetry: { firstUsage: { input: 1200 }, tokens: { total: 2400 } },
+      },
+    )
+  }
+  const report = pairedBenchmarkConfidence(results)
+  assert.equal(report.checks.initialInputAcceptable, true)
+  assert.equal(report.checks.tokensAcceptable, true)
+  assert.equal(report.promotionEligible, true)
+})
