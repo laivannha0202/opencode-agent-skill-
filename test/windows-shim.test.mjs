@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { resolveNodeShimEntry } from "../lib/windows-shim.mjs"
+import { resolveNodeShimEntry, resolveWindowsCommandCandidates } from "../lib/windows-shim.mjs"
 
 test("Windows shim resolver accepts extensionless Node bin entries inside node_modules", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-win-shim-"))
@@ -36,6 +36,24 @@ test("Windows shim resolver rejects extensionless non-Node targets", async () =>
     )
 
     assert.equal(resolveNodeShimEntry(shim), null)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("Windows command resolution skips unsupported batch shims in favor of a native executable", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-win-command-"))
+  try {
+    const badShim = path.join(root, "opencode.cmd")
+    const native = path.join(root, "opencode.exe")
+    await writeFile(badShim, "@ECHO off\r\necho unsupported\r\n")
+    await writeFile(native, "placeholder")
+
+    const resolved = resolveWindowsCommandCandidates([badShim, native])
+    assert.equal(resolved?.kind, "native")
+    assert.equal(resolved?.executable, native)
+    assert.deepEqual(resolved?.argsPrefix, [])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
