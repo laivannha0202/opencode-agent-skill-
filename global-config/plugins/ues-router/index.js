@@ -789,6 +789,9 @@ export default Plugin.define({
               const providerRecoveryText = providerRecovery.length
                 ? " Provider/session recovery is active. Continue from durable .ues-work state and current workspace evidence; do not repeat already-proven exploration."
                 : ""
+              const dispatchContext = physicalAttempt === 1
+                ? started.contextPack
+                : runOcskillJSON(["context-pack", input.slug, input.task, projectRoot], projectRoot)
 
               await ctx.session.prompt({
                 sessionID: created.id,
@@ -796,7 +799,7 @@ export default Plugin.define({
                   "Implement exactly this approved UES task in the current repository. " +
                   "Do not broaden scope or launch child agents. Run the declared verification and return the executor report." +
                   recoveryText + providerRecoveryText + "\n\n" +
-                  JSON.stringify(started.contextPack, null, 2),
+                  JSON.stringify(dispatchContext, null, 2),
               })
 
               try {
