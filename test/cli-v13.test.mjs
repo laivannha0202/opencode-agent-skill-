@@ -49,6 +49,26 @@ test("--json returns structured CLI errors", () => {
 })
 
 
+test("repo-graph compact mode keeps initial large-repo evidence bounded", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-graph-"))
+  try {
+    const src = path.join(dir, "src")
+    await mkdir(src, { recursive: true })
+    await writeFile(path.join(src, "a.js"), "import './b.js'\nexport const a = 1\n", "utf8")
+    await writeFile(path.join(src, "b.js"), "export const b = 2\n", "utf8")
+    const result = run(["repo-graph", ".", "--compact"], dir)
+    assert.equal(result.status, 0, result.stderr)
+    const payload = JSON.parse(result.stdout)
+    assert.equal(payload.nodeCount, 2)
+    assert.equal(payload.edgeCount, 1)
+    assert.equal("nodes" in payload, false)
+    assert.equal("edges" in payload, false)
+    assert.ok(Array.isArray(payload.hotspots))
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("top-level ues-work is never treated as canonical durable state", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-noncanonical-"))
   try {
