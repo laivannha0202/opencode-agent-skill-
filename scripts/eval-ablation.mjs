@@ -14,7 +14,7 @@ function positional() {
   const values = []
   for (let index = 0; index < args.length; index += 1) {
     if (args[index].startsWith("--")) {
-      if (["--pass-rate-tolerance", "--min-initial-reduction", "--max-token-ratio", "--max-duration-ratio", "--min-cacheable-ratio", "--min-evidence-reuse-ratio"].includes(args[index])) index += 1
+      if (["--pass-rate-tolerance", "--min-initial-reduction", "--max-token-ratio", "--max-duration-ratio", "--min-cacheable-ratio", "--min-evidence-reuse-ratio", "--max-repeated-stable-ratio"].includes(args[index])) index += 1
       continue
     }
     values.push(args[index])
@@ -40,6 +40,7 @@ const report = compareEvalSummaries(reference, candidate, {
   maxDurationRatio: Number(option("--max-duration-ratio", "1.10")),
   minCacheableRatio: option("--min-cacheable-ratio", null) == null ? null : Number(option("--min-cacheable-ratio", null)),
   minEvidenceReuseRatio: option("--min-evidence-reuse-ratio", null) == null ? null : Number(option("--min-evidence-reuse-ratio", null)),
+  maxRepeatedStableRatio: option("--max-repeated-stable-ratio", null) == null ? null : Number(option("--max-repeated-stable-ratio", null)),
 })
 
 console.log(JSON.stringify(report, null, 2))
