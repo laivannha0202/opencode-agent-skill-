@@ -141,6 +141,18 @@ try {
   })
   requireSuccess(inspect, "ocskill inspect from packed copy")
 
+  const compactGraph = spawnSync(process.execPath, [cli, "repo-graph", temp, "--compact"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(compactGraph, "ocskill compact repo-graph from packed copy")
+  const compactGraphPayload = JSON.parse(compactGraph.stdout)
+  assert.equal(typeof compactGraphPayload.nodeCount, "number")
+  assert.equal(typeof compactGraphPayload.edgeCount, "number")
+  assert.equal("nodes" in compactGraphPayload, false)
+  assert.equal("edges" in compactGraphPayload, false)
+
   const utf16TextFile = path.join(temp, "legacy-plan.txt")
   const utf16Body = "legacy UTF text from packed copy\n"
   await writeFile(
