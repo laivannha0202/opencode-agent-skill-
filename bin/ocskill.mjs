@@ -135,7 +135,7 @@ Usage:
   ocskill model-policy <role> [--attempt N]
                               Resolve light/standard/heavy escalation tier
   ocskill task-policy <text>    Classify task mode/risk/context/model tier
-  ocskill sandbox <action> ...  Create, integrate and clean isolated Git worktree sandboxes
+  ocskill sandbox <action> ...  Create, integrate, rollback and clean isolated Git worktree sandboxes
                               Also supports capability/exec for fail-closed container verification
   ocskill learn <action> ...    Analyze eval traces and promote benchmark-validated lessons
   ocskill hermes <action> ...   Optional Hermes sidecar/status/task/workflow planning
@@ -162,12 +162,15 @@ Usage:
     ocskill work plan <slug> <plan.json> [dir]
     ocskill work status|resume <slug> [dir]
     ocskill work gate-receipt <slug> <plan|integration> [dir] --evidence <text> [--verdict PASS|FAIL|PARTIAL] [--verifier <role>] [--session-id <id>] [--report-file <file>] [--out <file>]
+    ocskill work agent-receipt <slug> <task-id> [dir] --run-id <id> --verdict PASS|FAIL --evidence <text>
     ocskill work approve-plan <slug> [dir] --evidence <plan-checker-evidence> [--receipt-file <file>]
     ocskill work start <slug> <task-id> [dir] [--lease-ms N]
     ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id> [--execution-dir <dir>] [--sandbox-dir <dir>]
     ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>
     ocskill work recover <slug> [dir] [--force]
     ocskill work recover-task <slug> <task-id> [dir] [--force] [--reason <text>]
+    ocskill work checkpoint <slug> <task-id> [dir] --run-id <id> [--reason <text>]
+    ocskill work checkpoint-resumed <slug> <task-id> [dir] --run-id <id> [--reason <text>]
     ocskill work events <slug> [dir] [--limit N]
     ocskill work verify-command <slug> <task-id> [dir] --run-id <id> -- <command> [args...]
     ocskill work complete <slug> <task-id> [dir] --run-id <id> --evidence <text> [--report-file <file>]
@@ -203,6 +206,8 @@ function printCommandHelp(commandName, subcommand) {
     heartbeat: "ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>",
     recover: "ocskill work recover <slug> [dir]",
     "recover-task": "ocskill work recover-task <slug> <task-id> [dir]",
+    checkpoint: "ocskill work checkpoint <slug> <task-id> [dir] --run-id <id> [--reason <text>]",
+    "checkpoint-resumed": "ocskill work checkpoint-resumed <slug> <task-id> [dir] --run-id <id> [--reason <text>]",
     events: "ocskill work events <slug> [dir]",
     "verify-command": "ocskill work verify-command <slug> <task-id> [dir] --run-id <id> -- <command> [args...]",
     complete: "ocskill work complete <slug> <task-id> [dir] --run-id <id> --evidence <text>",
