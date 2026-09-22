@@ -8,6 +8,7 @@ import {
   createTaskSandbox,
   integrateTaskSandbox,
   listTaskSandboxes,
+  rollbackTaskSandbox,
 } from "../lib/worktree-sandbox.mjs"
 
 function git(root, args) {
@@ -84,6 +85,38 @@ test("sandbox creation refuses dirty root state", async () => {
       createTaskSandbox(root, "demo", "T3", { baseDir: base }),
       /clean root working tree/,
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+
+test("parallel sandbox inherits dirty root but only integrates its own delta", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-inherit-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-inherit-base-"))
+  try {
+    await writeFile(path.join(root, "upstream.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    await writeFile(path.join(root, "upstream.txt"), "integrated-a\n")
+    const sandbox = await createTaskSandbox(root, "parallel", "T2", {
+      baseDir: base,
+      inheritDirtyRoot: true,
+    })
+    assert.equal((await readFile(path.join(sandbox.dir, "upstream.txt"), "utf8")).replaceAll("\r\n", "\n"), "integrated-a\n")
+
+    await writeFile(path.join(sandbox.dir, "downstream.txt"), "task-b\n")
+    const integrated = await integrateTaskSandbox(root, sandbox.dir, { keep: true })
+    assert.deepEqual(integrated.changed, ["downstream.txt"])
+    assert.equal((await readFile(path.join(root, "upstream.txt"), "utf8")).replaceAll("\r\n", "\n"), "integrated-a\n")
+    assert.equal((await readFile(path.join(root, "downstream.txt"), "utf8")).replaceAll("\r\n", "\n"), "task-b\n")
+
+    await rollbackTaskSandbox(root, sandbox.dir)
+    await assert.rejects(readFile(path.join(root, "downstream.txt"), "utf8"), /ENOENT/)
+    assert.equal((await readFile(path.join(root, "upstream.txt"), "utf8")).replaceAll("\r\n", "\n"), "integrated-a\n")
   } finally {
     await rm(root, { recursive: true, force: true })
     await rm(base, { recursive: true, force: true })
