@@ -124,6 +124,7 @@ if (existsSync(routerIndex)) {
   if (!source.includes('name: "visual_geometry"')) errors.push("v11 router plugin must expose visual geometry receipts")
   if (!source.includes('name: "visual_compare"')) errors.push("v11 router plugin must expose deterministic PNG comparison")
   if (!source.includes('name: "workflow_plan"')) errors.push("v11 router plugin must expose dynamic workflow planning")
+  if (!source.includes('name: "ui_layout"')) errors.push("v11 router plugin must expose responsive UI layout verification")
   if (!source.includes("ctx.session.interrupt")) errors.push("v8 task dispatch must interrupt timed-out executors")
   if (!source.includes('"work", "heartbeat"')) errors.push("v8 task dispatch must refresh task leases")
 }
