@@ -6,6 +6,24 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [11.0.0-dev.1] - 2026-09-22
+
+### Added
+- Adaptive context engine that externalizes oversized source/test/reference excerpts into content-addressed evidence pointers while keeping bounded inline previews.
+- Deterministic UI layout and design-token tools exposed to the OpenCode V2 runtime.
+- Cost- and modality-aware workflow scheduling with inline thresholds, deterministic-first waves, independent LLM/vision concurrency and bounded wave cost.
+- Repeated-stable prompt ratio telemetry and an optional fail-closed ablation gate for repeated input efficiency.
+- Stronger V11 contract coverage for adaptive context, UI inspection and evidence externalization.
+
+### Changed
+- V11 router metadata now reports version 11.
+- Task context packs transport large contextual evidence through `evidence:sha256` pointers and report externalized byte/ref counts.
+- Capability-aware model routing fails closed when an enabled configured model set cannot satisfy required capabilities such as vision/browser.
+- Package development version is 11.0.0-dev.1.
+
+### Fixed
+- V11 eval-report regression tests now account for expanded adaptive telemetry coverage instead of using the old V10-only telemetry shape.
+
 ## [11.0.0-dev.0] - 2026-09-22
 
 ### Added
