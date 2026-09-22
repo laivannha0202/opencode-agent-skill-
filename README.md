@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V11 development: 11.0.0-dev.1** — nhánh phát triển perception-aware/adaptive execution. npm `latest` vẫn là V10 stable 10.0.0 cho tới khi V11 vượt release gates.
+> **V11 development: 11.0.0-dev.2** — nhánh phát triển perception-aware/adaptive execution. npm `latest` vẫn là V10 stable 10.0.0 cho tới khi V11 vượt release gates.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -111,6 +111,7 @@ ocskill visual crop actual.png failed-region.png --x 10 --y 20 --width 300 --hei
 ocskill visual viewports
 ocskill browser capability .
 ocskill browser plan http://localhost:3000 --target Checkout
+ocskill browser inspect http://localhost:3000 . --selector "button" --width 1440 --height 900
 ocskill ui tokens src/styles.css
 ocskill ui layout boxes.json --width 390 --height 844
 ocskill workflow-plan PLAN.json --max-concurrent 4
