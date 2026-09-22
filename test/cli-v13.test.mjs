@@ -47,3 +47,20 @@ test("--json returns structured CLI errors", () => {
   assert.equal(typeof payload.error.code, "string")
   assert.match(payload.error.message, /Unknown work action/)
 })
+
+
+test("work status dot auto-resolves the only active workspace", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-status-one-"))
+  try {
+    const init = run(["work", "init", "only-work", ".", "--goal", "test status resolution"], dir)
+    assert.equal(init.status, 0, init.stderr)
+    const result = run(["work", "status", "."], dir)
+    assert.equal(result.status, 0, result.stderr)
+    const payload = JSON.parse(result.stdout)
+    assert.equal(payload.autoResolved, true)
+    assert.equal(payload.autoResolvedSlug, "only-work")
+    assert.equal(payload.slug, "only-work")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
