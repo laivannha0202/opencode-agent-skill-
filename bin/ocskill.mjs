@@ -120,6 +120,7 @@ Usage:
   ocskill evidence [dir]       Collect stack, verification and Git evidence
   ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
   ocskill diff [dir] [--out file] Emit Git diff safely as UTF-8 (Windows-safe)
+  ocskill text-read <file> [--start N] [--max N]  Read UTF-8/UTF-16 text safely with bounded output
   ocskill normalize-text <file>  Convert UTF-8/UTF-16 text files to UTF-8
   ocskill repo-graph [dir] [--compact] [--max-files N]
                               Build a bounded source import/dependency graph; compact omits full node/edge payloads
@@ -233,6 +234,10 @@ function printCommandHelp(commandName, subcommand) {
   }
   if (commandName === "diff") {
     console.log("Usage: ocskill diff [dir] [--base <ref>] [--out <utf8-file>]\n")
+    return
+  }
+  if (commandName === "text-read") {
+    console.log("Usage: ocskill text-read <file> [--start N] [--max N] [--json]\n")
     return
   }
   if (commandName === "normalize-text") {
@@ -1502,6 +1507,37 @@ async function diffControl() {
   process.stdout.write(result.stdout || "")
 }
 
+async function textReadControl() {
+  const file = positionalArg(args, 1)
+  if (!file) {
+    const error = new Error("Usage: ocskill text-read <file> [--start N] [--max N] [--json]")
+    error.code = "UES_USAGE"
+    error.exitCode = 2
+    throw error
+  }
+  const text = readTextFile(file)
+  const parsedStart = optionInt(args, "--start", 0)
+  const parsedMax = optionInt(args, "--max", 12000)
+  const start = Number.isFinite(parsedStart) ? Math.max(0, parsedStart) : 0
+  const maxChars = Number.isFinite(parsedMax) ? Math.max(256, Math.min(parsedMax, 100000)) : 12000
+  const slice = text.slice(start, start + maxChars)
+  const truncated = start + slice.length < text.length
+  if (jsonOutput) {
+    printJson({
+      schemaVersion: 1,
+      file: path.resolve(file),
+      chars: text.length,
+      start,
+      returnedChars: slice.length,
+      truncated,
+      text: slice,
+    })
+    return
+  }
+  process.stdout.write(slice)
+  if (truncated) process.stdout.write("\n...[UES text-read truncated]...\n")
+}
+
 async function normalizeTextControl() {
   const file = args[1]
   if (!file) {
@@ -1744,6 +1780,9 @@ async function main() {
     break
   case "diff":
     await diffControl().catch((error) => printCliError(error))
+    break
+  case "text-read":
+    await textReadControl().catch((error) => printCliError(error))
     break
   case "normalize-text":
     await normalizeTextControl().catch((error) => printCliError(error))
