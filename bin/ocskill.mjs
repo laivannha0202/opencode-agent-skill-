@@ -1247,7 +1247,14 @@ async function workflowPlanControl() {
   }
   try {
     const plan = readJsonFile(file)
-    printJson(planDynamicWorkflow(plan.tasks || [], { maxConcurrent: optionInt(args, "--max-concurrent", 4) }))
+    printJson(planDynamicWorkflow(plan.tasks || [], {
+      maxConcurrent: optionInt(args, "--max-concurrent", 4),
+      maxLLMConcurrent: optionInt(args, "--max-llm-concurrent", optionInt(args, "--max-concurrent", 4)),
+      maxVisionConcurrent: optionInt(args, "--max-vision-concurrent", 2),
+      maxWaveCost: optionInt(args, "--max-wave-cost", 24),
+      minAgentCost: optionInt(args, "--min-agent-cost", 5),
+      minVisionAgentCost: optionInt(args, "--min-vision-agent-cost", 4),
+    }))
   } catch (error) {
     console.error(errorMessage(error))
     process.exitCode = 1
