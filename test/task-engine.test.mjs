@@ -9,6 +9,7 @@ import {
   addBlocker,
   approvePlan,
   completeTask,
+  contextPack,
   createPlanVerificationReceipt,
   createIntegrationVerificationReceipt,
   failTask,
@@ -87,6 +88,33 @@ async function addPassingReceipt(root, slug, taskID, runId) {
   })
   await recordVerificationReceipt(root, slug, taskID, receipt)
 }
+
+test("context pack decodes legacy UTF-16 spec and dependency reports", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-utf-artifacts-"))
+  try {
+    await initWork(root, "utf-artifacts", fixturePlan.goal)
+    await importAndApprove(root, "utf-artifacts")
+
+    const workDir = path.join(root, ".ues-work", "utf-artifacts")
+    const specFile = path.join(workDir, "SPEC.md")
+    const spec = "# UTF artifact spec\n\nLegacy PowerShell text should remain readable.\n"
+    await writeFile(specFile, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(spec, "utf16le")]))
+
+    const reportsDir = path.join(workDir, "reports")
+    await mkdir(reportsDir, { recursive: true })
+    const report = "# T1 report\n\nDependency evidence from UTF-16.\n"
+    await writeFile(
+      path.join(reportsDir, "T1.md"),
+      Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(report, "utf16le")]),
+    )
+
+    const pack = await contextPack(root, "utf-artifacts", "T2")
+    assert.match(pack.spec, /Legacy PowerShell text/)
+    assert.match(pack.dependencyReports.T1, /Dependency evidence from UTF-16/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test("plan approval is a hard gate before task execution", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-plan-gate-"))
