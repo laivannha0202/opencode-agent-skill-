@@ -87,9 +87,9 @@ for (const entry of await readdir(agentsRoot, { withFileTypes: true })) {
   if (!/mode:\s*subagent/.test(source)) errors.push(`${entry.name}: agent must use mode: subagent`)
 }
 
-if (ids.size < 39) errors.push(`expected at least 39 skills, found ${ids.size}`)
+const V11_REQUIRED_SKILLS = ["visual-fidelity","browser-qa","design-source","responsive-verification","component-visual-testing","browser-security","skill-authoring","skill-evaluation","dynamic-workflow"]\nfor (const id of V11_REQUIRED_SKILLS) if (!ids.has(id)) errors.push(`missing V11 skill ${id}`)\n\nif (ids.size < 48) errors.push(`expected at least 48 skills for V11, found ${ids.size}`)
 if (commands < 11) errors.push(`expected at least 11 commands, found ${commands}`)
-if (agents < 10) errors.push(`expected at least 10 subagents, found ${agents}`)
+if (agents < 12) errors.push(`expected at least 12 subagents for V11, found ${agents}`)
 
 const routerIndex = path.join(pluginsRoot, "ues-router", "index.js")
 const routerCore = path.join(pluginsRoot, "ues-router", "router.js")
@@ -138,11 +138,11 @@ if (existsSync(plainInstallSmoke)) {
   }
 }
 
-for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs"]) {
+for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","dynamic-workflow.mjs","skill-quality.mjs"]) {
   if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V8 core module ${name}`)
 }
 
-for (const name of ["codebase-mapper.md","plan-checker.md","executor.md","integration-verifier.md"]) {
+for (const name of ["codebase-mapper.md","plan-checker.md","executor.md","integration-verifier.md","visual-verifier.md","merge-arbiter.md"]) {
   if (!existsSync(path.join(agentsRoot, name))) errors.push(`missing V6 subagent ${name}`)
 }
 
