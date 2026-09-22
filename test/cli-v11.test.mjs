@@ -70,3 +70,16 @@ test("V11 skill lint sees the bundled expanded catalog", () => {
   assert.equal(value.valid, true)
   assert.ok(value.skillCount >= 48)
 })
+
+
+test("V11 browser inspect fails closed when Playwright is not installed", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-browser-inspect-cli-"))
+  try {
+    await writeFile(path.join(dir, "package.json"), JSON.stringify({ name: "x", version: "1.0.0" }))
+    const result = run(["browser", "inspect", "https://example.com/", dir])
+    assert.notEqual(result.status, 0)
+    assert.match(result.stderr, /Playwright is unavailable/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
