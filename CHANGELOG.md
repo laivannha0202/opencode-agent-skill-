@@ -6,6 +6,13 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### V11 dev.2
+- Added project-local, fail-closed Playwright browser inspection that returns bounded semantic elements, bounding boxes, computed visual properties and a screenshot path while treating page content as untrusted evidence.
+- Exposed browser inspection through CLI and the OpenCode V2 router without making Playwright a required package dependency.
+- Fixed duplicate `ui_layout` router tool registration and aligned durable context packs with V11 context schema version 6.
+- Extended V11 validation and regression coverage for the browser runtime.
+- Package development version is 11.0.0-dev.2.
+
 ## [11.0.0-dev.1] - 2026-09-22
 
 ### Added
