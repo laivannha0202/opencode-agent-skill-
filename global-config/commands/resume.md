@@ -13,6 +13,7 @@ Trust durable task state and Git evidence over conversational recollection. Resp
 - if the plan is awaiting approval, run `ues-plan-checker` and record PASS with `ocskill work approve-plan`;
 - resume failed/pending work from the last verified boundary;
 - on OpenCode V2, prefer `ues.dispatch_parallel` when two or more dependency-ready tasks have independent declared write/resource scopes; otherwise use `ues.dispatch_task` for a fresh executor. Keep one shared model for parallel worker/verifier sessions unless the user explicitly changes the design;
+- do not force-clean inherited user changes just to enable parallel resume; V13 snapshots an existing dirty Git baseline into isolated worktrees and integrates only each task delta;
 - do not repeat completed tasks unless fresh evidence invalidates them;
 - after all tasks complete, run `ues-integration-verifier`, record its verdict with `ocskill work verify-integration`, then finalize only after PASS and an unchanged workspace fingerprint.
 
