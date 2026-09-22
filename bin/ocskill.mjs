@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { writeFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
@@ -62,7 +62,7 @@ import { buildVerificationPlan } from "../lib/verification-plan.mjs"
 import { resolveAdaptiveModel, resolveCapabilityModel, resolveModel } from "../lib/model-policy.mjs"
 import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
-import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
+import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskSandbox, rollbackTaskSandbox } from "../lib/worktree-sandbox.mjs"
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, buildHermesWorkflowPrompt, hermesOneShotArgs, hermesSidecarPlan } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, recordModelPerformance, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
@@ -77,6 +77,7 @@ import { planDynamicWorkflow } from "../lib/dynamic-workflow.mjs"
 import { lintSkillCatalog } from "../lib/skill-quality.mjs"
 import { designTokenEvidence, extractDesignTokens, inspectResponsiveLayout } from "../lib/ui-inspector.mjs"
 import {
+  cliErrorPayload,
   clipOutput,
   errorMessage,
   optionInt,
@@ -87,8 +88,11 @@ import {
   readTextFile,
 } from "../lib/cli-utils.mjs"
 
-const args = process.argv.slice(2)
+const rawArgs = process.argv.slice(2)
+const jsonOutput = rawArgs.includes("--json")
+const args = rawArgs.filter((value) => value !== "--json")
 const command = args[0] || "help"
+const helpRequested = args.includes("--help") || args.includes("-h")
 const force = args.includes("--force")
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -107,6 +111,8 @@ Usage:
   ocskill impact <query> [dir] Search likely impact paths and matching lines
   ocskill evidence [dir]       Collect stack, verification and Git evidence
   ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
+  ocskill diff [dir] [--out file] Emit Git diff safely as UTF-8 (Windows-safe)
+  ocskill normalize-text <file>  Convert UTF-8/UTF-16 text files to UTF-8
   ocskill repo-graph [dir]      Build a bounded source import/dependency graph
   ocskill index <status|build|rebuild> [dir]
                               Build/reuse the persistent incremental semantic index
@@ -178,6 +184,89 @@ Usage:
 `)
 }
 
+function printCommandHelp(commandName, subcommand) {
+  const workUsage = {
+    init: "ocskill work init <slug> [dir] --goal <text>",
+    plan: "ocskill work plan <slug> <plan.json> [dir]",
+    status: "ocskill work status [slug|dir]",
+    resume: "ocskill work resume <slug> [dir]",
+    "gate-receipt": "ocskill work gate-receipt <slug> <plan|integration> [dir] --evidence <text>",
+    "agent-receipt": "ocskill work agent-receipt <slug> <task-id> [dir] --run-id <id> --verdict PASS|FAIL --evidence <text>",
+    "approve-plan": "ocskill work approve-plan <slug> [dir] --evidence <text>",
+    start: "ocskill work start <slug> <task-id> [dir]",
+    "attach-session": "ocskill work attach-session <slug> <task-id> [dir] --run-id <id> --session-id <id>",
+    heartbeat: "ocskill work heartbeat <slug> <task-id> [dir] --run-id <id>",
+    recover: "ocskill work recover <slug> [dir]",
+    "recover-task": "ocskill work recover-task <slug> <task-id> [dir]",
+    events: "ocskill work events <slug> [dir]",
+    "verify-command": "ocskill work verify-command <slug> <task-id> [dir] --run-id <id> -- <command> [args...]",
+    complete: "ocskill work complete <slug> <task-id> [dir] --run-id <id> --evidence <text>",
+    fail: "ocskill work fail <slug> <task-id> [dir] --run-id <id> --reason <text>",
+    decision: "ocskill work decision <slug> [dir] --text <decision>",
+    block: "ocskill work block <slug> [dir] --text <blocker>",
+    unblock: "ocskill work unblock <slug> [dir] --text <blocker>",
+    "verify-integration": "ocskill work verify-integration <slug> [dir] --verdict PASS|FAIL|PARTIAL --evidence <text>",
+    finalize: "ocskill work finalize <slug> [dir] --evidence <text>",
+  }
+  if (commandName === "work") {
+    if (subcommand && workUsage[subcommand]) console.log("Usage: " + workUsage[subcommand] + "\n")
+    else console.log("Usage: ocskill work <action> ...\n\nActions:\n  " + Object.keys(workUsage).join("\n  "))
+    return
+  }
+  if (commandName === "sandbox") {
+    console.log("Usage: ocskill sandbox <capability|exec|list|create|integrate|rollback|remove> ...\n")
+    return
+  }
+  if (commandName === "diff") {
+    console.log("Usage: ocskill diff [dir] [--base <ref>] [--out <utf8-file>]\n")
+    return
+  }
+  if (commandName === "normalize-text") {
+    console.log("Usage: ocskill normalize-text <file> [--out <utf8-file>]\n")
+    return
+  }
+  printHelp()
+}
+
+function printCliError(error, options = {}) {
+  const payload = cliErrorPayload(error, {
+    command: options.command || args.filter((value) => value !== "--help" && value !== "-h").join(" "),
+    usage: options.usage,
+    hint: options.hint,
+    recoverable: options.recoverable,
+  })
+  if (jsonOutput) console.error(JSON.stringify(payload))
+  else {
+    console.error("[ocskill] " + payload.error.code + ": " + payload.error.message)
+    if (payload.error.hint) console.error("[ocskill] Hint: " + payload.error.hint)
+  }
+  process.exitCode = payload.exitCode
+}
+
+function pathLikeWorkRoot(value) {
+  return !value || value === "." || value === ".." || value.includes("/") || value.includes("\\")
+}
+
+function listWorkspaces(root) {
+  root = path.resolve(root)
+  const base = path.join(root, ".ues-work")
+  if (!existsSync(base)) return []
+  const result = []
+  for (const entry of readdirSync(base, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue
+    try {
+      const state = JSON.parse(readFileSync(path.join(base, entry.name, "STATE.json"), "utf8"))
+      result.push({
+        slug: entry.name,
+        status: state.status || null,
+        goal: state.goal || null,
+        updatedAt: state.updatedAt || null,
+        nextAction: state.nextAction || null,
+      })
+    } catch {}
+  }
+  return result.sort((a, b) => a.slug.localeCompare(b.slug))
+}
 
 function run(executable, commandArgs, options = {}) {
   const common = { stdio: "inherit", ...options }
@@ -374,8 +463,7 @@ async function semanticIndexControl() {
     }
     throw new Error("Usage: ocskill index <status|build|rebuild> [dir]")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -416,8 +504,7 @@ async function aciControl() {
     }
     throw new Error("Usage: ocskill aci <search|refs|view|text> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -446,8 +533,7 @@ async function traceControl() {
     }
     throw new Error("Usage: ocskill trace <show|append> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -474,8 +560,7 @@ async function inspectTaskGraph() {
     printJson(analysis)
     if (!analysis.valid) process.exitCode = 1
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -493,9 +578,25 @@ async function inspectContextPack() {
 async function workControl() {
   const action = args[1]
   const slug = args[2]
-  if (!action || !slug) {
-    console.error("Usage: ocskill work <init|plan|status|resume|gate-receipt|approve-plan|start|attach-session|heartbeat|recover|recover-task|events|verify-command|complete|fail|decision|block|unblock|verify-integration|finalize> <slug> ...")
-    process.exitCode = 2
+  if (!action) {
+    const error = new Error("Usage: ocskill work <action> ...")
+    error.code = "UES_USAGE"
+    error.exitCode = 2
+    printCliError(error)
+    return
+  }
+
+  if (action === "status" && pathLikeWorkRoot(slug)) {
+    const root = path.resolve(slug || process.cwd())
+    printJson({ schemaVersion: 1, root, workspaces: listWorkspaces(root) })
+    return
+  }
+
+  if (!slug) {
+    const error = new Error("Usage: ocskill work " + action + " <slug> ...")
+    error.code = "UES_USAGE"
+    error.exitCode = 2
+    printCliError(error)
     return
   }
 
@@ -550,6 +651,44 @@ async function workControl() {
       } else {
         printJson(receipt)
       }
+      return
+    }
+    if (action === "agent-receipt") {
+      const taskID = args[3]
+      const root = positionalArg(args, 4) || process.cwd()
+      const runId = optionValue(args, "--run-id")
+      const verdict = String(optionValue(args, "--verdict") || "").toUpperCase()
+      const evidence = String(optionValue(args, "--evidence") || "").trim()
+      const verifier = String(optionValue(args, "--verifier") || "ues-verifier")
+      const sessionID = optionValue(args, "--session-id")
+      if (!taskID || !runId || !["PASS", "FAIL"].includes(verdict) || !evidence) {
+        const error = new Error("Usage: ocskill work agent-receipt <slug> <task-id> [dir] --run-id <id> --verdict PASS|FAIL --evidence <text> [--verifier <role>] [--session-id <id>]")
+        error.code = "UES_USAGE"
+        error.exitCode = 2
+        throw error
+      }
+      const fingerprint = workspaceFingerprint(root)
+      const timestamp = new Date().toISOString()
+      const receipt = createVerificationReceipt({
+        task: taskID,
+        runId,
+        command: "ues-agent-verifier",
+        args: [verifier, ...(sessionID ? [sessionID] : [])],
+        cwd: path.resolve(root),
+        exitCode: verdict === "PASS" ? 0 : 1,
+        startedAt: timestamp,
+        finishedAt: timestamp,
+        durationMs: 0,
+        stdout: evidence,
+        stderr: verdict === "PASS" ? "" : evidence,
+        workspaceBefore: fingerprint,
+        workspaceAfter: fingerprint,
+      })
+      receipt.kind = "agent-verifier"
+      receipt.verifier = verifier
+      receipt.sessionID = sessionID || null
+      receipt.evidence = evidence
+      printJson(await recordVerificationReceipt(root, slug, taskID, receipt))
       return
     }
     if (action === "approve-plan") {
@@ -968,7 +1107,11 @@ async function sandboxControl() {
       const taskID = args[3]
       const root = positionalArg(args, 4) || process.cwd()
       if (!slug || !taskID) throw new Error("Usage: ocskill sandbox create <slug> <task-id> [dir]")
-      printJson(await createTaskSandbox(root, slug, taskID))
+      printJson(await createTaskSandbox(root, slug, taskID, {
+        inheritDirtyRoot: args.includes("--inherit-dirty-root"),
+        allowDirtyRoot: args.includes("--allow-dirty-root"),
+        startPoint: optionValue(args, "--start-point") || undefined,
+      }))
       return
     }
     if (action === "integrate") {
@@ -976,6 +1119,13 @@ async function sandboxControl() {
       const root = positionalArg(args, 3) || process.cwd()
       if (!dir) throw new Error("Usage: ocskill sandbox integrate <worktree-path> [dir] [--keep]")
       printJson(await integrateTaskSandbox(root, dir, { keep: args.includes("--keep") }))
+      return
+    }
+    if (action === "rollback") {
+      const dir = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!dir) throw new Error("Usage: ocskill sandbox rollback <worktree-path> [dir] [--keep]")
+      printJson(await rollbackTaskSandbox(root, dir, { keep: args.includes("--keep") }))
       return
     }
     if (action === "remove") {
@@ -988,10 +1138,9 @@ async function sandboxControl() {
       }))
       return
     }
-    throw new Error("Usage: ocskill sandbox <capability|exec|list|create|integrate|remove> ...")
+    throw new Error("Usage: ocskill sandbox <capability|exec|list|create|integrate|rollback|remove> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1028,8 +1177,7 @@ async function learningControl() {
     }
     throw new Error("Usage: ocskill learn <status|analyze|accept|promote> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1146,8 +1294,7 @@ async function evidenceStoreControl() {
     }
     throw new Error("Usage: ocskill store <status|put|get|gc> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1204,8 +1351,7 @@ async function visualControl() {
     }
     throw new Error("Usage: ocskill visual <spec|geometry|compare|crop|viewports> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1243,8 +1389,7 @@ async function browserControl() {
     }
     throw new Error("Usage: ocskill browser <capability|plan|inspect> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1274,9 +1419,46 @@ async function uiControl() {
     }
     throw new Error("Usage: ocskill ui <tokens|layout> ...")
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
+}
+
+async function diffControl() {
+  const root = path.resolve(positionalArg(args, 1) || process.cwd())
+  const base = optionValue(args, "--base")
+  const outputFile = optionValue(args, "--out")
+  const commandArgs = ["diff", "--binary", "--no-ext-diff", ...(base ? [base] : []), "--"]
+  const result = runCapture("git", commandArgs, { cwd: root, maxBuffer: 16 * 1024 * 1024 })
+  if ((result.status ?? 1) !== 0) {
+    const error = new Error((result.stderr || result.stdout || "git diff failed").trim())
+    error.code = "UES_GIT_DIFF"
+    throw error
+  }
+  if (outputFile) {
+    const resolved = path.resolve(outputFile)
+    writeFileSync(resolved, result.stdout || "", "utf8")
+    printJson({ schemaVersion: 1, root, base: base || null, file: resolved, encoding: "utf8", bytes: Buffer.byteLength(result.stdout || "") })
+    return
+  }
+  if (jsonOutput) {
+    printJson({ schemaVersion: 1, root, base: base || null, encoding: "utf8", diff: result.stdout || "" })
+    return
+  }
+  process.stdout.write(result.stdout || "")
+}
+
+async function normalizeTextControl() {
+  const file = args[1]
+  if (!file) {
+    const error = new Error("Usage: ocskill normalize-text <file> [--out <utf8-file>]")
+    error.code = "UES_USAGE"
+    error.exitCode = 2
+    throw error
+  }
+  const text = readTextFile(file)
+  const output = path.resolve(optionValue(args, "--out") || file)
+  writeFileSync(output, text, "utf8")
+  printJson({ schemaVersion: 1, input: path.resolve(file), output, encoding: "utf8", bytes: Buffer.byteLength(text) })
 }
 
 async function workflowPlanControl() {
@@ -1297,8 +1479,7 @@ async function workflowPlanControl() {
       minVisionAgentCost: optionInt(args, "--min-vision-agent-cost", 4),
     }))
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1312,8 +1493,7 @@ async function skillsControl() {
   try {
     printJson(await lintSkillCatalog(positionalArg(args, 2) || packageRoot))
   } catch (error) {
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
   }
 }
 
@@ -1352,8 +1532,7 @@ async function update() {
     compared = compareVersions(latestVersion, currentVersion)
   } catch (error) {
     console.error("[ocskill] npm returned a version that could not be compared safely; refusing update.")
-    console.error(errorMessage(error))
-    process.exitCode = 1
+    printCliError(error)
     return
   }
 
@@ -1412,6 +1591,11 @@ async function remove() {
     { cwd: os.homedir() },
   )
   if (code !== 0) process.exitCode = code
+}
+
+if (helpRequested) {
+  printCommandHelp(command, args[1])
+  process.exit(0)
 }
 
 switch (command) {
@@ -1503,6 +1687,12 @@ switch (command) {
     break
   case "workflow-plan":
     await workflowPlanControl()
+    break
+  case "diff":
+    await diffControl().catch((error) => printCliError(error))
+    break
+  case "normalize-text":
+    await normalizeTextControl().catch((error) => printCliError(error))
     break
   case "ui":
     await uiControl()
