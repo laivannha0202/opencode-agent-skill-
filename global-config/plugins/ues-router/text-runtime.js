@@ -93,3 +93,23 @@ export function readProjectText(root, relative, options = {}) {
     text,
   }
 }
+
+export function readProjectJson(root, relative, options = {}) {
+  const result = readProjectText(root, relative, {
+    start: 0,
+    maxChars: Math.max(1024, Math.min(Number(options.maxChars || 100000), 100000)),
+  })
+  if (result.truncated) {
+    const error = new Error("JSON file exceeds the bounded V13 project reader limit")
+    error.code = "UES_TEXT_TRUNCATED"
+    throw error
+  }
+  try {
+    return { ...result, value: JSON.parse(result.text) }
+  } catch (cause) {
+    const error = new Error("invalid JSON in " + result.file + ": " + String(cause?.message || cause))
+    error.code = "UES_INVALID_JSON"
+    throw error
+  }
+}
+
