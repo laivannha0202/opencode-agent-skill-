@@ -68,7 +68,7 @@ test("checkReleaseConsistency() fails on README current version mismatch", () =>
     fillFixture(tmp)
     const readmePath = path.join(tmp, "README.md")
     let readme = readFileSync(readmePath, "utf8")
-    readme = readme.replace(/(Phiên bản hiện tại:\\s*\\n```text\\n)\\S+/, (_match, prefix) => prefix + "9.0.0")
+    readme = readme.replace(/(Phiên bản hiện tại:\s*\n```text\n)\S+/, (_match, prefix) => prefix + "9.0.0")
     writeFileSync(readmePath, readme)
     const result = checkReleaseConsistency(tmp)
     assert.equal(result.pass, false)
