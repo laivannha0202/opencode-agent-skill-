@@ -187,7 +187,10 @@ export function routeSkills(text, maxSkills = 4, facts = {}) {
   if (intent.actions.includes("research")) add(routed, "ues-research-verification")
   if (/(create|write|author|revise|improve).{0,30}(?:agent )?skill|(?:agent )?skill.{0,30}(create|author|description|trigger)/.test(value)) add(routed, "ues-skill-authoring")
   if (/(skill.{0,30}(eval|benchmark|routing test|precision|recall)|evaluate.{0,20}skill)/.test(value)) add(routed, "ues-skill-evaluation")
-  if (/(fan[- ]out|dynamic workflow|many independent tasks|parallel campaign|batch migration|bounded waves)/.test(value)) add(routed, "ues-dynamic-workflow")
+  if (/(fan[- ]out|dynamic workflow|many independent tasks|parallel campaign|batch migration|bounded waves)/.test(value)) {
+    add(routed, "ues-engineering-orchestrator")
+    add(routed, "ues-dynamic-workflow")
+  }
 
   addDomainSkills(routed, value, intent)
 
