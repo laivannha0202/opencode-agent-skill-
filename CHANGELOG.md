@@ -19,6 +19,13 @@ The project follows Semantic Versioning.
 
 ### Regression coverage
 - Added V13 tests for CLI help parsing, structured errors, UTF-16 PowerShell-style diff decoding, event-driven same-model concurrency, resource conflict serialization and inherited-root rollback behavior.
+- Added verifier-runtime regression coverage against forged/user-supplied PASS markers and malformed verdict lines.
+- Added structured `verificationCommands` validation coverage for deterministic post-integration receipts.
+
+### Fixed
+- Fixed the V13 structured-verification regression test wiring so the current HEAD test suite can execute the new plan-schema assertions.
+- Fixed npm 11+ lifecycle-script blocking in release smoke expectations: a plain global install may require the documented `ocskill install` resource-sync fallback, and CI now verifies that fallback instead of falsely requiring postinstall execution.
+- Clarified OpenCode 1.x versus V2 capability boundaries and fenced canonical long-task state to `.ues-work/<slug>/`; legacy/manual `ues-work/` directories are no longer treated as official UES state.
 
 
 ## [12.0.0-beta.0] - 2026-09-22
