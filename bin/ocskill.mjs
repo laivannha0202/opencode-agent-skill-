@@ -346,6 +346,11 @@ async function install() {
   console.log(`[ocskill] Commands: ${result.commands.length}`)
   console.log(`[ocskill] Subagents: ${result.agents.length}`)
   console.log(`[ocskill] OpenCode major: ${result.openCodeMajor}`)
+  console.log(
+    Number(result.openCodeMajor) >= 2
+      ? "[ocskill] V13 parallel: runtime capability-gated; open a new OpenCode session and check ues.capabilities."
+      : "[ocskill] V13 parallel: unavailable on OpenCode 1.x; CLI/durable workflow remains available.",
+  )
   if ((result.plugins || []).length) console.log(`[ocskill] Router plugins: ${result.plugins.length}`)
   for (const warning of result.warnings) console.warn(`[ocskill] WARNING: ${warning}`)
   console.log("[ocskill] Start a new OpenCode session to pick up workflow changes.")
@@ -373,6 +378,11 @@ async function status() {
   console.log(`[ocskill] Commands: ${result.commandsPresent}/${result.commands.length}`)
   console.log(`[ocskill] Subagents: ${result.agentsPresent}/${(result.agents || []).length}`)
   console.log(`[ocskill] OpenCode major: ${result.openCodeMajor ?? "legacy/unknown"}`)
+  console.log(
+    Number(result.openCodeMajor) >= 2
+      ? "[ocskill] V13 parallel: runtime capability-gated; verify freshDispatch with ues.capabilities in a new session."
+      : "[ocskill] V13 parallel: unavailable on OpenCode 1.x; use serial durable execution or upgrade the runtime.",
+  )
   if ((result.plugins || []).length) console.log(`[ocskill] Router plugins: ${result.pluginsPresent}/${result.plugins.length}`)
   console.log(`[ocskill] Workflow: ${result.workflowPresent ? "OK" : "MISSING"}`)
 
