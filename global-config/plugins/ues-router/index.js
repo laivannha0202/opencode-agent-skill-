@@ -6,7 +6,7 @@ import { spawnSync } from "node:child_process"
 import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
-import { runEventDrivenDAG } from "./parallel-runtime.js"
+import { parallelRootBaseline, runEventDrivenDAG } from "./parallel-runtime.js"
 import { readProjectJson, readProjectText } from "./text-runtime.js"
 import { extractVerifierVerdict } from "./verifier-runtime.js"
 import {
@@ -1287,9 +1287,7 @@ export default Plugin.define({
           }
 
           const initialTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
-          if (initialTree?.git !== true || initialTree?.clean !== true) {
-            throw new Error("ues.dispatch_parallel requires a clean root at start; parallel integrations become the only allowed root dirtiness during the run")
-          }
+          const rootBaseline = parallelRootBaseline(initialTree)
 
           const workDir = path.join(projectRoot, ".ues-work", input.slug)
           const planFile = path.join(workDir, "PLAN.json")
@@ -1492,6 +1490,7 @@ export default Plugin.define({
               model: sharedModel || "opencode-default",
               singleModel: true,
               maxConcurrent,
+              rootBaseline,
               scheduler,
               work: finalStatus,
               next: finalStatus.status === "integration-verification"
