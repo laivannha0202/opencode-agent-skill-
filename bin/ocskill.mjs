@@ -86,6 +86,7 @@ import {
   positionalArg,
   readJsonFile,
   readTextFile,
+  usageError,
 } from "../lib/cli-utils.mjs"
 
 const rawArgs = process.argv.slice(2)
@@ -661,10 +662,18 @@ async function workControl() {
   }
 
   if (!slug) {
-    const error = new Error("Usage: ocskill work " + action + " <slug> ...")
-    error.code = "UES_USAGE"
-    error.exitCode = 2
+    const error = usageError("Usage: ocskill work " + action + " <slug> ...")
     printCliError(error)
+    return
+  }
+
+  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(String(slug))) {
+    printCliError(usageError(
+      "Invalid work slug '" + String(slug) + "'. Use lowercase letters, numbers and dashes only.",
+    ), {
+      usage: "Usage: ocskill work " + action + " <slug> ...",
+      hint: "Example slug: recovery-2-foundation",
+    })
     return
   }
 
@@ -947,7 +956,7 @@ async function workControl() {
       return
     }
 
-    throw new Error("Unknown work action: " + action)
+    throw usageError("Unknown work action: " + action)
   } catch (error) {
     if (error?.validation && !jsonOutput) printJson(error.validation)
     printCliError(error, {
