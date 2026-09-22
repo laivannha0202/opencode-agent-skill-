@@ -121,6 +121,7 @@ if (existsSync(routerIndex)) {
   if (!source.includes('name: "capability_requirements"')) errors.push("v11 router plugin must expose capability requirements")
   if (!source.includes('name: "evidence_get"')) errors.push("v11 router plugin must expose bounded evidence retrieval")
   if (!source.includes('name: "browser_plan"')) errors.push("v11 router plugin must expose browser verification planning")
+  if (!source.includes('name: "browser_inspect"')) errors.push("v11 router plugin must expose bounded browser inspection")
   if (!source.includes('name: "visual_geometry"')) errors.push("v11 router plugin must expose visual geometry receipts")
   if (!source.includes('name: "visual_compare"')) errors.push("v11 router plugin must expose deterministic PNG comparison")
   if (!source.includes('name: "workflow_plan"')) errors.push("v11 router plugin must expose dynamic workflow planning")
@@ -149,7 +150,7 @@ if (existsSync(plainInstallSmoke)) {
   }
 }
 
-for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","dynamic-workflow.mjs","skill-quality.mjs","ui-inspector.mjs","context-engine-v11.mjs","v11-metrics.mjs"]) {
+for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","browser-runtime.mjs","dynamic-workflow.mjs","skill-quality.mjs","ui-inspector.mjs","context-engine-v11.mjs","v11-metrics.mjs"]) {
   if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V8 core module ${name}`)
 }
 
