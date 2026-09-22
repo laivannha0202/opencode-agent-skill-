@@ -11,6 +11,7 @@ export function runtimeCapabilities(ctx) {
     sessionSwitchModel: typeof session.switchModel === "function",
     sessionHook: typeof session.hook === "function",
     permissionHook: typeof permission.hook === "function",
+    permissionRules: typeof permission.rules === "function",
   }
   capabilities.freshDispatch =
     capabilities.sessionCreate &&
