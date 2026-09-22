@@ -25,6 +25,7 @@ jobs:
           - evals:polyglot:validate
           - evals:v11:validate
           - evals:v12:validate
+          - evals:v13
           - evals:repo-scale:validate
     runs-on: ubuntu-latest
     steps:
