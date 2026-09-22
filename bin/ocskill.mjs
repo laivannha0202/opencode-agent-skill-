@@ -69,6 +69,7 @@ import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model
 import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
 import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
 import { browserCapability, buildBrowserVerificationPlan } from "../lib/browser-adapter.mjs"
+import { inspectBrowserPage, summarizeBrowserInspection } from "../lib/browser-runtime.mjs"
 import { comparePngFiles, cropPngFile } from "../lib/png-diff.mjs"
 import { createGeometryReceipt, responsiveViewportMatrix, validateVisualSpec } from "../lib/visual-spec.mjs"
 import { planDynamicWorkflow } from "../lib/dynamic-workflow.mjs"
@@ -129,7 +130,7 @@ Usage:
   ocskill store <status|put|get|gc> ... Content-addressed evidence storage and bounded retrieval
   ocskill capabilities <text>     Infer required execution/model capabilities
   ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
-  ocskill browser <action> ...    Browser capability and bounded verification plan
+  ocskill browser <action> ...    Browser capability, plan and bounded Playwright inspection
   ocskill ui <tokens|layout> ...  Extract design tokens or verify responsive geometry
   ocskill workflow-plan <plan>    Cost-aware deterministic/LLM/vision wave schedule
   ocskill skills lint [dir]       Lint skill size, metadata and routing-description collisions
@@ -1200,7 +1201,24 @@ async function browserControl() {
       }))
       return
     }
-    throw new Error("Usage: ocskill browser <capability|plan> ...")
+    if (action === "inspect") {
+      const url = args[2]
+      if (!url) throw new Error("Usage: ocskill browser inspect <url> [dir] [--selector <css>] [--screenshot <path>] [--width N] [--height N] [--max-elements N]")
+      const root = positionalArg(args, 3) || process.cwd()
+      const report = await inspectBrowserPage(root, url, {
+        selector: optionValue(args, "--selector"),
+        screenshot: optionValue(args, "--screenshot"),
+        width: optionInt(args, "--width", 1440),
+        height: optionInt(args, "--height", 900),
+        maxElements: optionInt(args, "--max-elements", 80),
+        timeoutMs: optionInt(args, "--timeout-ms", 30000),
+        waitMs: optionInt(args, "--wait-ms", 0),
+        fullPage: !args.includes("--viewport-only"),
+      })
+      printJson(args.includes("--full") ? report : summarizeBrowserInspection(report, { limit: optionInt(args, "--limit", 20) }))
+      return
+    }
+    throw new Error("Usage: ocskill browser <capability|plan|inspect> ...")
   } catch (error) {
     console.error(errorMessage(error))
     process.exitCode = 1
