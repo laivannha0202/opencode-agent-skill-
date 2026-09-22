@@ -69,7 +69,9 @@
       "objective": "Browser QA requests targeted semantic/geometry evidence instead of repeated full-page snapshots.",
       "requiredFiles": [
         "lib/browser-adapter.mjs",
-        "global-config/skills/browser-qa/SKILL.md"
+        "global-config/skills/browser-qa/SKILL.md",
+        "lib/browser-runtime.mjs",
+        "test/browser-runtime-v11.test.mjs"
       ]
     },
     {
