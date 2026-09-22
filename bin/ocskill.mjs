@@ -421,8 +421,7 @@ async function inspectRepository() {
 async function inspectImpact() {
   const query = args[1]
   if (!query) {
-    console.error("Usage: ocskill impact <query> [dir]")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill impact <query> [dir]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   printJson(await impactMap(positionalArg(args, 2) || process.cwd(), query))
@@ -550,8 +549,7 @@ async function inspectVerificationPlan() {
 async function inspectTaskGraph() {
   const file = args[1]
   if (!file) {
-    console.error("Usage: ocskill task-graph <plan.json>")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill task-graph <plan.json>"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   try {
@@ -568,8 +566,7 @@ async function inspectContextPack() {
   const slug = args[1]
   const taskID = args[2]
   if (!slug || !taskID) {
-    console.error("Usage: ocskill context-pack <slug> <task-id> [dir]")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill context-pack <slug> <task-id> [dir]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   printJson(await contextPack(positionalArg(args, 3) || process.cwd(), slug, taskID))
@@ -890,8 +887,7 @@ async function workControl() {
 async function modelPolicy() {
   const role = args[1]
   if (!role) {
-    console.error("Usage: ocskill model-policy <role> [--attempt N]")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill model-policy <role> [--attempt N]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   const attempt = optionInt(args, "--attempt", 1)
@@ -925,8 +921,7 @@ async function modelsControl() {
     const tier = args[2]
     const model = args[3]
     if (!["light", "standard", "heavy"].includes(tier) || !validateModelID(model)) {
-      console.error("Usage: ocskill models set <light|standard|heavy> <provider/model[#variant]>")
-      process.exitCode = 2
+      printCliError(Object.assign(new Error("Usage: ocskill models set <light|standard|heavy> <provider/model[#variant]>"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
     policy = await writeModelPolicy(getConfigDir(), {
@@ -941,8 +936,7 @@ async function modelsControl() {
     const role = args[2]
     const tier = args[3]
     if (!role || !["light", "standard", "heavy"].includes(tier)) {
-      console.error("Usage: ocskill models role <role> <light|standard|heavy>")
-      process.exitCode = 2
+      printCliError(Object.assign(new Error("Usage: ocskill models role <role> <light|standard|heavy>"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
     policy = await writeModelPolicy(getConfigDir(), {
@@ -956,8 +950,7 @@ async function modelsControl() {
   if (action === "observe") {
     const model = args[2]
     if (!validateModelID(model)) {
-      console.error("Usage: ocskill models observe <provider/model> --task-class <class> --passed on|off")
-      process.exitCode = 2
+      printCliError(Object.assign(new Error("Usage: ocskill models observe <provider/model> --task-class <class> --passed on|off"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
     const taskClass = optionValue(args, "--task-class") || "general"
@@ -977,8 +970,7 @@ async function modelsControl() {
   if (action === "capability") {
     const model = args[2]
     if (!validateModelID(model)) {
-      console.error("Usage: ocskill models capability <provider/model> [capability flags]")
-      process.exitCode = 2
+      printCliError(Object.assign(new Error("Usage: ocskill models capability <provider/model> [capability flags]"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
     const current = policy.capabilities?.[model] || {}
@@ -1016,8 +1008,7 @@ async function modelsControl() {
     return
   }
 
-  console.error("Usage: ocskill models <status|on|off|set|role> ...")
-  process.exitCode = 2
+  printCliError(Object.assign(new Error("Usage: ocskill models <status|on|off|set|role> ..."), { code: "UES_USAGE", exitCode: 2 }))
 }
 
 async function routerControl() {
@@ -1026,13 +1017,14 @@ async function routerControl() {
   const maxValue = maxIndex >= 0 ? Number.parseInt(optionValue(args, "--max") ?? "", 10) : null
 
   if (!["status", "on", "off"].includes(action)) {
-    console.error("Usage: ocskill router [status|on|off] [--max 1..6]")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill router [status|on|off] [--max 1..6]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   if (maxIndex >= 0 && (!Number.isInteger(maxValue) || maxValue < 1 || maxValue > 6)) {
-    console.error("--max must be an integer from 1 through 6")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("--max must be an integer from 1 through 6"), {
+      code: "UES_USAGE",
+      exitCode: 2,
+    }))
     return
   }
 
@@ -1064,8 +1056,7 @@ async function routerControl() {
 async function taskPolicyControl() {
   const text = args.slice(1).join(" ").trim()
   if (!text) {
-    console.error("Usage: ocskill task-policy <text>")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill task-policy <text>"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   printJson(classifyEngineeringTask(text))
@@ -1191,8 +1182,7 @@ async function hermesControl() {
     const slug = args[2]
     const root = positionalArg(args, 3) || process.cwd()
     if (!slug) {
-      console.error("Usage: ocskill hermes <workflow|exec-workflow> <slug> [dir] [--max-concurrent N]")
-      process.exitCode = 2
+      printCliError(Object.assign(new Error("Usage: ocskill hermes <workflow|exec-workflow> <slug> [dir] [--max-concurrent N]"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
     const planFile = path.join(path.resolve(root), ".ues-work", slug, "PLAN.json")
@@ -1226,8 +1216,7 @@ async function hermesControl() {
     const taskID = args[3]
     const root = positionalArg(args, 4) || process.cwd()
     if (!slug || !taskID) {
-      console.error("Usage: ocskill hermes <prompt|exec> <slug> <task-id> [dir]")
-      process.exitCode = 2
+      printCliError(Object.assign(new Error("Usage: ocskill hermes <prompt|exec> <slug> <task-id> [dir]"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
     const prompt = buildHermesDelegationPrompt(await contextPack(root, slug, taskID))
@@ -1251,8 +1240,7 @@ async function hermesControl() {
     if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
     return
   }
-  console.error("Usage: ocskill hermes <status|prompt|exec|workflow|exec-workflow> ...")
-  process.exitCode = 2
+  printCliError(Object.assign(new Error("Usage: ocskill hermes <status|prompt|exec|workflow|exec-workflow> ..."), { code: "UES_USAGE", exitCode: 2 }))
 }
 
 async function evidenceStoreControl() {
@@ -1301,8 +1289,7 @@ async function evidenceStoreControl() {
 async function capabilityControl() {
   const text = args.slice(1).join(" ").trim()
   if (!text) {
-    console.error("Usage: ocskill capabilities <task text>")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill capabilities <task text>"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   printJson(inferTaskCapabilities(text))
@@ -1464,8 +1451,7 @@ async function normalizeTextControl() {
 async function workflowPlanControl() {
   const file = args[1]
   if (!file) {
-    console.error("Usage: ocskill workflow-plan <PLAN.json> [--max-concurrent N]")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill workflow-plan <PLAN.json> [--max-concurrent N]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   try {
@@ -1486,8 +1472,7 @@ async function workflowPlanControl() {
 async function skillsControl() {
   const action = args[1] || "lint"
   if (action !== "lint") {
-    console.error("Usage: ocskill skills lint [dir]")
-    process.exitCode = 2
+    printCliError(Object.assign(new Error("Usage: ocskill skills lint [dir]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   try {
