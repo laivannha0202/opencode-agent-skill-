@@ -18,3 +18,30 @@ test("V11 workflow scheduler keeps deterministic checks out of agent fan-out and
   assert.ok(!(first.includes("b") && first.includes("c")))
   assert.ok(plan.deterministicTaskCount >= 1)
 })
+
+
+test("V11 workflow scheduler keeps tiny serial LLM work inline instead of spawning needless agents", () => {
+  const plan = planDynamicWorkflow([
+    { id: "one", title: "Rename one local helper", files: { modify: ["helper.js"] } },
+  ])
+  assert.equal(plan.agentTaskCount, 0)
+  assert.equal(plan.inlineTaskCount, 1)
+  assert.equal(plan.waves[0].tasks[0].execution, "inline")
+})
+
+test("V11 workflow scheduler bounds vision workers separately from general LLM concurrency", () => {
+  const tasks = Array.from({ length: 4 }, (_, index) => ({
+    id: "v" + index,
+    title: "Visual screenshot fidelity pass " + index,
+    acceptance: ["match geometry", "match pixels"],
+    verification: ["render screenshot"],
+    files: { modify: ["component-" + index + ".tsx"] },
+  }))
+  const plan = planDynamicWorkflow(tasks, {
+    maxConcurrent: 4,
+    maxVisionConcurrent: 1,
+    minVisionAgentCost: 2,
+  })
+  assert.equal(plan.visionAgentTaskCount, 4)
+  assert.ok(plan.waves.every((wave) => wave.visionAgentSlots <= 1))
+})
