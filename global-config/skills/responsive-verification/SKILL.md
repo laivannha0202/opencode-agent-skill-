@@ -1,10 +1,10 @@
 ---
 name: responsive-verification
-description: Verify responsive web/mobile layout across representative viewport matrices, checking overflow, overlap, offscreen controls, text scaling, image aspect ratio, sticky/fixed behavior and breakpoint-specific interaction.
+description: Verify responsive UI across project-relevant viewports, detecting overflow, overlap, offscreen controls, broken wrapping, incorrect sticky/fixed behavior, image distortion, and text-scaling failures.
 ---
 
 # Responsive Verification
 
-Use the project's breakpoints when available; otherwise use a small representative matrix rather than dozens of arbitrary sizes. Verify geometry and interaction, not screenshots alone.
+Use project breakpoints when available; otherwise choose a minimal representative matrix rather than many arbitrary widths. Verify the changed user flow at each relevant viewport.
 
-Check overflow/overlap, hidden-but-required controls, long text, zoom/text scaling, safe areas where relevant, images and sticky/fixed positioning. Report failures by viewport and owning component.
+Prefer deterministic geometry/overflow checks first, then use screenshots only for visual hierarchy issues. Report viewport, element/region, observed dimensions/state, and evidence. Do not accept desktop-only success for a responsive requirement.
