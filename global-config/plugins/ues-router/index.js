@@ -1,5 +1,5 @@
 import { Plugin } from "@opencode/plugin"
-import { existsSync, readFileSync, readdirSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
@@ -154,6 +154,39 @@ function workspaceSignal(root) {
 function sessionContextDigest(messages) {
   const recent = Array.isArray(messages) ? messages.slice(-12) : messages
   return stableRuntimeHash(recent || [])
+}
+
+function persistRuntimeEvidence(root, tool, result) {
+  const original = typeof result === "string" ? result : String(result?.output || "")
+  if (original.length < 12_000) return null
+  const hash = stableRuntimeHash(original)
+  const dir = path.join(root, ".ues-cache", "evidence-v1", hash.slice(0, 2))
+  const dataFile = path.join(dir, hash + ".blob")
+  const metaFile = path.join(dir, hash + ".json")
+  try {
+    mkdirSync(dir, { recursive: true })
+    if (!existsSync(dataFile)) writeFileSync(dataFile, original, "utf8")
+    const now = new Date().toISOString()
+    let createdAt = now
+    try { createdAt = JSON.parse(readFileSync(metaFile, "utf8")).createdAt || now } catch {}
+    writeFileSync(metaFile, JSON.stringify({
+      schemaVersion: 1,
+      ref: "evidence:sha256:" + hash,
+      sha256: hash,
+      bytes: Buffer.byteLength(original),
+      encoding: "utf8",
+      mediaType: "text/plain; charset=utf-8",
+      kind: "tool-output",
+      source: String(tool || "unknown"),
+      summary: "Full runtime tool output externalized before context budgeting",
+      createdAt,
+      lastSeenAt: now,
+      preview: original.slice(0, 600),
+    }, null, 2) + "\n", "utf8")
+    return "evidence:sha256:" + hash
+  } catch {
+    return null
+  }
 }
 
 function policySkills(policy) {
@@ -356,7 +389,22 @@ export default Plugin.define({
             event.tool === "bash" && /(?:ocskill\s+repo-graph|\brg\b|\bgrep\b|\bglob\b)/i.test(shellInput)
               ? "repo-graph"
               : event.tool
+          const evidenceRef = persistRuntimeEvidence(assignment.executionDir || projectRoot, budgetTool, event.result)
+          const originalResult = event.result
           event.result = budgetToolResult(budgetTool, event.result)
+          if (evidenceRef && event.result !== originalResult) {
+            if (typeof event.result === "string") {
+              event.result += "\n[UES_EVIDENCE_REF " + evidenceRef + "]"
+            } else if (event.result && typeof event.result === "object") {
+              event.result = {
+                ...event.result,
+                metadata: {
+                  ...(event.result.metadata || {}),
+                  uesEvidenceRef: evidenceRef,
+                },
+              }
+            }
+          }
           runtimeGuard.after({
             sessionID: event.sessionID,
             tool: event.tool,
