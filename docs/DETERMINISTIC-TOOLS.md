@@ -1,6 +1,6 @@
 # Deterministic evidence and execution tools
 
-UES 8 uses dependency-light Node helpers for work that should not rely on a model guessing or remembering it.
+V11 uses dependency-light Node helpers for work that should not rely on a model guessing or remembering it.
 
 ## Repository evidence
 

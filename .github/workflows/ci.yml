@@ -17,11 +17,13 @@ jobs:
         check:
           - syntax
           - validate
+          - docs:check
           - evals
           - evals:router
           - evals:live:validate
           - evals:long:validate
           - evals:polyglot:validate
+          - evals:v11:validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -102,3 +104,27 @@ jobs:
 
       - name: Plain one-command install smoke
         run: npm run smoke:plain-install
+
+  ci-gate:
+    name: CI Gate
+    needs: [static, unit, package]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify all required CI jobs passed
+        run: |
+          failed=0
+          for entry in "static:${{ needs.static.result }}" "unit:${{ needs.unit.result }}" "package:${{ needs.package.result }}"; do
+            name="${entry%%:*}"
+            result="${entry##*:}"
+            echo "$name: $result"
+            if [ "$result" != "success" ]; then
+              echo "FAIL: $name did not pass (status: $result)"
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "CI Gate FAILED: one or more required jobs failed or were cancelled"
+            exit 1
+          fi
+          echo "CI Gate PASSED: all required jobs succeeded"

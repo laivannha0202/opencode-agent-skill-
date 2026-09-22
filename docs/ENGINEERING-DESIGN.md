@@ -1,6 +1,6 @@
 # UES engineering design
 
-UES 8 evolves the project from an engineering workflow harness into a **long-horizon execution engine** designed to reduce context pressure on coding models.
+V11 evolves the project from an engineering workflow harness into a **perception-aware adaptive execution engine** designed to reduce context pressure on coding models while keeping evidence needed for correctness.
 
 The selected model remains the selected model. UES improves orchestration, evidence, task boundaries, state persistence and verification; it does not claim model equivalence.
 
@@ -44,11 +44,11 @@ Models still reason about semantics and read affected code.
 
 ### Progressive disclosure
 
-The catalog remains 39 skills. UES prefers a small active skill set and loads deeper references only when needed.
+The catalog spans 48 skills. UES prefers a small active skill set and loads deeper references only when needed.
 
 ### Hard gates, not reminders
 
-V8 machine-enforces the important boundaries:
+V11 machine-enforces the important boundaries:
 
 1. long/high-risk plans are not executable until a structured plan-verification receipt matches the current plan hash;
 2. long/high-risk task completion requires a successful verification receipt for the active run and the current workspace fingerprint;
@@ -133,7 +133,7 @@ Only UES-managed resources are rewritten/removed.
 
 UES separates:
 
-1. **static skill contract** — 34 scenarios covering the 39-skill catalog;
+1. **static skill contract** — 43 scenarios covering the 48-skill catalog;
 2. **V2 router precision matrix** — 120 required-route/negative-guard cases;
 3. **standard live benchmark** — 20 executable hidden-graded tasks;
 4. **long-horizon benchmark** — 5 tasks, including one 15-source-file integration workload;

@@ -431,7 +431,7 @@ ocskill work status checkout .
 
 ## Skills
 
-V11 development hiện có **48 skills**; V10 stable có 39. Router vẫn chỉ chọn tập skill phù hợp thay vì nạp toàn bộ catalog vào mỗi task. Router chỉ chọn các skill phù hợp thay vì nạp toàn bộ catalog vào mỗi task.
+V11 stable hiện có **48 skills**; V10 stable có 39. Router vẫn chỉ chọn tập skill phù hợp thay vì nạp toàn bộ catalog vào mỗi task.
 
 Một số process skill quan trọng:
 
@@ -592,10 +592,11 @@ Integration sẽ từ chối ghi đè lên file đang dirty ở root. Safe-wave 
 
 ## Evaluation
 
-UES 9.0.0 hiện có:
+V11 hiện có:
 
-- **34 static skill-routing scenarios** phủ 39 skills;
-- **120 V2 router cases** với required routes và negative guards;
+- **43 static skill-routing scenarios** phủ 48 skills;
+- **129 V2 router cases** với required routes và negative guards;
+- **13 V11 contract tasks** across 6 categories;
 - **20 standard live tasks**;
 - **5 long-horizon tasks**;
 - **8 polyglot tasks** cho Python, Java, .NET, Next.js, React Native, SQL migration, monorepo và generated contract;
@@ -667,11 +668,13 @@ Pipeline hiện kiểm tra:
 ```text
 syntax
 → resource validation
+→ docs:check
 → static skill routing
 → V2 router matrix
 → standard hidden-grader integrity
 → long hidden-grader integrity
 → polyglot hidden-grader integrity
+→ V11 contract validation
 → Node tests
 → npm pack --dry-run
 → packed global-install smoke
@@ -732,7 +735,7 @@ npm install -g opencode-agent-skill
 Phiên bản hiện tại:
 
 ```text
-9.0.0
+11.0.0
 ```
 
 ---

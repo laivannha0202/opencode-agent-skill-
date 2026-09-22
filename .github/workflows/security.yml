@@ -42,3 +42,31 @@ jobs:
 
       - name: Review dependency changes
         uses: actions/dependency-review-action@v4
+
+  security-gate:
+    name: Security Gate
+    needs: [codeql, dependency-review]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify security jobs
+        run: |
+          failed=0
+          for entry in "codeql:${{ needs.codeql.result }}" "dependency-review:${{ needs.dependency-review.result }}"; do
+            name="${entry%%:*}"
+            result="${entry##*:}"
+            if [ "$result" == "skipped" ] && [ "$name" == "dependency-review" ]; then
+              echo "$name: skipped (expected on push events)"
+              continue
+            fi
+            echo "$name: $result"
+            if [ "$result" != "success" ]; then
+              echo "FAIL: $name did not pass (status: $result)"
+              failed=1
+            fi
+          done
+          if [ "$failed" -ne 0 ]; then
+            echo "Security Gate FAILED: one or more required security checks failed"
+            exit 1
+          fi
+          echo "Security Gate PASSED"

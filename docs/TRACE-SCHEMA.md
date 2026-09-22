@@ -75,7 +75,7 @@ Keep constant:
 Compare observable success, regressions, elapsed time, tool behavior and cost rather than narrative confidence.
 
 
-## V8 runtime and evidence fields
+## V11 runtime and evidence fields
 
 Each live result may additionally contain:
 

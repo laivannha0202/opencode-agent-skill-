@@ -1,10 +1,10 @@
 # UES evaluations
 
-UES 8 separates catalog correctness, routing precision, benchmark integrity, final behavior, long-horizon orchestration and cross-stack coverage.
+V11 separates catalog correctness, routing precision, benchmark integrity, final behavior, long-horizon orchestration and cross-stack coverage.
 
 ## 1. Static skill-routing contract
 
-`evals/routing.json` keeps 34 representative scenarios and covers all installed skills.
+`evals/routing.json` keeps 43 representative scenarios and covers all installed skills.
 
 ```bash
 npm run evals
@@ -141,7 +141,7 @@ Compare the same model, variant, prompt, fixture, grader and environment. Report
 A benchmark result is evidence only for the measured workload. UES does not claim to turn one base model into another.
 
 
-## V8 live-run observability and evidence gate
+## V11 live-run observability and evidence gate
 
 Live runs accept:
 

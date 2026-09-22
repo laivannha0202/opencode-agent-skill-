@@ -1,6 +1,6 @@
 # OpenCode compatibility
 
-UES 8 ships one npm package for OpenCode 1.x and 2.x, while only enabling V2-native runtime features when V2 is detected.
+V11 ships one npm package for OpenCode 1.x and 2.x, while only enabling V2-native runtime features when V2 is detected.
 
 ## Detection
 
@@ -23,9 +23,9 @@ The detected major is recorded in the managed state.
 
 UES installs:
 
-- 39 namespaced skills
+- 48 namespaced skills
 - 11 namespaced commands
-- 10 namespaced subagents using compatible V1 `permission` frontmatter
+- 12 namespaced subagents using compatible V1 `permission` frontmatter
 - managed global `AGENTS.md` block
 
 The V2 runtime plugin is not installed.

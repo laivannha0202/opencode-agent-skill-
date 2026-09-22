@@ -1,6 +1,6 @@
 # UES V11 — Perception & Adaptive Execution
 
-Status: development (`11.0.0-dev.1`). V10 remains npm `latest` until the V11 release gates pass.
+Status: stable (`11.0.0`). V11 is npm `latest`.
 
 ## Goal
 
@@ -211,7 +211,7 @@ Do not promote V11 to stable until all are satisfied:
 7. Packed and plain npm-install smoke tests pass.
 8. Real weak-model evaluation shows no suite regression.
 9. Any configured cache/evidence target has sufficient telemetry and passes.
-10. npm `latest` remains V10 until the V11 candidate completes these gates.
+10. npm `latest` is V11 stable; no release gate prevents promotion.
 
 ## Compatibility
 
