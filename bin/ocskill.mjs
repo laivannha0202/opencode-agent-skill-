@@ -64,7 +64,7 @@ import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
-import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
+import { hermesStatus, buildHermesDelegationPrompt, buildHermesWorkflowPrompt, hermesOneShotArgs, hermesSidecarPlan } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
 import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
@@ -124,7 +124,7 @@ Usage:
   ocskill sandbox <action> ...  Create, integrate and clean isolated Git worktree sandboxes
                               Also supports capability/exec for fail-closed container verification
   ocskill learn <action> ...    Analyze eval traces and promote benchmark-validated lessons
-  ocskill hermes <action> ...   Optional Hermes adapter/status
+  ocskill hermes <action> ...   Optional Hermes sidecar/status/task/workflow planning
   ocskill store <status|put|get|gc> ... Content-addressed evidence storage and bounded retrieval
   ocskill capabilities <text>     Infer required execution/model capabilities
   ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
@@ -1013,6 +1013,40 @@ async function hermesControl() {
     printJson(hermesStatus())
     return
   }
+  if (action === "workflow" || action === "exec-workflow") {
+    const slug = args[2]
+    const root = positionalArg(args, 3) || process.cwd()
+    if (!slug) {
+      console.error("Usage: ocskill hermes <workflow|exec-workflow> <slug> [dir] [--max-concurrent N]")
+      process.exitCode = 2
+      return
+    }
+    const planFile = path.join(path.resolve(root), ".ues-work", slug, "PLAN.json")
+    const plan = readJsonFile(planFile)
+    const schedule = planDynamicWorkflow(plan.tasks || [], {
+      maxConcurrent: optionInt(args, "--max-concurrent", 4),
+    })
+    const sidecar = hermesSidecarPlan({ mode: "dynamic-workflow", maxConcurrent: schedule.maxConcurrent })
+    const prompt = buildHermesWorkflowPrompt({ slug, goal: plan.goal || null, plan }, schedule)
+    if (action === "workflow") {
+      printJson({ sidecar, schedule, prompt })
+      return
+    }
+    const status = hermesStatus()
+    if (!status.available) {
+      console.error(status.error || "Hermes CLI is unavailable")
+      process.exitCode = 1
+      return
+    }
+    const result = runCapture("hermes", hermesOneShotArgs(prompt), {
+      cwd: path.resolve(root),
+      maxBuffer: 8 * 1024 * 1024,
+    })
+    if (result.stdout) process.stdout.write(result.stdout)
+    if (result.stderr) process.stderr.write(result.stderr)
+    if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
+    return
+  }
   if (action === "prompt" || action === "exec") {
     const slug = args[2]
     const taskID = args[3]
@@ -1043,7 +1077,7 @@ async function hermesControl() {
     if ((result.status ?? 1) !== 0) process.exitCode = result.status ?? 1
     return
   }
-  console.error("Usage: ocskill hermes <status|prompt|exec> ...")
+  console.error("Usage: ocskill hermes <status|prompt|exec|workflow|exec-workflow> ...")
   process.exitCode = 2
 }
 
