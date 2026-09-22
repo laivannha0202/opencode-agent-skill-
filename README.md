@@ -58,10 +58,16 @@ Yêu cầu:
 - npm;
 - OpenCode.
 
-Cài đặt toàn cục từ npm:
+Cài đặt stable hiện tại từ npm:
 
 ```cmd
 npm install -g opencode-agent-skill
+```
+
+Cài V13 beta qua dist-tag `next`:
+
+```cmd
+npm install -g opencode-agent-skill@next
 ```
 
 Kiểm tra:
@@ -72,11 +78,13 @@ ocskill status
 ocskill doctor
 ```
 
-Nếu npm không chạy lifecycle script trong lúc cài đặt, chạy thêm:
+Nếu npm không chạy lifecycle script trong lúc cài đặt (npm 11+ có thể cảnh báo `install-scripts ... not yet covered by allowScripts`), package CLI vẫn có thể đã được cài. Chạy resource sync rõ ràng:
 
 ```cmd
 ocskill install
 ```
+
+Đây là fallback được CI smoke kiểm tra; không cần dùng `--force` chỉ để vượt cảnh báo lifecycle script.
 
 Sau khi cài hoặc cập nhật UES, nên mở một OpenCode session mới để các skill, command, subagent và plugin được nạp lại đầy đủ.
 
