@@ -34,6 +34,7 @@ Useful deterministic helpers include:
 
 - `ocskill inspect [dir]`
 - `ocskill impact <symbol-or-term> [dir]`
+- `ocskill repo-graph [dir] --compact` for an initial hotspot summary; request the full graph only when exact edge detail is needed
 - `ocskill aci search|refs|view|text ...`
 - `ocskill working-tree [dir]`
 - `ocskill verification-plan [dir]`
