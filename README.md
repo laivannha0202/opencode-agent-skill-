@@ -1,7 +1,7 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V12 beta: 12.0.0-beta.0** — weak-model intelligence foundation với empirical routing, context-quality metrics, plan-scoped execution và repo-scale validation.
-> **Stable latest vẫn là V11: 11.0.0.** Dùng `npm install -g opencode-agent-skill@next` để thử V12 beta.
+> **V13 beta: 13.0.0-beta.0** — parallel weak-model runtime với same-model worker pool, event-driven DAG, transactional worktree integration và hardened CLI/Windows text handling.
+> **Stable latest vẫn là V11: 11.0.0.** Dùng `npm install -g opencode-agent-skill@next` để thử V13 beta.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -21,6 +21,32 @@
 Mục tiêu của UES là giúp quá trình làm việc với coding agent **ổn định hơn, có thể kiểm chứng hơn và phù hợp hơn với repository lớn**.
 
 ---
+
+
+## V13 beta: Parallel Weak-Model Runtime
+
+V13 cho phép **một model duy nhất** chạy nhiều fresh child sessions song song. `ues.dispatch_parallel` chọn một shared model (hoặc giữ OpenCode default model), chạy các task độc lập theo event-driven DAG, dùng resource lease để tránh writer conflict, tạo worktree riêng cho writer, dùng fresh same-model `ues-verifier`, rồi tích hợp tuần tự. Nếu bước receipt/complete thất bại sau khi patch đã áp dụng, integration transaction tự rollback patch của task đó.
+
+```text
+approved PLAN
+    ↓
+event-driven DAG
+    ↓
+same model × N fresh sessions
+    ↓
+isolated worktrees + resource leases
+    ↓
+fresh same-model verifier
+    ↓
+transactional integration queue
+    ↓
+unlock dependencies immediately
+```
+
+CLI V13 cũng xử lý `--help` trước positional parsing, hỗ trợ `ocskill work status .`, structured errors với `--json`, đọc UTF-8/UTF-16 an toàn và cung cấp `ocskill diff . --out dirty.diff` để tránh PowerShell tạo diff UTF-16 bị OpenCode nhận nhầm là binary.
+
+---
+
 
 ## Cài đặt
 
@@ -476,7 +502,7 @@ Plugin cung cấp:
 - context guardrail;
 - permission safety gate;
 - read-only long-task helpers;
-- fresh-session executor runtime qua `ues.dispatch_task`.
+- fresh-session executor runtime qua `ues.dispatch_task` và same-model parallel runtime qua `ues.dispatch_parallel`.
 
 Điều khiển router:
 
@@ -715,7 +741,7 @@ UES chỉ quản lý resource có namespace/marker của chính nó và cố g�
 - [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 - [V8 Intelligence & Reliability](docs/V8-INTELLIGENCE-RELIABILITY.md)
 - [V9 Speed & Intelligence](docs/V9-SPEED-INTELLIGENCE.md)
-- [V12 Weak-Model Intelligence (beta)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)
+- [V12 Weak-Model Intelligence (beta)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)\n- [V13 Parallel Weak-Model Runtime (beta)](docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md)
 
 ---
 
@@ -736,10 +762,10 @@ npm install -g opencode-agent-skill
 Phiên bản hiện tại:
 
 ```text
-12.0.0-beta.0
+13.0.0-beta.0
 ```
 
-V12 beta dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V12 hoàn tất.
+V13 beta dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V13 hoàn tất.
 
 ---
 
