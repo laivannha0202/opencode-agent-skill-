@@ -1613,12 +1613,13 @@ async function remove() {
   if (code !== 0) process.exitCode = code
 }
 
-if (helpRequested) {
-  printCommandHelp(command, args[1])
-  process.exit(0)
-}
+async function main() {
+  if (helpRequested) {
+    printCommandHelp(command, args[1])
+    return
+  }
 
-switch (command) {
+  switch (command) {
   case "install":
   case "sync":
     await install()
@@ -1752,8 +1753,17 @@ switch (command) {
   case "-h":
     printHelp()
     break
-  default:
-    console.error(`Unknown command: ${command}`)
-    printHelp()
-    process.exitCode = 1
+  default: {
+    const error = new Error("Unknown command: " + command)
+    error.code = "UES_USAGE"
+    error.exitCode = 2
+    throw error
+  }
+  }
+}
+
+try {
+  await main()
+} catch (error) {
+  printCliError(error)
 }
