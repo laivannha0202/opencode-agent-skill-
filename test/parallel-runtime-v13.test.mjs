@@ -86,3 +86,28 @@ test("shared configuration writer serializes against otherwise independent write
   })
   assert.equal(maxActive, 1)
 })
+
+
+test("structured verification commands are validated and normalized for deterministic receipts", () => {
+  const plan = {
+    schemaVersion: 1,
+    goal: "verify parallel task",
+    tasks: [{
+      id: "T1",
+      title: "Task",
+      summary: "Do one bounded change",
+      dependsOn: [],
+      files: { modify: ["src/a.js"] },
+      acceptance: ["behavior is correct"],
+      verification: ["run focused unit tests"],
+      verificationCommands: [{ command: "node", args: ["--test", "test/a.test.mjs"] }],
+      risk: "medium",
+    }],
+  }
+  assert.equal(validatePlan(plan).valid, true)
+  assert.deepEqual(taskVerificationCommands(plan.tasks[0]), [
+    { command: "node", args: ["--test", "test/a.test.mjs"] },
+  ])
+  plan.tasks[0].verificationCommands = [{ command: "", args: "not-an-array" }]
+  assert.equal(validatePlan(plan).valid, false)
+})
