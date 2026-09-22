@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V11 development: 11.0.0-dev.2** — nhánh phát triển perception-aware/adaptive execution. npm `latest` vẫn là V10 stable 10.0.0 cho tới khi V11 vượt release gates.
+> **V11 stable: 11.0.0** — perception-aware adaptive execution engine với evidence-efficient context, capability routing và visual/browser verification.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -80,7 +80,7 @@ ocskill dashboard . --serve
 
 ---
 
-## V11 development có gì?
+## V11 có gì?
 
 V11 chuyển UES từ một reliability harness thành **perception-aware adaptive execution engine**. Mục tiêu là model yếu chỉ nhận đúng bằng chứng cần thiết, dùng đúng capability/model/tool và có thể kiểm chứng UI bằng semantic structure + geometry + pixels thay vì đoán từ screenshot.
 
@@ -119,7 +119,7 @@ ocskill skills lint .
 ocskill models capability provider/model --vision on --browser on --quality 0.9
 ```
 
-V11 hiện là development build. Không merge/publish stable chỉ từ source completion; phải chạy full `npm run ci`, V11 contract suite và live/visual/browser benchmarks phù hợp trước.
+V11 stable được promote sau full local CI trên Windows PASS: 234 tests, 232 pass, 0 fail, 2 platform-specific skips; router/contract/package/install smoke đều PASS. Stable npm install dùng `npm install -g opencode-agent-skill`.
 
 ---
 
