@@ -7,6 +7,8 @@ Run this task using the UES long-horizon workflow: $ARGUMENTS
 
 Treat this command as permission to create a repository-local, git-ignored `.ues-work/<slug>/` execution workspace for durable non-secret planning state.
 
+Never create or use `ues-work/` (without the leading dot) as durable UES state. If such a directory exists from an older/manual run, treat it as ordinary repository content unless the user explicitly asks to migrate it; official state must come from `ocskill work init` under `.ues-work/<slug>/`.
+
 Required workflow:
 1. Classify the request with `ocskill task-policy "$ARGUMENTS"`. Use the returned risk/mode/context guidance rather than assuming every non-trivial task needs the same workflow.
 2. Inspect repository instructions and deterministic evidence with `ocskill inspect`, `ocskill repo-graph`, and targeted impact searches.
