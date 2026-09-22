@@ -89,8 +89,13 @@ import {
 } from "../lib/cli-utils.mjs"
 
 const rawArgs = process.argv.slice(2)
-const jsonOutput = rawArgs.includes("--json")
-const args = rawArgs.filter((value) => value !== "--json")
+const rawSeparator = rawArgs.indexOf("--")
+const jsonOutput = rawArgs.some((value, index) =>
+  value === "--json" && (rawSeparator < 0 || index < rawSeparator),
+)
+const args = rawArgs.filter((value, index) =>
+  !(value === "--json" && (rawSeparator < 0 || index < rawSeparator)),
+)
 const command = args[0] || "help"
 const helpRequested = args.includes("--help") || args.includes("-h")
 const force = args.includes("--force")
