@@ -83,11 +83,34 @@ function runOcskill(args, cwd) {
 }
 
 function runOcskillJSON(args, cwd) {
-  const output = runOcskill(args, cwd)
+  const separator = args.indexOf("--")
+  const machineArgs = separator >= 0
+    ? [...args.slice(0, separator), "--json", ...args.slice(separator)]
+    : [...args, "--json"]
+  let output
+  try {
+    output = runOcskill(machineArgs, cwd)
+  } catch (error) {
+    try {
+      const parsed = JSON.parse(String(error?.message || error))
+      if (parsed?.error?.message) {
+        const structured = new Error(parsed.error.message)
+        structured.code = parsed.error.code || "UES_ERROR"
+        structured.hint = parsed.error.hint || null
+        structured.recoverable = parsed.error.recoverable === true
+        throw structured
+      }
+    } catch (parsedError) {
+      if (parsedError?.code && parsedError.code !== "UES_ERROR") throw parsedError
+    }
+    throw error
+  }
   try {
     return JSON.parse(output)
   } catch {
-    throw new Error("ocskill returned invalid JSON for: " + args.join(" "))
+    const error = new Error("ocskill returned invalid JSON for: " + args.join(" "))
+    error.code = "UES_INVALID_JSON"
+    throw error
   }
 }
 
