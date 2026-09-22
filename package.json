@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "11.0.0-dev.0",
+  "version": "11.0.0-dev.1",
   "description": "Perception-aware evidence-first engineering runtime with adaptive context, capability routing, visual/browser verification, weak-model recovery and benchmark-gated execution for OpenCode",
   "type": "module",
   "bin": {
