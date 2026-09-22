@@ -61,3 +61,20 @@ test("V11 capability model routing selects vision-capable model only when requir
   assert.equal(visual.model, "provider/vision")
   assert.equal(visual.capabilityRequirements.required.vision, true)
 })
+
+
+test("V11 capability routing never downshifts the configured executor tier", () => {
+  const config = {
+    enabled: true,
+    roleTiers: { executor: "standard" },
+    tiers: { light: "provider/cheap", standard: "provider/mid", heavy: "provider/heavy" },
+    capabilities: {
+      "provider/cheap": { coding: true, toolCalling: true, filesystem: true, costClass: "low", latencyClass: "fast", quality: 1 },
+      "provider/mid": { coding: true, toolCalling: true, filesystem: true, costClass: "medium", latencyClass: "fast", quality: 0.7 },
+      "provider/heavy": { coding: true, toolCalling: true, filesystem: true, reasoning: true, longContext: true, costClass: "high", latencyClass: "slow", quality: 1 },
+    },
+  }
+  const resolved = resolveCapabilityModel("executor", 1, "fix a small helper", { modelTier: "light" }, config)
+  assert.equal(resolved.tier, "standard")
+  assert.equal(resolved.model, "provider/mid")
+})
