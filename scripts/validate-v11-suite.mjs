@@ -7,6 +7,25 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const file = path.join(root, "evals", "v11", "tasks.json")
 const suite = JSON.parse(await readFile(file, "utf8"))
 const errors = []
+
+const REQUIRED_V11_FILES = [
+  "lib/context-engine-v11.mjs",
+  "lib/evidence-store.mjs",
+  "lib/evidence-budget.mjs",
+  "lib/prompt-cache.mjs",
+  "lib/capability-registry.mjs",
+  "lib/browser-adapter.mjs",
+  "lib/png-diff.mjs",
+  "lib/visual-spec.mjs",
+  "lib/dynamic-workflow.mjs",
+  "lib/skill-quality.mjs",
+  "lib/v11-metrics.mjs",
+  "global-config/agents/visual-verifier.md",
+  "global-config/agents/merge-arbiter.md",
+]
+for (const relative of REQUIRED_V11_FILES) {
+  if (!existsSync(path.join(root, relative))) errors.push("missing V11 runtime file: " + relative)
+}
 const ids = new Set()
 const categories = new Set()
 
@@ -34,4 +53,4 @@ if (errors.length) {
   process.exit(1)
 }
 
-console.log("Validated " + suite.tasks.length + " V11 contract tasks across " + categories.size + " categories.")
+console.log("Validated " + suite.tasks.length + " V11 contract tasks across " + categories.size + " categories and " + REQUIRED_V11_FILES.length + " required runtime files.")
