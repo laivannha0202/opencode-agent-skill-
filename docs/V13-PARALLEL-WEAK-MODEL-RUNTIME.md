@@ -9,11 +9,11 @@ V13 reduces wall-clock time for large engineering work by letting multiple fresh
 ## Runtime contract
 
 - `ues.dispatch_parallel` defaults to one shared model for every worker and verifier.
-- The root working tree must be clean before a parallel run starts.
+- The root must be a Git repository. A pre-existing dirty working tree is allowed: V13 snapshots that baseline into each sandbox and integrates only the task delta, so valid inherited/user changes are preserved.
 - Writers execute in isolated Git worktrees.
 - Resource leases serialize overlapping files, unknown scope and shared configuration surfaces.
 - The scheduler is event-driven: when one task is independently verified, transactionally integrated and completed, newly unblocked dependencies may start immediately.
-- Downstream sandboxes inherit the current integrated dirty root through an internal snapshot commit on the sandbox branch; the user's root branch is not auto-committed.
+- Initial and downstream sandboxes inherit the current dirty root through an internal snapshot commit on the sandbox branch; the user's root branch is never auto-committed.
 - A fresh `ues-verifier` session using the same model must return PASS before integration.
 - Integration is serialized. If receipt/completion fails after patch application, V13 reverses that task patch before marking the run failed.
 - No parallel worker pushes, publishes or deploys.
@@ -72,4 +72,4 @@ ocskill normalize-text dirty.diff
 
 ## Release evidence
 
-V13 remains beta until parallel execution demonstrates measurable wall-clock improvement without reducing correctness, and Windows/Linux CI proves help parsing, encoding, worktree inheritance, rollback, verifier receipts and package installation.
+V13 remains beta until parallel execution demonstrates measurable wall-clock improvement without reducing correctness, and Windows/Linux CI proves help parsing, encoding, dirty-baseline worktree inheritance, rollback, verifier receipts and package installation.
