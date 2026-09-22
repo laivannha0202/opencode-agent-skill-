@@ -80,42 +80,6 @@ ocskill dashboard . --serve
 
 ---
 
-## V11 đang xây gì?
-
-V11 chuyển UES từ reliability-focused coding harness thành **perception-aware adaptive execution system**.
-
-- content-addressed Evidence Store dưới `.ues-cache/evidence-v1/`, truyền pointer thay vì nhồi output lớn vào context;
-- Evidence Budget chia ngân sách theo instructions/task/code/tests/history/tools/visual và mở rộng theo failure/evidence;
-- prompt-cache telemetry tách stable prefix và dynamic tail để giảm repeated input;
-- capability-aware model routing: coding/reasoning/tool-calling/vision/browser/filesystem/long-context cùng cost/latency/quality metadata;
-- Visual Engine: `VISUAL_SPEC`, geometry receipts, responsive matrix, dependency-free PNG diff/crop và bounded repair loop;
-- Browser QA: CLI-first deterministic verification, targeted semantic snapshots, bounding boxes và explicit untrusted-page security boundary;
-- 9 skill mới cho visual fidelity, browser QA/security, design source, responsive/component visual tests, skill authoring/evaluation và dynamic workflow;
-- 2 subagent mới: `ues-visual-verifier` và `ues-merge-arbiter`;
-- cost-aware dynamic workflow scheduler chỉ fan-out LLM work khi lợi ích vượt coordination cost;
-- Hermes nâng thành optional sidecar với evidence-pointer transport và bounded workflow contract;
-- Skill lint/eval tooling phát hiện entrypoint phình, metadata lỗi và routing-description collisions;
-- Control Center V11 hiển thị Evidence Store/runtime telemetry.
-
-Các lệnh V11 mới:
-
-```cmd
-ocskill store status .
-ocskill capabilities "match this screenshot and verify checkout in browser"
-ocskill visual spec VISUAL_SPEC.json
-ocskill visual geometry VISUAL_SPEC.json actual-boxes.json
-ocskill visual compare expected.png actual.png
-ocskill browser capability .
-ocskill browser plan . --url http://localhost:3000
-ocskill workflow-plan PLAN.json --max-concurrent 4
-ocskill skills lint .
-ocskill models capability provider/model --vision on --browser on --quality 0.9
-```
-
-V11 đang ở development branch và **không thay thế npm latest** cho tới khi full CI, V10-vs-V11 ablation, weak-model benchmark, visual/browser fixtures và package/install smoke đều PASS.
-
----
-
 ## V11 development có gì?
 
 V11 chuyển UES từ một reliability harness thành **perception-aware adaptive execution engine**. Mục tiêu là model yếu chỉ nhận đúng bằng chứng cần thiết, dùng đúng capability/model/tool và có thể kiểm chứng UI bằng semantic structure + geometry + pixels thay vì đoán từ screenshot.
@@ -147,8 +111,11 @@ ocskill visual crop actual.png failed-region.png --x 10 --y 20 --width 300 --hei
 ocskill visual viewports
 ocskill browser capability .
 ocskill browser plan http://localhost:3000 --target Checkout
+ocskill ui tokens src/styles.css
+ocskill ui layout boxes.json --width 390 --height 844
 ocskill workflow-plan PLAN.json --max-concurrent 4
 ocskill skills lint .
+ocskill models capability provider/model --vision on --browser on --quality 0.9
 ```
 
 V11 hiện là development build. Không merge/publish stable chỉ từ source completion; phải chạy full `npm run ci`, V11 contract suite và live/visual/browser benchmarks phù hợp trước.
