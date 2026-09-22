@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } fr
 import { checkReleaseConsistency } from "../scripts/check-release-consistency.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+const currentVersion = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version
 
 function copyFixture(rootDir, targetDir, excludes) {
   function copyRecursive(src, dest) {
@@ -26,7 +27,7 @@ function copyFixture(rootDir, targetDir, excludes) {
 test("checkReleaseConsistency() returns pass for current release state", () => {
   const result = checkReleaseConsistency(root)
   assert.equal(result.pass, true)
-  assert.equal(result.version, "11.0.0")
+  assert.equal(result.version, currentVersion)
   assert.equal(result.skillCount, 48)
   assert.equal(result.commandCount, 11)
   assert.equal(result.subagentCount, 12)
@@ -67,7 +68,7 @@ test("checkReleaseConsistency() fails on README current version mismatch", () =>
     fillFixture(tmp)
     const readmePath = path.join(tmp, "README.md")
     let readme = readFileSync(readmePath, "utf8")
-    readme = readme.replace(/11\.0\.0/g, "9.0.0")
+    readme = readme.replace(/(Phiên bản hiện tại:\\s*\\n```text\\n)\\S+/, (_match, prefix) => prefix + "9.0.0")
     writeFileSync(readmePath, readme)
     const result = checkReleaseConsistency(tmp)
     assert.equal(result.pass, false)
