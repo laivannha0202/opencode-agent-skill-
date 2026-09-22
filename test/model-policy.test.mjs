@@ -78,3 +78,44 @@ test("V11 capability routing never downshifts the configured executor tier", () 
   assert.equal(resolved.tier, "standard")
   assert.equal(resolved.model, "provider/mid")
 })
+
+
+test("V11 configured visual capability fails closed when every configured model is text-only", () => {
+  const config = {
+    enabled: true,
+    roleTiers: { "visual-verifier": "standard" },
+    tiers: { light: "provider/light", standard: "provider/mid", heavy: "provider/heavy" },
+    capabilities: {
+      "provider/light": { coding: true, toolCalling: true, filesystem: true },
+      "provider/mid": { coding: true, reasoning: true, toolCalling: true, filesystem: true },
+      "provider/heavy": { coding: true, reasoning: true, toolCalling: true, filesystem: true, longContext: true },
+    },
+  }
+  const result = resolveCapabilityModel(
+    "visual-verifier",
+    1,
+    "Match this screenshot exactly and verify it in the browser",
+    { modelTier: "standard" },
+    config,
+  )
+  assert.equal(result.model, null)
+  assert.equal(result.capabilityBlocked, true)
+  assert.equal(result.capabilityFallback, true)
+  assert.ok(result.capabilitySelection.candidates.every((item) => item.missing.includes("vision")))
+})
+
+test("V11 unconfigured capability metadata does not block legacy/default model execution", () => {
+  const config = {
+    enabled: false,
+    tiers: { light: null, standard: null, heavy: null },
+    capabilities: {},
+  }
+  const result = resolveCapabilityModel(
+    "visual-verifier",
+    1,
+    "Match this screenshot exactly",
+    { modelTier: "standard" },
+    config,
+  )
+  assert.equal(result.capabilityBlocked, false)
+})
