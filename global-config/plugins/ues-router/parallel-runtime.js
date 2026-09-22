@@ -194,7 +194,7 @@ export async function runEventDrivenDAG(tasks = [], options = {}) {
     const conflictRate = schedulingChecks ? conflictDeferrals / schedulingChecks : 0
     const limit = adaptiveWorkerCount({
       requested: options.maxConcurrent || 4,
-      readyCount: ready.length,
+      readyCount: ready.length + running.size,
       recentFailures: failed.size,
       conflictRate,
     })
