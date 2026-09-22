@@ -6,6 +6,28 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [11.0.0-dev.0] - 2026-09-22
+
+### Added
+- Content-addressed Evidence Store with bounded retrieval, deduplication and garbage collection.
+- Adaptive Evidence Budget planning and context-manifest integration for evidence-efficient execution.
+- Prompt stable-prefix/cache telemetry for repeated-input measurement.
+- Capability registry and capability-aware model selection for coding, reasoning, tools, vision, browser, filesystem and long-context needs.
+- Visual specification, geometry receipts, responsive viewport matrix, dependency-free PNG decode/diff/crop and bounded visual repair planning.
+- Browser QA adapter with CLI-first verification planning, targeted semantic evidence and explicit untrusted-page security boundaries.
+- Cost-aware dynamic workflow scheduler separating deterministic work from LLM/vision work.
+- Skill-quality linting for entrypoint size, metadata and routing-description collision detection.
+- Nine V11 skills: visual-fidelity, browser-qa, design-source, responsive-verification, component-visual-testing, browser-security, skill-authoring, skill-evaluation and dynamic-workflow.
+- Two V11 subagents: visual-verifier and merge-arbiter.
+- Optional Hermes sidecar workflow contract with evidence-pointer transport.
+- V11 Control Center evidence-store/runtime telemetry and V11-specific tests/eval routing cases.
+
+### Changed
+- Model policy schema supports per-model capability metadata plus cost, latency and quality hints.
+- Adaptive model resolution can select configured models by required task capabilities.
+- OpenCode V2 router recognizes visual/browser/design/skill-workflow intents and keeps FAST routing selective.
+- Package version is 11.0.0-dev.0 while npm latest remains V10 stable until V11 release gates pass.
+
 ## [10.0.0] - 2026-09-22
 
 ### Released
