@@ -1,0 +1,108 @@
+{
+  "version": 1,
+  "description": "V11 deterministic contract suite for perception-aware adaptive execution.",
+  "tasks": [
+    {
+      "id": "evidence-externalization",
+      "category": "context",
+      "objective": "Oversized tool output is stored by content hash and retrieved through bounded evidence references.",
+      "requiredFiles": [
+        "lib/evidence-store.mjs"
+      ]
+    },
+    {
+      "id": "adaptive-evidence-budget",
+      "category": "context",
+      "objective": "Context allocation adapts by evidence role and visual/browser/risk signals without exceeding the task budget.",
+      "requiredFiles": [
+        "lib/evidence-budget.mjs",
+        "lib/context-manifest.mjs"
+      ]
+    },
+    {
+      "id": "prompt-cache-prefix",
+      "category": "context",
+      "objective": "Stable prompt material has a deterministic prefix hash while task/evidence remains dynamic.",
+      "requiredFiles": [
+        "lib/prompt-cache.mjs"
+      ]
+    },
+    {
+      "id": "vision-capability-routing",
+      "category": "routing",
+      "objective": "Visual work requires a vision-capable candidate instead of blindly escalating numeric model tiers.",
+      "requiredFiles": [
+        "lib/capability-registry.mjs",
+        "lib/model-policy.mjs"
+      ]
+    },
+    {
+      "id": "visual-geometry",
+      "category": "visual",
+      "objective": "Element position and size requirements produce deterministic PASS/FAIL geometry receipts.",
+      "requiredFiles": [
+        "lib/visual-spec.mjs"
+      ]
+    },
+    {
+      "id": "pixel-diff-crop",
+      "category": "visual",
+      "objective": "PNG comparison reports exact changed pixel bounds and supports focused failure crops without external dependencies.",
+      "requiredFiles": [
+        "lib/png-diff.mjs"
+      ]
+    },
+    {
+      "id": "responsive-matrix",
+      "category": "visual",
+      "objective": "Responsive verification uses a bounded representative viewport matrix and reports viewport-specific failures.",
+      "requiredFiles": [
+        "lib/visual-spec.mjs",
+        "global-config/skills/responsive-verification/SKILL.md"
+      ]
+    },
+    {
+      "id": "targeted-browser-evidence",
+      "category": "browser",
+      "objective": "Browser QA requests targeted semantic/geometry evidence instead of repeated full-page snapshots.",
+      "requiredFiles": [
+        "lib/browser-adapter.mjs",
+        "global-config/skills/browser-qa/SKILL.md"
+      ]
+    },
+    {
+      "id": "browser-prompt-injection-boundary",
+      "category": "browser",
+      "objective": "Webpage content is explicitly untrusted and cannot change permissions, request secrets or authorize external side effects.",
+      "requiredFiles": [
+        "global-config/skills/browser-security/SKILL.md"
+      ]
+    },
+    {
+      "id": "dynamic-wave-scheduler",
+      "category": "workflow",
+      "objective": "Deterministic tasks avoid agent fan-out and overlapping writers are serialized into dependency-safe waves.",
+      "requiredFiles": [
+        "lib/dynamic-workflow.mjs",
+        "global-config/skills/dynamic-workflow/SKILL.md"
+      ]
+    },
+    {
+      "id": "skill-catalog-quality",
+      "category": "routing",
+      "objective": "Skill entrypoints are linted for size, metadata and description collisions before promotion.",
+      "requiredFiles": [
+        "lib/skill-quality.mjs",
+        "global-config/skills/skill-evaluation/SKILL.md"
+      ]
+    },
+    {
+      "id": "hermes-sidecar",
+      "category": "sidecar",
+      "objective": "Hermes stays optional, bounded and subordinate to UES durable state and safety boundaries.",
+      "requiredFiles": [
+        "lib/hermes-bridge.mjs"
+      ]
+    }
+  ]
+}
