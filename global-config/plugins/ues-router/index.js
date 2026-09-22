@@ -955,6 +955,17 @@ export default Plugin.define({
           const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
+          if (policy?.capabilityBlocked === true) {
+            const missing = [...new Set(
+              (policy.capabilitySelection?.candidates || [])
+                .flatMap((item) => item.missing || [])
+            )]
+            throw new Error(
+              "UES capability gate: no configured model satisfies required task capabilities" +
+              (missing.length ? " (" + missing.join(", ") + ")" : "") +
+              ". Configure an eligible model with 'ocskill models capability'."
+            )
+          }
           const workStatus = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
           const workingTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
           const rootClean = workingTree?.git === true && workingTree?.clean === true
