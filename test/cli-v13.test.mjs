@@ -44,8 +44,19 @@ test("--json returns structured CLI errors", () => {
   assert.notEqual(result.status, 0)
   const payload = JSON.parse(result.stderr)
   assert.equal(payload.ok, false)
-  assert.equal(typeof payload.error.code, "string")
+  assert.equal(payload.error.code, "UES_USAGE")
+  assert.equal(payload.exitCode, 2)
   assert.match(payload.error.message, /Unknown work action/)
+})
+
+test("invalid work slug is a recoverable structured usage error", () => {
+  const result = run(["work", "status", "BAD_SLUG", "--json"])
+  assert.equal(result.status, 2)
+  const payload = JSON.parse(result.stderr)
+  assert.equal(payload.error.code, "UES_USAGE")
+  assert.equal(payload.error.recoverable, true)
+  assert.match(payload.error.message, /BAD_SLUG/)
+  assert.match(payload.error.hint, /recovery-2-foundation/)
 })
 
 
