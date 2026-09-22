@@ -1,6 +1,6 @@
 # UES V11 — Perception & Adaptive Execution
 
-Status: development (`11.0.0-dev.0`). V10 remains npm `latest` until the V11 release gates pass.
+Status: development (`11.0.0-dev.1`). V10 remains npm `latest` until the V11 release gates pass.
 
 ## Goal
 
@@ -193,7 +193,7 @@ Missing telemetry is `null`, not zero.
 Reference-vs-candidate gates can optionally require V11 telemetry:
 
 ```cmd
-npm run evals:ablation -- v10-summary.json v11-summary.json --require-gate --min-cacheable-ratio 0.70 --min-evidence-reuse-ratio 0.20
+npm run evals:ablation -- v10-summary.json v11-summary.json --require-gate --min-cacheable-ratio 0.70 --min-evidence-reuse-ratio 0.20 --max-repeated-stable-ratio 0.20
 ```
 
 An explicitly requested metric gate fails closed when its telemetry is unavailable.
