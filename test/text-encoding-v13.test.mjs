@@ -4,7 +4,7 @@ import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { readTextFile } from "../lib/cli-utils.mjs"
-import { readProjectText } from "../global-config/plugins/ues-router/text-runtime.js"
+import { readProjectJson, readProjectText } from "../global-config/plugins/ues-router/text-runtime.js"
 
 test("UTF-16LE PowerShell-style redirected diff is decoded as text", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-encoding-"))
@@ -46,6 +46,21 @@ test("router text_read decodes UTF-16 diff without creating a converted copy", a
   }
 })
 
+
+test("router project JSON reader decodes UTF-16 durable state", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-router-json-"))
+  try {
+    const file = path.join(dir, "STATE.json")
+    const body = JSON.stringify({ schemaVersion: 4, slug: "utf-state", status: "active" })
+    await writeFile(file, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(body, "utf16le")]))
+    const result = readProjectJson(dir, "STATE.json")
+    assert.equal(result.encoding, "utf16le")
+    assert.equal(result.value.slug, "utf-state")
+    assert.equal(result.value.schemaVersion, 4)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 test("router text_read refuses symlink escapes", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-v13-text-root-"))
