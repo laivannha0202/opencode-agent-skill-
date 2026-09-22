@@ -30,17 +30,22 @@ test("eval report marks unavailable telemetry as null instead of inventing zero 
   assert.equal(result.modes.baseline.avgTokens, null)
   assert.equal(result.modes.baseline.avgInitialInputTokens, null)
   assert.equal(result.modes.baseline.avgCost, null)
-  assert.deepEqual(result.modes.baseline.telemetryCoverage, { tools: 0, tokens: 0, initialInputTokens: 0, cost: 0 })
+  assert.equal(result.modes.baseline.telemetryCoverage.tools, 0)
+  assert.equal(result.modes.baseline.telemetryCoverage.tokens, 0)
+  assert.equal(result.modes.baseline.telemetryCoverage.initialInputTokens, 0)
+  assert.equal(result.modes.baseline.telemetryCoverage.cost, 0)
+  assert.equal(result.modes.baseline.telemetryCoverage.repeatedStableRatio, 0)
 })
 
 
 test("V11 eval report averages adaptive efficiency telemetry only when available", () => {
   const result = summarizeEvalResults([
-    { task: "a", mode: "ues", passed: true, durationMs: 100, telemetry: { jsonLines: 1, toolCalls: 1, usageSamples: 0, costSamples: 0, v11: { avgCacheableRatio: 0.8, repeatedStableChars: 1200, evidenceReuseRatio: 0.5, visualRepairAttempts: 1, contextExpansions: 1, modelEscalations: 0 } } },
-    { task: "b", mode: "ues", passed: true, durationMs: 100, telemetry: { jsonLines: 1, toolCalls: 1, usageSamples: 0, costSamples: 0, v11: { avgCacheableRatio: 0.6, repeatedStableChars: 800, evidenceReuseRatio: 0.25, visualRepairAttempts: 2, contextExpansions: 0, modelEscalations: 1 } } },
+    { task: "a", mode: "ues", passed: true, durationMs: 100, telemetry: { jsonLines: 1, toolCalls: 1, usageSamples: 0, costSamples: 0, v11: { avgCacheableRatio: 0.8, repeatedStableChars: 1200, repeatedStableRatio: 0.3, evidenceReuseRatio: 0.5, visualRepairAttempts: 1, contextExpansions: 1, modelEscalations: 0 } } },
+    { task: "b", mode: "ues", passed: true, durationMs: 100, telemetry: { jsonLines: 1, toolCalls: 1, usageSamples: 0, costSamples: 0, v11: { avgCacheableRatio: 0.6, repeatedStableChars: 800, repeatedStableRatio: 0.1, evidenceReuseRatio: 0.25, visualRepairAttempts: 2, contextExpansions: 0, modelEscalations: 1 } } },
   ])
   assert.equal(result.modes.ues.avgCacheableRatio, 0.7)
   assert.equal(result.modes.ues.avgRepeatedStableChars, 1000)
+  assert.equal(result.modes.ues.avgRepeatedStableRatio, 0.2)
   assert.equal(result.modes.ues.avgEvidenceReuseRatio, 0.375)
   assert.equal(result.modes.ues.avgVisualRepairAttempts, 1.5)
   assert.equal(result.modes.ues.avgContextExpansions, 0.5)
