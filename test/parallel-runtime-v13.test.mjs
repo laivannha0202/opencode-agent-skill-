@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { runEventDrivenDAG } from "../global-config/plugins/ues-router/parallel-runtime.js"
+import { adaptiveWorkerCount, runEventDrivenDAG } from "../global-config/plugins/ues-router/parallel-runtime.js"
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
@@ -57,4 +57,32 @@ test("resource leases serialize overlapping writers", async () => {
   assert.equal(maxActive, 1)
   assert.equal(result.completed.length, 2)
   assert.ok(result.conflictDeferrals > 0)
+})
+
+
+test("adaptive worker pool shrinks after repeated failures or conflict pressure", () => {
+  assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8 }), 8)
+  assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8, recentFailures: 2 }), 4)
+  assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8, conflictRate: 0.5 }), 4)
+  assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8, recentFailures: 2, conflictRate: 0.5 }), 2)
+})
+
+test("shared configuration writer serializes against otherwise independent writers", async () => {
+  let active = 0
+  let maxActive = 0
+  const tasks = [
+    { id: "config", dependsOn: [], files: { modify: ["package.json"] } },
+    { id: "feature", dependsOn: [], files: { modify: ["src/feature.js"] } },
+  ]
+  await runEventDrivenDAG(tasks, {
+    maxConcurrent: 2,
+    worker: async (task) => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await sleep(15)
+      active -= 1
+      return task.id
+    },
+  })
+  assert.equal(maxActive, 1)
 })
