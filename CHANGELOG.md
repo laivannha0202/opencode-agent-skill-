@@ -6,6 +6,26 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [11.0.0] - 2026-09-22
+
+### Released
+- Promoted V11 perception-aware adaptive execution to stable after the full local CI gate passed on Windows with 234 tests total, 232 passed, 0 failed and 2 platform-specific skips.
+- Stable npm installs use the default `latest` dist-tag, so users install with `npm install -g opencode-agent-skill`.
+- Includes content-addressed Evidence Store, adaptive EvidenceBudget/context externalization, stable-prefix prompt telemetry, capability-aware model routing, visual geometry receipts, deterministic PNG diff/crop, responsive/design-token inspection, optional Playwright browser inspection, cost-aware dynamic workflow scheduling, 48 focused skills and 12 subagents.
+
+### Verified
+- Syntax: 178 JavaScript modules.
+- Catalog: 48 skills, 11 commands and 12 subagents.
+- Router: 129 cases, 294/294 required routes and 61/61 negative guards.
+- V11 contracts: 13 tasks across 6 categories and 15 required runtime files.
+- Live/long/polyglot fixture validation: 20 / 5 / 8 tasks.
+- npm pack dry-run, packed-install smoke and plain one-command install/resource auto-sync smoke: PASS.
+
+### Changed
+- Package version is 11.0.0.
+- V11 becomes the stable npm release line; V10 remains in Git history as the previous stable release.
+
+
 ### V11 dev.2
 - Added project-local, fail-closed Playwright browser inspection that returns bounded semantic elements, bounding boxes, computed visual properties and a screenshot path while treating page content as untrusted evidence.
 - Exposed browser inspection through CLI and the OpenCode V2 router without making Playwright a required package dependency.
