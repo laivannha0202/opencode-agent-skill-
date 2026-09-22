@@ -1172,7 +1172,7 @@ export default Plugin.define({
             feedbackDomains: routingFacts.feedbackDomains,
             acceptedLearningCount: routingFacts.acceptedLearningCount,
           },
-          version: 10,
+          version: 11,
           effectiveMaxSkills,
         },
       }
