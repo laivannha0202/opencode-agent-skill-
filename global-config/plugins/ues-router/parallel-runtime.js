@@ -97,6 +97,19 @@ export function adaptiveWorkerCount(input = {}) {
   return limit
 }
 
+export function parallelRootBaseline(workingTree = {}) {
+  if (workingTree?.git !== true) {
+    throw new Error("ues.dispatch_parallel requires a Git repository")
+  }
+  return {
+    head: workingTree.head || null,
+    branch: workingTree.branch || null,
+    clean: workingTree.clean === true,
+    inheritedDirtyRoot: workingTree.clean !== true,
+    changes: Array.isArray(workingTree.changes) ? [...workingTree.changes] : [],
+  }
+}
+
 function validateGraph(tasks, completed) {
   const byID = new Map()
   for (const task of tasks) {
