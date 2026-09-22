@@ -121,7 +121,8 @@ Usage:
   ocskill working-tree [dir]   Report Git branch/HEAD/dirty state
   ocskill diff [dir] [--out file] Emit Git diff safely as UTF-8 (Windows-safe)
   ocskill normalize-text <file>  Convert UTF-8/UTF-16 text files to UTF-8
-  ocskill repo-graph [dir]      Build a bounded source import/dependency graph
+  ocskill repo-graph [dir] [--compact] [--max-files N]
+                              Build a bounded source import/dependency graph; compact omits full node/edge payloads
   ocskill index <status|build|rebuild> [dir]
                               Build/reuse the persistent incremental semantic index
   ocskill aci <search|refs|view|text> ...
@@ -467,7 +468,26 @@ async function inspectTests() {
 }
 
 async function inspectRepoGraph() {
-  printJson(await buildRepoGraph(positionalArg(args, 1) || process.cwd()))
+  const root = positionalArg(args, 1) || process.cwd()
+  const parsedMaxFiles = optionInt(args, "--max-files", 2500)
+  const maxFiles = Number.isFinite(parsedMaxFiles)
+    ? Math.max(100, Math.min(parsedMaxFiles, 10000))
+    : 2500
+  const graph = await buildRepoGraph(root, { maxFiles })
+  if (args.includes("--compact")) {
+    printJson({
+      schemaVersion: graph.schemaVersion,
+      root: graph.root,
+      scannedFiles: graph.scannedFiles,
+      truncated: graph.truncated,
+      nodeCount: graph.nodes.length,
+      edgeCount: graph.edges.length,
+      hotspots: graph.hotspots,
+      externalImports: graph.externalImports,
+    })
+    return
+  }
+  printJson(graph)
 }
 
 async function semanticIndexControl() {
