@@ -62,6 +62,24 @@ test("router project JSON reader decodes UTF-16 durable state", async () => {
   }
 })
 
+test("router durable JSON loader accepts state larger than model text-read budget", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-large-json-"))
+  try {
+    const file = path.join(dir, "STATE.json")
+    const body = JSON.stringify({
+      schemaVersion: 4,
+      slug: "large-state",
+      payload: "x".repeat(150000),
+    })
+    await writeFile(file, body, "utf8")
+    const result = readProjectJson(dir, "STATE.json")
+    assert.equal(result.value.slug, "large-state")
+    assert.equal(result.value.payload.length, 150000)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("router text_read refuses symlink escapes", async (t) => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-v13-text-root-"))
   const outside = await mkdtemp(path.join(os.tmpdir(), "ues-v13-text-outside-"))
