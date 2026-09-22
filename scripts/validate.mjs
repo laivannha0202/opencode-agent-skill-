@@ -98,10 +98,12 @@ const routerIndex = path.join(pluginsRoot, "ues-router", "index.js")
 const routerCore = path.join(pluginsRoot, "ues-router", "router.js")
 const routerSafety = path.join(pluginsRoot, "ues-router", "safety.js")
 const routerCapabilities = path.join(pluginsRoot, "ues-router", "capabilities.js")
+const routerParallelRuntime = path.join(pluginsRoot, "ues-router", "parallel-runtime.js")
 if (!existsSync(routerIndex)) errors.push("missing OpenCode v2 router plugin entrypoint")
 if (!existsSync(routerCore)) errors.push("missing OpenCode v2 router core")
 if (!existsSync(routerSafety)) errors.push("missing OpenCode v2 safety gate")
 if (!existsSync(routerCapabilities)) errors.push("missing OpenCode v2 runtime capability probe")
+if (!existsSync(routerParallelRuntime)) errors.push("missing V13 same-model parallel runtime")
 if (existsSync(routerIndex)) {
   const source = await readFile(routerIndex, "utf8")
   if (!source.includes('id: "ues-router"')) errors.push("v2 router plugin must declare stable id ues-router")
@@ -125,6 +127,7 @@ if (existsSync(routerIndex)) {
   if (!source.includes('name: "visual_geometry"')) errors.push("v11 router plugin must expose visual geometry receipts")
   if (!source.includes('name: "visual_compare"')) errors.push("v11 router plugin must expose deterministic PNG comparison")
   if (!source.includes('name: "workflow_plan"')) errors.push("v11 router plugin must expose dynamic workflow planning")
+  if (!source.includes('name: "dispatch_parallel"')) errors.push("v13 router plugin must expose same-model parallel dispatch")
   if (!source.includes('name: "ui_tokens"')) errors.push("v11 router plugin must expose compact design-token extraction")
   if (!source.includes('name: "ui_layout"')) errors.push("v11 router plugin must expose responsive UI layout verification")
   if (!source.includes("ctx.session.interrupt")) errors.push("v8 task dispatch must interrupt timed-out executors")
@@ -150,7 +153,7 @@ if (existsSync(plainInstallSmoke)) {
   }
 }
 
-for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","browser-runtime.mjs","dynamic-workflow.mjs","skill-quality.mjs","ui-inspector.mjs","context-engine-v11.mjs","v11-metrics.mjs"]) {
+for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","browser-runtime.mjs","dynamic-workflow.mjs","skill-quality.mjs","ui-inspector.mjs","context-engine-v11.mjs","v11-metrics.mjs","text-encoding.mjs"]) {
   if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V8 core module ${name}`)
 }
 
