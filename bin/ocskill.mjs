@@ -595,7 +595,30 @@ async function workControl() {
 
   if (action === "status" && pathLikeWorkRoot(slug)) {
     const root = path.resolve(slug || process.cwd())
-    printJson({ schemaVersion: 1, root, workspaces: listWorkspaces(root) })
+    const workspaces = listWorkspaces(root)
+    const active = workspaces.filter((item) => item.status !== "completed")
+    const candidate = active.length === 1
+      ? active[0]
+      : active.length === 0 && workspaces.length === 1
+        ? workspaces[0]
+        : null
+    if (candidate) {
+      const status = await workStatus(root, candidate.slug)
+      printJson({
+        ...status,
+        autoResolved: true,
+        autoResolvedSlug: candidate.slug,
+        requestedRoot: root,
+      })
+    } else {
+      printJson({
+        schemaVersion: 1,
+        root,
+        autoResolved: false,
+        workspaces,
+        hint: workspaces.length > 1 ? "Pass an explicit work slug because multiple workspaces exist." : null,
+      })
+    }
     return
   }
 
