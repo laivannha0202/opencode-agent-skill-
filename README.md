@@ -100,7 +100,7 @@ Một số lệnh hữu ích:
 
 ```cmd
 ocskill inspect .
-ocskill repo-graph .
+ocskill repo-graph . --compact
 ocskill verification-plan .
 ocskill task-policy "refactor auth across the whole repository"
 ocskill dashboard . --serve
@@ -435,7 +435,7 @@ Model ID do người dùng cấu hình vẫn là nguồn quyết định cuối 
 | Lệnh | Công dụng |
 |---|---|
 | `ocskill inspect [dir]` | Phát hiện stack, package manager, root và test command |
-| `ocskill repo-graph [dir]` | Lập import graph có giới hạn và tìm hotspot |
+| `ocskill repo-graph [dir] [--compact] [--max-files N]` | Lập import graph; dùng `--compact` để lấy hotspot/counts trước, tránh đổ toàn bộ edges trên repo lớn |
 | `ocskill impact <query> [dir]` | Tìm phạm vi ảnh hưởng theo symbol hoặc từ khóa |
 | `ocskill evidence [dir]` | Thu thập snapshot về repository, verification và Git |
 | `ocskill working-tree [dir]` | Kiểm tra branch, HEAD và working tree |
@@ -448,7 +448,7 @@ Model ID do người dùng cấu hình vẫn là nguồn quyết định cuối 
 Ví dụ:
 
 ```cmd
-ocskill repo-graph .
+ocskill repo-graph . --compact
 ocskill review-scope main .
 ocskill verification-plan .
 ocskill task-graph .ues-work/checkout/PLAN.json
