@@ -31,6 +31,7 @@ The project follows Semantic Versioning.
 - Hardened migration from V12/manual Windows artifacts by auto-decoding UTF-8/UTF-16 `PLAN.json`, `STATE.json`, `SPEC.md` and dependency reports across the CLI/task engine and V2 parallel router.
 - Added bounded `ocskill text-read` so OpenCode 1.x can recover known UTF text that its generic Read tool classifies as binary, without creating ad-hoc converted copies.
 - Extended packed-install smoke and regressions to cover the UTF recovery command, UTF durable state discovery and legacy artifact context packs.
+- Removed the stale clean-root-only restriction from native parallel dispatch. Existing dirty repository state is now treated as an inherited baseline, while isolated worktree delta integration, resource leases and rollback continue to protect user changes.
 
 
 ## [12.0.0-beta.0] - 2026-09-22
