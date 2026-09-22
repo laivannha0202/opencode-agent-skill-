@@ -79,7 +79,7 @@ export function readProjectText(root, relative, options = {}) {
   const buffer = readFileSync(realFile)
   const decoded = decode(buffer)
   const start = Math.max(0, Number(options.start || 0))
-  const maxChars = Math.max(256, Math.min(Number(options.maxChars || 12000), 100000))
+  const maxChars = Math.max(256, Math.min(Number(options.maxChars || 12000), 1_000_000))
   const text = decoded.text.slice(start, start + maxChars)
   return {
     schemaVersion: 1,
@@ -97,7 +97,7 @@ export function readProjectText(root, relative, options = {}) {
 export function readProjectJson(root, relative, options = {}) {
   const result = readProjectText(root, relative, {
     start: 0,
-    maxChars: Math.max(1024, Math.min(Number(options.maxChars || 100000), 100000)),
+    maxChars: Math.max(1024, Math.min(Number(options.maxChars || 1_000_000), 1_000_000)),
   })
   if (result.truncated) {
     const error = new Error("JSON file exceeds the bounded V13 project reader limit")
