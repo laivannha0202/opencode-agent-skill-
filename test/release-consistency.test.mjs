@@ -94,6 +94,25 @@ test("checkReleaseConsistency() fails on V11 doc with development status", () =>
   }
 })
 
+test("checkReleaseConsistency() fails on V13 prerelease doc version drift", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const docPath = path.join(tmp, "docs", "V13-PARALLEL-WEAK-MODEL-RUNTIME.md")
+    let content = readFileSync(docPath, "utf8")
+    content = content.replace(currentVersion, "13.0.0-beta.999")
+    writeFileSync(docPath, content)
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(
+      result.errors.some((e) => e.includes("V13-PARALLEL-WEAK-MODEL-RUNTIME")),
+      "should have V13 prerelease drift error. Got: " + result.errors.join(", "),
+    )
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
 test("checkReleaseConsistency() fails when CI missing evals:v11:validate", () => {
   const tmp = mkdirTemp()
   try {
