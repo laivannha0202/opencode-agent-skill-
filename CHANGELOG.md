@@ -6,6 +6,21 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [13.0.0-beta.0] - 2026-09-22
+
+### Added
+- Added native same-model parallel execution through `ues.dispatch_parallel` with bounded adaptive concurrency.
+- Added event-driven DAG scheduling so newly unblocked tasks can start without waiting for an entire wave barrier.
+- Added read/write resource leases, conservative unknown-scope serialization and shared-config writer serialization.
+- Added inherited-root worktree snapshots so downstream tasks see already integrated predecessor changes without committing the user's root branch.
+- Added transactional integration with sandbox rollback when receipt/completion fails after patch application.
+- Added fresh same-model verifier sessions and agent-verifier receipts tied to the active run and current workspace fingerprint.
+- Added global CLI help interception, structured `--json` errors, `work status .` workspace listing, UTF-8/UTF-16 auto-decoding, safe UTF-8 Git diff output and text normalization.
+
+### Regression coverage
+- Added V13 tests for CLI help parsing, structured errors, UTF-16 PowerShell-style diff decoding, event-driven same-model concurrency, resource conflict serialization and inherited-root rollback behavior.
+
+
 ## [12.0.0-beta.0] - 2026-09-22
 
 ### Beta
