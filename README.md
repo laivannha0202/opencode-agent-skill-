@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **Nhánh V10 RC: 10.0.0-rc.2** — npm `latest` vẫn là **9.0.0** cho tới khi V10 được kiểm chứng và phát hành.
+> **V10 stable: 10.0.0** — bản phát hành chính thức của V10, dùng trực tiếp qua npm `latest`.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -80,7 +80,7 @@ ocskill dashboard . --serve
 
 ---
 
-## V10 RC có gì?
+## V10 có gì?
 
 V10 tập trung vào **minimum context necessary for maximum task success**: giảm context luôn nạp nhưng không cắt các lớp correctness, verification hay recovery.
 
@@ -97,7 +97,7 @@ V10 tập trung vào **minimum context necessary for maximum task success**: gi�
 - provider recovery thử fresh session cùng model một lần, sau lỗi lặp lại dùng configured escalation model/provider nếu có;
 - lease supervisor tự thu hồi executor lease hết hạn sang trạng thái `retryable`, và explicit `long/high-risk` hard-override FAST thành DEEP/heavy.
 
-V10 RC **chưa phải npm release**. Trước khi phát hành chính thức cần CI/package smoke PASS và benchmark thật trên model mục tiêu.
+V10 stable kế thừa toàn bộ RC.2 reliability hardening. Local full gate trên Windows/Node 24 đã PASS với 182 test pass, 0 fail, 2 skip cùng package/install smoke PASS trước khi promote.
 
 ---
 
