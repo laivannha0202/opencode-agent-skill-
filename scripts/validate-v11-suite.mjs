@@ -15,6 +15,7 @@ const REQUIRED_V11_FILES = [
   "lib/prompt-cache.mjs",
   "lib/capability-registry.mjs",
   "lib/browser-adapter.mjs",
+  "lib/browser-runtime.mjs",
   "lib/png-diff.mjs",
   "lib/visual-spec.mjs",
   "lib/dynamic-workflow.mjs",
