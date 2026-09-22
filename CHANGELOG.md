@@ -28,6 +28,9 @@ The project follows Semantic Versioning.
 - Clarified OpenCode 1.x versus V2 capability boundaries and fenced canonical long-task state to `.ues-work/<slug>/`; legacy/manual `ues-work/` directories are no longer treated as official UES state.
 - Added `repo-graph --compact` and switched initial long-run evidence gathering to compact hotspot/count summaries to reduce large-repository context/tool-output overhead.
 - Made `ocskill install/status/doctor` surface the OpenCode 1.x versus V2 native-parallel boundary directly so users do not mistake V13 CLI availability for fresh-session parallel availability.
+- Hardened migration from V12/manual Windows artifacts by auto-decoding UTF-8/UTF-16 `PLAN.json`, `STATE.json`, `SPEC.md` and dependency reports across the CLI/task engine and V2 parallel router.
+- Added bounded `ocskill text-read` so OpenCode 1.x can recover known UTF text that its generic Read tool classifies as binary, without creating ad-hoc converted copies.
+- Extended packed-install smoke and regressions to cover the UTF recovery command, UTF durable state discovery and legacy artifact context packs.
 
 
 ## [12.0.0-beta.0] - 2026-09-22
