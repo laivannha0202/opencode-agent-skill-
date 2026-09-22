@@ -24,6 +24,8 @@ jobs:
           - evals:long:validate
           - evals:polyglot:validate
           - evals:v11:validate
+          - evals:v12:validate
+          - evals:repo-scale:validate
     runs-on: ubuntu-latest
     steps:
       - name: Checkout

@@ -715,6 +715,7 @@ UES chỉ quản lý resource có namespace/marker của chính nó và cố g�
 - [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 - [V8 Intelligence & Reliability](docs/V8-INTELLIGENCE-RELIABILITY.md)
 - [V9 Speed & Intelligence](docs/V9-SPEED-INTELLIGENCE.md)
+- [V12 Weak-Model Intelligence (development foundation)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)
 
 ---
 

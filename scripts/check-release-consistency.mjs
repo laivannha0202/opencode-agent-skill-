@@ -26,6 +26,14 @@ function readText(root, relative) {
   return { ok: true, error: null, value: readFileSync(file, "utf8") }
 }
 
+function countSkillDirs(root) {
+  const fullPath = path.join(root, "global-config", "skills")
+  if (!existsSync(fullPath)) return { ok: false, error: "global-config/skills: directory not found", value: 0 }
+  const entries = readdirSync(fullPath, { withFileTypes: true })
+  const count = entries.filter((entry) => entry.isDirectory() && existsSync(path.join(fullPath, entry.name, "SKILL.md"))).length
+  return { ok: true, error: null, value: count }
+}
+
 function countDir(root, dirPath, filter) {
   const fullPath = path.join(root, dirPath)
   if (!existsSync(fullPath)) {
@@ -66,7 +74,7 @@ export function checkReleaseConsistency(root) {
   }
 
   // 2. Count skills, commands, subagents
-  const skillRes = rCount("global-config/skills", (e) => e.isDirectory())
+  const skillRes = countSkillDirs(root)
   const commandRes = rCount("global-config/commands", (e) => e.isFile() && e.name.endsWith(".md"))
   const agentRes = rCount("global-config/agents", (e) => e.isFile() && e.name.endsWith(".md"))
   const skillCount = skillRes.ok ? skillRes.value : 0
@@ -77,6 +85,12 @@ export function checkReleaseConsistency(root) {
   if (!agentRes.ok) errors.push(agentRes.error)
 
   const expectedVersion = pkg.ok ? pkg.value.version : "unknown"
+  const routing = rJson("evals/routing.json")
+  const routerTriggers = rJson("evals/router-triggers.json")
+  const staticScenarioCount = routing.ok && Array.isArray(routing.value.scenarios) ? routing.value.scenarios.length : 0
+  const routerCaseCount = routerTriggers.ok && Array.isArray(routerTriggers.value.cases) ? routerTriggers.value.cases.length : 0
+  if (!routing.ok) errors.push(routing.error)
+  if (!routerTriggers.ok) errors.push(routerTriggers.error)
 
   // 3. Check README current version block
   const readme = rText("README.md")
@@ -86,6 +100,12 @@ export function checkReleaseConsistency(root) {
       errors.push(`README.md: current version says ${versionMatch[1]}, expected ${expectedVersion}`)
     } else if (!versionMatch) {
       errors.push("README.md: could not find current version block")
+    }
+    if (staticScenarioCount && !readme.value.includes("**" + staticScenarioCount + " static skill-routing scenarios**")) {
+      errors.push("README.md: static routing scenario count drift (actual: " + staticScenarioCount + ")")
+    }
+    if (routerCaseCount && !readme.value.includes("**" + routerCaseCount + " V2 router cases**")) {
+      errors.push("README.md: router case count drift (actual: " + routerCaseCount + ")")
     }
   } else {
     errors.push(readme.error)
@@ -129,7 +149,7 @@ export function checkReleaseConsistency(root) {
         errors.push(`${doc}: current section still references 10 subagents (actual: ${agentCount})`)
       }
       if (section.includes("34 static") && section.includes("scenarios")) {
-        errors.push(`${doc}: current section still references 34 static scenarios (actual: 43)`)
+        errors.push(`${doc}: current section still references 34 static scenarios (actual: ${staticScenarioCount})`)
       }
     }
   }
@@ -140,11 +160,12 @@ export function checkReleaseConsistency(root) {
     if (!ciYaml.value.includes("evals:v11:validate")) {
       errors.push(".github/workflows/ci.yml: missing evals:v11:validate job")
     }
-    if (!ciYaml.value.includes("CI Gate")) {
-      errors.push(".github/workflows/ci.yml: missing CI Gate aggregate job")
-    }
-    if (!ciYaml.value.includes("docs:check")) {
-      errors.push(".github/workflows/ci.yml: missing docs:check job")
+    if (!/^\s*name:\s*CI Gate\s*$/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: missing CI Gate aggregate job name")
+    if (!/needs:\s*\[\s*static\s*,\s*unit\s*,\s*package\s*\]/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: CI Gate must depend on static, unit and package")
+    if (!/if:\s*always\(\)/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: aggregate gate must use if: always()")
+    if (!ciYaml.value.includes("docs:check")) errors.push(".github/workflows/ci.yml: missing docs:check job")
+    for (const check of ["evals:v12:validate","evals:repo-scale:validate"]) {
+      if (!ciYaml.value.includes(check)) errors.push(".github/workflows/ci.yml: missing " + check + " job")
     }
   } else {
     errors.push(ciYaml.error)
@@ -153,9 +174,8 @@ export function checkReleaseConsistency(root) {
   // 7. Check Security workflow
   const securityYaml = rText(".github/workflows/security.yml")
   if (securityYaml.ok) {
-    if (!securityYaml.value.includes("Security Gate")) {
-      errors.push(".github/workflows/security.yml: missing Security Gate aggregate job")
-    }
+    if (!/^\s*name:\s*Security Gate\s*$/m.test(securityYaml.value)) errors.push(".github/workflows/security.yml: missing Security Gate aggregate job name")
+    if (!/needs:\s*\[\s*codeql\s*,\s*dependency-review\s*\]/m.test(securityYaml.value)) errors.push(".github/workflows/security.yml: Security Gate must depend on codeql and dependency-review")
   } else {
     errors.push(securityYaml.error)
   }
@@ -186,6 +206,8 @@ export function checkReleaseConsistency(root) {
     skillCount,
     commandCount,
     subagentCount: agentCount,
+    staticScenarioCount,
+    routerCaseCount,
   }
 }
 

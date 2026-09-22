@@ -74,11 +74,23 @@ test("V11 model config persists capability profiles", async () => {
       },
     })
     const reread = await readModelPolicy(dir)
-    assert.equal(reread.schemaVersion, 2)
+    assert.equal(reread.schemaVersion, 3)
     assert.equal(reread.capabilities["provider/vision"].vision, true)
     assert.equal(reread.capabilities["provider/vision"].browser, true)
     assert.equal(reread.capabilities["provider/vision"].quality, 0.9)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+test("V12 model config persists empirical performance observations", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(),"ues-model-performance-"))
+  try {
+    await writeModelPolicy(dir,{enabled:true,tiers:{standard:"provider/mid"}})
+    const { recordModelPerformance } = await import("../lib/model-config.mjs")
+    await recordModelPerformance(dir,{model:"provider/mid",taskClass:"debugging",passed:true,retries:0,tokens:1200,latencyMs:800})
+    const reread = await readModelPolicy(dir)
+    assert.equal(reread.performance["provider/mid"].debugging.samples,1)
+    assert.equal(reread.performance["provider/mid"].debugging.passRate,1)
+  } finally { await rm(dir,{recursive:true,force:true}) }
 })

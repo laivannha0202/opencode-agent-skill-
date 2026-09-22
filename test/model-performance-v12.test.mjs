@@ -1,0 +1,16 @@
+import test from "node:test"
+import assert from "node:assert/strict"
+import { inferTaskClass, recordPerformanceOutcome, rerankCapabilitySelection } from "../lib/model-performance.mjs"
+test("V12 task classification detects repo-scale work", () => {
+  assert.equal(inferTaskClass("Refactor the whole repo across many modules"), "repo-scale")
+})
+test("empirical routing can prefer a proven model over a slightly higher static score", () => {
+  const selection = { candidates:[{id:"provider/a",eligible:true,score:80},{id:"provider/b",eligible:true,score:77}], selected:{id:"provider/a",eligible:true,score:80} }
+  let history = {}
+  for (let i=0;i<6;i+=1) {
+    history = recordPerformanceOutcome(history,{model:"provider/a",taskClass:"debugging",passed:i<2,retries:2})
+    history = recordPerformanceOutcome(history,{model:"provider/b",taskClass:"debugging",passed:true,retries:0})
+  }
+  const reranked = rerankCapabilitySelection(selection,history,{taskClass:"debugging",minSamples:3})
+  assert.equal(reranked.selected.id,"provider/b")
+})

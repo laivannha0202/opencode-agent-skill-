@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "kind": "repo-scale-contract-suite",
+  "description": "Deterministic large-repository contract tasks used to validate V12 weak-model context/routing foundations before live model runs.",
+  "minimumGeneratedModules": 300,
+  "tasks": [
+    {
+      "id": "cross-package-regression",
+      "category": "repo-scale",
+      "objective": "Trace a regression across package boundaries without loading the entire generated monorepo into context.",
+      "requiredFiles": [
+        "packages/pkg-0/src/mod049.mjs",
+        "packages/pkg-1/src/mod049.mjs"
+      ],
+      "acceptance": [
+        "Required-file context recall is measurable",
+        "Unrelated packages stay bounded"
+      ]
+    },
+    {
+      "id": "public-contract-ripple",
+      "category": "contract",
+      "objective": "Change a public API field and identify the API producer and web consumer that must move together.",
+      "requiredFiles": [
+        "contracts/public-api.json",
+        "apps/api/src/service.mjs",
+        "apps/web/src/consumer.mjs"
+      ],
+      "acceptance": [
+        "Contract producer and consumer are both discovered",
+        "Change-impact evidence is explicit"
+      ]
+    },
+    {
+      "id": "deep-chain-debug",
+      "category": "debugging",
+      "objective": "Diagnose a defect near the end of a fifty-module import chain using bounded evidence expansion.",
+      "requiredFiles": [
+        "packages/pkg-2/src/mod048.mjs",
+        "packages/pkg-2/src/mod049.mjs"
+      ],
+      "acceptance": [
+        "Initial context remains bounded",
+        "Recovery can expand around the failing chain"
+      ]
+    },
+    {
+      "id": "multi-package-refactor",
+      "category": "refactor",
+      "objective": "Coordinate a refactor touching several package endpoints while serializing shared contract writes.",
+      "requiredFiles": [
+        "packages/pkg-3/src/index.mjs",
+        "packages/pkg-4/src/index.mjs",
+        "contracts/public-api.json"
+      ],
+      "acceptance": [
+        "Cross-package scope is explicit",
+        "Shared contract changes are treated as a write-conflict surface"
+      ]
+    }
+  ]
+}

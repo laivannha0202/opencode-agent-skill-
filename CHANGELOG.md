@@ -6,6 +6,15 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### V12 development foundation
+- Added empirical per-task-class model performance history and capability-preserving reranking.
+- Added context quality receipts for required-file recall and irrelevant-context ratio.
+- Added hash-keyed plan snapshots with active-plan execution fencing.
+- Added bounded decision policy for reversible local rulings versus human-gated destructive/external actions.
+- Added deterministic repo-scale benchmark fixture generation and V12/repo-scale validation gates.
+- Hardened release consistency checks to derive eval counts and validate aggregate workflow structure.
+
+
 ## [11.0.0] - 2026-09-22
 
 ### Released

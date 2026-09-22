@@ -23,7 +23,7 @@
     "evals": "node scripts/eval-skills.mjs",
     "evals:live:validate": "node scripts/validate-live-suite.mjs",
     "test": "node --test test/*.test.mjs",
-    "ci": "npm run syntax && npm run validate && npm run docs:check && npm run evals && npm run evals:router && npm run evals:v11:validate && npm run evals:live:validate && npm run evals:long:validate && npm run evals:polyglot:validate && npm test && npm pack --dry-run && npm run smoke:pack && npm run smoke:plain-install",
+    "ci": "npm run syntax && npm run validate && npm run docs:check && npm run evals && npm run evals:router && npm run evals:v11:validate && npm run evals:v12:validate && npm run evals:repo-scale:validate && npm run evals:live:validate && npm run evals:long:validate && npm run evals:polyglot:validate && npm test && npm pack --dry-run && npm run smoke:pack && npm run smoke:plain-install",
     "postinstall": "node scripts/install.mjs",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run ci",
@@ -49,7 +49,9 @@
     "evals:matrix:gate": "node scripts/eval-matrix.mjs --require-confidence",
     "evals:ablation": "node scripts/eval-ablation.mjs",
     "evals:v11": "node --test test/*-v11.test.mjs",
-    "evals:v11:validate": "node scripts/validate-v11-suite.mjs"
+    "evals:v11:validate": "node scripts/validate-v11-suite.mjs",
+    "evals:repo-scale:validate": "node scripts/validate-repo-scale-suite.mjs",
+    "evals:v12:validate": "node scripts/validate-v12-foundation.mjs"
   },
   "keywords": [
     "opencode",

@@ -65,7 +65,7 @@ import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, buildHermesWorkflowPrompt, hermesOneShotArgs, hermesSidecarPlan } from "../lib/hermes-bridge.mjs"
-import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
+import { readModelPolicy, recordModelPerformance, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
 import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
 import { browserCapability, buildBrowserVerificationPlan } from "../lib/browser-adapter.mjs"
@@ -171,6 +171,7 @@ Usage:
     ocskill models set <light|standard|heavy> <provider/model[#variant]>
     ocskill models role <role> <light|standard|heavy>
     ocskill models capability <provider/model> [--vision on|off] [--browser on|off] [--reasoning on|off] [--long-context on|off] [--cost low|medium|high] [--latency fast|medium|slow] [--quality 0..1]
+    ocskill models observe <provider/model> --task-class <class> --passed on|off [--retries N] [--tokens N] [--latency-ms N]
 
   --force backs up and replaces/removes state owned by another package.
 `)
@@ -809,6 +810,26 @@ async function modelsControl() {
     })
     printJson(policy)
     console.log("[ocskill] Run 'ocskill install' to apply role-tier changes.")
+    return
+  }
+
+  if (action === "observe") {
+    const model = args[2]
+    if (!validateModelID(model)) {
+      console.error("Usage: ocskill models observe <provider/model> --task-class <class> --passed on|off")
+      process.exitCode = 2
+      return
+    }
+    const taskClass = optionValue(args, "--task-class") || "general"
+    const passedRaw = String(optionValue(args, "--passed") || "").toLowerCase()
+    if (!["on","off","true","false","pass","fail"].includes(passedRaw)) throw new Error("--passed must be on/off, true/false, or pass/fail")
+    policy = await recordModelPerformance(getConfigDir(), {
+      model, taskClass, passed: ["on","true","pass"].includes(passedRaw),
+      retries: optionInt(args, "--retries", 0) || 0,
+      tokens: optionInt(args, "--tokens", 0) || 0,
+      latencyMs: optionInt(args, "--latency-ms", 0) || 0,
+    })
+    printJson({ model, taskClass, recorded: true, performance: policy.performance?.[model]?.[taskClass] || null })
     return
   }
 

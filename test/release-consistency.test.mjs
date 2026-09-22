@@ -164,3 +164,17 @@ function fillFixture(tmp) {
     },
   })
 }
+
+test("release checker ignores skill directories without SKILL.md", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    mkdirSync(path.join(tmp,"global-config","skills","not-a-skill"),{recursive:true})
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.skillCount,48); assert.equal(result.pass,true)
+  } finally { rmSync(tmp,{recursive:true,force:true}) }
+})
+test("release checker derives router scenario counts from eval JSON", () => {
+  const result = checkReleaseConsistency(root)
+  assert.equal(result.staticScenarioCount,43); assert.equal(result.routerCaseCount,129)
+})
