@@ -7,7 +7,7 @@ import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
 import { runEventDrivenDAG } from "./parallel-runtime.js"
-import { readProjectText } from "./text-runtime.js"
+import { readProjectJson, readProjectText } from "./text-runtime.js"
 import { extractVerifierVerdict } from "./verifier-runtime.js"
 import {
   budgetToolResult,
@@ -1297,8 +1297,8 @@ export default Plugin.define({
           if (!existsSync(planFile) || !existsSync(stateFile)) {
             throw new Error("parallel dispatch requires an initialized work item with PLAN.json and STATE.json")
           }
-          const plan = JSON.parse(readFileSync(planFile, "utf8"))
-          const state = JSON.parse(readFileSync(stateFile, "utf8"))
+          const plan = readProjectJson(projectRoot, path.relative(projectRoot, planFile)).value
+          const state = readProjectJson(projectRoot, path.relative(projectRoot, stateFile)).value
           if (state?.planApproval?.status !== "passed") throw new Error("parallel dispatch requires an approved active plan")
           const running = Object.entries(state.tasks || {}).filter(([, record]) => record?.status === "running")
           if (running.length) throw new Error("parallel dispatch refuses to start while another durable task attempt is already running")
