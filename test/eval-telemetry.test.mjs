@@ -78,7 +78,7 @@ test("initial input telemetry skips output-only usage samples", () => {
 test("V11 telemetry captures cacheable prompt and evidence reuse without inventing unavailable metrics", () => {
   const ref = "evidence:sha256:" + "a".repeat(64)
   const stdout = [
-    JSON.stringify({ type: "ues.context", promptCache: { cacheableRatio: 0.8, repeatedStableChars: 1200 }, evidencePointers: { spec: ref } }),
+    JSON.stringify({ type: "ues.context", promptCache: { cacheableRatio: 0.8, stableChars: 2400, dynamicChars: 600, repeatedStableChars: 1200 }, evidencePointers: { spec: ref } }),
     JSON.stringify({ type: "ues.context", evidence: [ref] }),
     JSON.stringify({ type: "visual.repair" }),
     JSON.stringify({ type: "context.expand" }),
@@ -86,7 +86,10 @@ test("V11 telemetry captures cacheable prompt and evidence reuse without inventi
   ].join("\n")
   const result = parseOpenCodeTelemetry(stdout)
   assert.equal(result.v11.avgCacheableRatio, 0.8)
+  assert.equal(result.v11.avgStableChars, 2400)
+  assert.equal(result.v11.avgDynamicChars, 600)
   assert.equal(result.v11.repeatedStableChars, 1200)
+  assert.equal(result.v11.repeatedStableRatio, 0.5)
   assert.equal(result.v11.evidenceRefOccurrences, 2)
   assert.equal(result.v11.uniqueEvidenceRefs, 1)
   assert.equal(result.v11.evidenceReuseRatio, 0.5)
