@@ -73,6 +73,7 @@ import { comparePngFiles, cropPngFile } from "../lib/png-diff.mjs"
 import { createGeometryReceipt, responsiveViewportMatrix, validateVisualSpec } from "../lib/visual-spec.mjs"
 import { planDynamicWorkflow } from "../lib/dynamic-workflow.mjs"
 import { lintSkillCatalog } from "../lib/skill-quality.mjs"
+import { designTokenEvidence, extractDesignTokens, inspectResponsiveLayout } from "../lib/ui-inspector.mjs"
 import {
   clipOutput,
   errorMessage,
@@ -129,6 +130,7 @@ Usage:
   ocskill capabilities <text>     Infer required execution/model capabilities
   ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
   ocskill browser <action> ...    Browser capability and bounded verification plan
+  ocskill ui <tokens|layout> ...  Extract design tokens or verify responsive geometry
   ocskill workflow-plan <plan>    Cost-aware deterministic/LLM/vision wave schedule
   ocskill skills lint [dir]       Lint skill size, metadata and routing-description collisions
   ocskill dashboard [dir] [--serve] [--port N]
@@ -1205,6 +1207,37 @@ async function browserControl() {
   }
 }
 
+async function uiControl() {
+  const action = args[1]
+  try {
+    if (action === "tokens") {
+      const file = args[2]
+      if (!file) throw new Error("Usage: ocskill ui tokens <styles.css>")
+      const tokens = extractDesignTokens(readTextFile(file))
+      printJson({ tokens, evidence: designTokenEvidence(tokens) })
+      return
+    }
+    if (action === "layout") {
+      const file = args[2]
+      if (!file) throw new Error("Usage: ocskill ui layout <boxes.json> --width N --height N [--min-touch N] [--overlap-ratio N]")
+      const payload = readJsonFile(file)
+      const items = Array.isArray(payload) ? payload : payload.elements || payload.boxes || []
+      printJson(inspectResponsiveLayout(items, {
+        width: optionInt(args, "--width", Number(payload.viewport?.width || 0)),
+        height: optionInt(args, "--height", Number(payload.viewport?.height || 0)),
+      }, {
+        minTouchTarget: optionInt(args, "--min-touch", 44),
+        overlapRatio: Number(optionValue(args, "--overlap-ratio") ?? 0.15),
+      }))
+      return
+    }
+    throw new Error("Usage: ocskill ui <tokens|layout> ...")
+  } catch (error) {
+    console.error(errorMessage(error))
+    process.exitCode = 1
+  }
+}
+
 async function workflowPlanControl() {
   const file = args[1]
   if (!file) {
@@ -1422,6 +1455,9 @@ switch (command) {
     break
   case "workflow-plan":
     await workflowPlanControl()
+    break
+  case "ui":
+    await uiControl()
     break
   case "skills":
     await skillsControl()
