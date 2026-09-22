@@ -64,3 +64,13 @@ test("work status dot auto-resolves the only active workspace", async () => {
     await rm(dir, { recursive: true, force: true })
   }
 })
+
+
+test("top-level unknown command is structured with --json and does not dump a Node stack", () => {
+  const result = run(["definitely-not-a-command", "--json"])
+  assert.equal(result.status, 2)
+  const payload = JSON.parse(result.stderr)
+  assert.equal(payload.error.code, "UES_USAGE")
+  assert.match(payload.error.message, /Unknown command/)
+  assert.doesNotMatch(result.stderr, /at main|node:internal/)
+})
