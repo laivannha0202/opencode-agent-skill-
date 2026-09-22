@@ -1,10 +1,10 @@
 ---
 name: component-visual-testing
-description: Add or use component-level visual/interaction regression tests with Storybook or project-native component harnesses so changed UI states can be rendered, exercised and screenshot-compared independently of the whole application.
+description: Add or use component-level visual and interaction verification with Storybook, Playwright, snapshots, state matrices, and affected-component baselines when a repository supports them.
 ---
 
 # Component Visual Testing
 
-Detect an existing Storybook/component-test setup first. Reuse existing stories/fixtures and cover only meaningful variants: default plus states directly affected by the change.
+Detect the project's existing Storybook, component test, screenshot, and interaction conventions before adding new tooling. Reuse existing stories/states when possible.
 
-Prefer component-level visual tests for local styling regressions, interaction tests for behavior, and accessibility checks for semantics. Do not replace end-to-end verification when routing/data/integration behavior is part of the acceptance criteria.
+Exercise important states: default, hover/focus/pressed/disabled, loading/empty/error/success, long content, missing media, and relevant responsive sizes. Treat visual snapshots as regression evidence, not a substitute for semantic or interaction checks.
