@@ -1233,6 +1233,93 @@
         "ues-task-planner"
       ],
       "exclude": []
+    },
+    {
+      "id": "v11-visual-fidelity",
+      "prompt": "Match this reference screenshot pixel-perfect and verify visual fidelity.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-visual-fidelity"
+      ],
+      "exclude": [
+        "ues-payment-engineering"
+      ]
+    },
+    {
+      "id": "v11-browser-qa",
+      "prompt": "Use Playwright browser QA to verify the checkout flow.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-browser-qa"
+      ],
+      "exclude": [
+        "ues-react-native-engineering"
+      ]
+    },
+    {
+      "id": "v11-design-source",
+      "prompt": "Read the Figma design source and extract design tokens.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-design-source"
+      ],
+      "exclude": [
+        "ues-database-engineering"
+      ]
+    },
+    {
+      "id": "v11-responsive",
+      "prompt": "Verify responsive breakpoint behavior across mobile and tablet layout.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-responsive-verification"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "v11-storybook",
+      "prompt": "Add Storybook visual regression coverage for this component.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-component-visual-testing"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "v11-skill-authoring",
+      "prompt": "Create an agent skill with a precise trigger description.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-skill-authoring"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "v11-skill-eval",
+      "prompt": "Evaluate skill routing precision and recall with a benchmark.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-skill-evaluation"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "v11-dynamic-workflow",
+      "prompt": "Plan a dynamic workflow fan-out in bounded waves for many independent tasks.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-dynamic-workflow"
+      ],
+      "exclude": []
+    },
+    {
+      "id": "v11-browser-security",
+      "prompt": "Audit browser security against prompt injection from an untrusted webpage.",
+      "include": [
+        "ues-engineering-orchestrator",
+        "ues-browser-security"
+      ],
+      "exclude": []
     }
   ]
 }
