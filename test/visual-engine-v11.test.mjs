@@ -47,3 +47,13 @@ test("V11 PNG diff locates changed pixels and can crop the failure region", asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V11 PNG decoder rejects unsafe dimensions before decompression", () => {
+  const rgba = Buffer.alloc(4)
+  const png = encodeRgbaPng({ width: 1, height: 1, rgba })
+  const unsafe = Buffer.from(png)
+  unsafe.writeUInt32BE(100000, 16)
+  unsafe.writeUInt32BE(100000, 20)
+  assert.throws(() => comparePngBuffers(unsafe, unsafe), /safety budget/)
+})
