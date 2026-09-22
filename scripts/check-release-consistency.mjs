@@ -130,6 +130,35 @@ export function checkReleaseConsistency(root) {
     }
   }
 
+  // 4b. V13 prerelease contract must stay synchronized with compatibility docs.
+  if (expectedVersion.startsWith("13.")) {
+    const v13 = rText("docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md")
+    if (!v13.ok) {
+      errors.push(v13.error)
+    } else {
+      if (!v13.value.includes("Status: beta prerelease (`" + expectedVersion + "`).")) {
+        errors.push("docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md: prerelease version/status drift")
+      }
+      for (const required of ["ues.dispatch_parallel", "same configured model", "OpenCode"]) {
+        if (!v13.value.includes(required)) {
+          errors.push("docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md: missing V13 contract marker " + required)
+        }
+      }
+    }
+
+    const compat = rText("docs/OPENCODE-COMPAT.md")
+    if (!compat.ok) {
+      errors.push(compat.error)
+    } else {
+      if (!compat.value.includes("V13 ships one npm package")) {
+        errors.push("docs/OPENCODE-COMPAT.md: current compatibility header is stale for V13")
+      }
+      if (!compat.value.includes("ues.dispatch_parallel")) {
+        errors.push("docs/OPENCODE-COMPAT.md: missing V13 parallel capability boundary")
+      }
+    }
+  }
+
   // 5. Verify docs reflect actual counts (skip historical sections)
   const docsToCheck = ["README.md", "docs/ENGINEERING-DESIGN.md", "docs/OPENCODE-COMPAT.md"]
   for (const doc of docsToCheck) {
