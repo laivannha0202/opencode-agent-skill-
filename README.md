@@ -447,6 +447,7 @@ Model ID do người dùng cấu hình vẫn là nguồn quyết định cuối 
 | `ocskill impact <query> [dir]` | Tìm phạm vi ảnh hưởng theo symbol hoặc từ khóa |
 | `ocskill evidence [dir]` | Thu thập snapshot về repository, verification và Git |
 | `ocskill working-tree [dir]` | Kiểm tra branch, HEAD và working tree |
+| `ocskill text-read <file> [--start N] [--max N]` | Đọc bounded UTF-8/UTF-16 an toàn khi generic Read nhận nhầm text là binary |
 | `ocskill review-scope [base] [dir]` | Phân tích changed-file coverage và risk hint |
 | `ocskill verification-plan [dir]` | Đề xuất verification phù hợp với project |
 | `ocskill task-graph <PLAN.json>` | Kiểm tra DAG và tính safe waves |
