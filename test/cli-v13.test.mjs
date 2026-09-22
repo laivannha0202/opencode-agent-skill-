@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
@@ -48,6 +48,52 @@ test("--json returns structured CLI errors", () => {
   assert.match(payload.error.message, /Unknown work action/)
 })
 
+
+test("work plan accepts PowerShell-style UTF-16LE JSON", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-utf-plan-"))
+  try {
+    const init = run(["work", "init", "utf-plan", ".", "--goal", "UTF plan recovery"], dir)
+    assert.equal(init.status, 0, init.stderr)
+    const planFile = path.join(dir, "PLAN-UTF16.json")
+    const plan = JSON.stringify({
+      schemaVersion: 1,
+      goal: "UTF plan recovery",
+      tasks: [{
+        id: "T1",
+        title: "Recover plan",
+        summary: "Accept a UTF-16 plan file",
+        dependsOn: [],
+        files: { modify: ["src/a.js"] },
+        acceptance: ["plan imports"],
+        verification: ["node --version"],
+        risk: "low",
+      }],
+    }, null, 2)
+    await writeFile(planFile, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(plan, "utf16le")]))
+    const imported = run(["work", "plan", "utf-plan", planFile, "."], dir)
+    assert.equal(imported.status, 0, imported.stderr)
+    const payload = JSON.parse(imported.stdout)
+    assert.equal(payload.analysis.valid, true)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("work status can recover legacy UTF-16LE durable STATE.json", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-utf-state-"))
+  try {
+    const init = run(["work", "init", "utf-state", ".", "--goal", "UTF state recovery"], dir)
+    assert.equal(init.status, 0, init.stderr)
+    const stateFile = path.join(dir, ".ues-work", "utf-state", "STATE.json")
+    const stateText = await readFile(stateFile, "utf8")
+    await writeFile(stateFile, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(stateText, "utf16le")]))
+    const status = run(["work", "status", "utf-state", "."], dir)
+    assert.equal(status.status, 0, status.stderr)
+    assert.equal(JSON.parse(status.stdout).slug, "utf-state")
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 test("repo-graph compact mode keeps initial large-repo evidence bounded", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-graph-"))
