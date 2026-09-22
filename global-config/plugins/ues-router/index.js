@@ -1418,6 +1418,7 @@ export default Plugin.define({
             },
             integrate: async (task, result) => {
               let applied = false
+              let durableCompleted = false
               try {
                 let integration = null
                 if (result.sandbox?.dir) {
@@ -1437,19 +1438,22 @@ export default Plugin.define({
                   "--run-id", result.runId,
                   "--evidence", result.verifier.evidence,
                 ], projectRoot)
+                durableCompleted = true
 
                 if (result.sandbox?.dir) {
                   try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
                 }
-                await tool.progress({ status: "parallel task " + task.id + " verified and integrated" })
+                try { void tool.progress({ status: "parallel task " + task.id + " verified and integrated" }) } catch {}
                 return { integration, receipt, completed }
               } catch (error) {
-                if (applied && result.sandbox?.dir) {
-                  try { runOcskill(["sandbox", "rollback", result.sandbox.dir, projectRoot], projectRoot) } catch {}
-                } else if (result.sandbox?.dir) {
-                  try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
+                if (!durableCompleted) {
+                  if (applied && result.sandbox?.dir) {
+                    try { runOcskill(["sandbox", "rollback", result.sandbox.dir, projectRoot], projectRoot) } catch {}
+                  } else if (result.sandbox?.dir) {
+                    try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
+                  }
+                  if (result.runId) failRunningTask(task.id, result.runId, "parallel integration failed: " + String(error?.message || error))
                 }
-                if (result.runId) failRunningTask(task.id, result.runId, "parallel integration failed: " + String(error?.message || error))
                 throw error
               }
             },
