@@ -58,7 +58,13 @@ On Windows, prefer:
 ocskill diff . --out dirty.diff
 ```
 
-This writes UTF-8 directly and avoids PowerShell 5 redirection producing UTF-16 text that generic readers may classify as binary. Existing UTF-8/UTF-16 text can be normalized with:
+This writes UTF-8 directly and avoids PowerShell 5 redirection producing UTF-16 text that generic readers may classify as binary. On OpenCode 1.x, where the V2 `ues.text_read` tool is unavailable, read known text safely without creating a converted copy:
+
+```cmd
+ocskill text-read .ues-work/<slug>/PLAN.json --json
+```
+
+Existing UTF-8/UTF-16 text can be normalized with:
 
 ```cmd
 ocskill normalize-text dirty.diff
