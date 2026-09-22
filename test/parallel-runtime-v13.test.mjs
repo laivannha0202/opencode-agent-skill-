@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { adaptiveWorkerCount, runEventDrivenDAG } from "../global-config/plugins/ues-router/parallel-runtime.js"
+import { adaptiveWorkerCount, parallelRootBaseline, runEventDrivenDAG } from "../global-config/plugins/ues-router/parallel-runtime.js"
 import { taskVerificationCommands, validatePlan } from "../lib/task-graph.mjs"
 
 function sleep(ms) {
@@ -66,6 +66,29 @@ test("adaptive worker pool shrinks after repeated failures or conflict pressure"
   assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8, recentFailures: 2 }), 4)
   assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8, conflictRate: 0.5 }), 4)
   assert.equal(adaptiveWorkerCount({ requested: 8, readyCount: 8, recentFailures: 2, conflictRate: 0.5 }), 2)
+})
+
+test("parallel root baseline accepts inherited dirty work while rejecting non-git roots", () => {
+  assert.deepEqual(
+    parallelRootBaseline({
+      git: true,
+      head: "abc123",
+      branch: "main",
+      clean: false,
+      changes: [" M src/existing.js", "?? notes.txt"],
+    }),
+    {
+      head: "abc123",
+      branch: "main",
+      clean: false,
+      inheritedDirtyRoot: true,
+      changes: [" M src/existing.js", "?? notes.txt"],
+    },
+  )
+  assert.throws(
+    () => parallelRootBaseline({ git: false }),
+    /requires a Git repository/,
+  )
 })
 
 test("shared configuration writer serializes against otherwise independent writers", async () => {
