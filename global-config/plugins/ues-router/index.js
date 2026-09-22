@@ -7,6 +7,7 @@ import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
 import { runEventDrivenDAG } from "./parallel-runtime.js"
+import { readProjectText } from "./text-runtime.js"
 import {
   budgetToolResult,
   classifyProviderFailure,
@@ -533,6 +534,27 @@ export default Plugin.define({
         },
         options: { namespace: "ues", codemode: true },
         execute: async () => ({ content: JSON.stringify(capabilities, null, 2) }),
+      })
+      editor.add({
+        name: "text_read",
+        description: "Read a project text or diff file with UTF-8/UTF-16 auto-detection when the normal reader reports binary or encoding trouble. Refuses paths outside the project and real binary data.",
+        input: {
+          type: "object",
+          properties: {
+            file: { type: "string" },
+            start: { type: "integer", minimum: 0 },
+            maxChars: { type: "integer", minimum: 256, maximum: 100000 },
+          },
+          required: ["file"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: JSON.stringify(readProjectText(projectRoot, input.file, {
+            start: input.start,
+            maxChars: input.maxChars,
+          }), null, 2),
+        }),
       })
       editor.add({
         name: "task_policy",
@@ -1463,7 +1485,7 @@ export default Plugin.define({
       await ctx.session.hook("context", (event) => {
         event.system.push({
           type: "text",
-          text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts and verify fresh behavior. On Windows, never redirect git diff through PowerShell into a text file; use ocskill diff . --out <file> so the result is UTF-8. For independent approved tasks, prefer ues.dispatch_parallel when one shared model can safely work in isolated sessions.",
+          text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts and verify fresh behavior. On Windows, never redirect git diff through PowerShell into a text file; use ocskill diff . --out <file> so the result is UTF-8. If normal Read reports binary for a diff or known text file, use ues.text_read instead of inventing a converted copy. For independent approved tasks, prefer ues.dispatch_parallel when one shared model can safely work in isolated sessions.",
         })
         const assignment = sessionAssignments.get(event.sessionID)
         if (assignment?.resumeRequired && assignment.checkpoint) {
