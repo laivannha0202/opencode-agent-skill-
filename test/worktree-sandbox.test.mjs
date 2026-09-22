@@ -122,3 +122,38 @@ test("parallel sandbox inherits dirty root but only integrates its own delta", a
     await rm(base, { recursive: true, force: true })
   }
 })
+
+
+test("parallel downstream sandbox can safely modify a file inherited from a predecessor", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-chain-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-chain-base-"))
+  try {
+    await writeFile(path.join(root, "shared.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    await writeFile(path.join(root, "shared.txt"), "from-task-a\n")
+    const sandbox = await createTaskSandbox(root, "parallel", "T3", {
+      baseDir: base,
+      inheritDirtyRoot: true,
+    })
+    await writeFile(path.join(sandbox.dir, "shared.txt"), "from-task-a-and-b\n")
+
+    const integrated = await integrateTaskSandbox(root, sandbox.dir, { keep: true })
+    assert.deepEqual(integrated.changed, ["shared.txt"])
+    assert.equal(
+      (await readFile(path.join(root, "shared.txt"), "utf8")).replaceAll("\r\n", "\n"),
+      "from-task-a-and-b\n",
+    )
+
+    await rollbackTaskSandbox(root, sandbox.dir)
+    assert.equal(
+      (await readFile(path.join(root, "shared.txt"), "utf8")).replaceAll("\r\n", "\n"),
+      "from-task-a\n",
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
