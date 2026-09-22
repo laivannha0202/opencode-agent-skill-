@@ -97,7 +97,10 @@ const args = rawArgs.filter((value, index) =>
   !(value === "--json" && (rawSeparator < 0 || index < rawSeparator)),
 )
 const command = args[0] || "help"
-const helpRequested = args.includes("--help") || args.includes("-h")
+const argsSeparator = args.indexOf("--")
+const helpRequested = args.some((value, index) =>
+  (value === "--help" || value === "-h") && (argsSeparator < 0 || index < argsSeparator),
+)
 const force = args.includes("--force")
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
