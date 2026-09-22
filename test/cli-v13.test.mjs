@@ -74,3 +74,11 @@ test("top-level unknown command is structured with --json and does not dump a No
   assert.match(payload.error.message, /Unknown command/)
   assert.doesNotMatch(result.stderr, /at main|node:internal/)
 })
+
+
+test("global help parser does not consume child --help after command separator", () => {
+  const result = run(["definitely-not-a-command", "--", "--help", "--json"])
+  assert.equal(result.status, 2)
+  assert.match(result.stderr, /Unknown command/)
+  assert.doesNotMatch(result.stdout, /Usage:/)
+})
