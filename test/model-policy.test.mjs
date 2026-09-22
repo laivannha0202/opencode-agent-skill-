@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { defaultTier, resolveAdaptiveModel, resolveModel, resolveTier } from "../lib/model-policy.mjs"
+import { defaultTier, resolveAdaptiveModel, resolveCapabilityModel, resolveModel, resolveTier } from "../lib/model-policy.mjs"
 
 test("model policy escalates failed attempts but caps at heavy", () => {
   assert.equal(defaultTier("executor"), "standard")
@@ -41,4 +41,23 @@ test("V10 FAST context does not silently downshift executor capability", () => {
   assert.equal(retry.tier, "heavy")
   assert.equal(retry.model, "provider/heavy")
   assert.equal(retry.recoveryStage, "diagnose")
+})
+
+
+test("V11 capability model routing selects vision-capable model only when required", () => {
+  const config = {
+    enabled: true,
+    roleTiers: { executor: "standard", "visual-verifier": "standard" },
+    tiers: { light: "provider/cheap", standard: "provider/mid", heavy: "provider/vision" },
+    capabilities: {
+      "provider/cheap": { coding: true, toolCalling: true, filesystem: true, costClass: "low", latencyClass: "fast", quality: 0.6 },
+      "provider/mid": { coding: true, toolCalling: true, filesystem: true, reasoning: true, costClass: "medium", latencyClass: "fast", quality: 0.8 },
+      "provider/vision": { coding: true, toolCalling: true, filesystem: true, reasoning: true, vision: true, browser: true, longContext: true, costClass: "high", latencyClass: "medium", quality: 0.9 },
+    },
+  }
+  const normal = resolveCapabilityModel("executor", 1, "fix this helper", { modelTier: "standard" }, config)
+  assert.equal(normal.model, "provider/mid")
+  const visual = resolveCapabilityModel("visual-verifier", 1, "match this screenshot in the browser", { modelTier: "standard" }, config)
+  assert.equal(visual.model, "provider/vision")
+  assert.equal(visual.capabilityRequirements.required.vision, true)
 })
