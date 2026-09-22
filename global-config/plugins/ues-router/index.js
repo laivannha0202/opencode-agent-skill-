@@ -1380,6 +1380,7 @@ export default Plugin.define({
                       summary: task.summary || null,
                       acceptance: task.acceptance || [],
                       verification: task.verification || [],
+                      verificationCommands: task.verificationCommands || [],
                       files: task.files || null,
                       risk: task.risk || "medium",
                     }, null, 2),
@@ -1430,6 +1431,20 @@ export default Plugin.define({
                   integration = runOcskillJSON(["sandbox", "integrate", result.sandbox.dir, projectRoot, "--keep"], projectRoot)
                   applied = true
                 }
+                const deterministicReceipts = []
+                for (const commandSpec of task.verificationCommands || []) {
+                  const command = String(commandSpec?.command || "").trim()
+                  if (!command) continue
+                  const commandArgs = Array.isArray(commandSpec?.args)
+                    ? commandSpec.args.map((value) => String(value))
+                    : []
+                  const verified = runOcskillJSON([
+                    "work", "verify-command", input.slug, task.id, projectRoot,
+                    "--run-id", result.runId,
+                    "--", command, ...commandArgs,
+                  ], projectRoot)
+                  deterministicReceipts.push(verified.receipt)
+                }
                 const receipt = runOcskillJSON([
                   "work", "agent-receipt", input.slug, task.id, projectRoot,
                   "--run-id", result.runId,
@@ -1449,7 +1464,7 @@ export default Plugin.define({
                   try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
                 }
                 try { void tool.progress({ status: "parallel task " + task.id + " verified and integrated" }) } catch {}
-                return { integration, receipt, completed }
+                return { integration, deterministicReceipts, receipt, completed }
               } catch (error) {
                 if (!durableCompleted) {
                   if (applied && result.sandbox?.dir) {
