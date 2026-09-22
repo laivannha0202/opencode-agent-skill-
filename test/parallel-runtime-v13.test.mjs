@@ -1,6 +1,7 @@
 import test from "node:test"
 import assert from "node:assert/strict"
 import { adaptiveWorkerCount, runEventDrivenDAG } from "../global-config/plugins/ues-router/parallel-runtime.js"
+import { taskVerificationCommands, validatePlan } from "../lib/task-graph.mjs"
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms))
