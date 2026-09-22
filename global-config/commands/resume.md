@@ -7,6 +7,8 @@ Resume this UES work item: $ARGUMENTS
 
 Read the matching `.ues-work/<slug>/SPEC.md`, `PLAN.json`, `STATE.json`, `EVIDENCE.json`, task reports and current Git status. Run `ocskill work resume <slug> .` and revalidate assumptions that may have gone stale.
 
+Ignore a top-level `ues-work/` directory as official workflow state. Only `.ues-work/<slug>/` created/managed by `ocskill work` is canonical durable state.
+
 Trust durable task state and Git evidence over conversational recollection. Respect the machine gates:
 - if the plan is awaiting approval, run `ues-plan-checker` and record PASS with `ocskill work approve-plan`;
 - resume failed/pending work from the last verified boundary;
