@@ -156,6 +156,15 @@ function sessionContextDigest(messages) {
   return stableRuntimeHash(recent || [])
 }
 
+function projectScopedPath(root, value) {
+  const base = path.resolve(root)
+  const target = path.resolve(base, String(value || ""))
+  if (target !== base && !target.startsWith(base + path.sep)) {
+    throw new Error("UES V11 file input must stay inside the project root")
+  }
+  return target
+}
+
 function persistRuntimeEvidence(root, tool, result) {
   const original = typeof result === "string" ? result : String(result?.output || "")
   if (original.length < 12_000) return null
@@ -389,10 +398,15 @@ export default Plugin.define({
             event.tool === "bash" && /(?:ocskill\s+repo-graph|\brg\b|\bgrep\b|\bglob\b)/i.test(shellInput)
               ? "repo-graph"
               : event.tool
-          const evidenceRef = persistRuntimeEvidence(assignment.executionDir || projectRoot, budgetTool, event.result)
           const originalResult = event.result
           event.result = budgetToolResult(budgetTool, event.result)
-          if (evidenceRef && event.result !== originalResult) {
+          const truncated =
+            event.result !== originalResult ||
+            Boolean(event.result?.metadata?.uesTruncated)
+          const evidenceRef = truncated
+            ? persistRuntimeEvidence(projectRoot, budgetTool, originalResult)
+            : null
+          if (evidenceRef) {
             if (typeof event.result === "string") {
               event.result += "\n[UES_EVIDENCE_REF " + evidenceRef + "]"
             } else if (event.result && typeof event.result === "object") {
@@ -567,7 +581,7 @@ export default Plugin.define({
         },
         options: { namespace: "ues", codemode: true },
         execute: async (input) => ({
-          content: runOcskill(["visual", "geometry", input.specFile, input.actualFile], projectRoot),
+          content: runOcskill(["visual", "geometry", projectScopedPath(projectRoot, input.specFile), projectScopedPath(projectRoot, input.actualFile)], projectRoot),
         }),
       })
       editor.add({
@@ -587,7 +601,7 @@ export default Plugin.define({
         options: { namespace: "ues", codemode: true },
         execute: async (input) => ({
           content: runOcskill([
-            "visual", "compare", input.expectedFile, input.actualFile,
+            "visual", "compare", projectScopedPath(projectRoot, input.expectedFile), projectScopedPath(projectRoot, input.actualFile),
             "--threshold", String(input.threshold ?? 16),
             "--max-diff-ratio", String(input.maxDiffRatio ?? 0),
           ], projectRoot),
@@ -608,7 +622,7 @@ export default Plugin.define({
         options: { namespace: "ues", codemode: true },
         execute: async (input) => ({
           content: runOcskill([
-            "workflow-plan", input.planFile,
+            "workflow-plan", projectScopedPath(projectRoot, input.planFile),
             "--max-concurrent", String(input.maxConcurrent || 4),
           ], projectRoot),
         }),
