@@ -37,10 +37,8 @@ for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
   }
 
   const source = await readFile(file, "utf8")
-  const name = source.match(/^name:\s*([^\r
-]+)/m)?.[1]?.trim()
-  const description = source.match(/^description:\s*([^\r
-]+)/m)?.[1]?.trim()
+  const name = source.match(/^name:\s*([^\r\n]+)/m)?.[1]?.trim()
+  const description = source.match(/^description:\s*([^\r\n]+)/m)?.[1]?.trim()
 
   if (!name) errors.push(`${entry.name}: missing name`)
   if (!description) errors.push(`${entry.name}: missing description`)
@@ -72,8 +70,7 @@ for (const entry of await readdir(commandsRoot, { withFileTypes: true })) {
   if (!validResourceID(id)) errors.push(`${entry.name}: invalid command id`)
   const source = await readFile(path.join(commandsRoot, entry.name), "utf8")
   if (!source.includes("description:")) errors.push(`${entry.name}: missing command description`)
-  const agent = source.match(/^agent:\s*([^\r
-]+)/m)?.[1]?.trim()
+  const agent = source.match(/^agent:\s*([^\r\n]+)/m)?.[1]?.trim()
   if (agent?.startsWith("ues-") && !agentIDs.has(agent)) {
     errors.push(`${entry.name}: references missing subagent ${agent}`)
   }
