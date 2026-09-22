@@ -90,6 +90,12 @@ test("work status can recover legacy UTF-16LE durable STATE.json", async () => {
     const status = run(["work", "status", "utf-state", "."], dir)
     assert.equal(status.status, 0, status.stderr)
     assert.equal(JSON.parse(status.stdout).slug, "utf-state")
+
+    const discovered = run(["work", "status", "."], dir)
+    assert.equal(discovered.status, 0, discovered.stderr)
+    const discoveredPayload = JSON.parse(discovered.stdout)
+    assert.equal(discoveredPayload.autoResolved, true)
+    assert.equal(discoveredPayload.autoResolvedSlug, "utf-state")
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
