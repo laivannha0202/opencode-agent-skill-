@@ -147,7 +147,7 @@ if (existsSync(plainInstallSmoke)) {
   }
 }
 
-for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","dynamic-workflow.mjs","skill-quality.mjs"]) {
+for (const name of ["process-runner.mjs","evidence-receipt.mjs","gate-receipt.mjs","runtime-events.mjs","context-manifest.mjs","orchestrator-policy.mjs","worktree-sandbox.mjs","learning-engine.mjs","hermes-bridge.mjs","control-center.mjs","evidence-store.mjs","evidence-budget.mjs","prompt-cache.mjs","capability-registry.mjs","visual-spec.mjs","png-diff.mjs","browser-adapter.mjs","dynamic-workflow.mjs","skill-quality.mjs","v11-metrics.mjs"]) {
   if (!existsSync(path.join(root, "lib", name))) errors.push(`missing V8 core module ${name}`)
 }
 
