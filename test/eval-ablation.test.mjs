@@ -69,13 +69,13 @@ test("V11 ablation can enforce cacheable-prefix and evidence-reuse targets when 
   assert.equal(report.gateEligible, true)
 })
 
-test("V11 ablation fails an explicitly requested cache target when telemetry is missing", () => {
+test("V11 ablation fails closed when an explicitly requested cache target lacks telemetry", () => {
   const report = compareEvalSummaries(
     summary({ passRate: 0.8, initial: 10000, tokens: 30000, duration: 1000 }),
     summary({ passRate: 0.82, initial: 7000, tokens: 28000, duration: 950 }),
     { minCacheableRatio: 0.7 },
   )
-  assert.equal(report.checks.cacheableRatioTarget, null)
-  assert.equal(report.optionalTargetsSatisfied, true)
-  assert.equal(report.gateEligible, true)
+  assert.equal(report.checks.cacheableRatioTarget, false)
+  assert.equal(report.optionalTargetsSatisfied, false)
+  assert.equal(report.gateEligible, false)
 })
