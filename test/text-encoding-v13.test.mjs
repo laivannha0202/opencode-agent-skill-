@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { readTextFile } from "../lib/cli-utils.mjs"
@@ -43,5 +43,29 @@ test("router text_read decodes UTF-16 diff without creating a converted copy", a
     assert.equal(result.truncated, false)
   } finally {
     await rm(dir, { recursive: true, force: true })
+  }
+})
+
+
+test("router text_read refuses symlink escapes", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v13-text-root-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "ues-v13-text-outside-"))
+  try {
+    const target = path.join(outside, "secret.txt")
+    const link = path.join(root, "link.txt")
+    await writeFile(target, "outside\n")
+    try {
+      await symlink(target, link)
+    } catch (error) {
+      if (error?.code === "EPERM" || error?.code === "EACCES") {
+        t.skip("symlink creation is unavailable on this platform")
+        return
+      }
+      throw error
+    }
+    assert.throws(() => readProjectText(root, "link.txt"), /symlink.*escapes/i)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
   }
 })
