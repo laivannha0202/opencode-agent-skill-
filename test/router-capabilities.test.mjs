@@ -22,13 +22,14 @@ test("runtime capability probing recognizes the complete fresh dispatch surface"
       switchModel: fn,
       hook: fn,
     },
-    permission: { hook: fn },
+    permission: { hook: fn, rules: fn },
   })
   assert.equal(caps.freshDispatch, true)
   assert.equal(caps.modelSwitch, true)
   assert.equal(caps.sessionInterrupt, true)
   assert.equal(caps.sessionHook, true)
   assert.equal(caps.permissionHook, true)
+  assert.equal(caps.permissionRules, true)
 })
 
 test("fresh dispatch fails closed without session interrupt", () => {
