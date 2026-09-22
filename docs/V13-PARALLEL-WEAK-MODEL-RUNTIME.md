@@ -32,6 +32,12 @@ provider/weak-model
 
 If no explicit model is supplied, the configured executor model is shared. If no configured model is selected, all sessions keep the OpenCode default model.
 
+## Runtime compatibility
+
+V13 keeps CLI, durable state, receipts, task graphs and Windows text hardening available on OpenCode 1.x. Native `ues.dispatch_task` and `ues.dispatch_parallel` require the V2 router plugin plus the fresh-session capability surface. The router checks capabilities at runtime and fails closed if create/prompt/wait/interrupt/context/switch-agent are incomplete.
+
+When npm blocks lifecycle scripts (common with stricter npm 11+ `allowScripts` policy), install still leaves the CLI available; run `ocskill install` to perform the documented resource sync explicitly.
+
 ## CLI hardening
 
 V13 parses `--help` before positional arguments, so commands such as these are safe:
