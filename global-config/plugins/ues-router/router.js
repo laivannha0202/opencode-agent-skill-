@@ -27,7 +27,7 @@ const DOMAIN_PATTERNS = [
   ["java-spring", /(spring boot|spring framework|maven|gradle java|\bjava\b)/],
   ["flutter", /(flutter|dart)/],
   ["database", /(database|migration|sql|query|index|transaction|schema changes?|cơ sở dữ liệu|truy vấn|chỉ mục|giao dịch|migrate dữ liệu)/],
-  ["auth-security", /(auth|authorization|authentication|permission|role|tenant|idor|token|session|xác thực|phân quyền|quyền|vai trò)/],
+  ["auth-security", /(\bauth\b|authorization|authentication|permission|\brole\b|tenant|idor|jwt|bearer token|access token|refresh token|session token|api token|token (?:validation|expiry|refresh|rotation)|session|xác thực|phân quyền|quyền|vai trò)/],
   ["payment", /(payment|checkout|webhook|refund|idempotenc|thanh toán|hoàn tiền)/],
   ["api-contract", /(api contract|openapi|response schema|request schema|breaking api|public api|hợp đồng api|api công khai)/],
   ["devops", /(docker|github actions|ci\/cd|pipeline|deploy|kubernetes|container|triển khai|đường ống ci)/],
@@ -82,14 +82,15 @@ export function classifyIntent(text, facts = {}) {
   }
 
   const actions = []
-  if (/(\bfix\b|\bbug\b|crash|regression|failing|failure|error|exception|broken|\bdebug\b|sửa lỗi|lỗi|không chạy|bị hỏng|điều tra lỗi)/.test(value)) add(actions, "debug")
+  const visualRegression = /(visual|screenshot|storybook|snapshot)[- ]?regression/.test(value)
+  if (/(\bfix\b|\bbug\b|crash|regression|failing|failure|error|exception|broken|\bdebug\b|sửa lỗi|lỗi|không chạy|bị hỏng|điều tra lỗi)/.test(value) && !visualRegression) add(actions, "debug")
   if (/(implement|feature|add|build|create|triển khai tính năng|thêm|xây dựng)/.test(value)) add(actions, "implement")
   if (/(review|audit|kiểm tra code|đánh giá)/.test(value)) add(actions, "review")
   if (/(investigate|analy[sz]e|profile|optimi[sz]e|điều tra|phân tích|tối ưu)/.test(value)) add(actions, "investigate")
   if (/(refactor|cleanup|restructure|refactor toàn bộ)/.test(value)) add(actions, "refactor")
   if (/(latest|current docs|documentation|release notes|version compatibility|dependency|package version|api changed|tài liệu mới nhất|phiên bản mới|tương thích phiên bản|package mới)/.test(value)) add(actions, "research")
 
-  const risky = /(migration|schema|database|sql|auth|permission|security|payment|webhook|public api|contract|dependency|deploy|ci|production|rollback|cơ sở dữ liệu|phân quyền|xác thực|bảo mật|thanh toán|triển khai|phụ thuộc)/.test(value)
+  const risky = /(migration|schema|database|sql|\bauth\b|authorization|authentication|permission|security|payment|webhook|public api|contract|dependency|deploy|\bci\b|production|rollback|cơ sở dữ liệu|phân quyền|xác thực|bảo mật|thanh toán|triển khai|phụ thuộc)/.test(value)
   const longHorizon = value.length > 700 || /(large task|big task|long[- ]running|multi[- ]file|cross[- ]module|whole (?:repo|repository|project)|entire (?:repo|repository|project)|full refactor|refactor all|migrate all|resume this work|toàn bộ (?:repo|repository|dự án)|nhiều file|nhiều module|refactor toàn bộ|tiếp tục công việc)/.test(value)
   const nonTrivial = value.length > 220 || risky || actions.length > 0
 
