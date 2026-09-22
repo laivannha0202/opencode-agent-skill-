@@ -11,7 +11,7 @@ Never create or use `ues-work/` (without the leading dot) as durable UES state. 
 
 Required workflow:
 1. Classify the request with `ocskill task-policy "$ARGUMENTS"`. Use the returned risk/mode/context guidance rather than assuming every non-trivial task needs the same workflow.
-2. Inspect repository instructions and deterministic evidence with `ocskill inspect`, `ocskill repo-graph`, and targeted impact searches.
+2. Inspect repository instructions and deterministic evidence with `ocskill inspect`, `ocskill repo-graph . --compact`, and targeted impact searches. Expand to the full graph only when exact edge detail is needed.
 3. Create a concise SPEC with observable acceptance criteria.
 4. Initialize persistent state with `ocskill work init`.
 5. Produce a file-aware `PLAN.json` using the UES plan schema, then import it with `ocskill work plan`.
