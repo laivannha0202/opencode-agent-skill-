@@ -79,3 +79,27 @@ test("V11 ablation fails closed when an explicitly requested cache target lacks 
   assert.equal(report.optionalTargetsSatisfied, false)
   assert.equal(report.gateEligible, false)
 })
+
+
+test("V11 ablation can enforce repeated stable prompt ratio when requested", () => {
+  const reference = summary({ passRate: 0.8, initial: 10000, tokens: 30000, duration: 1000 })
+  reference.modes.ues.avgRepeatedStableRatio = 0.4
+  const candidate = summary({ passRate: 0.82, initial: 7000, tokens: 28000, duration: 950 })
+  candidate.modes.ues.avgRepeatedStableRatio = 0.18
+  const report = compareEvalSummaries(reference, candidate, {
+    maxRepeatedStableRatio: 0.2,
+  })
+  assert.equal(report.checks.repeatedStableTarget, true)
+  assert.equal(report.optionalTargetsSatisfied, true)
+  assert.equal(report.gateEligible, true)
+})
+
+test("V11 ablation fails closed when repeated stable ratio is required but missing", () => {
+  const report = compareEvalSummaries(
+    summary({ passRate: 0.8, initial: 10000, tokens: 30000, duration: 1000 }),
+    summary({ passRate: 0.82, initial: 7000, tokens: 28000, duration: 950 }),
+    { maxRepeatedStableRatio: 0.2 },
+  )
+  assert.equal(report.checks.repeatedStableTarget, false)
+  assert.equal(report.gateEligible, false)
+})
