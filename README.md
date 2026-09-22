@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V11 development: 11.0.0-dev.0** — nhánh phát triển perception-aware/adaptive execution. npm `latest` vẫn là V10 stable 10.0.0 cho tới khi V11 vượt release gates.
+> **V11 development: 11.0.0-dev.1** — nhánh phát triển perception-aware/adaptive execution. npm `latest` vẫn là V10 stable 10.0.0 cho tới khi V11 vượt release gates.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
