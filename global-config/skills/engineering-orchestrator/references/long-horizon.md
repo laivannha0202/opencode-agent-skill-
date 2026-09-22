@@ -17,7 +17,7 @@ When the user explicitly chooses the long-horizon workflow (for example with `/u
   reports/
 ```
 
-The directory is git-ignored execution state, not hidden reasoning. Store requirements, decisions, task status, reports and fresh verification evidence. Never store secrets or chain-of-thought.
+The directory is git-ignored execution state, not hidden reasoning. Store requirements, decisions, task status, reports and fresh verification evidence. Never store secrets or chain-of-thought. Never substitute a top-level `ues-work/` directory for `.ues-work/<slug>/`; old/manual `ues-work/` files are non-canonical unless explicitly migrated.
 
 ## Machine-enforced gates
 
@@ -36,7 +36,8 @@ The V6 engine enforces three boundaries:
 5. Run `ues-plan-checker`. If it returns PASS, create `work gate-receipt <slug> plan` and persist approval with `work approve-plan --receipt-file ...`.
 6. Use `ocskill task-graph` to compute dependency-safe waves.
 7. For each ready task:
-   - on OpenCode V2 prefer `ues.dispatch_task`, which performs `work start`, creates a fresh `ues-executor` session, selects the configured attempt-based model tier, prompts it with a bounded context pack and waits for completion;
+   - on OpenCode V2, if two or more approved tasks are independent, prefer `ues.dispatch_parallel` so one shared model can execute them concurrently with isolated worktrees, leases, independent verifier sessions and serialized integration;
+   - otherwise prefer `ues.dispatch_task`, which performs `work start`, creates a fresh `ues-executor` session, selects the configured attempt-based model tier, prompts it with a bounded context pack and waits for completion;
    - inspect the child diff and verification;
    - record at least one successful `work verify-command` receipt for long/high-risk work;
    - persist `work complete --evidence ...` or `work fail --reason ...`.
@@ -49,10 +50,11 @@ The V6 engine enforces three boundaries:
 
 Parallel execution is allowed only when:
 - dependencies are satisfied;
-- safe-wave analysis does not detect declared-file overlap;
-- executors do not write shared implicit files or interfaces.
+- declared file/resource scopes are independent or protected by leases;
+- the runtime exposes the fresh-dispatch capability surface;
+- the root state satisfies the parallel runtime safety preconditions.
 
-UES serializes durable state writes, but it cannot make conflicting source-code edits safe. When write-surface independence is uncertain, execute sequentially.
+V13 uses event-driven scheduling rather than fixed wave barriers: a dependency may start as soon as its prerequisite has been independently verified, integrated and durably completed. Shared configuration surfaces and unknown scopes serialize conservatively. When write-surface independence is uncertain, execute sequentially.
 
 ## Resume
 
