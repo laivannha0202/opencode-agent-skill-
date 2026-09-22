@@ -59,13 +59,20 @@ import {
 } from "../lib/task-engine.mjs"
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
-import { resolveAdaptiveModel, resolveModel } from "../lib/model-policy.mjs"
+import { resolveAdaptiveModel, resolveCapabilityModel, resolveModel } from "../lib/model-policy.mjs"
 import { createVerificationReceipt } from "../lib/evidence-receipt.mjs"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskSandbox } from "../lib/worktree-sandbox.mjs"
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, hermesOneShotArgs } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
+import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
+import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
+import { browserCapability, buildBrowserVerificationPlan } from "../lib/browser-adapter.mjs"
+import { comparePngFiles, cropPngFile } from "../lib/png-diff.mjs"
+import { createGeometryReceipt, responsiveViewportMatrix, validateVisualSpec } from "../lib/visual-spec.mjs"
+import { planDynamicWorkflow } from "../lib/dynamic-workflow.mjs"
+import { lintSkillCatalog } from "../lib/skill-quality.mjs"
 import {
   clipOutput,
   errorMessage,
@@ -118,6 +125,12 @@ Usage:
                               Also supports capability/exec for fail-closed container verification
   ocskill learn <action> ...    Analyze eval traces and promote benchmark-validated lessons
   ocskill hermes <action> ...   Optional Hermes adapter/status
+  ocskill store <status|put|get|gc> ... Content-addressed evidence storage and bounded retrieval
+  ocskill capabilities <text>     Infer required execution/model capabilities
+  ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
+  ocskill browser <action> ...    Browser capability and bounded verification plan
+  ocskill workflow-plan <plan>    Cost-aware deterministic/LLM/vision wave schedule
+  ocskill skills lint [dir]       Lint skill size, metadata and routing-description collisions
   ocskill dashboard [dir] [--serve] [--port N]
                               Generate/serve the local UES Control Center
   ocskill models <status|on|off|set|role> ...
@@ -154,6 +167,7 @@ Usage:
     ocskill models on|off
     ocskill models set <light|standard|heavy> <provider/model[#variant]>
     ocskill models role <role> <light|standard|heavy>
+    ocskill models capability <provider/model> [--vision on|off] [--browser on|off] [--reasoning on|off] [--long-context on|off] [--cost low|medium|high] [--latency fast|medium|slow] [--quality 0..1]
 
   --force backs up and replaces/removes state owned by another package.
 `)
@@ -741,7 +755,8 @@ async function modelPolicy() {
   const normalizedAttempt = Number.isInteger(attempt) && attempt > 0 ? attempt : 1
   const taskText = optionValue(args, "--text")
   if (taskText) {
-    printJson(resolveAdaptiveModel(role, normalizedAttempt, classifyEngineeringTask(taskText), policy))
+    const taskPolicy = classifyEngineeringTask(taskText)
+    printJson(resolveCapabilityModel(role, normalizedAttempt, taskText, taskPolicy, policy))
     return
   }
   printJson(resolveModel(role, normalizedAttempt, policy))
@@ -791,6 +806,48 @@ async function modelsControl() {
     })
     printJson(policy)
     console.log("[ocskill] Run 'ocskill install' to apply role-tier changes.")
+    return
+  }
+
+  if (action === "capability") {
+    const model = args[2]
+    if (!validateModelID(model)) {
+      console.error("Usage: ocskill models capability <provider/model> [capability flags]")
+      process.exitCode = 2
+      return
+    }
+    const current = policy.capabilities?.[model] || {}
+    const boolFlag = (name, prior) => {
+      const value = optionValue(args, name)
+      if (value == null) return prior
+      if (!["on", "off", "true", "false"].includes(String(value).toLowerCase())) throw new Error(name + " must be on/off")
+      return ["on", "true"].includes(String(value).toLowerCase())
+    }
+    const qualityRaw = optionValue(args, "--quality")
+    const quality = qualityRaw == null ? current.quality : Number(qualityRaw)
+    if (qualityRaw != null && (!Number.isFinite(quality) || quality < 0 || quality > 1)) throw new Error("--quality must be from 0 to 1")
+    const cost = optionValue(args, "--cost") || current.costClass
+    const latency = optionValue(args, "--latency") || current.latencyClass
+    if (cost && !["low", "medium", "high"].includes(cost)) throw new Error("--cost must be low|medium|high")
+    if (latency && !["fast", "medium", "slow"].includes(latency)) throw new Error("--latency must be fast|medium|slow")
+    policy = await writeModelPolicy(getConfigDir(), {
+      capabilities: {
+        [model]: {
+          ...current,
+          coding: boolFlag("--coding", current.coding),
+          reasoning: boolFlag("--reasoning", current.reasoning),
+          toolCalling: boolFlag("--tool-calling", current.toolCalling),
+          vision: boolFlag("--vision", current.vision),
+          browser: boolFlag("--browser", current.browser),
+          filesystem: boolFlag("--filesystem", current.filesystem),
+          longContext: boolFlag("--long-context", current.longContext),
+          ...(cost ? { costClass: cost } : {}),
+          ...(latency ? { latencyClass: latency } : {}),
+          ...(quality != null ? { quality } : {}),
+        },
+      },
+    })
+    printJson(policy)
     return
   }
 
@@ -990,6 +1047,161 @@ async function hermesControl() {
   process.exitCode = 2
 }
 
+async function evidenceStoreControl() {
+  const action = args[1] || "status"
+  try {
+    if (action === "status") {
+      printJson(await evidenceStoreStatus(positionalArg(args, 2) || process.cwd()))
+      return
+    }
+    if (action === "put") {
+      const file = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!file) throw new Error("Usage: ocskill store put <file> [dir] [--kind <kind>] [--summary <text>]")
+      const content = readTextFile(file)
+      printJson(await putEvidence(root, content, {
+        kind: optionValue(args, "--kind") || "file",
+        source: path.resolve(file),
+        summary: optionValue(args, "--summary"),
+      }))
+      return
+    }
+    if (action === "get") {
+      const ref = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!ref) throw new Error("Usage: ocskill store get <evidence-ref> [dir] [--max N] [--start N]")
+      printJson(await getEvidence(root, ref, {
+        maxChars: optionInt(args, "--max", 24_000),
+        start: optionInt(args, "--start", 0),
+      }))
+      return
+    }
+    if (action === "gc") {
+      const root = positionalArg(args, 2) || process.cwd()
+      printJson(await gcEvidenceStore(root, {
+        maxEntries: optionInt(args, "--max-entries", 2000),
+        maxAgeDays: optionInt(args, "--max-age-days", 30),
+      }))
+      return
+    }
+    throw new Error("Usage: ocskill store <status|put|get|gc> ...")
+  } catch (error) {
+    console.error(errorMessage(error))
+    process.exitCode = 1
+  }
+}
+
+async function capabilityControl() {
+  const text = args.slice(1).join(" ").trim()
+  if (!text) {
+    console.error("Usage: ocskill capabilities <task text>")
+    process.exitCode = 2
+    return
+  }
+  printJson(inferTaskCapabilities(text))
+}
+
+async function visualControl() {
+  const action = args[1]
+  try {
+    if (action === "spec") {
+      const file = args[2]
+      if (!file) throw new Error("Usage: ocskill visual spec <VISUAL_SPEC.json>")
+      printJson(validateVisualSpec(readJsonFile(file)))
+      return
+    }
+    if (action === "geometry") {
+      const specFile = args[2]
+      const actualFile = args[3]
+      if (!specFile || !actualFile) throw new Error("Usage: ocskill visual geometry <VISUAL_SPEC.json> <actual-boxes.json>")
+      printJson(createGeometryReceipt(readJsonFile(specFile), readJsonFile(actualFile)))
+      return
+    }
+    if (action === "compare") {
+      const expected = args[2]
+      const actual = args[3]
+      if (!expected || !actual) throw new Error("Usage: ocskill visual compare <expected.png> <actual.png> [--threshold N] [--max-diff-ratio N]")
+      const threshold = Number(optionValue(args, "--threshold") ?? 16)
+      const maxDiffRatio = Number(optionValue(args, "--max-diff-ratio") ?? 0)
+      printJson(await comparePngFiles(expected, actual, { threshold, maxDiffRatio }))
+      return
+    }
+    if (action === "crop") {
+      const input = args[2]
+      const output = args[3]
+      if (!input || !output) throw new Error("Usage: ocskill visual crop <input.png> <output.png> --x N --y N --width N --height N")
+      printJson(await cropPngFile(input, output, {
+        x: optionInt(args, "--x", 0),
+        y: optionInt(args, "--y", 0),
+        width: optionInt(args, "--width", 1),
+        height: optionInt(args, "--height", 1),
+      }))
+      return
+    }
+    if (action === "viewports") {
+      printJson(responsiveViewportMatrix())
+      return
+    }
+    throw new Error("Usage: ocskill visual <spec|geometry|compare|crop|viewports> ...")
+  } catch (error) {
+    console.error(errorMessage(error))
+    process.exitCode = 1
+  }
+}
+
+async function browserControl() {
+  const action = args[1] || "capability"
+  try {
+    if (action === "capability") {
+      printJson(await browserCapability(positionalArg(args, 2) || process.cwd()))
+      return
+    }
+    if (action === "plan") {
+      const url = args[2] || null
+      printJson(buildBrowserVerificationPlan({
+        url,
+        target: optionValue(args, "--target"),
+      }))
+      return
+    }
+    throw new Error("Usage: ocskill browser <capability|plan> ...")
+  } catch (error) {
+    console.error(errorMessage(error))
+    process.exitCode = 1
+  }
+}
+
+async function workflowPlanControl() {
+  const file = args[1]
+  if (!file) {
+    console.error("Usage: ocskill workflow-plan <PLAN.json> [--max-concurrent N]")
+    process.exitCode = 2
+    return
+  }
+  try {
+    const plan = readJsonFile(file)
+    printJson(planDynamicWorkflow(plan.tasks || [], { maxConcurrent: optionInt(args, "--max-concurrent", 4) }))
+  } catch (error) {
+    console.error(errorMessage(error))
+    process.exitCode = 1
+  }
+}
+
+async function skillsControl() {
+  const action = args[1] || "lint"
+  if (action !== "lint") {
+    console.error("Usage: ocskill skills lint [dir]")
+    process.exitCode = 2
+    return
+  }
+  try {
+    printJson(await lintSkillCatalog(positionalArg(args, 2) || packageRoot))
+  } catch (error) {
+    console.error(errorMessage(error))
+    process.exitCode = 1
+  }
+}
+
 async function dashboardControl() {
   const forwarded = args.slice(1)
   const code = run(process.execPath, [path.join(packageRoot, "scripts", "control-center.mjs"), ...forwarded])
@@ -1161,6 +1373,24 @@ switch (command) {
     break
   case "hermes":
     await hermesControl()
+    break
+  case "store":
+    await evidenceStoreControl()
+    break
+  case "capabilities":
+    await capabilityControl()
+    break
+  case "visual":
+    await visualControl()
+    break
+  case "browser":
+    await browserControl()
+    break
+  case "workflow-plan":
+    await workflowPlanControl()
+    break
+  case "skills":
+    await skillsControl()
     break
   case "dashboard":
     await dashboardControl()
