@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V10 stable: 10.0.0** — bản phát hành chính thức của V10, dùng trực tiếp qua npm `latest`.
+> **V11 development: 11.0.0-dev.0** — nhánh phát triển perception-aware/adaptive execution. npm `latest` vẫn là V10 stable 10.0.0 cho tới khi V11 vượt release gates.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -77,6 +77,42 @@ ocskill verification-plan .
 ocskill task-policy "refactor auth across the whole repository"
 ocskill dashboard . --serve
 ```
+
+---
+
+## V11 đang xây gì?
+
+V11 chuyển UES từ reliability-focused coding harness thành **perception-aware adaptive execution system**.
+
+- content-addressed Evidence Store dưới `.ues-cache/evidence-v1/`, truyền pointer thay vì nhồi output lớn vào context;
+- Evidence Budget chia ngân sách theo instructions/task/code/tests/history/tools/visual và mở rộng theo failure/evidence;
+- prompt-cache telemetry tách stable prefix và dynamic tail để giảm repeated input;
+- capability-aware model routing: coding/reasoning/tool-calling/vision/browser/filesystem/long-context cùng cost/latency/quality metadata;
+- Visual Engine: `VISUAL_SPEC`, geometry receipts, responsive matrix, dependency-free PNG diff/crop và bounded repair loop;
+- Browser QA: CLI-first deterministic verification, targeted semantic snapshots, bounding boxes và explicit untrusted-page security boundary;
+- 9 skill mới cho visual fidelity, browser QA/security, design source, responsive/component visual tests, skill authoring/evaluation và dynamic workflow;
+- 2 subagent mới: `ues-visual-verifier` và `ues-merge-arbiter`;
+- cost-aware dynamic workflow scheduler chỉ fan-out LLM work khi lợi ích vượt coordination cost;
+- Hermes nâng thành optional sidecar với evidence-pointer transport và bounded workflow contract;
+- Skill lint/eval tooling phát hiện entrypoint phình, metadata lỗi và routing-description collisions;
+- Control Center V11 hiển thị Evidence Store/runtime telemetry.
+
+Các lệnh V11 mới:
+
+```cmd
+ocskill store status .
+ocskill capabilities "match this screenshot and verify checkout in browser"
+ocskill visual spec VISUAL_SPEC.json
+ocskill visual geometry VISUAL_SPEC.json actual-boxes.json
+ocskill visual compare expected.png actual.png
+ocskill browser capability .
+ocskill browser plan . --url http://localhost:3000
+ocskill workflow-plan PLAN.json --max-concurrent 4
+ocskill skills lint .
+ocskill models capability provider/model --vision on --browser on --quality 0.9
+```
+
+V11 đang ở development branch và **không thay thế npm latest** cho tới khi full CI, V10-vs-V11 ablation, weak-model benchmark, visual/browser fixtures và package/install smoke đều PASS.
 
 ---
 
