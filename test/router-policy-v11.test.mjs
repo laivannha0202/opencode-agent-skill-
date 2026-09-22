@@ -33,3 +33,18 @@ test("V11 dynamic workflow routes only when fan-out intent is explicit", () => {
   const small = routeSkills("Fix one helper function.", 6)
   assert.equal(small.includes("ues-dynamic-workflow"), false)
 })
+
+
+test("V11 router rejects perception terminology polysemy", () => {
+  const design = classifyIntent("Extract design tokens from this Figma design source.")
+  assert.ok(!design.domains.includes("auth-security"))
+  assert.deepEqual(routeSkills("Extract design tokens from this Figma design source.", 6), ["ues-design-source"])
+
+  const visualRegression = routeSkills("Add Storybook visual regression coverage.", 6)
+  assert.ok(visualRegression.includes("ues-component-visual-testing"))
+  assert.ok(!visualRegression.includes("ues-bug-diagnosis"))
+
+  const skillEval = classifyIntent("Evaluate this skill routing precision and recall with a benchmark.")
+  assert.notEqual(skillEval.risk, "high")
+  assert.deepEqual(routeSkills("Evaluate this skill routing precision and recall with a benchmark.", 6), ["ues-skill-evaluation"])
+})
