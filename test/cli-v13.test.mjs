@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
@@ -48,6 +48,21 @@ test("--json returns structured CLI errors", () => {
   assert.match(payload.error.message, /Unknown work action/)
 })
 
+
+test("top-level ues-work is never treated as canonical durable state", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-noncanonical-"))
+  try {
+    const fake = path.join(dir, "ues-work", "fake-work")
+    await mkdir(fake, { recursive: true })
+    await writeFile(path.join(fake, "STATE.json"), JSON.stringify({ slug: "fake-work" }), "utf8")
+    const result = run(["work", "status", "."], dir)
+    assert.equal(result.status, 0, result.stderr)
+    const payload = JSON.parse(result.stdout)
+    assert.deepEqual(payload.workspaces, [])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
 
 test("work status dot auto-resolves the only active workspace", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-status-one-"))
