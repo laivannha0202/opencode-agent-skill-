@@ -1,6 +1,6 @@
 # OpenCode compatibility
 
-V11 ships one npm package for OpenCode 1.x and 2.x, while only enabling V2-native runtime features when V2 is detected.
+V13 ships one npm package for OpenCode 1.x and 2.x. CLI/state/verification features remain available on both lines, while V2-native fresh-session and parallel runtime features are enabled only when the required V2 capabilities are detected.
 
 ## Detection
 
@@ -30,7 +30,7 @@ UES installs:
 
 The V2 runtime plugin is not installed.
 
-Durable CLI state, task DAG, plan/integration gates and model-policy configuration remain available. V2-specific automatic fresh-session dispatch is unavailable.
+Durable CLI state, task DAG, plan/integration gates, Windows UTF text recovery and model-policy configuration remain available. `ues.dispatch_task` and `ues.dispatch_parallel` are unavailable because those tools live in the V2 router plugin.
 
 ## OpenCode 2.x
 
@@ -48,6 +48,7 @@ The plugin provides:
 - durable-state/task-graph/context-pack tools
 - `ues.dispatch_task` bounded fresh executor runtime
 - `ues.cancel_task` and `ues.recover_task` when session interruption is supported
+- `ues.dispatch_parallel` when the full fresh-dispatch surface is present; it runs independent approved tasks in isolated same-model sessions, verifies each task independently, and serializes integration
 
 `ues.dispatch_task` uses V2 session APIs to create a fresh session rooted at the selected execution directory, bind its session ID to the task lease, select `ues-executor`, optionally switch model tier, prompt one approved task, heartbeat while waiting, and interrupt on timeout. Concurrent writing tasks can be isolated in Git worktrees.
 
@@ -110,3 +111,10 @@ The managed V2 plugin probes for:
 - permission hooks
 
 `ues.capabilities` exposes the observed surface. Fresh dispatch fails closed when the minimum create/prompt/wait/interrupt/context/switch-agent surface is unavailable. Optional context/prompt/permission hooks degrade safely instead of preventing the plugin from loading.
+
+
+## V13 parallel compatibility
+
+`ues.dispatch_parallel` is capability-gated, not version-string-gated. It requires the complete fresh-dispatch surface reported by `ues.capabilities`: session create, prompt, wait, interrupt, context retrieval and agent switching. If any required API is missing, V13 fails closed and the durable CLI workflow remains usable in serial mode.
+
+OpenCode 1.x users can still use V13 CLI hardening, durable `.ues-work/<slug>/` state, receipts, task graphs and Windows text normalization. To use native multi-session parallel execution, use a runtime that exposes the V2 fresh-session APIs.
