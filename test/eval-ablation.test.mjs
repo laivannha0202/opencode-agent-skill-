@@ -53,3 +53,29 @@ test("V10 ablation does not treat missing candidate telemetry as zero tokens", (
   assert.equal(report.telemetrySufficient, false)
   assert.equal(report.gateEligible, false)
 })
+
+test("V11 ablation can enforce cacheable-prefix and evidence-reuse targets when requested", () => {
+  const reference = summary({ passRate: 0.8, initial: 10000, tokens: 30000, duration: 1000 })
+  const candidate = summary({ passRate: 0.82, initial: 7000, tokens: 28000, duration: 950 })
+  candidate.modes.ues.avgCacheableRatio = 0.75
+  candidate.modes.ues.avgEvidenceReuseRatio = 0.40
+  const report = compareEvalSummaries(reference, candidate, {
+    minCacheableRatio: 0.7,
+    minEvidenceReuseRatio: 0.3,
+  })
+  assert.equal(report.checks.cacheableRatioTarget, true)
+  assert.equal(report.checks.evidenceReuseTarget, true)
+  assert.equal(report.optionalTargetsSatisfied, true)
+  assert.equal(report.gateEligible, true)
+})
+
+test("V11 ablation fails an explicitly requested cache target when telemetry is missing", () => {
+  const report = compareEvalSummaries(
+    summary({ passRate: 0.8, initial: 10000, tokens: 30000, duration: 1000 }),
+    summary({ passRate: 0.82, initial: 7000, tokens: 28000, duration: 950 }),
+    { minCacheableRatio: 0.7 },
+  )
+  assert.equal(report.checks.cacheableRatioTarget, null)
+  assert.equal(report.optionalTargetsSatisfied, true)
+  assert.equal(report.gateEligible, true)
+})
