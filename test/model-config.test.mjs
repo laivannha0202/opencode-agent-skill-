@@ -50,3 +50,35 @@ Body
   assert.match(adapted, /model: provider\/mid/)
   assert.match(adapted, /Body/)
 })
+
+
+test("V11 model config persists capability profiles", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-model-caps-"))
+  try {
+    await writeModelPolicy(dir, {
+      enabled: true,
+      tiers: { heavy: "provider/vision" },
+      capabilities: {
+        "provider/vision": {
+          coding: true,
+          reasoning: true,
+          toolCalling: true,
+          vision: true,
+          browser: true,
+          filesystem: true,
+          longContext: true,
+          quality: 0.9,
+          costClass: "high",
+          latencyClass: "medium",
+        },
+      },
+    })
+    const reread = await readModelPolicy(dir)
+    assert.equal(reread.schemaVersion, 2)
+    assert.equal(reread.capabilities["provider/vision"].vision, true)
+    assert.equal(reread.capabilities["provider/vision"].browser, true)
+    assert.equal(reread.capabilities["provider/vision"].quality, 0.9)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
