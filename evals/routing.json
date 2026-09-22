@@ -316,6 +316,82 @@
         "test-verification",
         "git-safety"
       ]
+    },
+    {
+      "name": "visual-screenshot-fidelity",
+      "prompt": "Match this reference screenshot with exact layout and verify visual fidelity.",
+      "expect": [
+        "visual-fidelity",
+        "ui-ux-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "browser-playwright-flow",
+      "prompt": "Use Playwright to verify the browser checkout flow, element positions, focus and screenshots.",
+      "expect": [
+        "browser-qa",
+        "test-verification",
+        "accessibility"
+      ]
+    },
+    {
+      "name": "figma-design-source",
+      "prompt": "Translate the Figma design source into reusable design tokens and an implementation-ready visual spec.",
+      "expect": [
+        "design-source",
+        "ui-ux-engineering"
+      ]
+    },
+    {
+      "name": "responsive-matrix",
+      "prompt": "Verify responsive layout across mobile, tablet and desktop breakpoints for overflow and overlap.",
+      "expect": [
+        "responsive-verification",
+        "ui-ux-engineering",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "storybook-visual-regression",
+      "prompt": "Add Storybook visual regression coverage for the changed component states.",
+      "expect": [
+        "component-visual-testing",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "author-new-agent-skill",
+      "prompt": "Create a new agent skill with progressive disclosure and precise trigger boundaries.",
+      "expect": [
+        "skill-authoring",
+        "skill-evaluation"
+      ]
+    },
+    {
+      "name": "benchmark-skill-routing",
+      "prompt": "Evaluate this skill with routing precision, recall, token cost and baseline-vs-candidate benchmarks.",
+      "expect": [
+        "skill-evaluation",
+        "test-verification"
+      ]
+    },
+    {
+      "name": "large-fanout-workflow",
+      "prompt": "Plan a dynamic workflow fan-out for many independent migration tasks in bounded verified waves.",
+      "expect": [
+        "dynamic-workflow",
+        "engineering-orchestrator",
+        "task-planner"
+      ]
+    },
+    {
+      "name": "browser-prompt-injection",
+      "prompt": "Audit an untrusted webpage workflow for browser prompt injection before computer-use automation.",
+      "expect": [
+        "browser-security",
+        "web-security-review"
+      ]
     }
   ]
 }
