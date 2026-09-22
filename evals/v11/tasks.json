@@ -16,7 +16,8 @@
       "objective": "Context allocation adapts by evidence role and visual/browser/risk signals without exceeding the task budget.",
       "requiredFiles": [
         "lib/evidence-budget.mjs",
-        "lib/context-manifest.mjs"
+        "lib/context-manifest.mjs",
+        "lib/context-engine-v11.mjs"
       ]
     },
     {
@@ -58,7 +59,8 @@
       "objective": "Responsive verification uses a bounded representative viewport matrix and reports viewport-specific failures.",
       "requiredFiles": [
         "lib/visual-spec.mjs",
-        "global-config/skills/responsive-verification/SKILL.md"
+        "global-config/skills/responsive-verification/SKILL.md",
+        "lib/ui-inspector.mjs"
       ]
     },
     {
@@ -102,6 +104,16 @@
       "objective": "Hermes stays optional, bounded and subordinate to UES durable state and safety boundaries.",
       "requiredFiles": [
         "lib/hermes-bridge.mjs"
+      ]
+    },
+    {
+      "id": "ui-design-token-extraction",
+      "category": "visual",
+      "objective": "Project CSS design tokens and layout geometry are reduced to compact deterministic evidence before model visual judgment.",
+      "requiredFiles": [
+        "lib/ui-inspector.mjs",
+        "global-config/skills/design-source/SKILL.md",
+        "global-config/skills/responsive-verification/SKILL.md"
       ]
     }
   ]
