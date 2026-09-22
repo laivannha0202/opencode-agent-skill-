@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs"
+import { readFileSync, realpathSync } from "node:fs"
 import path from "node:path"
 
 function swapUtf16(buffer) {
@@ -58,12 +58,25 @@ function decode(buffer) {
 }
 
 export function readProjectText(root, relative, options = {}) {
+  const raw = String(relative || "").trim()
+  if (!raw) {
+    const error = new Error("text_read requires a non-empty file path")
+    error.code = "UES_USAGE"
+    throw error
+  }
   root = path.resolve(root)
-  const file = path.resolve(root, String(relative || ""))
+  const file = path.resolve(root, raw)
   if (file !== root && !file.startsWith(root + path.sep)) {
     throw new Error("text_read path must stay inside the project root")
   }
-  const buffer = readFileSync(file)
+  const realRoot = realpathSync(root)
+  const realFile = realpathSync(file)
+  if (realFile !== realRoot && !realFile.startsWith(realRoot + path.sep)) {
+    const error = new Error("text_read refuses a symlink that escapes the project root")
+    error.code = "UES_PATH_ESCAPE"
+    throw error
+  }
+  const buffer = readFileSync(realFile)
   const decoded = decode(buffer)
   const start = Math.max(0, Number(options.start || 0))
   const maxChars = Math.max(256, Math.min(Number(options.maxChars || 12000), 100000))
