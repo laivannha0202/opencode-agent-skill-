@@ -33,3 +33,23 @@ test("eval report marks unavailable telemetry as null instead of inventing zero 
   assert.deepEqual(result.modes.baseline.telemetryCoverage, { tools: 0, tokens: 0, initialInputTokens: 0, cost: 0 })
 })
 
+
+test("V11 eval report averages adaptive efficiency telemetry only when available", () => {
+  const result = summarizeEvalResults([
+    { task: "a", mode: "ues", passed: true, durationMs: 100, telemetry: { jsonLines: 1, toolCalls: 1, usageSamples: 0, costSamples: 0, v11: { avgCacheableRatio: 0.8, repeatedStableChars: 1200, evidenceReuseRatio: 0.5, visualRepairAttempts: 1, contextExpansions: 1, modelEscalations: 0 } } },
+    { task: "b", mode: "ues", passed: true, durationMs: 100, telemetry: { jsonLines: 1, toolCalls: 1, usageSamples: 0, costSamples: 0, v11: { avgCacheableRatio: 0.6, repeatedStableChars: 800, evidenceReuseRatio: 0.25, visualRepairAttempts: 2, contextExpansions: 0, modelEscalations: 1 } } },
+  ])
+  assert.equal(result.modes.ues.avgCacheableRatio, 0.7)
+  assert.equal(result.modes.ues.avgRepeatedStableChars, 1000)
+  assert.equal(result.modes.ues.avgEvidenceReuseRatio, 0.375)
+  assert.equal(result.modes.ues.avgVisualRepairAttempts, 1.5)
+  assert.equal(result.modes.ues.avgContextExpansions, 0.5)
+  assert.equal(result.modes.ues.avgModelEscalations, 0.5)
+  assert.equal(result.modes.ues.telemetryCoverage.cacheableRatio, 1)
+})
+
+test("V11 eval report leaves adaptive metrics null when unavailable", () => {
+  const result = summarizeEvalResults([{ task: "x", mode: "ues", passed: true, durationMs: 1, telemetry: { jsonLines: 0, usageSamples: 0, costSamples: 0 } }])
+  assert.equal(result.modes.ues.avgCacheableRatio, null)
+  assert.equal(result.modes.ues.avgEvidenceReuseRatio, null)
+})
