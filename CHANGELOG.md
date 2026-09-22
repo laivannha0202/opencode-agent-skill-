@@ -32,6 +32,7 @@ The project follows Semantic Versioning.
 - Added bounded `ocskill text-read` so OpenCode 1.x can recover known UTF text that its generic Read tool classifies as binary, without creating ad-hoc converted copies.
 - Extended packed-install smoke and regressions to cover the UTF recovery command, UTF durable state discovery and legacy artifact context packs.
 - Removed the stale clean-root-only restriction from native parallel dispatch. Existing dirty repository state is now treated as an inherited baseline, while isolated worktree delta integration, resource leases and rollback continue to protect user changes.
+- Fixed inherited untracked-file handling so a parallel worker may safely edit an unchanged pre-existing untracked file, while a user edit that races after sandbox creation is still detected and rejected as a conflict.
 
 
 ## [12.0.0-beta.0] - 2026-09-22
