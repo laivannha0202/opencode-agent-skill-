@@ -269,7 +269,7 @@ function listWorkspaces(root) {
   for (const entry of readdirSync(base, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue
     try {
-      const state = JSON.parse(readFileSync(path.join(base, entry.name, "STATE.json"), "utf8"))
+      const state = JSON.parse(readTextFile(path.join(base, entry.name, "STATE.json")))
       result.push({
         slug: entry.name,
         status: state.status || null,
