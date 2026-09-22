@@ -6,6 +6,7 @@ import { spawnSync } from "node:child_process"
 import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
+import { runEventDrivenDAG } from "./parallel-runtime.js"
 import {
   budgetToolResult,
   classifyProviderFailure,
@@ -111,6 +112,40 @@ function messageExcerpt(messages) {
   const value = Array.isArray(messages) ? messages.slice(-6) : messages
   const text = JSON.stringify(value)
   return text.length <= 24000 ? text : text.slice(-24000)
+}
+
+function collectMessageStrings(value, output = [], depth = 0) {
+  if (depth > 8 || value == null) return output
+  if (typeof value === "string") {
+    output.push(value)
+    return output
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) collectMessageStrings(item, output, depth + 1)
+    return output
+  }
+  if (typeof value === "object") {
+    for (const item of Object.values(value)) collectMessageStrings(item, output, depth + 1)
+  }
+  return output
+}
+
+function extractVerifierVerdict(messages) {
+  const strings = collectMessageStrings(messages)
+  for (let index = strings.length - 1; index >= 0; index -= 1) {
+    const value = strings[index]
+    const matches = [...value.matchAll(/UES_VERDICT_JSON:\s*(\{[^\r\n]*\})/g)]
+    for (let matchIndex = matches.length - 1; matchIndex >= 0; matchIndex -= 1) {
+      try {
+        const parsed = JSON.parse(matches[matchIndex][1])
+        const verdict = String(parsed.verdict || "").toUpperCase()
+        if (["PASS", "FAIL"].includes(verdict)) {
+          return { verdict, evidence: String(parsed.evidence || "").trim().slice(0, 4000) }
+        }
+      } catch {}
+    }
+  }
+  return null
 }
 
 function taskHasWrites(task) {
@@ -904,24 +939,7 @@ export default Plugin.define({
           }
         },
       })
-      editor.add({
-        name: "dispatch_task",
-        description: "Start one approved UES task and execute it in a fresh ues-executor session with bounded runtime and interrupt-on-timeout. The parent must inspect the diff and record completion evidence separately.",
-        input: {
-          type: "object",
-          properties: {
-            slug: { type: "string" },
-            task: { type: "string" },
-            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
-            stallMs: { type: "integer", minimum: 30000, maximum: 300000 },
-            isolate: { type: "boolean" },
-            integrate: { type: "boolean" },
-          },
-          required: ["slug", "task"],
-          additionalProperties: false,
-        },
-        options: { namespace: "ues", codemode: true },
-        execute: async (input, tool) => {
+      const dispatchApprovedTask = async (input, tool, executionOptions = {}) => {
           if (!capabilities.freshDispatch) {
             throw new Error("OpenCode runtime does not expose the fresh-session capabilities required by ues.dispatch_task")
           }
@@ -977,22 +995,21 @@ export default Plugin.define({
           const workingTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
           const rootClean = workingTree?.git === true && workingTree?.clean === true
           const writerTask = taskHasWrites(started?.contextPack?.task)
-          if (input.isolate === true && !rootClean) {
-            throw new Error("explicit sandbox isolation requires a clean root working tree; commit/stash or integrate existing changes first")
+          if (input.isolate === true && !rootClean && executionOptions.inheritDirtyRoot !== true) {
+            throw new Error("explicit sandbox isolation requires a clean root working tree unless inherited-root snapshot mode is enabled")
           }
-          if (input.isolate !== false && writerTask && !rootClean) {
-            throw new Error("writer dispatch requires a clean root for automatic worktree isolation; clean the root or explicitly pass isolate:false to accept shared-root writes")
+          if (input.isolate !== false && writerTask && !rootClean && executionOptions.inheritDirtyRoot !== true) {
+            throw new Error("writer dispatch requires a clean root unless the parallel runtime enables inherited-root snapshot isolation")
           }
           const autoIsolate =
             input.isolate === true ||
-            (input.isolate !== false && rootClean && writerTask)
+            (input.isolate !== false && writerTask && (rootClean || executionOptions.inheritDirtyRoot === true))
           let sandbox = null
           let executionDir = projectRoot
           if (autoIsolate) {
-            sandbox = runOcskillJSON(
-              ["sandbox", "create", input.slug, input.task, projectRoot],
-              projectRoot,
-            )
+            const sandboxArgs = ["sandbox", "create", input.slug, input.task, projectRoot]
+            if (executionOptions.inheritDirtyRoot === true && !rootClean) sandboxArgs.push("--inherit-dirty-root")
+            sandbox = runOcskillJSON(sandboxArgs, projectRoot)
             executionDir = sandbox.dir
           }
           const heartbeatStarted = Date.now()
@@ -1009,7 +1026,9 @@ export default Plugin.define({
             const escalationArgs = ["model-policy", "executor", "--attempt", String(attempt + 1)]
             if (taskText) escalationArgs.push("--text", taskText)
             const escalatedPolicy = runOcskillJSON(escalationArgs, projectRoot)
-            let selectedPolicy = policy
+            let selectedPolicy = executionOptions.forceModel === true
+              ? { ...policy, model: executionOptions.modelOverride || null, forcedSingleModel: true }
+              : policy
             let created = null
             let messages = null
             const providerRecovery = []
@@ -1092,6 +1111,7 @@ export default Plugin.define({
                 const failureKind = classifyProviderFailure(error)
                 const escalationModel = modelRef(escalatedPolicy?.model)
                 const hasEscalationModel = Boolean(
+                  executionOptions.disableModelEscalation !== true &&
                   escalationModel &&
                   escalatedPolicy?.model &&
                   escalatedPolicy.model !== selectedPolicy?.model,
@@ -1204,6 +1224,235 @@ export default Plugin.define({
           } finally {
             clearInterval(heartbeat)
           }
+      }
+
+      editor.add({
+        name: "dispatch_task",
+        description: "Start one approved UES task and execute it in a fresh ues-executor session with bounded runtime and interrupt-on-timeout. The parent must inspect the diff and record completion evidence separately.",
+        input: {
+          type: "object",
+          properties: {
+            slug: { type: "string" },
+            task: { type: "string" },
+            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
+            stallMs: { type: "integer", minimum: 30000, maximum: 300000 },
+            isolate: { type: "boolean" },
+            integrate: { type: "boolean" },
+          },
+          required: ["slug", "task"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input, tool) => dispatchApprovedTask(input, tool),
+      })
+
+      editor.add({
+        name: "dispatch_parallel",
+        description: "Execute an approved UES DAG with multiple fresh sessions of one shared model. Ready tasks run concurrently, each writer is isolated, a fresh same-model verifier must PASS, and integration is serialized with rollback on post-integration failure.",
+        input: {
+          type: "object",
+          properties: {
+            slug: { type: "string" },
+            maxConcurrent: { type: "integer", minimum: 1, maximum: 8 },
+            model: { type: "string" },
+            timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
+            stallMs: { type: "integer", minimum: 30000, maximum: 300000 },
+            verifierTimeoutMs: { type: "integer", minimum: 30000, maximum: 1800000 },
+          },
+          required: ["slug"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input, tool) => {
+          if (!capabilities.freshDispatch) {
+            throw new Error("OpenCode runtime does not expose the fresh-session capabilities required by ues.dispatch_parallel")
+          }
+          if (!/^[a-z0-9][a-z0-9-]*$/.test(String(input.slug || ""))) {
+            throw new Error("work slug must use lowercase letters, numbers and dashes")
+          }
+
+          const initialTree = runOcskillJSON(["working-tree", projectRoot], projectRoot)
+          if (initialTree?.git !== true || initialTree?.clean !== true) {
+            throw new Error("ues.dispatch_parallel requires a clean root at start; parallel integrations become the only allowed root dirtiness during the run")
+          }
+
+          const workDir = path.join(projectRoot, ".ues-work", input.slug)
+          const planFile = path.join(workDir, "PLAN.json")
+          const stateFile = path.join(workDir, "STATE.json")
+          if (!existsSync(planFile) || !existsSync(stateFile)) {
+            throw new Error("parallel dispatch requires an initialized work item with PLAN.json and STATE.json")
+          }
+          const plan = JSON.parse(readFileSync(planFile, "utf8"))
+          const state = JSON.parse(readFileSync(stateFile, "utf8"))
+          if (state?.planApproval?.status !== "passed") throw new Error("parallel dispatch requires an approved active plan")
+          const running = Object.entries(state.tasks || {}).filter(([, record]) => record?.status === "running")
+          if (running.length) throw new Error("parallel dispatch refuses to start while another durable task attempt is already running")
+
+          const completedTaskIds = Object.entries(state.tasks || {})
+            .filter(([, record]) => record?.status === "completed")
+            .map(([id]) => id)
+          const tasks = (plan.tasks || []).filter((task) => !completedTaskIds.includes(task.id))
+          const goalText = String(plan.goal || "parallel approved UES execution")
+          const sharedPolicy = runOcskillJSON(["model-policy", "executor", "--attempt", "1", "--text", goalText], projectRoot)
+          const sharedModel = input.model || sharedPolicy?.model || null
+          if (input.model && !modelRef(input.model)) throw new Error("parallel model must use provider/model[#variant] syntax")
+
+          const maxConcurrent = Math.max(1, Math.min(Number(input.maxConcurrent || 4), 8))
+          const verifierTimeoutMs = Math.max(30000, Math.min(Number(input.verifierTimeoutMs || 600000), 1800000))
+          await tool.progress({ status: "parallel UES starting " + tasks.length + " task(s), max " + maxConcurrent + " shared-model workers" })
+
+          const failRunningTask = (taskID, runId, reason) => {
+            try {
+              const failArgs = ["work", "fail", input.slug, taskID, projectRoot, "--reason", String(reason || "parallel task failed")]
+              if (runId) failArgs.push("--run-id", runId)
+              runOcskill(failArgs, projectRoot)
+            } catch {}
+          }
+
+          const scheduler = await runEventDrivenDAG(tasks, {
+            completedTaskIds,
+            maxConcurrent,
+            singleModel: true,
+            model: sharedModel,
+            worker: async (task, context) => {
+              let payload = null
+              try {
+                const response = await dispatchApprovedTask({
+                  slug: input.slug,
+                  task: task.id,
+                  timeoutMs: input.timeoutMs,
+                  stallMs: input.stallMs,
+                  isolate: true,
+                  integrate: false,
+                }, tool, {
+                  forceModel: true,
+                  modelOverride: context.model,
+                  disableModelEscalation: true,
+                  inheritDirtyRoot: true,
+                })
+                payload = JSON.parse(response.content)
+
+                const executionDir = payload.sandbox?.dir || payload.executionDir || projectRoot
+                const beforeVerifierSignal = workspaceSignal(executionDir)
+                const verifierSession = await ctx.session.create({
+                  title: "UES verify " + input.slug + " " + task.id,
+                  location: { directory: executionDir },
+                })
+                runtimeGuard.touch(verifierSession.id)
+                await ctx.session.switchAgent({ sessionID: verifierSession.id, agent: "ues-verifier" })
+                const verifierModel = modelRef(context.model)
+                if (verifierModel) await ctx.session.switchModel({ sessionID: verifierSession.id, model: verifierModel })
+                await ctx.session.prompt({
+                  sessionID: verifierSession.id,
+                  text:
+                    "Independently verify this completed UES task. Do not edit files. Inspect the task-scoped diff, acceptance criteria and declared verification; run fresh verification commands where appropriate. " +
+                    "Your final line MUST be exactly one line beginning UES_VERDICT_JSON: followed by compact JSON with verdict PASS or FAIL and concise evidence. Use FAIL if any acceptance criterion or verification is not proven.\n\n" +
+                    JSON.stringify({
+                      task: task.id,
+                      title: task.title || null,
+                      summary: task.summary || null,
+                      acceptance: task.acceptance || [],
+                      verification: task.verification || [],
+                      files: task.files || null,
+                      risk: task.risk || "medium",
+                    }, null, 2),
+                })
+
+                let verifierMessages
+                try {
+                  verifierMessages = await waitForExecutorProgress(verifierSession.id, {
+                    timeoutMs: verifierTimeoutMs,
+                    stallMs: Math.min(Number(input.stallMs || 60000), 300000),
+                  })
+                } catch (error) {
+                  try { await ctx.session.interrupt({ sessionID: verifierSession.id, continue: false }) } catch {}
+                  throw error
+                } finally {
+                  runtimeGuard.clear(verifierSession.id)
+                }
+
+                if (beforeVerifierSignal !== workspaceSignal(executionDir)) {
+                  throw new Error("independent verifier modified the workspace; verifier sessions must be read-only")
+                }
+                const verdict = extractVerifierVerdict(verifierMessages)
+                if (!verdict || verdict.verdict !== "PASS") {
+                  throw new Error("independent verifier did not produce PASS" + (verdict?.evidence ? ": " + verdict.evidence : ""))
+                }
+                return {
+                  ...payload,
+                  verifier: {
+                    sessionID: verifierSession.id,
+                    verdict: verdict.verdict,
+                    evidence: verdict.evidence || "independent verifier PASS",
+                  },
+                }
+              } catch (error) {
+                if (payload?.sandbox?.dir) {
+                  try { runOcskill(["sandbox", "remove", payload.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
+                }
+                if (payload?.runId) failRunningTask(task.id, payload.runId, "parallel verification failed: " + String(error?.message || error))
+                throw error
+              }
+            },
+            integrate: async (task, result) => {
+              let applied = false
+              try {
+                let integration = null
+                if (result.sandbox?.dir) {
+                  integration = runOcskillJSON(["sandbox", "integrate", result.sandbox.dir, projectRoot, "--keep"], projectRoot)
+                  applied = true
+                }
+                const receipt = runOcskillJSON([
+                  "work", "agent-receipt", input.slug, task.id, projectRoot,
+                  "--run-id", result.runId,
+                  "--verdict", "PASS",
+                  "--verifier", "ues-verifier",
+                  "--session-id", result.verifier.sessionID,
+                  "--evidence", result.verifier.evidence,
+                ], projectRoot)
+                const completed = runOcskillJSON([
+                  "work", "complete", input.slug, task.id, projectRoot,
+                  "--run-id", result.runId,
+                  "--evidence", result.verifier.evidence,
+                ], projectRoot)
+
+                if (result.sandbox?.dir) {
+                  try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
+                }
+                await tool.progress({ status: "parallel task " + task.id + " verified and integrated" })
+                return { integration, receipt, completed }
+              } catch (error) {
+                if (applied && result.sandbox?.dir) {
+                  try { runOcskill(["sandbox", "rollback", result.sandbox.dir, projectRoot], projectRoot) } catch {}
+                } else if (result.sandbox?.dir) {
+                  try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
+                }
+                if (result.runId) failRunningTask(task.id, result.runId, "parallel integration failed: " + String(error?.message || error))
+                throw error
+              }
+            },
+            onEvent: (event) => {
+              if (["task.started", "task.completed", "task.failed"].includes(event.type)) {
+                void tool.progress({ status: "parallel " + event.type + " " + event.task })
+              }
+            },
+          })
+
+          const finalStatus = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
+          return {
+            content: JSON.stringify({
+              schemaVersion: 1,
+              slug: input.slug,
+              model: sharedModel || "opencode-default",
+              singleModel: true,
+              maxConcurrent,
+              scheduler,
+              work: finalStatus,
+              next: finalStatus.status === "integration-verification"
+                ? "Run ues-integration-verifier and record the final integration receipt before finalize."
+                : finalStatus.nextAction,
+            }, null, 2),
+          }
         },
       })
     })
@@ -1214,7 +1463,7 @@ export default Plugin.define({
       await ctx.session.hook("context", (event) => {
         event.system.push({
           type: "text",
-          text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts, verify fresh behavior, and escalate after failed attempts instead of stacking patches.",
+          text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts and verify fresh behavior. On Windows, never redirect git diff through PowerShell into a text file; use ocskill diff . --out <file> so the result is UTF-8. For independent approved tasks, prefer ues.dispatch_parallel when one shared model can safely work in isolated sessions.",
         })
         const assignment = sessionAssignments.get(event.sessionID)
         if (assignment?.resumeRequired && assignment.checkpoint) {
@@ -1266,7 +1515,7 @@ export default Plugin.define({
             feedbackDomains: routingFacts.feedbackDomains,
             acceptedLearningCount: routingFacts.acceptedLearningCount,
           },
-          version: 11,
+          version: 13,
           effectiveMaxSkills,
         },
       }
