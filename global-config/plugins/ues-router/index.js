@@ -1311,6 +1311,9 @@ export default Plugin.define({
           const sharedPolicy = runOcskillJSON(["model-policy", "executor", "--attempt", "1", "--text", goalText], projectRoot)
           const sharedModel = input.model || sharedPolicy?.model || null
           if (input.model && !modelRef(input.model)) throw new Error("parallel model must use provider/model[#variant] syntax")
+          if (sharedModel && !capabilities.modelSwitch) {
+            throw new Error("same-model parallel execution selected " + sharedModel + " but this OpenCode runtime cannot switch child-session models")
+          }
 
           const maxConcurrent = Math.max(1, Math.min(Number(input.maxConcurrent || 4), 8))
           const verifierTimeoutMs = Math.max(30000, Math.min(Number(input.verifierTimeoutMs || 600000), 1800000))
