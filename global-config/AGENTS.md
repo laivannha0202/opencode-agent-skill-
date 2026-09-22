@@ -37,6 +37,7 @@ Useful deterministic helpers include:
 - `ocskill repo-graph [dir] --compact` for an initial hotspot summary; request the full graph only when exact edge detail is needed
 - `ocskill aci search|refs|view|text ...`
 - `ocskill working-tree [dir]`
+- `ocskill text-read <file> --json` when OpenCode/generic readers classify known UTF text as binary
 - `ocskill verification-plan [dir]`
 - `ocskill context-pack <slug> <task> [dir]`
 - `ocskill work verify-command ... -- <command>`
