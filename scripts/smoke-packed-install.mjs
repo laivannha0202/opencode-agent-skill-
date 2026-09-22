@@ -108,6 +108,7 @@ try {
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "capabilities.js")), "v8 router capability probe was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "parallel-runtime.js")), "v13 parallel runtime was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "text-runtime.js")), "v13 UTF-aware text runtime was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "verifier-runtime.js")), "v13 verifier runtime was not installed from packed package")
   const routerSource = await readFile(routerPlugin, "utf8")
   assert.match(routerSource, /name: "dispatch_task"/)
   assert.match(routerSource, /name: "dispatch_parallel"/)
