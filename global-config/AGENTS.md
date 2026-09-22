@@ -1,215 +1,130 @@
 # Universal Engineering System
 
-These instructions apply to software-engineering work in OpenCode when this package is installed.
+These instructions apply to software-engineering work in OpenCode when UES is installed.
 
-## Operating model
+## Core rule
 
-Treat engineering as an evidence-driven loop:
+Use the minimum context and orchestration that preserve correctness. Do not trade acceptance criteria, repository evidence, verification, or safety for lower token use.
 
-```text
-understand -> route -> plan when needed -> implement -> verify -> review -> finish
-                         ^                    |
-                         +---- diagnose <-----+
-```
+The model remains the model. UES improves task routing, evidence selection, verification and recovery; it does not replace model capability.
 
-The selected model remains the model. These instructions improve process, context selection, verification, and recovery; they do not replace model capability.
+## Start by classifying the task
 
-## First actions
+When `ocskill` is available, use `ocskill task-policy <text>` as the deterministic starting point.
 
-1. When `ocskill` is available for non-trivial work, classify the request with `ocskill task-policy <text>` and use its mode/risk/model/context guidance as a deterministic starting point.
-2. Read the repository's applicable `AGENTS.md`, manifests, package-manager files, and nearby conventions before editing.
-3. Establish the actual request, acceptance criteria, constraints, and current behavior from evidence.
-4. For non-trivial work, load `ues-engineering-orchestrator` first. Then load only the process and domain skills that materially help.
-5. Prefer process skills before framework skills: exploration/planning/debugging/verification determine how to work; domain skills determine what framework-specific details to apply.
-6. Keep the active skill set focused. Usually 2-4 skills are enough; do not load the entire catalog.
+- **FAST** — focused, low-risk work with a clear target. Read the target, nearest relevant test/analogue and only direct dependencies needed to prove the change. Prefer at most two directly useful skills. Do not load the engineering orchestrator, planner, critic, repo-wide graph or broad framework context unless concrete uncertainty or failure requires escalation.
+- **STANDARD** — moderate uncertainty, several related files or a behavior change. Make a short file-aware plan, inspect affected callers/tests, and load only the process/domain skills that materially help.
+- **DEEP** — high-risk, public-contract, auth/security/payment/schema/migration, cross-module or long-horizon work. Use impact analysis, planning, durable state and independent verification as required by policy.
 
-## Deterministic evidence helpers
+Risk overrides convenience. A short prompt can still require DEEP handling when the blast radius is high.
 
-When the `ocskill` CLI is available, prefer deterministic repository evidence before spending model context on broad exploration:
+## Evidence-first work
 
-- `ocskill inspect [dir]` — stack, package manager, top-level map and project-native verification commands
-- `ocskill impact <symbol-or-term> [dir]` — bounded path/content impact search
-- `ocskill evidence [dir]` — stack + verification + Git evidence snapshot
-- `ocskill working-tree [dir]` — branch, HEAD and uncommitted-change state
-- `ocskill repo-graph [dir]` — bounded source import graph and coupling hotspots
-- `ocskill review-scope [base] [dir]` — deterministic changed-file coverage and risk hints
-- `ocskill verification-plan [dir]` — project-native verification recommendations
-- `ocskill task-graph <PLAN.json>` — validate dependencies and compute safe execution waves
-- `ocskill context-pack <slug> <task> [dir]` — bounded durable handoff enriched with declared files, import neighbors, likely tests, instruction/manifests and accepted lessons
-- `ocskill work verify-command ... -- <command>` — structured verification receipt (exit code, hashes, timing, workspace fingerprints)
-- `ocskill sandbox create|integrate|list|remove ...` — isolated Git worktree primitives with conflict-aware integration
-- `ocskill work events <slug> [dir]` — append-only runtime event journal for start/heartbeat/receipt/failure/recovery/completion/integration/finalization
-- `ocskill learn status|analyze|accept|promote ...` — evidence-gated learning loop; shadow-required lessons are retrieved only after measured improvement
-- `ocskill dashboard [dir] --serve` — local Control Center for work state, evidence, learning and eval summaries
+Never invent repository structure, files, functions, APIs, schemas, package versions, runtime behavior or test results when they can be checked.
 
-These helpers are evidence accelerators, not substitutes for reading the exact affected code. Use repository-native search/tools when they provide more precise symbol/call-graph information.
+Read narrowly in this order when practical:
 
-On OpenCode v2, UES may install a managed runtime router that preselects at most a small focused set of relevant skills from the incoming prompt. The V2 plugin also upgrades destructive/high-impact shell actions such as forceful Git history operations, publishing, infrastructure destruction, or destructive SQL to an explicit permission prompt. Treat router selections as hints: keep useful skills, load deeper references only when needed, and do not assume a routed skill proves anything about the repository.
+1. applicable repository instructions/manifests;
+2. the named target or failure location;
+3. nearest working analogue and direct callers/dependencies;
+4. tests that encode the requested behavior;
+5. broader graph/repository evidence only if uncertainty remains.
 
-## Scope classification
+Useful deterministic helpers include:
 
-- **Small:** one local area, low risk, obvious verification. Work inline; no ceremonial plan.
-- **Standard:** behavior change, 2-5 related files, or moderate uncertainty. Make a short file-aware plan and identify verification before editing.
-- **Complex:** cross-module/public API/schema/auth/security/migration/dependency-major changes, more than about five files, or high rollback risk. Use `ues-task-planner`, `ues-change-impact-analysis`, and architecture/research skills as appropriate before implementation.
-- **Long-horizon:** many dependent work units, interruption/compaction risk, or work expected to outlive one context. When the user explicitly selects the long workflow (for example `/ues-run`), use durable `.ues-work/<slug>/` state, an independent plan gate, fresh task executors, dependency-safe waves, and final integration verification.
+- `ocskill inspect [dir]`
+- `ocskill impact <symbol-or-term> [dir]`
+- `ocskill aci search|refs|view|text ...`
+- `ocskill working-tree [dir]`
+- `ocskill verification-plan [dir]`
+- `ocskill context-pack <slug> <task> [dir]`
+- `ocskill work verify-command ... -- <command>`
 
-These are routing heuristics, not quotas. Risk matters more than file count.
+Treat search/routing results as evidence hints, not semantic proof.
 
-## Automatic skill routing
+## Exact-contract discipline
 
-Common process routing:
+For every edit:
 
-- unfamiliar or large repository -> `ues-repo-explorer` + optionally `ues-context-engineering`
-- non-trivial multi-step work -> `ues-engineering-orchestrator`
-- multi-file/risky change -> `ues-task-planner`
-- cross-boundary contract or blast-radius question -> `ues-change-impact-analysis`
-- current or uncertain external API/version/package -> `ues-research-verification`
-- feature/bugfix with a practical test harness -> `ues-test-driven-development`
-- bug, crash, failed build/test, regression -> `ues-bug-diagnosis`
-- meaningful edits -> `ues-test-verification`
-- completed substantial change -> `ues-code-review`
-- long task that must survive interruption -> `ues-long-task-state`
+- preserve the user's observable acceptance criteria literally;
+- preserve requested exception classes, type/range distinctions, return shapes, field names/order, mutation rules, idempotency and boundary behavior;
+- preserve unrelated user changes;
+- follow the repository's package manager, formatter, test/build conventions and generated-file policy;
+- make the smallest coherent change; avoid opportunistic refactors and unrelated dependency upgrades;
+- for public contracts, persistence, auth, payments, migrations or deployment, inspect downstream compatibility and rollback impact.
 
-Domain routing remains specific:
+When tests are absent or hidden, use focused runtime probes for each stated criterion, especially boundary and mutation cases.
 
+## Selective skill loading
+
+Skills are on-demand context, not a checklist.
+
+FAST should prefer the direct debugging/domain/verification skill and avoid generic orchestration unless needed. STANDARD may add `ues-engineering-orchestrator` plus a small number of directly relevant skills. DEEP may use planner, change-impact, long-task and critic/reviewer roles.
+
+Typical direct routing:
+
+- bug/crash/test failure -> `ues-bug-diagnosis`
+- current external API/version/package -> `ues-research-verification`
 - API contract -> `ues-api-contract`
 - database/schema -> `ues-database-engineering`
 - auth/permissions -> `ues-auth-security`
-- React -> `ues-react-engineering`
-- Next.js -> `ues-nextjs-engineering`
+- payment/webhook -> `ues-payment-engineering`
 - React Native -> `ues-react-native-engineering`
+- Next.js -> `ues-nextjs-engineering`
+- React -> `ues-react-engineering`
 - Node/Nest -> `ues-nodejs-engineering` / `ues-nestjs-engineering`
+- Python/Django/FastAPI -> corresponding UES domain skill
 - .NET -> `ues-dotnet-engineering`
 - Java/Spring -> `ues-java-spring-engineering`
-- Python/Django/FastAPI -> `ues-python-engineering` / `ues-django-engineering` / `ues-fastapi-engineering`
 - Flutter -> `ues-flutter-engineering`
-- UI/UX -> `ues-ui-ux-engineering`
-- ecommerce/marketplace -> `ues-ecommerce-engineering`
-- payment -> `ues-payment-engineering`
 - Docker/CI/deploy -> `ues-devops-engineering`
-- Git -> `ues-git-safety`
 
-## Evidence and research
+Do not load the full catalog.
 
-- Never invent files, functions, endpoints, schemas, commands, package names, package versions, framework behavior, or project structure when they can be checked.
-- Prefer repository evidence for repository facts.
-- For external APIs, libraries, versions, security guidance, or behavior that may have changed, use `ues-research-verification` and prefer primary/current sources.
-- Distinguish observed facts, sourced facts, hypotheses, and recommendations.
-- If a tool/source is unavailable, say what could not be verified instead of filling the gap with confidence.
+## Failure and weak-model recovery
 
-## Debugging and retry discipline
+A failed attempt is a signal to improve evidence, not to repeat the same prompt with more prose.
 
-- Reproduce or capture the exact failure before proposing a fix.
-- Trace the bad value/state backward to the earliest supported cause.
-- Change one causal variable at a time.
-- If two attempted fixes fail, stop stacking patches and re-investigate from fresh evidence.
-- If three distinct root-cause hypotheses fail or fixes expose widening coupling, question the architecture and surface that to the user before another broad change.
-- Do not clear caches, delete lockfiles, disable checks, or upgrade dependencies as generic debugging rituals.
+- **Attempt 1:** use the normal FAST/STANDARD/DEEP context budget.
+- **Attempt 2:** capture the exact failure, load failure-adjacent caller/test evidence, add debugging context when useful, and allow the configured model tier to escalate. Do not stack a speculative patch.
+- **Attempt 3+:** re-investigate from fresh evidence, expand to callers/dependencies/contracts and repository graph, challenge architecture/coupling, and use critic/reviewer verification before accepting another repair.
 
-## Context discipline
+If two fixes fail, stop patch stacking and re-diagnose. If three distinct root-cause hypotheses fail or coupling keeps widening, surface the architectural issue before another broad change.
 
-- Read narrowly: instructions/manifests -> relevant entry point -> nearest working analogue -> direct dependencies/callers -> tests.
-- Prefer exact symbol/error searches over broad directory dumps.
-- Summarize what is known before expanding the search.
-- Use supporting files inside skills only when their section is needed.
-- Do not repeatedly reread unchanged large files unless new evidence requires it.
-
-## Reasoning-state discipline
-
-For complex, ambiguous, or interruption-prone work, maintain a compact reasoning ledger rather than relying on conversational memory:
-
-- confirmed facts with repository/runtime evidence
-- assumptions with confidence and a concrete way to verify them
-- rejected hypotheses with the evidence that disproved them
-- architecture/implementation decisions and material alternatives
-- acceptance-criteria status, changed files, fresh verification, unresolved risks, and one next action
-
-Do not store hidden chain-of-thought. Preserve actionable evidence and decisions. Use `ues-long-task-state` when this state must survive context compaction or another session.
-
-## Long-horizon execution discipline
-
-For explicit long-running/autonomous work, do not ask one context to remember the whole implementation.
-
-1. Map the relevant repository surface with deterministic evidence and `ues-codebase-mapper` when useful.
-2. Persist observable requirements in `.ues-work/<slug>/SPEC.md`.
-3. Create a machine-checkable `PLAN.json` and validate it with `ocskill task-graph`.
-4. Ask `ues-plan-checker` to challenge the plan before edits begin. For long/high-risk work, create a structured plan-verification receipt bound to the current plan hash, then record approval with `ocskill work approve-plan --receipt-file ...`; `work start` is blocked until this happens.
-5. Execute each approved task in a fresh `ues-executor` context. Active V7 tasks carry a runId, heartbeat and lease expiry so interrupted work can be recovered deterministically. On OpenCode V2 prefer `ues.dispatch_task`, which creates the fresh session and applies configured attempt-based model escalation.
-6. Inspect each child diff and use `ocskill work verify-command` before marking completion. Long/high-risk tasks require at least one successful receipt for the active run; narrative-only completion is rejected.
-7. Parallelize only dependency-safe tasks with no write/read conflict. V8 may isolate concurrent writers automatically; manual sandboxes use `ocskill sandbox create` and `ocskill sandbox integrate`, which refuses overlap with dirty root files.
-8. On resume, trust durable state plus current Git evidence over conversational memory. Recover expired executor leases before retrying; preserve runId fences for active attempts.
-9. After all tasks complete, run `ues-integration-verifier`. Long/high-risk PASS must be bound to the current workspace fingerprint with a structured integration-verification receipt before `ocskill work verify-integration` records it.
-10. `work finalize` requires a recorded integration PASS and rejects completion if the Git workspace changed after that PASS.
-11. Merge/push/publish/deploy remain external side effects and require explicit user intent.
-
-Use `ocskill model-policy <role> --attempt N` when configured model tiers exist. Escalate only after diagnosis/fresh context; never use a stronger model as a substitute for missing evidence.
-
-## Critic and repair discipline
-
-For substantial or high-risk behavior changes, verification is followed by an independent falsification pass:
-
-1. self-check the diff against observable acceptance criteria
-2. run fresh behavior-matched verification
-3. ask `ues-critic` or `ues-reviewer` to challenge assumptions and search for concrete counterexamples
-4. repair only evidence-backed blocking findings
-5. rerun affected verification
-6. repeat the critic pass only when the repair materially changed risky behavior
-
-Bound this loop to at most two repair cycles before returning to root-cause/architecture analysis. Do not churn code to satisfy speculative feedback. Unresolved blocking findings must be fixed or surfaced explicitly.
-
-## Subagent discipline
-
-OpenCode may expose these installed subagents:
-
-- `ues-codebase-mapper` — read-only mapping for large/unfamiliar repositories
-- `ues-architect` — read-only architecture/change-impact analysis
-- `ues-plan-checker` — read-only independent plan gate
-- `ues-executor` — fresh-context implementation of exactly one approved task
-- `ues-debugger` — read-only root-cause analysis
-- `ues-researcher` — read-only current-source research
-- `ues-reviewer` — read-only final/diff review
-- `ues-critic` — read-only adversarial falsification
-- `ues-verifier` — read-only task/acceptance verification
-- `ues-integration-verifier` — read-only cross-task/end-to-end verification
-
-Use them selectively. Keep trivial work inline. The editable `ues-executor` must not launch child agents or broaden its task silently. Never allow concurrent executors to edit overlapping files in one working tree. Treat every subagent report as evidence to inspect, not authority. The parent remains responsible for orchestration, integration and final claims.
-
-## Implementation discipline
-
-For focused small/FAST fixes where the request names the exact file/function and observable contract, keep the workflow literal and bounded: read the target first, maintain a compact acceptance checklist, and avoid repo-wide discovery unless a concrete uncertainty or dependency requires it. Preserve explicitly requested exception classes, type-vs-range distinctions, return shapes, field names/order, mutation rules, idempotency, and boundary behavior exactly. Do not silently strengthen, weaken, or substitute those semantics. When tests are absent or hidden, use focused runtime probes that cover each stated criterion, especially type/range boundaries, before declaring success.
-
-- Make the smallest coherent change that satisfies the request.
-- Follow the repository's package manager, formatter, linter, tests, build scripts, architecture, and generated-file policy.
-- Preserve unrelated user changes.
-- Avoid opportunistic refactors and broad dependency upgrades during unrelated fixes.
-- For behavior changes where a practical test harness exists, prefer a failing regression/behavior test before implementation.
-- For public contracts, persistence, auth, payments, migrations, and deployment, explicitly inspect downstream consumers and rollback/compatibility impact.
+A stronger model is not a substitute for missing evidence.
 
 ## Verification gate
 
-Before saying a task is complete:
+Before claiming completion:
 
-1. Identify what evidence would prove the requested behavior.
-2. Run the narrowest relevant checks, then expand based on risk and project conventions.
-3. Read the actual output and exit status.
-4. Re-test the original failure/acceptance criterion, not only compilation.
-5. Inspect the final diff for accidental changes and regressions.
-6. Run or request an independent review/critic pass for substantial or high-risk work and resolve evidence-backed blocking findings.
-7. Report exactly what passed, failed, was repaired, or was not run.
+1. identify what observable evidence proves the requested behavior;
+2. run the narrowest relevant check, then expand based on risk and repository conventions;
+3. read the actual output and exit status;
+4. re-test the original failure/acceptance criterion;
+5. inspect the final diff for accidental changes;
+6. for substantial/high-risk work, run independent review/critic verification and resolve evidence-backed blockers;
+7. report exactly what passed, failed or was not run.
 
-Never claim a command, test, build, deployment, migration, push, or release succeeded unless it actually did.
+Never claim a test, build, migration, deployment, push or release succeeded unless it actually did.
 
-## Destructive operations
+## Long-horizon work
 
-Ask before destructive or irreversible actions such as deleting important data, dropping database objects, force pushing, resetting/cleaning uncommitted work, rewriting history, production deployment, credential rotation, or broad migration execution. Never print secrets.
+For interruption-prone or dependent multi-task work, use durable `.ues-work/<slug>/` state instead of relying on conversation memory.
+
+The required sequence is:
+
+`SPEC -> PLAN -> plan check/receipt -> approved tasks -> fresh executor per task -> task verification receipts -> integration verification/receipt -> finalize`
+
+Use dependency-safe waves and isolated worktrees only when their write/read scopes are safe. On resume, trust durable state plus current Git evidence over conversational memory. Long/high-risk completion must remain bound to the active run and current workspace fingerprint.
+
+Do not store hidden chain-of-thought. Persist observable facts, decisions, acceptance status, evidence and next actions only.
+
+## Safety
+
+Ask before destructive or irreversible actions such as force-pushing, destructive reset/clean, deleting important data, dropping database objects, broad production migrations, production deployment or credential rotation. Never print secrets.
+
+Merge, push, publish and deploy are external side effects and require explicit user intent.
 
 ## Completion standard
 
-A task is complete only when requested behavior is implemented, acceptance criteria are addressed, relevant verification has fresh evidence, the final diff has been reviewed, no known blocking critic finding is being hidden, and any remaining limitations are stated accurately.
-
-
-## V7 learning and optional external executors
-
-UES may analyze its own `.ues-evals` traces with `ocskill learn analyze`. V8 clusters recurring failure signatures and emits candidate rules. Acceptance stages a proposal; shadow-required lessons appear in future context only after `ocskill learn promote` records a measured benchmark improvement.
-
-Hermes support is optional and adapter-style. `ocskill hermes status` checks availability and `ocskill hermes prompt <slug> <task> .` emits a bounded delegation prompt. Hermes is not embedded into the UES runtime and may not mutate UES durable state on its own.
+A task is complete only when the requested behavior is implemented, the acceptance criteria are addressed, fresh relevant verification supports the result, the final diff is reviewed, and remaining limitations are stated accurately.

@@ -1,11 +1,19 @@
 import { Plugin } from "@opencode/plugin"
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { classifyIntent, routeSkills } from "./router.js"
+import { classifyIntent, routeSkillsForPolicy } from "./router.js"
 import { destructiveShellRisk } from "./safety.js"
 import { runtimeCapabilities } from "./capabilities.js"
+import {
+  budgetToolResult,
+  classifyProviderFailure,
+  createRuntimeGuard,
+  providerRecoveryPlan,
+  progressWatchdogDecision,
+  stableRuntimeHash,
+} from "./runtime-guard.js"
 
 const CONFIG_FILE = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -114,6 +122,40 @@ function taskHasWrites(task) {
   )
 }
 
+function workspaceSignal(root) {
+  const scope = [
+    "--",
+    ".",
+    ":(exclude).ues-work",
+    ":(exclude).ues-learning",
+    ":(exclude).ues-dashboard",
+    ":(exclude).ues-sandboxes",
+    ":(exclude).ues-cache",
+    ":(exclude).ues-traces",
+  ]
+  const commands = [
+    ["status", "--porcelain=v1", "--untracked-files=all", ...scope],
+    ["diff", "--binary", "--no-ext-diff", ...scope],
+    ["diff", "--cached", "--binary", "--no-ext-diff", ...scope],
+  ]
+  const parts = []
+  for (const args of commands) {
+    const result = spawnSync("git", args, {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 2 * 1024 * 1024,
+    })
+    if (result.status !== 0) return stableRuntimeHash("non-git:" + root)
+    parts.push(result.stdout || "")
+  }
+  return stableRuntimeHash(parts.join("\n---UES-WORKSPACE-SIGNAL---\n"))
+}
+
+function sessionContextDigest(messages) {
+  const recent = Array.isArray(messages) ? messages.slice(-12) : messages
+  return stableRuntimeHash(recent || [])
+}
+
 function policySkills(policy) {
   const selected = []
   const add = (id) => { if (id && !selected.includes(id)) selected.push(id) }
@@ -166,6 +208,218 @@ export default Plugin.define({
   async setup(ctx) {
     const projectRoot = ctx.location.project?.canonical || ctx.location.directory
     const capabilities = runtimeCapabilities(ctx)
+    const runtimeGuard = createRuntimeGuard({ duplicateLimit: 3, loopLimit: 6 })
+    const sessionAssignments = new Map()
+    const eventController = new AbortController()
+
+    if (typeof ctx.event?.subscribe === "function") {
+      void (async () => {
+        try {
+          for await (const event of ctx.event.subscribe({ signal: eventController.signal })) {
+            if (!["message.part.updated", "message.part.delta", "message.updated"].includes(event?.type)) continue
+            const properties = event?.properties || {}
+            const sessionID =
+              properties.sessionID ||
+              properties.part?.sessionID ||
+              properties.info?.sessionID ||
+              null
+            if (sessionID && sessionAssignments.has(sessionID)) {
+              runtimeGuard.touch(sessionID)
+            }
+          }
+        } catch {}
+      })()
+    }
+
+    const leaseSupervisor = setInterval(() => {
+      const workRoot = path.join(projectRoot, ".ues-work")
+      if (!existsSync(workRoot)) return
+      let entries = []
+      try {
+        entries = readdirSync(workRoot, { withFileTypes: true })
+      } catch {
+        return
+      }
+      for (const entry of entries) {
+        if (!entry.isDirectory() || !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(entry.name)) continue
+        try {
+          runOcskill(["work", "recover", entry.name, projectRoot], projectRoot)
+        } catch {}
+      }
+    }, 60_000)
+    leaseSupervisor.unref?.()
+
+    async function waitForExecutorProgress(sessionID, options = {}) {
+      const timeoutMs = Math.max(30_000, Number(options.timeoutMs || 10 * 60_000))
+      const stallMs = Math.max(30_000, Math.min(Number(options.stallMs || 60_000), 5 * 60_000))
+      const startedAt = Date.now()
+      let lastContext = null
+      let polling = false
+      let rejectWatchdog = null
+
+      try {
+        const initial = await ctx.session.context({ sessionID })
+        lastContext = sessionContextDigest(initial)
+      } catch {}
+      runtimeGuard.touch(sessionID)
+
+      const watchdog = new Promise((_, reject) => {
+        rejectWatchdog = reject
+      })
+      const timer = setInterval(async () => {
+        if (polling) return
+        polling = true
+        try {
+          const now = Date.now()
+          if (now - startedAt >= timeoutMs) {
+            const error = new Error("UES executor timed out after " + timeoutMs + "ms")
+            error.code = "UES_TIMEOUT"
+            rejectWatchdog?.(error)
+            return
+          }
+
+          try {
+            const messages = await ctx.session.context({ sessionID })
+            const digest = sessionContextDigest(messages)
+            if (lastContext === null || digest !== lastContext) {
+              lastContext = digest
+              runtimeGuard.touch(sessionID, now)
+            }
+          } catch {}
+
+          const snapshot = runtimeGuard.snapshot(sessionID)
+          const watchdogState = progressWatchdogDecision(snapshot, now, stallMs)
+          if (watchdogState.stalled) {
+            const error = new Error("UES no-progress watchdog: executor stalled for " + watchdogState.idleMs + "ms")
+            error.code = "UES_STALLED"
+            rejectWatchdog?.(error)
+          }
+        } finally {
+          polling = false
+        }
+      }, 5_000)
+      timer.unref?.()
+
+      try {
+        await Promise.race([
+          ctx.session.wait({ sessionID }),
+          watchdog,
+        ])
+      } finally {
+        clearInterval(timer)
+      }
+
+      const assignment = sessionAssignments.get(sessionID)
+      if (assignment?.resumeRequired) {
+        const error = new Error("UES no-progress post-compaction resume: checkpoint.nextAction was not executed before session completion")
+        error.code = "UES_RESUME_STALLED"
+        throw error
+      }
+      return ctx.session.context({ sessionID })
+    }
+
+    if (typeof ctx.tool?.hook === "function") {
+      await ctx.tool.hook("execute.before", (event) => {
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (!assignment) return
+        const signal = workspaceSignal(assignment.executionDir || projectRoot)
+        const decision = runtimeGuard.before({
+          sessionID: event.sessionID,
+          tool: event.tool,
+          input: event.input,
+          callID: event.callID,
+          cwd: assignment.executionDir || projectRoot,
+          workspaceSignal: signal,
+        })
+        if (decision.blocked) throw new Error(decision.message)
+
+        if (assignment.resumeRequired) {
+          try {
+            const args = [
+              "work", "checkpoint-resumed", assignment.slug, assignment.task, projectRoot,
+              "--run-id", assignment.runId,
+              "--reason", "tool-action-observed-after-compaction",
+            ]
+            runOcskill(args, projectRoot)
+          } catch {}
+          assignment.resumeRequired = false
+        }
+      })
+
+      await ctx.tool.hook("execute.after", (event) => {
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (!assignment) return
+        const signal = workspaceSignal(assignment.executionDir || projectRoot)
+        if (event.status === "completed") {
+          const shellInput = JSON.stringify(event.input || {})
+          const budgetTool =
+            event.tool === "bash" && /(?:ocskill\s+repo-graph|\brg\b|\bgrep\b|\bglob\b)/i.test(shellInput)
+              ? "repo-graph"
+              : event.tool
+          event.result = budgetToolResult(budgetTool, event.result)
+          runtimeGuard.after({
+            sessionID: event.sessionID,
+            tool: event.tool,
+            input: event.input,
+            callID: event.callID,
+            cwd: assignment.executionDir || projectRoot,
+            workspaceSignal: signal,
+            status: "completed",
+            result: event.result,
+          })
+        } else {
+          runtimeGuard.after({
+            sessionID: event.sessionID,
+            tool: event.tool,
+            input: event.input,
+            callID: event.callID,
+            cwd: assignment.executionDir || projectRoot,
+            workspaceSignal: signal,
+            status: "error",
+            error: event.error,
+          })
+        }
+      })
+    }
+
+    if (capabilities.sessionHook) {
+      await ctx.session.hook("retry", (event) => {
+        const kind = classifyProviderFailure(event.error || {})
+        if (kind === "AUTH" || kind === "CONTEXT_TOO_LARGE") {
+          event.decision = { retry: false }
+          return
+        }
+        if (["RATE_LIMIT", "PROVIDER_5XX", "TIMEOUT", "NO_TOKEN"].includes(kind) && event.attempt < 3) {
+          event.decision = {
+            retry: true,
+            delay: kind === "RATE_LIMIT" ? Math.min(10_000, 1_000 * event.attempt) : 0,
+          }
+        }
+      })
+
+      await ctx.session.hook("compaction", (event) => {
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (!assignment) return
+        try {
+          const checkpoint = runOcskillJSON([
+            "work", "checkpoint", assignment.slug, assignment.task, projectRoot,
+            "--run-id", assignment.runId,
+            "--reason", "pre-compaction",
+          ], projectRoot)
+          assignment.checkpoint = checkpoint
+          assignment.resumeRequired = true
+          assignment.compactionAt = Date.now()
+          runtimeGuard.compacted(event.sessionID, assignment.compactionAt)
+          event.system.push({
+            type: "text",
+            text:
+              "UES durable checkpoint persisted before compaction. Preserve currentTaskId/runId/planHash/evidence pointers. " +
+              "After compaction, execute checkpoint.nextAction before explanatory prose. Checkpoint: " +
+              JSON.stringify(checkpoint),
+          })
+        } catch {}
+      })
+    }
 
     await ctx.tool.transform((editor) => {
       editor.namespace({
@@ -400,6 +654,7 @@ export default Plugin.define({
             slug: { type: "string" },
             task: { type: "string" },
             timeoutMs: { type: "integer", minimum: 30000, maximum: 3600000 },
+            stallMs: { type: "integer", minimum: 30000, maximum: 300000 },
             isolate: { type: "boolean" },
             integrate: { type: "boolean" },
           },
@@ -441,6 +696,10 @@ export default Plugin.define({
             30_000,
             Math.min(Number(input.timeoutMs || (taskPolicy.mode === "long-horizon" ? 20 * 60_000 : 10 * 60_000)), 60 * 60_000),
           )
+          const stallMs = Math.max(
+            30_000,
+            Math.min(Number(input.stallMs || 60_000), 5 * 60_000),
+          )
           const policyArgs = ["model-policy", "executor", "--attempt", String(attempt)]
           if (taskText) policyArgs.push("--text", taskText)
           const policy = runOcskillJSON(policyArgs, projectRoot)
@@ -477,57 +736,134 @@ export default Plugin.define({
           }, 30_000)
 
           try {
-            const created = await ctx.session.create({
-              title: "UES " + input.slug + " " + input.task,
-              location: { directory: executionDir },
-            })
-            appendTrace(traceID, "dispatch.session-created", {
-              sessionID: created.id,
-              executionDir,
-              isolated: executionDir !== projectRoot,
-            }, projectRoot)
-            {
-              const attachArgs = [
-                "work", "attach-session", input.slug, input.task, projectRoot,
-                "--session-id", created.id,
-              ]
-              if (runId) attachArgs.push("--run-id", runId)
-              attachArgs.push("--execution-dir", executionDir)
-              if (sandbox?.dir) attachArgs.push("--sandbox-dir", sandbox.dir)
-              runOcskill(attachArgs, projectRoot)
-            }
-            await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
-            const selectedModel = modelRef(policy?.model)
-            if (selectedModel) {
-              await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
-            }
+            const escalationArgs = ["model-policy", "executor", "--attempt", String(attempt + 1)]
+            if (taskText) escalationArgs.push("--text", taskText)
+            const escalatedPolicy = runOcskillJSON(escalationArgs, projectRoot)
+            let selectedPolicy = policy
+            let created = null
+            let messages = null
+            const providerRecovery = []
+            let physicalAttempt = 0
 
-            await ctx.session.prompt({
-              sessionID: created.id,
-              text:
-                "Implement exactly this approved UES task in the current repository. " +
-                "Do not broaden scope or launch child agents. Run the declared verification and return the executor report.\n\n" +
-                JSON.stringify(started.contextPack, null, 2),
-            })
+            while (physicalAttempt < 3) {
+              physicalAttempt += 1
+              created = await ctx.session.create({
+                title: "UES " + input.slug + " " + input.task + " p" + physicalAttempt,
+                location: { directory: executionDir },
+              })
+              sessionAssignments.set(created.id, {
+                slug: input.slug,
+                task: input.task,
+                runId,
+                executionDir,
+                sandboxDir: sandbox?.dir || null,
+                resumeRequired: false,
+                checkpoint: null,
+                compactionAt: null,
+              })
+              runtimeGuard.touch(created.id)
 
-            let timer = null
-            try {
-              await Promise.race([
-                ctx.session.wait({ sessionID: created.id }),
-                new Promise((_, reject) => {
-                  timer = setTimeout(
-                    () => reject(new Error("UES executor timed out after " + timeoutMs + "ms")),
-                    timeoutMs,
-                  )
-                }),
-              ])
-            } catch (error) {
+              appendTrace(traceID, "dispatch.session-created", {
+                sessionID: created.id,
+                executionDir,
+                isolated: executionDir !== projectRoot,
+                physicalAttempt,
+                model: selectedPolicy?.model || null,
+              }, projectRoot)
+
+              {
+                const attachArgs = [
+                  "work", "attach-session", input.slug, input.task, projectRoot,
+                  "--session-id", created.id,
+                ]
+                if (runId) attachArgs.push("--run-id", runId)
+                attachArgs.push("--execution-dir", executionDir)
+                if (sandbox?.dir) attachArgs.push("--sandbox-dir", sandbox.dir)
+                runOcskill(attachArgs, projectRoot)
+              }
+
+              await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
+              const selectedModel = modelRef(selectedPolicy?.model)
+              if (selectedModel) {
+                await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
+              }
+
+              const recovery = started?.contextPack?.contextPolicy?.recovery
+              const recoveryText = recovery?.requireDiagnosis
+                ? " This is recovery attempt " + attempt + ". Diagnose the previous failure from fresh evidence before editing. " +
+                  (recovery.directives || []).join("; ") + "."
+                : ""
+              const providerRecoveryText = providerRecovery.length
+                ? " Provider/session recovery is active. Continue from durable .ues-work state and current workspace evidence; do not repeat already-proven exploration."
+                : ""
+              const dispatchContext = physicalAttempt === 1
+                ? started.contextPack
+                : runOcskillJSON(["context-pack", input.slug, input.task, projectRoot], projectRoot)
+
+              await ctx.session.prompt({
+                sessionID: created.id,
+                text:
+                  "Implement exactly this approved UES task in the current repository. " +
+                  "Do not broaden scope or launch child agents. Run the declared verification and return the executor report." +
+                  recoveryText + providerRecoveryText + "\n\n" +
+                  JSON.stringify(dispatchContext, null, 2),
+              })
+
               try {
-                await ctx.session.interrupt({ sessionID: created.id, continue: false })
-              } catch {}
-              throw error
-            } finally {
-              if (timer) clearTimeout(timer)
+                messages = await waitForExecutorProgress(created.id, { timeoutMs, stallMs })
+                sessionAssignments.delete(created.id)
+                runtimeGuard.clear(created.id)
+                break
+              } catch (error) {
+                try {
+                  await ctx.session.interrupt({ sessionID: created.id, continue: false })
+                } catch {}
+
+                const failureKind = classifyProviderFailure(error)
+                const escalationModel = modelRef(escalatedPolicy?.model)
+                const hasEscalationModel = Boolean(
+                  escalationModel &&
+                  escalatedPolicy?.model &&
+                  escalatedPolicy.model !== selectedPolicy?.model,
+                )
+                const decision = providerRecoveryPlan(failureKind, physicalAttempt, {
+                  hasEscalationModel,
+                })
+                providerRecovery.push({
+                  physicalAttempt,
+                  sessionID: created.id,
+                  failureKind,
+                  action: decision.action,
+                  model: selectedPolicy?.model || null,
+                })
+                appendTrace(traceID, "dispatch.provider-recovery", {
+                  task: input.task,
+                  runId,
+                  physicalAttempt,
+                  sessionID: created.id,
+                  failureKind,
+                  decision,
+                  model: selectedPolicy?.model || null,
+                  escalationModel: escalatedPolicy?.model || null,
+                }, projectRoot)
+
+                sessionAssignments.delete(created.id)
+                runtimeGuard.clear(created.id)
+
+                if (!decision.retry || physicalAttempt >= 3) throw error
+                if (decision.action === "fresh-session-escalated-model") {
+                  selectedPolicy = escalatedPolicy
+                }
+                await tool.progress({
+                  status:
+                    "provider recovery " + decision.action +
+                    " after " + failureKind.toLowerCase().replaceAll("_", "-"),
+                })
+              }
+            }
+
+            if (!created || !messages) {
+              throw new Error("UES provider recovery exhausted without a completed executor session")
             }
 
             const afterWait = runOcskillJSON(["work", "status", input.slug, projectRoot], projectRoot)
@@ -538,12 +874,12 @@ export default Plugin.define({
               throw new Error("UES executor attempt is no longer active; refusing post-cancel integration or completion handoff")
             }
 
-            const messages = await ctx.session.context({ sessionID: created.id })
             appendTrace(traceID, "dispatch.completed", {
               sessionID: created.id,
               task: input.task,
               runId,
               messageCount: Array.isArray(messages) ? messages.length : null,
+              providerRecovery,
             }, projectRoot)
             let integration = null
             if (sandbox && input.integrate === true) {
@@ -561,12 +897,14 @@ export default Plugin.define({
                 runId,
                 traceID,
                 taskPolicy,
-                model: policy,
+                model: selectedPolicy,
                 timeoutMs,
+                stallMs,
                 executionDir,
                 isolated: executionDir !== projectRoot,
                 sandbox,
                 integration,
+                providerRecovery,
                 messages: messageExcerpt(messages),
                 next: sandbox
                   ? "Inspect and verify the isolated worktree first. If accepted, integrate it with ocskill sandbox integrate <worktree> . before recording work complete."
@@ -604,12 +942,21 @@ export default Plugin.define({
 
     if (capabilities.sessionHook) {
       await ctx.session.hook("context", (event) => {
-      if (event.agent === "title" || event.agent === "summary" || event.agent === "compaction") return
-      event.system.push({
-        type: "text",
-        text: "UES runtime: choose FAST/STANDARD/DEEP from deterministic task policy, prefer bounded semantic/ACI evidence over broad scans, trust durable .ues-work state and EVENTS.jsonl over conversation memory, never treat lexical matches as semantic proof, require fresh verification for non-trivial completion, and fail closed when a high-risk capability is missing.",
+        event.system.push({
+          type: "text",
+          text: "UES: use the minimum context that preserves correctness. FAST reads the target and nearest evidence with direct skills only; STANDARD/DEEP expand when risk or evidence requires it. Preserve exact contracts, verify fresh behavior, and escalate after failed attempts instead of stacking patches.",
+        })
+        const assignment = sessionAssignments.get(event.sessionID)
+        if (assignment?.resumeRequired && assignment.checkpoint) {
+          event.system.push({
+            type: "text",
+            text:
+              "UES post-compaction resume is mandatory. Before explanatory prose, execute this deterministic nextAction now: " +
+              JSON.stringify(assignment.checkpoint.nextAction) +
+              ". Resume only from .ues-work state/evidence and the current workspace; do not replay external/destructive side effects.",
+          })
+        }
       })
-    })
 
       await ctx.session.hook("prompt", (event) => {
       const config = routerConfig()
@@ -625,7 +972,7 @@ export default Plugin.define({
         Math.min(config.maxSkills, Number(policy?.maxSkills || config.maxSkills)),
       )
       const selected = []
-      for (const id of [...routeSkills(event.prompt.text, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
+      for (const id of [...routeSkillsForPolicy(event.prompt.text, policy, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
         if (!selected.includes(id)) selected.push(id)
         if (selected.length >= effectiveMaxSkills) break
       }
@@ -649,7 +996,7 @@ export default Plugin.define({
             feedbackDomains: routingFacts.feedbackDomains,
             acceptedLearningCount: routingFacts.acceptedLearningCount,
           },
-          version: 6,
+          version: 10,
           effectiveMaxSkills,
         },
       }
@@ -665,6 +1012,13 @@ export default Plugin.define({
         event.effect = "ask"
         event.message = "UES safety gate: confirm destructive/high-impact shell action (" + risk.id + ")."
       })
+    }
+
+    return () => {
+      eventController.abort()
+      clearInterval(leaseSupervisor)
+      for (const sessionID of sessionAssignments.keys()) runtimeGuard.clear(sessionID)
+      sessionAssignments.clear()
     }
   },
 })

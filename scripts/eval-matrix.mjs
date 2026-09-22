@@ -32,6 +32,8 @@ const onlyLive = has("--standard-only")
 const onlyPolyglot = has("--polyglot-only")
 const withoutPolyglot = has("--without-polyglot")
 const requireConfidence = has("--require-confidence")
+const maxInitialInputRatio = Number(argValue("--max-initial-input-ratio", "1.5"))
+const maxTokenRatio = Number(argValue("--max-token-ratio", "1.75"))
 
 if (!model) {
   console.error("Usage: node scripts/eval-matrix.mjs --model provider/model [--trials 3] [--auth current|env-only] [--variant high] [--without-polyglot|--long-only|--standard-only|--polyglot-only]")
@@ -110,7 +112,10 @@ const baselineCount = results.filter((item) => item.mode === "baseline").length
 const uesCount = results.filter((item) => item.mode === "ues").length
 const coverageComplete = baselineCount === expectedPerMode && uesCount === expectedPerMode
 const summary = summarizeEvalResults(results)
-const confidence = pairedBenchmarkConfidence(results)
+const confidence = pairedBenchmarkConfidence(results, {
+  maxInitialInputRatio: Number.isFinite(maxInitialInputRatio) ? maxInitialInputRatio : 1.5,
+  maxTokenRatio: Number.isFinite(maxTokenRatio) ? maxTokenRatio : 1.75,
+})
 
 const report = {
   schemaVersion: 1,
@@ -134,7 +139,11 @@ const report = {
     mode: item.mode,
     passed: item.passed === true,
     durationMs: item.durationMs ?? null,
-    telemetry: item.telemetry?.costSamples > 0 ? { cost: item.telemetry.cost } : {},
+    telemetry: {
+      ...(item.telemetry?.costSamples > 0 ? { cost: item.telemetry.cost } : {}),
+      ...(item.telemetry?.firstUsage ? { firstUsage: item.telemetry.firstUsage } : {}),
+      ...(item.telemetry?.tokens ? { tokens: item.telemetry.tokens } : {}),
+    },
   })),
   summary,
   confidence,
@@ -149,6 +158,8 @@ console.log("- UES: " + (summary.modes.ues?.passed || 0) + "/" + (summary.modes.
 console.log("- pass-rate delta: " + (summary.passRateDelta == null ? "n/a" : (summary.passRateDelta * 100).toFixed(1) + " pp"))
 console.log("- coverage: " + (coverageComplete ? "COMPLETE" : "INCOMPLETE"))
 console.log("- paired confidence: " + (confidence.promotionEligible ? "SUPPORTED" : "NOT YET SUPPORTED") + " (pairs=" + confidence.pairs + ", p=" + confidence.pValue.toFixed(4) + ")")
+console.log("- initial-input ratio UES/baseline: " + (confidence.initialInput.ratio == null ? "n/a" : confidence.initialInput.ratio.toFixed(3)) + " (max " + confidence.initialInput.maxRatio + ")")
+console.log("- total-token ratio UES/baseline: " + (confidence.tokens.ratio == null ? "n/a" : confidence.tokens.ratio.toFixed(3)) + " (max " + confidence.tokens.maxRatio + ")")
 console.log("- confidence gate: " + (requireConfidence ? "REQUIRED" : "report-only"))
 console.log("- report: " + reportFile)
 

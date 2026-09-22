@@ -6,6 +6,55 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-09-22
+
+### Released
+- Promoted V10 RC.2 to stable after the local full gate passed with 182 tests passing, 0 failing, 2 platform-specific skips, plus package and install smoke validation.
+- Stable npm installs use the default `latest` dist-tag, so users install with `npm install -g opencode-agent-skill`.
+- Includes adaptive context/routing, weak-model recovery, no-progress watchdog, duplicate/loop guards, bounded exploration output, durable compaction checkpoints, provider recovery and retryable lease recovery.
+
+### Changed
+- Package version is 10.0.0.
+- V10 stable keeps FAST at 8k, STANDARD at 20k and DEEP at 48k while preserving configured executor capability and correctness-first verification gates.
+
+## [10.0.0-rc.2] - 2026-09-22
+
+### Added
+- No-progress watchdog for fresh executor sessions with active-tool grace so legitimate long-running tools are not killed merely for being quiet.
+- Duplicate exploration guard and loop detector for repeated read/grep/glob-style calls without new workspace/evidence progress.
+- Runtime tool-output budgets for large grep/glob/read/repo-graph style outputs.
+- Durable pre-compaction checkpoints containing current task, runId, plan hash, workspace fingerprint, evidence pointers and a structured next action.
+- Post-compaction resume enforcement with automatic fresh-session recovery when the next action is not executed.
+- Provider failure classification and recovery for no-token, timeout, rate-limit, upstream, quota, auth and context-overflow failures.
+- Periodic lease supervisor that recovers expired running executors to an explicit retryable state.
+
+### Changed
+- Provider stalls retry once in a fresh session with the same model; repeated retryable provider failures use the configured escalation model/provider when available.
+- Stale lease recovery now records `retryable` instead of overloading terminal/logical `failed`.
+- Explicit `long/high-risk`, `high-risk`, and structured long/high-risk facts hard-override FAST/light routing to DEEP/heavy.
+- Package version is 10.0.0-rc.2.
+- npm tag releases publish prereleases under `next`; stable versions continue to use `latest`.
+
+### Fixed
+- A post-compaction session that only emits narrative text without executing the persisted next action is treated as stalled instead of silently completing.
+
+## [10.0.0-rc.1] - 2026-09-22
+
+### Added
+- Initial-input token telemetry and aggregate reporting for baseline-vs-UES evaluation.
+- Attempt-aware recovery policy with bounded context/skill escalation from initial execution to diagnosis and deep recovery.
+- Policy-aware FAST runtime routing that prioritizes direct domain/debug/review skills over generic orchestration.
+- Benchmark efficiency gates for initial input tokens and total tokens.
+- Reference-vs-candidate ablation CLI that requires pass-rate preservation and measurable initial-context reduction.
+
+### Changed
+- FAST context budget is 8k and STANDARD is 20k; DEEP remains 48k to preserve high-risk/long-horizon capability.
+- Always-loaded global engineering instructions are compressed while retaining exact-contract, evidence, verification, safety and durable-work invariants.
+- Retry context expands only after failure; repeated failures add graph/critic evidence instead of repeating speculative patches.
+- Adaptive model policy exposes recovery stage and does not silently downshift the configured/default executor tier for FAST tasks.
+- OpenCode V2 router metadata is versioned for the V10 policy-aware path.
+- Package version is 10.0.0-rc.1; npm publication/tagging is intentionally deferred until RC verification passes.
+
 ## [9.0.0] - 2026-09-22
 
 ### Added

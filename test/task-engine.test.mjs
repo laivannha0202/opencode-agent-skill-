@@ -24,6 +24,8 @@ import {
   workStatus,
   recordVerificationReceipt,
   workspaceFingerprint,
+  checkpointWork,
+  markCheckpointResumed,
 } from "../lib/task-engine.mjs"
 
 function git(root, args) {
@@ -143,6 +145,19 @@ test("persistent work state resumes from dependency-safe boundaries", async () =
       runId: startedT2.record.runId,
     })
     assert.equal(failed.attempts, 1)
+
+    const retryT2 = await startTask(root, "checkout-upgrade", "T2")
+    assert.equal(retryT2.record.attempts, 2)
+    assert.equal(retryT2.contextPack.attempt, 2)
+    assert.equal(retryT2.contextPack.contextPolicy.recovery.stage, "diagnose")
+    assert.equal(retryT2.contextPack.contextPolicy.recovery.requireDiagnosis, true)
+    assert.ok(
+      retryT2.contextPack.contextPolicy.effectiveContextBudget >=
+      retryT2.contextPack.contextPolicy.profile.contextBudget,
+    )
+    await failTask(root, "checkout-upgrade", "T2", "retry remains unresolved", {
+      runId: retryT2.record.runId,
+    })
 
     const resumed = await resumeWork(root, "checkout-upgrade")
     assert.deepEqual(resumed.status.ready, ["T2"])
@@ -423,7 +438,8 @@ test("task-scoped recovery preserves previous executor ownership", async () => {
     assert.equal(recovered.previousOwner.sessionID, "session-old")
 
     const status = await workStatus(root, "recover-one")
-    assert.equal(status.counts.failed, 1)
+    assert.equal(status.counts.retryable, 1)
+    assert.equal(status.counts.failed, 0)
     assert.deepEqual(status.ready, ["T1"])
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -499,6 +515,66 @@ test("stale executor cannot fail a recovered inactive task", async () => {
       }),
       /must be running/,
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("compaction checkpoint persists task identity plan hash evidence pointers and deterministic next action", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-checkpoint-"))
+  try {
+    const plan = { ...fixturePlan, tasks: [fixturePlan.tasks[0]] }
+    await initWork(root, "checkpoint-work", plan.goal)
+    await importAndApprove(root, "checkpoint-work", plan)
+    const started = await startTask(root, "checkpoint-work", "T1")
+
+    const checkpoint = await checkpointWork(root, "checkpoint-work", {
+      taskID: "T1",
+      runId: started.record.runId,
+      reason: "pre-compaction",
+    })
+    assert.equal(checkpoint.currentTaskId, "T1")
+    assert.equal(checkpoint.runId, started.record.runId)
+    assert.ok(checkpoint.planHash)
+    assert.ok(checkpoint.workspaceFingerprint)
+    assert.equal(checkpoint.nextAction.type, "continue-task")
+    assert.equal(checkpoint.nextAction.taskId, "T1")
+    assert.equal(checkpoint.resumedAt, null)
+
+    const status = await workStatus(root, "checkpoint-work")
+    assert.equal(status.checkpoint.currentTaskId, "T1")
+    assert.equal(status.checkpoint.nextAction.type, "continue-task")
+
+    const resumed = await markCheckpointResumed(root, "checkpoint-work", {
+      taskID: "T1",
+      runId: started.record.runId,
+      reason: "tool-action-observed",
+    })
+    assert.ok(resumed.resumedAt)
+    assert.equal(resumed.resumeReason, "tool-action-observed")
+
+    await failTask(root, "checkpoint-work", "T1", "fixture cleanup", {
+      runId: started.record.runId,
+    })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("stale lease recovery exposes retryable instead of terminal failed state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-retryable-"))
+  try {
+    const plan = { ...fixturePlan, tasks: [fixturePlan.tasks[0]] }
+    await initWork(root, "retryable-work", plan.goal)
+    await importAndApprove(root, "retryable-work", plan)
+    await startTask(root, "retryable-work", "T1", { leaseMs: 30_000 })
+    await recoverTask(root, "retryable-work", "T1", { force: true })
+
+    const status = await workStatus(root, "retryable-work")
+    assert.equal(status.counts.retryable, 1)
+    assert.equal(status.counts.failed, 0)
+    assert.deepEqual(status.ready, ["T1"])
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
+import { classifyEngineeringTask, recoveryPolicyForAttempt } from "../lib/orchestrator-policy.mjs"
 
 test("adaptive task policy escalates risky long-horizon work", () => {
   const policy = classifyEngineeringTask(
@@ -56,4 +56,32 @@ test("Vietnamese large-refactor workflow wording is classified as long-horizon",
   assert.equal(policy.requireIntegrationVerification, true)
   assert.equal(policy.antiHallucination.noCompletionWithoutVerification, true)
   assert.ok(policy.signals.some((item) => item.name === "explicit-long-horizon"))
+})
+
+test("V10 FAST policy uses a smaller initial context and expands only after failure", () => {
+  const policy = classifyEngineeringTask("Fix this local parser bug.")
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.contextBudget, 8_000)
+  assert.equal(policy.maxSkills, 2)
+
+  const first = recoveryPolicyForAttempt(policy, 1)
+  const second = recoveryPolicyForAttempt(policy, 2)
+  const third = recoveryPolicyForAttempt(policy, 3)
+
+  assert.equal(first.stage, "initial")
+  assert.equal(first.contextBudget, 8_000)
+  assert.equal(second.stage, "diagnose")
+  assert.ok(second.contextBudget > first.contextBudget)
+  assert.equal(second.contextStrategy, "incremental-semantic+git")
+  assert.equal(second.requireDiagnosis, true)
+  assert.equal(third.stage, "deep-recovery")
+  assert.equal(third.contextStrategy, "semantic+graph+git")
+  assert.equal(third.requireCritic, true)
+})
+
+test("V10 keeps high-risk work at full DEEP context", () => {
+  const policy = classifyEngineeringTask("Fix authentication permissions in production.")
+  assert.equal(policy.executionProfile, "deep")
+  assert.equal(policy.contextBudget, 48_000)
+  assert.equal(policy.maxSkills, 5)
 })

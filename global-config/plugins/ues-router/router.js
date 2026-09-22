@@ -189,3 +189,38 @@ export function routeSkills(text, maxSkills = 4, facts = {}) {
 
   return routed.slice(0, limit)
 }
+
+export function routeSkillsForPolicy(text, policy = {}, maxSkills = 4, facts = {}) {
+  const limit = Number.isInteger(maxSkills) ? Math.max(1, Math.min(maxSkills, 6)) : 4
+  const routed = routeSkills(text, 6, facts)
+  const fast =
+    policy?.executionProfile === "fast" &&
+    policy?.risk !== "high" &&
+    policy?.mode !== "long-horizon"
+
+  if (!fast) return routed.slice(0, limit)
+
+  const eligible = routed.filter((id) =>
+    ![
+      "ues-engineering-orchestrator",
+      "ues-change-impact-analysis",
+      "ues-task-planner",
+      "ues-long-task-state",
+    ].includes(id),
+  )
+  const selected = [
+    ...eligible.filter((id) => !PROCESS_SKILLS.has(id)),
+    ...eligible.filter((id) => PROCESS_SKILLS.has(id)),
+  ]
+
+  const value = String(text || "").toLowerCase()
+  if (/(review|audit|kiểm tra code|đánh giá)/.test(value)) add(selected, "ues-code-review")
+  if (/(verify|verification|test|tests|kiểm thử|xác minh)/.test(value)) add(selected, "ues-test-verification")
+
+  if (selected.length === 0 && /(code|repository|repo|project|function|class|endpoint|hàm|lớp|dự án)/.test(value)) {
+    add(selected, "ues-repo-explorer")
+  }
+
+  return selected.slice(0, limit)
+}
+

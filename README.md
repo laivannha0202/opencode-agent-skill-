@@ -1,6 +1,6 @@
 # OpenCode Universal Engineering System (UES)
 
-> **Bản hiện tại: 9.0.0**
+> **V10 stable: 10.0.0** — bản phát hành chính thức của V10, dùng trực tiếp qua npm `latest`.
 > UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
@@ -77,6 +77,27 @@ ocskill verification-plan .
 ocskill task-policy "refactor auth across the whole repository"
 ocskill dashboard . --serve
 ```
+
+---
+
+## V10 có gì?
+
+V10 tập trung vào **minimum context necessary for maximum task success**: giảm context luôn nạp nhưng không cắt các lớp correctness, verification hay recovery.
+
+- telemetry đo riêng **initial input tokens** bên cạnh total tokens, tool calls, latency và cost;
+- global `AGENTS.md` được nén đáng kể, giữ lại contract, evidence, verification, safety và long-horizon invariants;
+- FAST context budget giảm từ 12k xuống **8k**, STANDARD từ 24k xuống **20k**, còn DEEP vẫn giữ **48k** cho task rủi ro/lớn;
+- OpenCode V2 runtime dùng policy-aware selective routing: FAST ưu tiên domain/debug/review skill trực tiếp thay vì tự động nạp generic orchestrator;
+- failed attempt tự mở rộng context theo tầng `initial -> diagnose -> deep-recovery`; retry tăng evidence, graph/critic và model tier khi cấu hình cho phép;
+- FAST không tự hạ executor thấp hơn tier đã cấu hình, nên tối ưu context không đồng nghĩa hạ năng lực model;
+- benchmark confidence gate kiểm tra thêm initial-input ratio và total-token ratio;
+- `npm run evals:ablation -- <reference> <candidate> --require-gate` so V10 với một reference run và từ chối candidate giảm pass-rate dù token có thấp hơn;
+- runtime reliability guard phát hiện no-progress/stall, chặn duplicate `read/grep/glob`, phát hiện loop và cắt output exploration quá lớn trước khi nó làm ngập context;
+- pre-compaction checkpoint lưu `currentTaskId`, `runId`, plan hash, workspace fingerprint, evidence pointers và structured `nextAction`; post-compaction bắt buộc thực thi action trước khi session được coi là hoàn tất;
+- provider recovery thử fresh session cùng model một lần, sau lỗi lặp lại dùng configured escalation model/provider nếu có;
+- lease supervisor tự thu hồi executor lease hết hạn sang trạng thái `retryable`, và explicit `long/high-risk` hard-override FAST thành DEEP/heavy.
+
+V10 stable kế thừa toàn bộ RC.2 reliability hardening. Local full gate trên Windows/Node 24 đã PASS với 182 test pass, 0 fail, 2 skip cùng package/install smoke PASS trước khi promote.
 
 ---
 

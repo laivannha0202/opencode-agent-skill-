@@ -54,6 +54,8 @@ import {
   createPlanVerificationReceipt,
   createIntegrationVerificationReceipt,
   runtimeEvents,
+  checkpointWork,
+  markCheckpointResumed,
 } from "../lib/task-engine.mjs"
 import { reviewScope } from "../lib/review-scope.mjs"
 import { buildVerificationPlan } from "../lib/verification-plan.mjs"
@@ -585,6 +587,28 @@ async function workControl() {
       if (!taskID) throw new Error("Usage: ocskill work recover-task <slug> <task-id> [dir] [--force] [--reason <text>]")
       printJson(await recoverTask(root, slug, taskID, {
         force: args.includes("--force"),
+        reason: optionValue(args, "--reason"),
+      }))
+      return
+    }
+    if (action === "checkpoint") {
+      const taskID = args[3]
+      const root = positionalArg(args, 4) || process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work checkpoint <slug> <task-id> [dir] --run-id <id> [--reason <text>]")
+      printJson(await checkpointWork(root, slug, {
+        taskID,
+        runId: optionValue(args, "--run-id"),
+        reason: optionValue(args, "--reason") || "pre-compaction",
+      }))
+      return
+    }
+    if (action === "checkpoint-resumed") {
+      const taskID = args[3]
+      const root = positionalArg(args, 4) || process.cwd()
+      if (!taskID) throw new Error("Usage: ocskill work checkpoint-resumed <slug> <task-id> [dir] --run-id <id> [--reason <text>]")
+      printJson(await markCheckpointResumed(root, slug, {
+        taskID,
+        runId: optionValue(args, "--run-id"),
         reason: optionValue(args, "--reason"),
       }))
       return
