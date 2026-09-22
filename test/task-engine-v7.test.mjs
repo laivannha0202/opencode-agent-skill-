@@ -79,6 +79,9 @@ test("structured verification receipt strengthens task completion evidence", asy
       evidence: "node --test => PASS",
     })
     assert.equal(completed.state.tasks.T1.evidenceStrength, "command-receipt-backed")
+    const status = await workStatus(root, "receipt-test")
+    assert.equal(status.evidence.receiptBacked, 1)
+    assert.equal(status.evidence.coverage, 1)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
