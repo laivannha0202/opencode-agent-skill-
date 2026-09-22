@@ -111,6 +111,8 @@ Never claim a test, build, migration, deployment, push or release succeeded unle
 
 For interruption-prone or dependent multi-task work, use durable `.ues-work/<slug>/` state instead of relying on conversation memory.
 
+`.ues-work/<slug>/` is the only UES durable-state location. Never create or treat a top-level `ues-work/` directory (without the leading dot) as official UES state, even if an older/manual run left files there. On resume, prefer the initialized `.ues-work/<slug>/` item plus current Git evidence.
+
 The required sequence is:
 
 `SPEC -> PLAN -> plan check/receipt -> approved tasks -> fresh executor per task -> task verification receipts -> integration verification/receipt -> finalize`
