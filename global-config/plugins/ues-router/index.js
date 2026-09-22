@@ -608,6 +608,28 @@ export default Plugin.define({
         }),
       })
       editor.add({
+        name: "ui_layout",
+        description: "Check responsive geometry for viewport overflow, sibling overlap and undersized interactive targets.",
+        input: {
+          type: "object",
+          properties: {
+            boxesFile: { type: "string" },
+            width: { type: "integer", minimum: 1 },
+            height: { type: "integer", minimum: 1 },
+          },
+          required: ["boxesFile", "width", "height"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "ui", "layout", input.boxesFile,
+            "--width", String(input.width),
+            "--height", String(input.height),
+          ], projectRoot),
+        }),
+      })
+      editor.add({
         name: "workflow_plan",
         description: "Plan deterministic/LLM/vision work in cost-aware dependency-safe waves from PLAN.json.",
         input: {
