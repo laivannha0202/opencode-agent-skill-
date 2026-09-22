@@ -74,3 +74,30 @@ test("initial input telemetry skips output-only usage samples", () => {
   assert.deepEqual(result.firstUsage, { input: 4200, output: 20, total: 4220 })
   assert.equal(result.usageSamples, 2)
 })
+
+test("V11 telemetry captures cacheable prompt and evidence reuse without inventing unavailable metrics", () => {
+  const ref = "evidence:sha256:" + "a".repeat(64)
+  const stdout = [
+    JSON.stringify({ type: "ues.context", promptCache: { cacheableRatio: 0.8, repeatedStableChars: 1200 }, evidencePointers: { spec: ref } }),
+    JSON.stringify({ type: "ues.context", evidence: [ref] }),
+    JSON.stringify({ type: "visual.repair" }),
+    JSON.stringify({ type: "context.expand" }),
+    JSON.stringify({ type: "model.escalated" }),
+  ].join("\n")
+  const result = parseOpenCodeTelemetry(stdout)
+  assert.equal(result.v11.avgCacheableRatio, 0.8)
+  assert.equal(result.v11.repeatedStableChars, 1200)
+  assert.equal(result.v11.evidenceRefOccurrences, 2)
+  assert.equal(result.v11.uniqueEvidenceRefs, 1)
+  assert.equal(result.v11.evidenceReuseRatio, 0.5)
+  assert.equal(result.v11.visualRepairAttempts, 1)
+  assert.equal(result.v11.contextExpansions, 1)
+  assert.equal(result.v11.modelEscalations, 1)
+})
+
+test("V11 telemetry keeps unavailable adaptive metrics null", () => {
+  const result = parseOpenCodeTelemetry(JSON.stringify({ type: "message", usage: { input: 10, output: 2, total: 12 } }))
+  assert.equal(result.v11.avgCacheableRatio, null)
+  assert.equal(result.v11.repeatedStableChars, null)
+  assert.equal(result.v11.evidenceReuseRatio, null)
+})
