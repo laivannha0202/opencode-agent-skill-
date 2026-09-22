@@ -94,9 +94,12 @@ test("cli learn status reads the fixture via a refactored positional dir", async
   }
 })
 
-test("cli unknown commands fail with exit code 1", () => {
-  const result = runCli(["definitely-not-a-command"])
-  assert.equal(result.status, 1)
+test("cli unknown commands fail with structured usage exit code 2", () => {
+  const result = runCli(["definitely-not-a-command", "--json"])
+  assert.equal(result.status, 2)
+  const payload = JSON.parse(result.stderr)
+  assert.equal(payload.ok, false)
+  assert.equal(payload.error.code, "UES_USAGE")
 })
 
 test("cli index build writes and index status reads the semantic cache", async () => {
