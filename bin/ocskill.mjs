@@ -68,6 +68,7 @@ import { hermesStatus, buildHermesDelegationPrompt, buildHermesWorkflowPrompt, h
 import { readModelPolicy, recordModelPerformance, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
 import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
+import { MODEL_TASK_CLASSES } from "../lib/model-performance.mjs"
 import { browserCapability, buildBrowserVerificationPlan } from "../lib/browser-adapter.mjs"
 import { inspectBrowserPage, summarizeBrowserInspection } from "../lib/browser-runtime.mjs"
 import { comparePngFiles, cropPngFile } from "../lib/png-diff.mjs"
@@ -821,6 +822,7 @@ async function modelsControl() {
       return
     }
     const taskClass = optionValue(args, "--task-class") || "general"
+    if (!MODEL_TASK_CLASSES.includes(taskClass)) throw new Error("--task-class must be one of: " + MODEL_TASK_CLASSES.join(", "))
     const passedRaw = String(optionValue(args, "--passed") || "").toLowerCase()
     if (!["on","off","true","false","pass","fail"].includes(passedRaw)) throw new Error("--passed must be on/off, true/false, or pass/fail")
     policy = await recordModelPerformance(getConfigDir(), {

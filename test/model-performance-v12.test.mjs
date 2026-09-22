@@ -14,3 +14,13 @@ test("empirical routing can prefer a proven model over a slightly higher static 
   const reranked = rerankCapabilitySelection(selection,history,{taskClass:"debugging",minSamples:3})
   assert.equal(reranked.selected.id,"provider/b")
 })
+
+test("empirical routing does not rerank from a single noisy observation", () => {
+  const selection = {
+    candidates: [{ id: "provider/a", eligible: true, score: 80 }, { id: "provider/b", eligible: true, score: 77 }],
+    selected: { id: "provider/a", eligible: true, score: 80 },
+  }
+  const history = recordPerformanceOutcome({}, { model: "provider/b", taskClass: "debugging", passed: true })
+  const reranked = rerankCapabilitySelection(selection, history, { taskClass: "debugging", minSamples: 3 })
+  assert.equal(reranked.selected.id, "provider/a")
+})
