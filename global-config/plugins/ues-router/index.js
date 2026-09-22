@@ -91,17 +91,14 @@ function runOcskillJSON(args, cwd) {
   try {
     output = runOcskill(machineArgs, cwd)
   } catch (error) {
-    try {
-      const parsed = JSON.parse(String(error?.message || error))
-      if (parsed?.error?.message) {
-        const structured = new Error(parsed.error.message)
-        structured.code = parsed.error.code || "UES_ERROR"
-        structured.hint = parsed.error.hint || null
-        structured.recoverable = parsed.error.recoverable === true
-        throw structured
-      }
-    } catch (parsedError) {
-      if (parsedError?.code && parsedError.code !== "UES_ERROR") throw parsedError
+    let parsed = null
+    try { parsed = JSON.parse(String(error?.message || error)) } catch {}
+    if (parsed?.error?.message) {
+      const structured = new Error(parsed.error.message)
+      structured.code = parsed.error.code || "UES_ERROR"
+      structured.hint = parsed.error.hint || null
+      structured.recoverable = parsed.error.recoverable === true
+      throw structured
     }
     throw error
   }
