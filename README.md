@@ -1,7 +1,7 @@
 # OpenCode Universal Engineering System (UES)
 
 > **V13 beta: 13.0.0-beta.0** — parallel weak-model runtime với same-model worker pool, event-driven DAG, transactional worktree integration và hardened CLI/Windows text handling.
-> **Stable latest vẫn là V11: 11.0.0.** Dùng `npm install -g opencode-agent-skill@next` để thử V13 beta.
+> **Stable latest vẫn là V11: 11.0.0.** V13 hiện là prerelease trong Git; trước khi tag V13 được publish, cài bản checkout bằng `npm install -g .` rồi `ocskill install`. Sau khi prerelease được publish, dist-tag `next` sẽ là đường cài npm.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -64,7 +64,14 @@ Cài đặt stable hiện tại từ npm:
 npm install -g opencode-agent-skill
 ```
 
-Cài V13 beta qua dist-tag `next`:
+Cài V13 beta từ checkout hiện tại trước khi prerelease được publish:
+
+```cmd
+npm install -g .
+ocskill install
+```
+
+Sau khi tag prerelease V13 được publish thành công, có thể dùng:
 
 ```cmd
 npm install -g opencode-agent-skill@next
@@ -776,7 +783,7 @@ Phiên bản hiện tại:
 13.0.0-beta.0
 ```
 
-V13 beta dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V13 hoàn tất.
+Khi V13 beta được publish, prerelease dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V13 hoàn tất.
 
 ---
 
