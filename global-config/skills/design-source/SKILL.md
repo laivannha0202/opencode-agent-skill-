@@ -1,12 +1,10 @@
 ---
 name: design-source
-description: Turn Figma/design references/screenshots into implementation-ready design tokens, regions, component/state requirements and a compact VISUAL_SPEC without inventing measurements the source does not support.
+description: Convert screenshots, Figma/design references, existing design systems, and product examples into compact implementation-ready visual structure and design tokens without copying proprietary assets or blindly inventing measurements.
 ---
 
 # Design Source
 
-Extract stable facts before implementation: viewport/frame, layout regions, spacing/radius/typography/color tokens, image aspect ratios, component variants and interaction states.
+Inspect the existing project design system first. When a reference is provided, extract only implementation-relevant facts: regions, hierarchy, spacing scale, typography roles, radii, image aspect ratios, component patterns, and responsive relationships.
 
-When exact design metadata is available, prefer it over estimating from pixels. When only a screenshot is available, distinguish measured/observed facts from approximate inference. Store reusable values as project tokens/components instead of scattering magic numbers.
-
-Read [workflow.md](references/workflow.md) when converting a design into a visual spec.
+Prefer structured DESIGN_TOKENS / VISUAL_SPEC artifacts over long prose. Distinguish measured facts from estimates. Reuse project tokens/components when they can satisfy the reference. Never claim exact pixel fidelity without rendered verification.
