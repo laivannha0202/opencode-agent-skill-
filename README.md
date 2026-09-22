@@ -1,7 +1,7 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V11 stable: 11.0.0** — perception-aware adaptive execution engine với evidence-efficient context, capability routing và visual/browser verification.
-> UES là bộ công cụ hỗ trợ OpenCode xử lý dự án lớn, tác vụ dài và quy trình kỹ thuật cần kiểm chứng bằng bằng chứng thực tế.
+> **V12 beta: 12.0.0-beta.0** — weak-model intelligence foundation với empirical routing, context-quality metrics, plan-scoped execution và repo-scale validation.
+> **Stable latest vẫn là V11: 11.0.0.** Dùng `npm install -g opencode-agent-skill@next` để thử V12 beta.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -715,7 +715,7 @@ UES chỉ quản lý resource có namespace/marker của chính nó và cố g�
 - [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 - [V8 Intelligence & Reliability](docs/V8-INTELLIGENCE-RELIABILITY.md)
 - [V9 Speed & Intelligence](docs/V9-SPEED-INTELLIGENCE.md)
-- [V12 Weak-Model Intelligence (development foundation)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)
+- [V12 Weak-Model Intelligence (beta)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)
 
 ---
 
@@ -736,8 +736,10 @@ npm install -g opencode-agent-skill
 Phiên bản hiện tại:
 
 ```text
-11.0.0
+12.0.0-beta.0
 ```
+
+V12 beta dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V12 hoàn tất.
 
 ---
 

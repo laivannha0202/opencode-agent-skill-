@@ -6,13 +6,22 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
-### V12 development foundation
-- Added empirical per-task-class model performance history and capability-preserving reranking.
+## [12.0.0-beta.0] - 2026-09-22
+
+### Beta
+- Added empirical per-task-class model performance history and capability-preserving reranking with a minimum evidence threshold before reranking.
 - Added context quality receipts for required-file recall and irrelevant-context ratio.
 - Added hash-keyed plan snapshots with active-plan execution fencing.
 - Added bounded decision policy for reversible local rulings versus human-gated destructive/external actions.
 - Added deterministic repo-scale benchmark fixture generation and V12/repo-scale validation gates.
 - Hardened release consistency checks to derive eval counts and validate aggregate workflow structure.
+- Fixed missing empirical-history handling so models without benchmark history safely fall back to static capability routing.
+
+### Verified locally on Windows
+- 255 tests total: 253 passed, 0 failed, 2 platform-specific skips.
+- Syntax, catalog validation, docs consistency, routing, V11/V12/repo-scale/live/long/polyglot validation: PASS.
+- npm pack, packed-install smoke and plain one-command install/resource auto-sync smoke: PASS.
+- Published prerelease intent: npm dist-tag `next`; V11 remains `latest` until V12 stable release gates are satisfied.
 
 
 ## [11.0.0] - 2026-09-22

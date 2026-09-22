@@ -1,6 +1,6 @@
 # V12 Weak-Model Intelligence Foundation
 
-Status: development foundation. V11 (11.0.0) remains the current stable release until V12 earns release evidence.
+Status: beta prerelease (`12.0.0-beta.0`, npm dist-tag `next`). V11 (`11.0.0`) remains the stable `latest` release until V12 earns stable-release evidence.
 
 ## Goal
 
@@ -17,3 +17,11 @@ V12 focuses on making weaker coding models more reliable on large repositories b
 ## Release policy
 
 V12 is not stable merely because unit tests pass. Promotion requires healthy GitHub CI/Security gates, repo-scale validation, real weak-model baseline-vs-UES trials, no regression in existing suites, measured context recall, sufficient empirical routing samples, and Windows/Linux package/install smoke evidence.
+
+## Beta install
+
+```cmd
+npm install -g opencode-agent-skill@next
+ocskill install
+ocskill doctor
+```
