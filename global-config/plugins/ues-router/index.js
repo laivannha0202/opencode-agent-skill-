@@ -637,6 +637,11 @@ export default Plugin.define({
           properties: {
             planFile: { type: "string" },
             maxConcurrent: { type: "integer", minimum: 1, maximum: 16 },
+            maxLLMConcurrent: { type: "integer", minimum: 1, maximum: 16 },
+            maxVisionConcurrent: { type: "integer", minimum: 1, maximum: 8 },
+            maxWaveCost: { type: "integer", minimum: 1, maximum: 128 },
+            minAgentCost: { type: "integer", minimum: 2, maximum: 12 },
+            minVisionAgentCost: { type: "integer", minimum: 2, maximum: 12 },
           },
           required: ["planFile"],
           additionalProperties: false,
@@ -646,6 +651,11 @@ export default Plugin.define({
           content: runOcskill([
             "workflow-plan", projectScopedPath(projectRoot, input.planFile),
             "--max-concurrent", String(input.maxConcurrent || 4),
+            "--max-llm-concurrent", String(input.maxLLMConcurrent || input.maxConcurrent || 4),
+            "--max-vision-concurrent", String(input.maxVisionConcurrent || 2),
+            "--max-wave-cost", String(input.maxWaveCost || 24),
+            "--min-agent-cost", String(input.minAgentCost || 5),
+            "--min-vision-agent-cost", String(input.minVisionAgentCost || 4),
           ], projectRoot),
         }),
       })
