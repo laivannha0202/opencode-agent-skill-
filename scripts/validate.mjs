@@ -37,8 +37,10 @@ for (const entry of await readdir(skillsRoot, { withFileTypes: true })) {
   }
 
   const source = await readFile(file, "utf8")
-  const name = source.match(/^name:\s*([^\r\n]+)/m)?.[1]?.trim()
-  const description = source.match(/^description:\s*([^\r\n]+)/m)?.[1]?.trim()
+  const name = source.match(/^name:\s*([^\r
+]+)/m)?.[1]?.trim()
+  const description = source.match(/^description:\s*([^\r
+]+)/m)?.[1]?.trim()
 
   if (!name) errors.push(`${entry.name}: missing name`)
   if (!description) errors.push(`${entry.name}: missing description`)
@@ -70,7 +72,8 @@ for (const entry of await readdir(commandsRoot, { withFileTypes: true })) {
   if (!validResourceID(id)) errors.push(`${entry.name}: invalid command id`)
   const source = await readFile(path.join(commandsRoot, entry.name), "utf8")
   if (!source.includes("description:")) errors.push(`${entry.name}: missing command description`)
-  const agent = source.match(/^agent:\s*([^\r\n]+)/m)?.[1]?.trim()
+  const agent = source.match(/^agent:\s*([^\r
+]+)/m)?.[1]?.trim()
   if (agent?.startsWith("ues-") && !agentIDs.has(agent)) {
     errors.push(`${entry.name}: references missing subagent ${agent}`)
   }
@@ -87,7 +90,10 @@ for (const entry of await readdir(agentsRoot, { withFileTypes: true })) {
   if (!/mode:\s*subagent/.test(source)) errors.push(`${entry.name}: agent must use mode: subagent`)
 }
 
-const V11_REQUIRED_SKILLS = ["visual-fidelity","browser-qa","design-source","responsive-verification","component-visual-testing","browser-security","skill-authoring","skill-evaluation","dynamic-workflow"]\nfor (const id of V11_REQUIRED_SKILLS) if (!ids.has(id)) errors.push(`missing V11 skill ${id}`)\n\nif (ids.size < 48) errors.push(`expected at least 48 skills for V11, found ${ids.size}`)
+const V11_REQUIRED_SKILLS = ["visual-fidelity","browser-qa","design-source","responsive-verification","component-visual-testing","browser-security","skill-authoring","skill-evaluation","dynamic-workflow"]
+for (const id of V11_REQUIRED_SKILLS) if (!ids.has(id)) errors.push(`missing V11 skill ${id}`)
+
+if (ids.size < 48) errors.push(`expected at least 48 skills for V11, found ${ids.size}`)
 if (commands < 11) errors.push(`expected at least 11 commands, found ${commands}`)
 if (agents < 12) errors.push(`expected at least 12 subagents for V11, found ${agents}`)
 
