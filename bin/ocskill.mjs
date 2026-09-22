@@ -878,9 +878,11 @@ async function workControl() {
 
     throw new Error("Unknown work action: " + action)
   } catch (error) {
-    console.error(errorMessage(error))
-    if (error?.validation) printJson(error.validation)
-    process.exitCode = 1
+    if (error?.validation && !jsonOutput) printJson(error.validation)
+    printCliError(error, {
+      command: "work " + String(action || ""),
+      recoverable: error?.code === "UES_USAGE",
+    })
   }
 }
 
