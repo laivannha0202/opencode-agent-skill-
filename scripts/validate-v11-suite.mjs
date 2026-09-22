@@ -19,6 +19,7 @@ const REQUIRED_V11_FILES = [
   "lib/visual-spec.mjs",
   "lib/dynamic-workflow.mjs",
   "lib/skill-quality.mjs",
+  "lib/ui-inspector.mjs",
   "lib/v11-metrics.mjs",
   "global-config/agents/visual-verifier.md",
   "global-config/agents/merge-arbiter.md",
