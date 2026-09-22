@@ -500,6 +500,120 @@ export default Plugin.define({
         }),
       })
       editor.add({
+        name: "capability_requirements",
+        description: "Infer V11 execution capabilities for a task before choosing model/tool paths.",
+        input: {
+          type: "object",
+          properties: { text: { type: "string" } },
+          required: ["text"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill(["capabilities", input.text], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "evidence_get",
+        description: "Fetch one bounded slice from the content-addressed V11 Evidence Store.",
+        input: {
+          type: "object",
+          properties: {
+            ref: { type: "string" },
+            maxChars: { type: "integer", minimum: 1, maximum: 48000 },
+            start: { type: "integer", minimum: 0 },
+          },
+          required: ["ref"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "store", "get", input.ref, projectRoot,
+            "--max", String(input.maxChars || 12000),
+            "--start", String(input.start || 0),
+          ], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "browser_plan",
+        description: "Build a bounded CLI-first browser verification plan with untrusted-page security boundaries.",
+        input: {
+          type: "object",
+          properties: {
+            url: { type: "string" },
+            target: { type: "string" },
+          },
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => {
+          const args = ["browser", "plan", input.url || ""]
+          if (input.target) args.push("--target", input.target)
+          return { content: runOcskill(args, projectRoot) }
+        },
+      })
+      editor.add({
+        name: "visual_geometry",
+        description: "Create a deterministic geometry receipt from VISUAL_SPEC.json and observed bounding boxes.",
+        input: {
+          type: "object",
+          properties: {
+            specFile: { type: "string" },
+            actualFile: { type: "string" },
+          },
+          required: ["specFile", "actualFile"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill(["visual", "geometry", input.specFile, input.actualFile], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "visual_compare",
+        description: "Compare two PNG screenshots deterministically and report changed-pixel bounds.",
+        input: {
+          type: "object",
+          properties: {
+            expectedFile: { type: "string" },
+            actualFile: { type: "string" },
+            threshold: { type: "integer", minimum: 0, maximum: 255 },
+            maxDiffRatio: { type: "number", minimum: 0, maximum: 1 },
+          },
+          required: ["expectedFile", "actualFile"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "visual", "compare", input.expectedFile, input.actualFile,
+            "--threshold", String(input.threshold ?? 16),
+            "--max-diff-ratio", String(input.maxDiffRatio ?? 0),
+          ], projectRoot),
+        }),
+      })
+      editor.add({
+        name: "workflow_plan",
+        description: "Plan deterministic/LLM/vision work in cost-aware dependency-safe waves from PLAN.json.",
+        input: {
+          type: "object",
+          properties: {
+            planFile: { type: "string" },
+            maxConcurrent: { type: "integer", minimum: 1, maximum: 16 },
+          },
+          required: ["planFile"],
+          additionalProperties: false,
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "workflow-plan", input.planFile,
+            "--max-concurrent", String(input.maxConcurrent || 4),
+          ], projectRoot),
+        }),
+      })
+      editor.add({
         name: "semantic_search",
         description: "Search the persistent incremental semantic index. Returns bounded path/symbol/reference evidence; never treats lexical evidence as semantic proof.",
         input: {
