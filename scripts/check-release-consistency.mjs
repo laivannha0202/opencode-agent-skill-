@@ -164,7 +164,7 @@ export function checkReleaseConsistency(root) {
     if (!/needs:\s*\[\s*static\s*,\s*unit\s*,\s*package\s*\]/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: CI Gate must depend on static, unit and package")
     if (!/if:\s*always\(\)/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: aggregate gate must use if: always()")
     if (!ciYaml.value.includes("docs:check")) errors.push(".github/workflows/ci.yml: missing docs:check job")
-    for (const check of ["evals:v12:validate","evals:repo-scale:validate"]) {
+    for (const check of ["evals:v12:validate", ...(expectedVersion.startsWith("13.") ? ["evals:v13"] : []), "evals:repo-scale:validate"]) {
       if (!ciYaml.value.includes(check)) errors.push(".github/workflows/ci.yml: missing " + check + " job")
     }
   } else {
@@ -195,6 +195,9 @@ export function checkReleaseConsistency(root) {
     const pkgScripts = pkg.value.scripts || {}
     if (!pkgScripts["docs:check"]) {
       warnings.push("package.json: missing docs:check npm script")
+    }
+    if (expectedVersion.startsWith("13.") && !pkgScripts["evals:v13"]) {
+      errors.push("package.json: V13 requires evals:v13 regression script")
     }
   }
 
