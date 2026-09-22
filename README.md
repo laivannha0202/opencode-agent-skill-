@@ -45,6 +45,8 @@ unlock dependencies immediately
 
 CLI V13 cũng xử lý `--help` trước positional parsing, hỗ trợ `ocskill work status .`, structured errors với `--json`, đọc UTF-8/UTF-16 an toàn và cung cấp `ocskill diff . --out dirty.diff` để tránh PowerShell tạo diff UTF-16 bị OpenCode nhận nhầm là binary.
 
+Parallel resume không còn yêu cầu root phải sạch tuyệt đối. Nếu repository đã có dirty diff hợp lệ từ phiên trước, V13 chụp baseline đó vào worktree cô lập và chỉ tích hợp delta của task; thay đổi cũ được giữ nguyên. Root vẫn phải là Git repository và resource leases vẫn chặn các writer xung đột.
+
 > **Compatibility:** V13 CLI/durable-state/verification hardening vẫn dùng được trên OpenCode 1.x. Native `ues.dispatch_task` / `ues.dispatch_parallel` cần router plugin và fresh-session APIs của OpenCode V2; nếu capability không đủ, runtime fail closed thay vì giả vờ chạy song song.
 
 ---
