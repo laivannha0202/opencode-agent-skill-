@@ -115,35 +115,35 @@ function messageExcerpt(messages) {
   return text.length <= 24000 ? text : text.slice(-24000)
 }
 
-function collectMessageStrings(value, output = [], depth = 0) {
-  if (depth > 8 || value == null) return output
-  if (typeof value === "string") {
-    output.push(value)
-    return output
+function assistantTextParts(message) {
+  const role = String(message?.info?.role || message?.role || "").toLowerCase()
+  if (role !== "assistant") return []
+  const values = []
+  for (const part of message?.parts || []) {
+    if (part?.type === "text" && typeof part.text === "string") values.push(part.text)
   }
-  if (Array.isArray(value)) {
-    for (const item of value) collectMessageStrings(item, output, depth + 1)
-    return output
-  }
-  if (typeof value === "object") {
-    for (const item of Object.values(value)) collectMessageStrings(item, output, depth + 1)
-  }
-  return output
+  if (values.length === 0 && typeof message?.content === "string") values.push(message.content)
+  return values
 }
 
 function extractVerifierVerdict(messages) {
-  const strings = collectMessageStrings(messages)
-  for (let index = strings.length - 1; index >= 0; index -= 1) {
-    const value = strings[index]
-    const matches = [...value.matchAll(/UES_VERDICT_JSON:\s*(\{[^\r\n]*\})/g)]
-    for (let matchIndex = matches.length - 1; matchIndex >= 0; matchIndex -= 1) {
-      try {
-        const parsed = JSON.parse(matches[matchIndex][1])
-        const verdict = String(parsed.verdict || "").toUpperCase()
-        if (["PASS", "FAIL"].includes(verdict)) {
-          return { verdict, evidence: String(parsed.evidence || "").trim().slice(0, 4000) }
-        }
-      } catch {}
+  const list = Array.isArray(messages) ? messages : []
+  for (let messageIndex = list.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const parts = assistantTextParts(list[messageIndex])
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const lines = parts[partIndex].split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+      for (let lineIndex = lines.length - 1; lineIndex >= 0; lineIndex -= 1) {
+        const line = lines[lineIndex]
+        if (!line.startsWith("UES_VERDICT_JSON:")) continue
+        const raw = line.slice("UES_VERDICT_JSON:".length).trim()
+        try {
+          const parsed = JSON.parse(raw)
+          const verdict = String(parsed.verdict || "").toUpperCase()
+          if (["PASS", "FAIL"].includes(verdict)) {
+            return { verdict, evidence: String(parsed.evidence || "").trim().slice(0, 4000) }
+          }
+        } catch {}
+      }
     }
   }
   return null
@@ -1094,6 +1094,12 @@ export default Plugin.define({
               }
 
               await ctx.session.switchAgent({ sessionID: created.id, agent: "ues-executor" })
+              if (capabilities.permissionRules) {
+                await ctx.permission.rules({
+                  sessionID: created.id,
+                  permissions: [{ action: "subagent", resource: "*", effect: "deny" }],
+                })
+              }
               const selectedModel = modelRef(selectedPolicy?.model)
               if (selectedModel) {
                 await ctx.session.switchModel({ sessionID: created.id, model: selectedModel })
@@ -1362,6 +1368,15 @@ export default Plugin.define({
                 })
                 runtimeGuard.touch(verifierSession.id)
                 await ctx.session.switchAgent({ sessionID: verifierSession.id, agent: "ues-verifier" })
+                if (capabilities.permissionRules) {
+                  await ctx.permission.rules({
+                    sessionID: verifierSession.id,
+                    permissions: [
+                      { action: "edit", resource: "*", effect: "deny" },
+                      { action: "subagent", resource: "*", effect: "deny" },
+                    ],
+                  })
+                }
                 const verifierModel = modelRef(context.model)
                 if (verifierModel) await ctx.session.switchModel({ sessionID: verifierSession.id, model: verifierModel })
                 await ctx.session.prompt({
