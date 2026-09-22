@@ -9,6 +9,9 @@ const PROCESS_SKILLS = new Set([
   "ues-bug-diagnosis",
   "ues-research-verification",
   "ues-repo-explorer",
+  "ues-skill-authoring",
+  "ues-skill-evaluation",
+  "ues-dynamic-workflow",
 ])
 
 const DOMAIN_PATTERNS = [
@@ -32,6 +35,13 @@ const DOMAIN_PATTERNS = [
   ["accessibility", /(accessibility|accessible|a11y|screen reader|keyboard navigation|aria|focus management|focus handling)/],
   ["file-upload", /(upload|file upload|multipart|object storage)/],
   ["ecommerce", /(ecommerce|marketplace|inventory|cart|catalog|order)/],
+  ["visual-fidelity", /(visual fidelity|match (?:this )?screenshot|pixel[- ]perfect|screenshot reference|reference screenshot|ảnh mẫu|khớp ảnh|giống hệt giao diện)/],
+  ["browser-qa", /(playwright|browser qa|browser flow|end[- ]to[- ]end browser|e2e browser|trình duyệt)/],
+  ["design-source", /(figma|design source|design tokens?|reference design|thiết kế figma)/],
+  ["responsive-verification", /(responsive|breakpoint|viewport matrix|mobile layout|tablet layout|giao diện mobile)/],
+  ["component-visual-testing", /(storybook|visual regression|component screenshot|component visual test)/],
+  ["browser-security", /(browser security|prompt injection.*(?:browser|web|page)|untrusted (?:page|web)|webpage instructions)/],
+  ["ui-ux", /(ui\/ux|user interface|giao diện đẹp|design consistency)/],
 ]
 
 const STACK_TO_DOMAIN = new Map([
@@ -152,6 +162,13 @@ function addDomainSkills(routed, value, intent) {
   if (intent.domains.includes("accessibility")) add(routed, "ues-accessibility")
   if (intent.domains.includes("file-upload")) add(routed, "ues-file-upload-engineering")
   if (intent.domains.includes("ecommerce")) add(routed, "ues-ecommerce-engineering")
+  if (intent.domains.includes("visual-fidelity")) add(routed, "ues-visual-fidelity")
+  if (intent.domains.includes("browser-qa")) add(routed, "ues-browser-qa")
+  if (intent.domains.includes("design-source")) add(routed, "ues-design-source")
+  if (intent.domains.includes("responsive-verification")) add(routed, "ues-responsive-verification")
+  if (intent.domains.includes("component-visual-testing")) add(routed, "ues-component-visual-testing")
+  if (intent.domains.includes("browser-security")) add(routed, "ues-browser-security")
+  if (intent.domains.includes("ui-ux")) add(routed, "ues-ui-ux-engineering")
 }
 
 export function routeSkills(text, maxSkills = 4, facts = {}) {
@@ -168,6 +185,9 @@ export function routeSkills(text, maxSkills = 4, facts = {}) {
   }
   if (intent.actions.includes("debug")) add(routed, "ues-bug-diagnosis")
   if (intent.actions.includes("research")) add(routed, "ues-research-verification")
+  if (/(create|write|author|revise|improve).{0,30}(?:agent )?skill|(?:agent )?skill.{0,30}(create|author|description|trigger)/.test(value)) add(routed, "ues-skill-authoring")
+  if (/(skill.{0,30}(eval|benchmark|routing test|precision|recall)|evaluate.{0,20}skill)/.test(value)) add(routed, "ues-skill-evaluation")
+  if (/(fan[- ]out|dynamic workflow|many independent tasks|parallel campaign|batch migration|bounded waves)/.test(value)) add(routed, "ues-dynamic-workflow")
 
   addDomainSkills(routed, value, intent)
 
