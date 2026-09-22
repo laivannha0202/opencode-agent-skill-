@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { routeSkills, routeSkillsForPolicy } from "../global-config/plugins/ues-router/router.js"
+import { classifyIntent, routeSkills, routeSkillsForPolicy } from "../global-config/plugins/ues-router/router.js"
 import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 
 test("V11 screenshot fidelity routes visual skill without generic orchestration on FAST tasks", () => {
