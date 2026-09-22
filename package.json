@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
   "version": "11.0.0-dev.0",
-  "description": "Perception-aware engineering runtime with adaptive evidence, capability routing, visual/browser verification, durable recovery and benchmark-gated execution for OpenCode",
+  "description": "Perception-aware evidence-first engineering runtime with adaptive context, capability routing, visual/browser verification, weak-model recovery and benchmark-gated execution for OpenCode",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs"
@@ -23,7 +23,7 @@
     "evals": "node scripts/eval-skills.mjs",
     "evals:live:validate": "node scripts/validate-live-suite.mjs",
     "test": "node --test test/*.test.mjs",
-    "ci": "npm run syntax && npm run validate && npm run evals && npm run evals:router && npm run evals:live:validate && npm run evals:long:validate && npm run evals:polyglot:validate && npm test && npm pack --dry-run && npm run smoke:pack && npm run smoke:plain-install",
+    "ci": "npm run syntax && npm run validate && npm run evals && npm run evals:router && npm run evals:v11:validate && npm run evals:live:validate && npm run evals:long:validate && npm run evals:polyglot:validate && npm test && npm pack --dry-run && npm run smoke:pack && npm run smoke:plain-install",
     "postinstall": "node scripts/install.mjs",
     "preuninstall": "node scripts/uninstall.mjs",
     "prepublishOnly": "npm run ci",
@@ -47,7 +47,8 @@
     "evals:polyglot": "node scripts/eval-live.mjs --suite polyglot",
     "evals:matrix:gate": "node scripts/eval-matrix.mjs --require-confidence",
     "evals:ablation": "node scripts/eval-ablation.mjs",
-    "evals:v11": "node --test test/*-v11.test.mjs"
+    "evals:v11": "node --test test/*-v11.test.mjs",
+    "evals:v11:validate": "node scripts/validate-v11-suite.mjs"
   },
   "keywords": [
     "opencode",
@@ -57,7 +58,10 @@
     "engineering-workflow",
     "code-review",
     "debugging",
-    "verification"
+    "verification",
+    "visual-testing",
+    "browser-automation",
+    "multimodal-agents"
   ],
   "engines": {
     "node": ">=20"
