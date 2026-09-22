@@ -49,6 +49,22 @@ test("--json returns structured CLI errors", () => {
 })
 
 
+test("text-read gives OpenCode v1 a bounded UTF-16-safe reader", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-text-read-"))
+  try {
+    const file = path.join(dir, "PLAN.json")
+    const body = JSON.stringify({ schemaVersion: 1, goal: "safe text" }, null, 2)
+    await writeFile(file, Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(body, "utf16le")]))
+    const result = run(["text-read", file, "--json"], dir)
+    assert.equal(result.status, 0, result.stderr)
+    const payload = JSON.parse(result.stdout)
+    assert.equal(payload.truncated, false)
+    assert.match(payload.text, /"goal": "safe text"/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("work plan accepts PowerShell-style UTF-16LE JSON", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ues-v13-utf-plan-"))
   try {
