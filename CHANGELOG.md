@@ -6,6 +6,17 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [10.0.0] - 2026-09-22
+
+### Released
+- Promoted V10 RC.2 to stable after the local full gate passed with 182 tests passing, 0 failing, 2 platform-specific skips, plus package and install smoke validation.
+- Stable npm installs use the default `latest` dist-tag, so users install with `npm install -g opencode-agent-skill`.
+- Includes adaptive context/routing, weak-model recovery, no-progress watchdog, duplicate/loop guards, bounded exploration output, durable compaction checkpoints, provider recovery and retryable lease recovery.
+
+### Changed
+- Package version is 10.0.0.
+- V10 stable keeps FAST at 8k, STANDARD at 20k and DEEP at 48k while preserving configured executor capability and correctness-first verification gates.
+
 ## [10.0.0-rc.2] - 2026-09-22
 
 ### Added
