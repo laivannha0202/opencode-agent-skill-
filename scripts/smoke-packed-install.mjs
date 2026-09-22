@@ -141,6 +141,20 @@ try {
   })
   requireSuccess(inspect, "ocskill inspect from packed copy")
 
+  const utf16TextFile = path.join(temp, "legacy-plan.txt")
+  const utf16Body = "legacy UTF text from packed copy\n"
+  await writeFile(
+    utf16TextFile,
+    Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(utf16Body, "utf16le")]),
+  )
+  const textRead = spawnSync(process.execPath, [cli, "text-read", utf16TextFile, "--json"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(textRead, "ocskill text-read from packed copy")
+  assert.equal(JSON.parse(textRead.stdout).text, utf16Body)
+
   const planFile = path.join(temp, "PLAN.json")
   await writeFile(planFile, JSON.stringify({
     schemaVersion: 1,
