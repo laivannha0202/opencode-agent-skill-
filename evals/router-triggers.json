@@ -1238,7 +1238,6 @@
       "id": "v11-visual-fidelity",
       "prompt": "Match this reference screenshot pixel-perfect and verify visual fidelity.",
       "include": [
-        "ues-engineering-orchestrator",
         "ues-visual-fidelity"
       ],
       "exclude": [
@@ -1249,7 +1248,6 @@
       "id": "v11-browser-qa",
       "prompt": "Use Playwright browser QA to verify the checkout flow.",
       "include": [
-        "ues-engineering-orchestrator",
         "ues-browser-qa"
       ],
       "exclude": [
@@ -1260,7 +1258,6 @@
       "id": "v11-design-source",
       "prompt": "Read the Figma design source and extract design tokens.",
       "include": [
-        "ues-engineering-orchestrator",
         "ues-design-source"
       ],
       "exclude": [
@@ -1271,7 +1268,6 @@
       "id": "v11-responsive",
       "prompt": "Verify responsive breakpoint behavior across mobile and tablet layout.",
       "include": [
-        "ues-engineering-orchestrator",
         "ues-responsive-verification"
       ],
       "exclude": []
@@ -1298,7 +1294,6 @@
       "id": "v11-skill-eval",
       "prompt": "Evaluate skill routing precision and recall with a benchmark.",
       "include": [
-        "ues-engineering-orchestrator",
         "ues-skill-evaluation"
       ],
       "exclude": []
