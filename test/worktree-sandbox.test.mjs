@@ -124,6 +124,63 @@ test("parallel sandbox inherits dirty root but only integrates its own delta", a
 })
 
 
+test("parallel sandbox can modify an inherited untracked file without a false conflict", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-untracked-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-untracked-base-"))
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "tracked.txt"])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    await writeFile(path.join(root, "draft.txt"), "user-baseline\n")
+    const sandbox = await createTaskSandbox(root, "parallel", "untracked-edit", {
+      baseDir: base,
+      inheritDirtyRoot: true,
+    })
+    assert.equal((await readFile(path.join(sandbox.dir, "draft.txt"), "utf8")), "user-baseline\n")
+
+    await writeFile(path.join(sandbox.dir, "draft.txt"), "worker-edit\n")
+    const integrated = await integrateTaskSandbox(root, sandbox.dir, { keep: true })
+    assert.deepEqual(integrated.changed, ["draft.txt"])
+    assert.equal(await readFile(path.join(root, "draft.txt"), "utf8"), "worker-edit\n")
+
+    await rollbackTaskSandbox(root, sandbox.dir)
+    assert.equal(await readFile(path.join(root, "draft.txt"), "utf8"), "user-baseline\n")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test("parallel sandbox rejects an inherited untracked file changed after snapshot", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-untracked-race-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-untracked-race-base-"))
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "tracked.txt"])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    await writeFile(path.join(root, "draft.txt"), "snapshot-baseline\n")
+    const sandbox = await createTaskSandbox(root, "parallel", "untracked-race", {
+      baseDir: base,
+      inheritDirtyRoot: true,
+    })
+    await writeFile(path.join(sandbox.dir, "draft.txt"), "worker-edit\n")
+    await writeFile(path.join(root, "draft.txt"), "user-later-edit\n")
+
+    await assert.rejects(
+      integrateTaskSandbox(root, sandbox.dir, { keep: true }),
+      /conflicts with existing root changes/,
+    )
+    assert.equal(await readFile(path.join(root, "draft.txt"), "utf8"), "user-later-edit\n")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
 test("parallel downstream sandbox can safely modify a file inherited from a predecessor", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-chain-"))
   const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-chain-base-"))
