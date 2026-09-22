@@ -579,3 +579,42 @@ test("stale lease recovery exposes retryable instead of terminal failed state", 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V11 task context pack externalizes oversized declared evidence instead of replaying it inline", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-context-pack-v11-"))
+  const plan = {
+    schemaVersion: 1,
+    goal: "Bound large context",
+    tasks: [{
+      id: "BIG",
+      title: "Fix large feature",
+      summary: "Update the declared implementation with bounded evidence.",
+      files: { modify: ["src/large.js"] },
+      dependsOn: [],
+      acceptance: ["Large feature remains correct"],
+      verification: ["node --check src/large.js"],
+      risk: "low",
+    }],
+  }
+
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "large.js"), "export const large = 1\n" + "x".repeat(12000))
+    await initWork(root, "bounded-context", plan.goal)
+    await importAndApprove(root, "bounded-context", plan)
+
+    const started = await startTask(root, "bounded-context", "BIG")
+    const pack = started.contextPack
+    assert.ok(pack.contextManifest)
+    assert.equal(pack.contextManifest.schemaVersion >= 5, true)
+    assert.equal(pack.evidenceStore.refs >= 1, true)
+    assert.equal(pack.evidencePointers.context.length >= 1, true)
+    const externalized = pack.contextManifest.excerpts.find((item) => item.externalized)
+    assert.ok(externalized)
+    assert.match(externalized.text, /evidence:sha256:/)
+    assert.ok(externalized.text.length < externalized.originalChars)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
