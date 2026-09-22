@@ -650,6 +650,50 @@ export default Plugin.define({
         }),
       })
       editor.add({
+        name: "ui_layout",
+        description: "Inspect observed UI bounding boxes for viewport overflow, sibling overlap and undersized interactive targets without spending vision tokens on geometry.",
+        input: {
+          type: "object",
+          properties: {
+            boxesFile: { type: "string" },
+            width: { type: "integer", minimum: 1, maximum: 10000 },
+            height: { type: "integer", minimum: 1, maximum: 10000 },
+            minTouch: { type: "integer", minimum: 1, maximum: 256 },
+            overlapRatio: { type: "number", minimum: 0, maximum: 1 }
+          },
+          required: ["boxesFile", "width", "height"],
+          additionalProperties: false
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "ui", "layout", projectScopedPath(projectRoot, input.boxesFile),
+            "--width", String(input.width),
+            "--height", String(input.height),
+            "--min-touch", String(input.minTouch || 44),
+            "--overlap-ratio", String(input.overlapRatio ?? 0.15)
+          ], projectRoot)
+        })
+      })
+      editor.add({
+        name: "ui_tokens",
+        description: "Extract compact design-token evidence from a project CSS file before asking a model to infer spacing, colors, radii, typography or shadows.",
+        input: {
+          type: "object",
+          properties: {
+            cssFile: { type: "string" }
+          },
+          required: ["cssFile"],
+          additionalProperties: false
+        },
+        options: { namespace: "ues", codemode: true },
+        execute: async (input) => ({
+          content: runOcskill([
+            "ui", "tokens", projectScopedPath(projectRoot, input.cssFile)
+          ], projectRoot)
+        })
+      })
+      editor.add({
         name: "semantic_search",
         description: "Search the persistent incremental semantic index. Returns bounded path/symbol/reference evidence; never treats lexical evidence as semantic proof.",
         input: {
