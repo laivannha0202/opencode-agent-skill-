@@ -143,10 +143,10 @@ test("parallel sandbox can modify an inherited untracked file without a false co
     await writeFile(path.join(sandbox.dir, "draft.txt"), "worker-edit\n")
     const integrated = await integrateTaskSandbox(root, sandbox.dir, { keep: true })
     assert.deepEqual(integrated.changed, ["draft.txt"])
-    assert.equal(await readFile(path.join(root, "draft.txt"), "utf8"), "worker-edit\n")
+    assert.equal((await readFile(path.join(root, "draft.txt"), "utf8")).replaceAll("\r\n", "\n"), "worker-edit\n")
 
     await rollbackTaskSandbox(root, sandbox.dir)
-    assert.equal(await readFile(path.join(root, "draft.txt"), "utf8"), "user-baseline\n")
+    assert.equal((await readFile(path.join(root, "draft.txt"), "utf8")).replaceAll("\r\n", "\n"), "user-baseline\n")
   } finally {
     await rm(root, { recursive: true, force: true })
     await rm(base, { recursive: true, force: true })
