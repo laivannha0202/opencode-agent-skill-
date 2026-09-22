@@ -116,6 +116,45 @@ V11 đang ở development branch và **không thay thế npm latest** cho tới 
 
 ---
 
+## V11 development có gì?
+
+V11 chuyển UES từ một reliability harness thành **perception-aware adaptive execution engine**. Mục tiêu là model yếu chỉ nhận đúng bằng chứng cần thiết, dùng đúng capability/model/tool và có thể kiểm chứng UI bằng semantic structure + geometry + pixels thay vì đoán từ screenshot.
+
+- content-addressed Evidence Store dưới `.ues-cache/evidence-v1/`; output lớn được lưu theo SHA-256 và context nhận bounded excerpt + `evidence:sha256:...` pointer;
+- adaptive EvidenceBudget chia context cho instructions/task/source/tests/references/history/tools theo rủi ro và loại task thay vì luôn tiêu hết FAST/STANDARD/DEEP budget;
+- prompt-envelope telemetry tách stable prefix và dynamic tail để đo cacheable ratio/repeated stable input;
+- capability-aware model routing bổ sung `vision`, `browser`, `reasoning`, `toolCalling`, `filesystem`, `longContext` nhưng vẫn giữ light/standard/heavy để tương thích;
+- `VISUAL_SPEC.json` + geometry receipt kiểm tra vị trí/kích thước element có tolerance rõ ràng;
+- zero-dependency PNG diff/crop định vị vùng pixel sai rồi chỉ đưa crop cần thiết cho vision model;
+- browser QA dùng targeted semantic/accessibility evidence + bounding boxes + screenshots; webpage content luôn được xem là untrusted;
+- responsive viewport matrix và component visual testing/Storybook routing;
+- dynamic workflow scheduler tách deterministic task khỏi LLM/vision fan-out, serialize overlapping writers và giới hạn concurrency;
+- skill linter đo entrypoint size và description collisions; catalog tăng từ 39 lên **48 skills** nhưng router chỉ load skill có tín hiệu hẹp;
+- hai subagent mới: `ues-visual-verifier` và `ues-merge-arbiter`, tổng **12 subagents**;
+- Hermes được nâng thành optional sidecar: UES vẫn sở hữu durable state/evidence/safety, Hermes chỉ nhận bounded schedule/context khi được dùng;
+- Control Center hiển thị Evidence Store và V11 runtime efficiency state.
+
+Các CLI V11 chính:
+
+```cmd
+ocskill store status .
+ocskill store get evidence:sha256:<hash> . --max 12000
+ocskill capabilities "match this screenshot in the browser"
+ocskill visual spec VISUAL_SPEC.json
+ocskill visual geometry VISUAL_SPEC.json actual-boxes.json
+ocskill visual compare expected.png actual.png --threshold 16
+ocskill visual crop actual.png failed-region.png --x 10 --y 20 --width 300 --height 120
+ocskill visual viewports
+ocskill browser capability .
+ocskill browser plan http://localhost:3000 --target Checkout
+ocskill workflow-plan PLAN.json --max-concurrent 4
+ocskill skills lint .
+```
+
+V11 hiện là development build. Không merge/publish stable chỉ từ source completion; phải chạy full `npm run ci`, V11 contract suite và live/visual/browser benchmarks phù hợp trước.
+
+---
+
 ## V10 có gì?
 
 V10 tập trung vào **minimum context necessary for maximum task success**: giảm context luôn nạp nhưng không cắt các lớp correctness, verification hay recovery.
@@ -317,6 +356,8 @@ Child session không được tự động merge, push, publish hoặc deploy.
 | `ues-critic` | Tìm giả định sai, counterexample và điểm yếu trong phương án |
 | `ues-verifier` | Xác minh độc lập theo acceptance criteria |
 | `ues-integration-verifier` | Kiểm tra tích hợp giữa nhiều task và luồng end-to-end |
+| `ues-visual-verifier` | Xác minh độc lập screenshot/geometry/responsive/interaction mà không sửa code |
+| `ues-merge-arbiter` | Hòa giải conflict giữa các task đã verify theo intent/evidence, không push/publish/deploy |
 
 `ues-executor` là subagent chính có quyền sửa code theo scope được giao. Các agent còn lại chủ yếu phục vụ phân tích, review và xác minh.
 
@@ -422,7 +463,7 @@ ocskill work status checkout .
 
 ## Skills
 
-UES hiện có **39 skills**. Router chỉ chọn các skill phù hợp thay vì nạp toàn bộ catalog vào mỗi task.
+V11 development hiện có **48 skills**; V10 stable có 39. Router vẫn chỉ chọn tập skill phù hợp thay vì nạp toàn bộ catalog vào mỗi task. Router chỉ chọn các skill phù hợp thay vì nạp toàn bộ catalog vào mỗi task.
 
 Một số process skill quan trọng:
 
@@ -527,7 +568,7 @@ Proposal có `shadowRequired` chỉ được đưa trở lại context sau khi v
 
 ## Hermes adapter
 
-UES hỗ trợ Hermes theo dạng adapter tùy chọn, không nhúng Hermes runtime vào core:
+V11 giữ Hermes theo dạng **optional sidecar**, không nhúng Hermes runtime vào core. UES vẫn sở hữu durable state, evidence và safety boundaries:
 
 ```cmd
 ocskill hermes status
@@ -616,6 +657,7 @@ Kiểm tra long-horizon và polyglot suite:
 ```cmd
 npm run evals:long:validate
 npm run evals:polyglot:validate
+npm run evals:v11:validate
 ```
 
 Chạy benchmark với model thật:
