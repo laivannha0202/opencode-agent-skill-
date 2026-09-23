@@ -147,6 +147,8 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (pkg.pi?.extensions?.[0] !== "./pi/extensions/ues.ts") errors.push("package.json: Pi extension entry drift")
     if (!Array.isArray(pkg.pi?.skills) || !pkg.pi.skills.includes("./global-config/skills")) errors.push("package.json: Pi skills entry drift")
     if (!Array.isArray(pkg.pi?.prompts) || !pkg.pi.prompts.includes("./pi/prompts/*.md")) errors.push("package.json: Pi prompts entry drift")
+    if (!Array.isArray(pkg.files) || !pkg.files.includes("global-config/AGENTS.md")) errors.push("package.json: installer runtime data global-config/AGENTS.md must be packed")
+    if (scripts["smoke:packed"] !== "node scripts/smoke-packed-install.mjs") errors.push("package.json: missing smoke:packed integration script")
   }
 
   const ci = requireText(errors, readText(root, path.join(".github", "workflows", "ci.yml")), ".github/workflows/ci.yml")
