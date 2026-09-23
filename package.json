@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
   "version": "13.0.0-beta.3",
-  "description": "Parallel weak-model engineering runtime with isolated same-model workers, event-driven DAG execution, transactional integration, adaptive context and evidence-gated verification for OpenCode",
+  "description": "Pi Agent engineering runtime with adaptive context, durable evidence, specialist child agents, and evidence-gated verification",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs"
@@ -9,53 +9,23 @@
   "files": [
     "bin/ocskill.mjs",
     "lib/",
-    "scripts/",
-    "global-config/",
-    "evals/",
-    "docs/",
+    "global-config/skills/",
+    "global-config/agents/",
+    "pi/",
+    "docs/PI-COMPAT.md",
     "README.md",
-    "CHANGELOG.md",
     "LICENSE"
   ],
   "scripts": {
     "syntax": "node scripts/syntax-check.mjs",
-    "validate": "node scripts/validate.mjs",
-    "evals": "node scripts/eval-skills.mjs",
-    "evals:live:validate": "node scripts/validate-live-suite.mjs",
-    "test": "node --test test/*.test.mjs",
-    "ci": "npm run syntax && npm run validate && npm run docs:check && npm run evals && npm run evals:router && npm run evals:v11:validate && npm run evals:v12:validate && npm run evals:v13 && npm run evals:repo-scale:validate && npm run evals:live:validate && npm run evals:long:validate && npm run evals:polyglot:validate && npm test && npm pack --dry-run && npm run smoke:pack && npm run smoke:plain-install",
-    "postinstall": "node scripts/install.mjs",
-    "preuninstall": "node scripts/uninstall.mjs",
-    "prepublishOnly": "npm run ci",
-    "evals:live": "node scripts/eval-live.mjs",
-    "smoke:pack": "node scripts/smoke-packed-install.mjs",
-    "inspect:stack": "node scripts/detect-stack.mjs",
-    "inspect:tests": "node scripts/detect-test-commands.mjs",
-    "inspect:repo": "node scripts/repo-map.mjs",
-    "inspect:impact": "node scripts/impact-map.mjs",
-    "inspect:evidence": "node scripts/collect-evidence.mjs",
-    "inspect:git": "node scripts/check-working-tree.mjs",
-    "evals:report": "node scripts/eval-report.mjs",
-    "evals:router": "node scripts/eval-router.mjs",
-    "evals:long:validate": "node scripts/validate-live-suite.mjs --suite long",
-    "evals:long": "node scripts/eval-live.mjs --suite long",
-    "dashboard": "node scripts/control-center.mjs",
-    "evals:matrix": "node scripts/eval-matrix.mjs",
-    "smoke:plain-install": "node scripts/smoke-plain-install.mjs",
-    "docs:check": "node scripts/check-release-consistency.mjs",
-    "release:check-tag": "node scripts/check-release-tag.mjs",
-    "evals:polyglot:validate": "node scripts/validate-live-suite.mjs --suite polyglot",
-    "evals:polyglot": "node scripts/eval-live.mjs --suite polyglot",
-    "evals:matrix:gate": "node scripts/eval-matrix.mjs --require-confidence",
-    "evals:ablation": "node scripts/eval-ablation.mjs",
-    "evals:v11": "node --test test/*-v11.test.mjs",
-    "evals:v11:validate": "node scripts/validate-v11-suite.mjs",
-    "evals:repo-scale:validate": "node scripts/validate-repo-scale-suite.mjs",
-    "evals:v12:validate": "node scripts/validate-v12-foundation.mjs",
-    "evals:v13": "node --test test/*-v13.test.mjs"
+    "test": "node --test test/pi-package.test.mjs",
+    "smoke:pi": "node scripts/smoke-pi-extension.mjs",
+    "ci": "npm run syntax && npm test && npm pack --dry-run && npm run smoke:pi",
+    "prepublishOnly": "npm run ci"
   },
   "keywords": [
-    "opencode",
+    "pi-package",
+    "pi-agent",
     "agent-skills",
     "coding-agent",
     "developer-tools",
@@ -63,12 +33,10 @@
     "code-review",
     "debugging",
     "verification",
-    "visual-testing",
-    "browser-automation",
     "multimodal-agents"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22.19"
   },
   "publishConfig": {
     "access": "public"
@@ -81,5 +49,28 @@
   "bugs": {
     "url": "https://github.com/laivannha0202/opencode-agent-skill-/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./pi/extensions/ues.ts"
+    ],
+    "skills": [
+      "./global-config/skills"
+    ],
+    "prompts": [
+      "./pi/prompts/*.md"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
 }

@@ -9,53 +9,13 @@ permissions:
   contents: read
 
 jobs:
-  static:
-    name: static (${{ matrix.check }})
+  pi:
+    name: Pi runtime
     strategy:
       fail-fast: false
       matrix:
-        check:
-          - syntax
-          - validate
-          - docs:check
-          - evals
-          - evals:router
-          - evals:live:validate
-          - evals:long:validate
-          - evals:polyglot:validate
-          - evals:v11:validate
-          - evals:v12:validate
-          - evals:v13
-          - evals:repo-scale:validate
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install package metadata
-        run: npm ci --ignore-scripts
-
-      - name: Run ${{ matrix.check }}
-        run: npm run ${{ matrix.check }}
-
-  unit:
-    name: unit (${{ matrix.os }}, node ${{ matrix.node }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            node: 20
-          - os: ubuntu-latest
-            node: 22
-          - os: windows-latest
-            node: 24
+        os: [ubuntu-latest, windows-latest]
+        node: [22]
     runs-on: ${{ matrix.os }}
     steps:
       - name: Checkout
@@ -70,64 +30,28 @@ jobs:
       - name: Install package metadata
         run: npm ci --ignore-scripts
 
-      - name: Run unit/integration tests
+      - name: Install Pi host peers
+        run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent typebox
+
+      - name: Syntax
+        run: npm run syntax
+
+      - name: Pi package tests
         run: npm test
 
-  package:
-    name: package-smoke (${{ matrix.os }}, node ${{ matrix.node }})
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            node: 20
-          - os: ubuntu-latest
-            node: 22
-          - os: windows-latest
-            node: 24
-    runs-on: ${{ matrix.os }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - name: Pi extension smoke
+        run: npm run smoke:pi
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ matrix.node }}
-          cache: npm
-
-      - name: Install package metadata
-        run: npm ci --ignore-scripts
-
-      - name: Dry-run package
+      - name: Package dry run
         run: npm pack --dry-run
-
-      - name: Packed global-install smoke
-        run: npm run smoke:pack
-
-      - name: Plain one-command install smoke
-        run: npm run smoke:plain-install
 
   ci-gate:
     name: CI Gate
-    needs: [static, unit, package]
+    needs: [pi]
     if: always()
     runs-on: ubuntu-latest
     steps:
-      - name: Verify all required CI jobs passed
+      - name: Verify Pi runtime passed
         run: |
-          failed=0
-          for entry in "static:${{ needs.static.result }}" "unit:${{ needs.unit.result }}" "package:${{ needs.package.result }}"; do
-            name="${entry%%:*}"
-            result="${entry##*:}"
-            echo "$name: $result"
-            if [ "$result" != "success" ]; then
-              echo "FAIL: $name did not pass (status: $result)"
-              failed=1
-            fi
-          done
-          if [ "$failed" -ne 0 ]; then
-            echo "CI Gate FAILED: one or more required jobs failed or were cancelled"
-            exit 1
-          fi
-          echo "CI Gate PASSED: all required jobs succeeded"
+          echo "pi: ${{ needs.pi.result }}"
+          test "${{ needs.pi.result }}" = "success"
