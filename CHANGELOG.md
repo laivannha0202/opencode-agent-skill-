@@ -7,7 +7,9 @@ The project follows Semantic Versioning.
 ## [Unreleased]
 
 ### Fixed
-- Routed all 11 `/ues-*` commands through the stable V2 `session.prompt` path using router-managed prompt aliases, avoiding `UnsupportedContentType` failures from the native `session.command` transport while preserving the same command templates and V1 native-command behavior.\n- Prevented `/ues-run` from duplicating the full `$ARGUMENTS` payload inside its task-policy example, reducing long-prompt amplification.\n- Fixed OpenCode V2 local router loading on clean global configs by removing the unnecessary bare `@opencode/plugin` runtime import; `ues-router` now exports the plain `{ id, setup }` definition accepted by the V2 loader.
+- Routed all 11 `/ues-*` commands through the stable V2 `session.prompt` path using router-managed prompt aliases, avoiding `UnsupportedContentType` failures from the native `session.command` transport while preserving the same command templates and V1 native-command behavior.
+- Prevented `/ues-run` from duplicating the full `$ARGUMENTS` payload inside its task-policy example, reducing long-prompt amplification.
+- Fixed OpenCode V2 local router loading on clean global configs by removing the unnecessary bare `@opencode/plugin` runtime import; `ues-router` now exports the plain `{ id, setup }` definition accepted by the V2 loader.
 - Prevented OpenCode V2 UES router subprocesses (`where`, `ocskill`, Node shim execution and Git probes) from flashing transient CMD windows on Windows by routing them through a hidden-window spawn wrapper.
 
 ## [13.0.0-beta.0] - 2026-09-22
