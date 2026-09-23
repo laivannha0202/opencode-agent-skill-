@@ -1,6 +1,6 @@
 ---
 name: file-upload-engineering
-description: Implement file/image uploads safely: validation, storage, naming, URLs, cleanup, permissions, progress, and errors.
+description: "Implement file/image uploads safely: validation, storage, naming, URLs, cleanup, permissions, progress, and errors."
 ---
 
 # File Upload Engineering
