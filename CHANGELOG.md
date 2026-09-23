@@ -8,6 +8,9 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Prevented OpenCode V2 UES router subprocesses (`where`, `ocskill`, Node shim execution and Git probes) from flashing transient CMD windows on Windows by routing them through a hidden-window spawn wrapper.
+
 ## [13.0.0-beta.0] - 2026-09-22
 
 ### Added
