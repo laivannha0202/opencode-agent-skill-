@@ -49,16 +49,18 @@ Parallel resume không còn yêu cầu root phải sạch tuyệt đối. Nếu 
 
 > **Compatibility:** V13 CLI/durable-state/verification hardening vẫn dùng được trên OpenCode 1.x. Native `ues.dispatch_task` / `ues.dispatch_parallel` cần router plugin và fresh-session APIs của OpenCode V2; nếu capability không đủ, runtime fail closed thay vì giả vờ chạy song song.
 
-### V13 beta validation baseline
+### V13 beta validation gate
 
-Baseline beta.0 đã được kiểm tra local trên Windows 10 với OpenCode V2.0.15; beta.1 phải chạy lại full gate trước khi publish:
+Mỗi V13 prerelease, bao gồm beta.2, chỉ được publish sau khi full gate hiện tại PASS. Không hard-code số lượng test vào tài liệu này vì suite tiếp tục tăng; nguồn đúng là output của chính các lệnh gate:
 
-- `npm run evals:v13`: **36/36 PASS**;
-- `npm test`: **298 tests**, **296 pass**, **0 fail**, **2 platform-specific skip**;
-- managed `ues-router` load thành công dưới `~/.config/opencode/plugins/ues-router`;
-- router không còn phụ thuộc runtime bare import `@opencode/plugin`, nên clean global OpenCode config vẫn load được;
-- các subprocess nội bộ của router (`where`, `ocskill`, Node shim và Git probes) dùng hidden-window spawn trên Windows để tránh cửa sổ CMD nháy liên tục;
-- npm 11+ vẫn có thể chặn lifecycle script theo `allowScripts`; `ocskill install` là resource-sync fallback chính thức.
+- `npm run evals:v13`;
+- `npm test`;
+- `npm run ci`;
+- `npm pack --dry-run`;
+- packed-install smoke và plain-install smoke;
+- live OpenCode V2 check: router load, `/ues-run` FAST/STANDARD/DEEP admission, prompt dài, MCP/provider path và restart trên session mới;
+- npm 11+ có thể chặn lifecycle script theo `allowScripts`; `ocskill install` vẫn là resource-sync fallback chính thức.
+
 
 ---
 
