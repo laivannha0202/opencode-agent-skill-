@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 The project follows Semantic Versioning.
 
+- Fixed OpenCode V2 local router loading on clean global configs by removing the unnecessary bare `@opencode/plugin` runtime import; `ues-router` now exports the plain `{ id, setup }` definition accepted by the V2 loader.
+
 ## [Unreleased]
 
 ## [13.0.0-beta.0] - 2026-09-22
