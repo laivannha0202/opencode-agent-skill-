@@ -1,6 +1,6 @@
 ---
 name: ecommerce-engineering
-description: Build/review ecommerce and marketplace systems: catalog, sellers, carts, checkout, orders, inventory, pricing, images, and traceability.
+description: "Build/review ecommerce and marketplace systems: catalog, sellers, carts, checkout, orders, inventory, pricing, images, and traceability."
 ---
 
 # Ecommerce Engineering
