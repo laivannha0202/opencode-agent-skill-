@@ -8,7 +8,7 @@ import { runtimeCapabilities } from "./capabilities.js"
 import { parallelRootBaseline, runEventDrivenDAG } from "./parallel-runtime.js"
 import { readProjectJson, readProjectText } from "./text-runtime.js"
 import { extractVerifierVerdict } from "./verifier-runtime.js"
-import { expandUesPromptAlias } from "./command-runtime.js"
+import { expandUesPromptAlias, policyPromptForCli } from "./command-runtime.js"
 import {
   budgetToolResult,
   classifyProviderFailure,
@@ -1553,17 +1553,29 @@ export default {
       }
 
       const promptText = String(event.prompt?.text || "")
+      const routingText = promptAlias
+        ? (promptAlias.arguments || `/${promptAlias.alias}`)
+        : promptText
+      const policySource = promptAlias
+        ? [
+            ["ues-run", "ues-resume"].includes(promptAlias.alias)
+              ? "Explicit long-horizon engineering request."
+              : `UES command /${promptAlias.alias}.`,
+            promptAlias.arguments,
+          ].filter(Boolean).join("\n")
+        : routingText
+      const policyInput = policyPromptForCli(policySource)
       let policy = null
       try {
-        policy = runOcskillJSON(["task-policy", promptText], projectRoot)
+        policy = runOcskillJSON(["task-policy", policyInput.text], projectRoot)
       } catch {}
-      const intent = classifyIntent(promptText, routingFacts)
+      const intent = classifyIntent(routingText, routingFacts)
       const effectiveMaxSkills = Math.max(
         1,
         Math.min(config.maxSkills, Number(policy?.maxSkills || config.maxSkills)),
       )
       const selected = []
-      for (const id of [...routeSkillsForPolicy(promptText, policy, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
+      for (const id of [...routeSkillsForPolicy(routingText, policy, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
         if (!selected.includes(id)) selected.push(id)
         if (selected.length >= effectiveMaxSkills) break
       }
@@ -1586,6 +1598,11 @@ export default {
             repoStacks: routingFacts.repoStacks,
             feedbackDomains: routingFacts.feedbackDomains,
             acceptedLearningCount: routingFacts.acceptedLearningCount,
+          },
+          policyInput: {
+            originalChars: policyInput.originalChars,
+            cliChars: policyInput.cliChars,
+            truncated: policyInput.truncated,
           },
           version: 13,
           effectiveMaxSkills,
