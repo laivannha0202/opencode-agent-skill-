@@ -188,17 +188,18 @@ test("release checker still derives legacy eval counts without making them Pi re
 })
 
 
-test("release checker fails when CI drops packed install smoke", async () => {
-  const fixture = await copyReleaseFixture()
+test("release checker fails when CI drops packed install smoke", () => {
+  const tmp = mkdirTemp()
   try {
-    const pkgFile = path.join(fixture, "package.json")
-    const pkg = JSON.parse(await readFile(pkgFile, "utf8"))
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
     pkg.scripts.ci = String(pkg.scripts.ci || "").replace(/\s*&&\s*npm run smoke:packed/, "")
-    await writeFile(pkgFile, JSON.stringify(pkg, null, 2) + "\n", "utf8")
-    const result = checkReleaseConsistency(fixture)
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
     assert.equal(result.pass, false)
     assert.ok(result.errors.some((error) => error.includes("ci must include smoke:packed")))
   } finally {
-    await rm(fixture, { recursive: true, force: true })
+    rmSync(tmp, { recursive: true, force: true })
   }
 })
