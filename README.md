@@ -53,8 +53,8 @@ Parallel resume không còn yêu cầu root phải sạch tuyệt đối. Nếu 
 
 Bản đóng gói hiện tại đã được kiểm tra local trên Windows 10 với OpenCode V2.0.15:
 
-- `npm run evals:v13`: **30/30 PASS**;
-- `npm test`: **291 tests**, **289 pass**, **0 fail**, **2 platform-specific skip**;
+- `npm run evals:v13`: **36/36 PASS**;
+- `npm test`: **298 tests**, **296 pass**, **0 fail**, **2 platform-specific skip**;
 - managed `ues-router` load thành công dưới `~/.config/opencode/plugins/ues-router`;
 - router không còn phụ thuộc runtime bare import `@opencode/plugin`, nên clean global OpenCode config vẫn load được;
 - các subprocess nội bộ của router (`where`, `ocskill`, Node shim và Git probes) dùng hidden-window spawn trên Windows để tránh cửa sổ CMD nháy liên tục;
