@@ -18,6 +18,7 @@ import {
   createTaskSandbox,
   integrateTaskSandbox,
   removeTaskSandbox,
+  rollbackTaskSandbox,
 } from "../../lib/worktree-sandbox.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
