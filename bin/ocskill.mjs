@@ -115,7 +115,8 @@ Usage:
   ocskill status               Show package/resource synchronization status
   ocskill doctor               Check Node, npm, OpenCode and installed resources
   ocskill eval                 Validate the bundled static skill-routing suite
-  ocskill eval-live [options]  Run baseline-vs-UES live behavioral evals
+  ocskill eval-live [options]  Run legacy OpenCode baseline-vs-UES behavioral evals
+  ocskill eval-pi [options]    Run Pi-native baseline-vs-UES weak-model benchmark
   ocskill eval-report [paths]  Aggregate live eval pass-rate/cost/tool telemetry
   ocskill inspect [dir]        Deterministic repository/stack/test-command map
   ocskill impact <query> [dir] Search likely impact paths and matching lines
@@ -438,6 +439,14 @@ async function evaluateLive() {
   const code = run(
     process.execPath,
     [path.join(packageRoot, "scripts", "eval-live.mjs"), ...args.slice(1)],
+  )
+  if (code !== 0) process.exitCode = code
+}
+
+async function evaluatePi() {
+  const code = run(
+    process.execPath,
+    [path.join(packageRoot, "scripts", "eval-pi.mjs"), ...args.slice(1)],
   )
   if (code !== 0) process.exitCode = code
 }
@@ -1724,6 +1733,9 @@ async function main() {
     break
   case "eval-live":
     await evaluateLive()
+    break
+  case "eval-pi":
+    await evaluatePi()
     break
   case "eval-report":
     await evaluateReport()
