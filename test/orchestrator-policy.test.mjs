@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { classifyEngineeringTask, recoveryPolicyForAttempt } from "../lib/orchestrator-policy.mjs"
+import { classifyEngineeringTask, recoveryPolicyForAttempt, shouldRunDedicatedDiagnosis } from "../lib/orchestrator-policy.mjs"
 
 test("adaptive task policy escalates risky long-horizon work", () => {
   const policy = classifyEngineeringTask(
@@ -123,4 +123,29 @@ test("read-only auth and payment review does not become high-risk from domain wo
   assert.equal(policy.profile.durableState, false)
   assert.ok(policy.domains.includes("auth-security"))
   assert.ok(policy.domains.includes("payment"))
+})
+
+
+test("FAST low-risk debugging skips dedicated diagnosis until a retry", () => {
+  const policy = classifyEngineeringTask("Fix this local parser regression.")
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.risk, "low")
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 1), false)
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 2), true)
+})
+
+test("non-FAST debugging can diagnose before the first patch", () => {
+  const policy = classifyEngineeringTask(
+    "Fix this regression across several related modules and callers. " +
+    "The failure affects multiple code paths and needs repository-grounded investigation before editing. " +
+    "Inspect the affected tests, callers, and dependencies, then make the smallest coherent fix.",
+  )
+  assert.notEqual(policy.executionProfile, "fast")
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 1), true)
+})
+
+test("non-debug tasks never spawn a dedicated debugger", () => {
+  const policy = classifyEngineeringTask("Rename a local helper.")
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 1), false)
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 2), false)
 })
