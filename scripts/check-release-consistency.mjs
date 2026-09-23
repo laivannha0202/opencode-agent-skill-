@@ -8,236 +8,182 @@ const DEFAULT_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), 
 
 function readJson(root, relative) {
   const file = path.join(root, relative)
-  if (!existsSync(file)) {
-    return { ok: false, error: `${relative}: file not found`, value: null }
-  }
+  if (!existsSync(file)) return { ok: false, error: `${relative}: file not found`, value: null }
   try {
     return { ok: true, error: null, value: JSON.parse(readFileSync(file, "utf8")) }
-  } catch (e) {
-    return { ok: false, error: `${relative}: invalid JSON (${e.message})`, value: null }
+  } catch (error) {
+    return {
+      ok: false,
+      error: `${relative}: invalid JSON (${error instanceof Error ? error.message : String(error)})`,
+      value: null,
+    }
   }
 }
 
 function readText(root, relative) {
   const file = path.join(root, relative)
-  if (!existsSync(file)) {
-    return { ok: false, error: `${relative}: file not found`, value: null }
-  }
+  if (!existsSync(file)) return { ok: false, error: `${relative}: file not found`, value: null }
   return { ok: true, error: null, value: readFileSync(file, "utf8") }
 }
 
-function countSkillDirs(root) {
-  const fullPath = path.join(root, "global-config", "skills")
-  if (!existsSync(fullPath)) return { ok: false, error: "global-config/skills: directory not found", value: 0 }
-  const entries = readdirSync(fullPath, { withFileTypes: true })
-  const count = entries.filter((entry) => entry.isDirectory() && existsSync(path.join(fullPath, entry.name, "SKILL.md"))).length
-  return { ok: true, error: null, value: count }
-}
-
-function countDir(root, dirPath, filter) {
-  const fullPath = path.join(root, dirPath)
-  if (!existsSync(fullPath)) {
-    return { ok: false, error: `${dirPath}: directory not found`, value: 0 }
+function countDir(root, relative, predicate) {
+  const dir = path.join(root, relative)
+  if (!existsSync(dir)) return { ok: false, error: `${relative}: directory not found`, value: 0 }
+  const entries = readdirSync(dir, { withFileTypes: true })
+  return {
+    ok: true,
+    error: null,
+    value: predicate ? entries.filter(predicate).length : entries.length,
   }
-  const entries = readdirSync(fullPath, { withFileTypes: true })
-  const count = filter ? entries.filter(filter).length : entries.length
-  return { ok: true, error: null, value: count }
 }
 
-export function checkReleaseConsistency(root) {
-  root = root || DEFAULT_ROOT
+function countSkills(root) {
+  return countDir(root, path.join("global-config", "skills"), (entry) =>
+    entry.isDirectory() && existsSync(path.join(root, "global-config", "skills", entry.name, "SKILL.md"))
+  )
+}
+
+function requireText(errors, result, relative) {
+  if (result.ok) return result.value
+  errors.push(result.error || `${relative}: unavailable`)
+  return ""
+}
+
+export function checkReleaseConsistency(root = DEFAULT_ROOT) {
   const errors = []
   const warnings = []
 
-  function rJson(relative) {
-    return readJson(root, relative)
+  const pkgResult = readJson(root, "package.json")
+  const lockResult = readJson(root, "package-lock.json")
+  const pkg = pkgResult.ok ? pkgResult.value : null
+  const lock = lockResult.ok ? lockResult.value : null
+  if (!pkgResult.ok) errors.push(pkgResult.error)
+  if (!lockResult.ok) errors.push(lockResult.error)
+
+  const version = pkg?.version || "unknown"
+  if (pkg && lock && pkg.version !== lock.version) {
+    errors.push(`package.json version (${pkg.version}) != package-lock.json version (${lock.version})`)
   }
-  function rText(relative) {
-    return readText(root, relative)
-  }
-  function rCount(dirPath, filter) {
-    return countDir(root, dirPath, filter)
+  if (pkg && lock?.packages?.[""]?.version && pkg.version !== lock.packages[""].version) {
+    errors.push(`package-lock root package version (${lock.packages[""].version}) != package.json version (${pkg.version})`)
   }
 
-  // 1. package.json version == package-lock.json version
-  const pkg = rJson("package.json")
-  const lock = rJson("package-lock.json")
-  if (pkg.ok && lock.ok) {
-    const pkgVersion = pkg.value.version
-    const lockVersion = lock.value.version
-    if (pkgVersion !== lockVersion) {
-      errors.push(`package.json version (${pkgVersion}) != package-lock.json version (${lockVersion})`)
+  const expectedBins = { ues: "bin/ocskill.mjs", ocskill: "bin/ocskill.mjs" }
+  if (pkg) {
+    for (const [name, target] of Object.entries(expectedBins)) {
+      if (pkg.bin?.[name] !== target) errors.push(`package.json: bin.${name} must be ${target}`)
+      if (lock?.packages?.[""]?.bin?.[name] !== target) {
+        errors.push(`package-lock.json: root bin.${name} must be ${target}`)
+      }
     }
-  } else {
-    if (!pkg.ok) errors.push(pkg.error)
-    if (!lock.ok) errors.push(lock.error)
   }
 
-  // 2. Count skills, commands, subagents
-  const skillRes = countSkillDirs(root)
-  const commandRes = rCount("global-config/commands", (e) => e.isFile() && e.name.endsWith(".md"))
-  const agentRes = rCount("global-config/agents", (e) => e.isFile() && e.name.endsWith(".md"))
-  const skillCount = skillRes.ok ? skillRes.value : 0
-  const commandCount = commandRes.ok ? commandRes.value : 0
-  const agentCount = agentRes.ok ? agentRes.value : 0
-  if (!skillRes.ok) errors.push(skillRes.error)
-  if (!commandRes.ok) errors.push(commandRes.error)
-  if (!agentRes.ok) errors.push(agentRes.error)
+  const skillResult = countSkills(root)
+  const commandResult = countDir(root, path.join("global-config", "commands"), (entry) => entry.isFile() && entry.name.endsWith(".md"))
+  const agentResult = countDir(root, path.join("global-config", "agents"), (entry) => entry.isFile() && entry.name.endsWith(".md"))
+  const promptResult = countDir(root, path.join("pi", "prompts"), (entry) => entry.isFile() && entry.name.endsWith(".md"))
+  for (const result of [skillResult, commandResult, agentResult, promptResult]) {
+    if (!result.ok) errors.push(result.error)
+  }
+  const skillCount = skillResult.value || 0
+  const commandCount = commandResult.value || 0
+  const subagentCount = agentResult.value || 0
+  const promptCount = promptResult.value || 0
 
-  const expectedVersion = pkg.ok ? pkg.value.version : "unknown"
-  const routing = rJson("evals/routing.json")
-  const routerTriggers = rJson("evals/router-triggers.json")
-  const staticScenarioCount = routing.ok && Array.isArray(routing.value.scenarios) ? routing.value.scenarios.length : 0
-  const routerCaseCount = routerTriggers.ok && Array.isArray(routerTriggers.value.cases) ? routerTriggers.value.cases.length : 0
+  const routing = readJson(root, path.join("evals", "routing.json"))
+  const routerTriggers = readJson(root, path.join("evals", "router-triggers.json"))
   if (!routing.ok) errors.push(routing.error)
   if (!routerTriggers.ok) errors.push(routerTriggers.error)
+  const staticScenarioCount = routing.ok && Array.isArray(routing.value.scenarios) ? routing.value.scenarios.length : 0
+  const routerCaseCount = routerTriggers.ok && Array.isArray(routerTriggers.value.cases) ? routerTriggers.value.cases.length : 0
 
-  // 3. Check README current version block
-  const readme = rText("README.md")
-  if (readme.ok) {
-    const versionMatch = readme.value.match(/Phiên bản hiện tại:\s*\n```text\n(\S+)/)
-    if (versionMatch && versionMatch[1] !== expectedVersion) {
-      errors.push(`README.md: current version says ${versionMatch[1]}, expected ${expectedVersion}`)
-    } else if (!versionMatch) {
-      errors.push("README.md: could not find current version block")
-    }
-    if (staticScenarioCount && !readme.value.includes("**" + staticScenarioCount + " static skill-routing scenarios**")) {
-      errors.push("README.md: static routing scenario count drift (actual: " + staticScenarioCount + ")")
-    }
-    if (routerCaseCount && !readme.value.includes("**" + routerCaseCount + " V2 router cases**")) {
-      errors.push("README.md: router case count drift (actual: " + routerCaseCount + ")")
-    }
-  } else {
-    errors.push(readme.error)
-  }
-
-  // 4. Check V11 docs for stale status markers
-  const v11Docs = ["docs/V11-PERCEPTION-ADAPTIVE.md", "docs/V11-PERCEPTION-ADAPTIVE-EXECUTION.md"]
-  for (const doc of v11Docs) {
-    const content = rText(doc)
-    if (!content.ok) {
-      errors.push(content.error)
-      continue
-    }
-    if (content.value.includes("Status: development")) {
-      errors.push(`${doc}: still marked as development`)
-    }
-    if (content.value.includes("11.0.0-dev.")) {
-      errors.push(`${doc}: still references dev version 11.0.0-dev.*`)
-    }
-    if (content.value.includes("npm `latest` remains V10")) {
-      errors.push(`${doc}: still says V10 remains npm latest`)
+  const readme = requireText(errors, readText(root, "README.md"), "README.md")
+  if (readme) {
+    const match = readme.match(/Phiên bản hiện tại:\s*\n```text\n(\S+)/)
+    if (!match) errors.push("README.md: could not find current version block")
+    else if (match[1] !== version) errors.push(`README.md: current version says ${match[1]}, expected ${version}`)
+    for (const marker of ["**Pi Agent**", "`ues_execute`", "`ues_dispatch`", "`ues_cli`"]) {
+      if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
     }
   }
 
-  // 4b. V13 prerelease contract must stay synchronized with compatibility docs.
-  if (expectedVersion.startsWith("13.")) {
-    const v13 = rText("docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md")
-    if (!v13.ok) {
-      errors.push(v13.error)
-    } else {
-      if (!v13.value.includes("Status: beta prerelease (`" + expectedVersion + "`).")) {
-        errors.push("docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md: prerelease version/status drift")
-      }
-      for (const required of ["ues.dispatch_parallel", "same configured model", "OpenCode"]) {
-        if (!v13.value.includes(required)) {
-          errors.push("docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md: missing V13 contract marker " + required)
-        }
-      }
-    }
-
-    const compat = rText("docs/OPENCODE-COMPAT.md")
-    if (!compat.ok) {
-      errors.push(compat.error)
-    } else {
-      if (!compat.value.includes("V13 ships one npm package")) {
-        errors.push("docs/OPENCODE-COMPAT.md: current compatibility header is stale for V13")
-      }
-      if (!compat.value.includes("ues.dispatch_parallel")) {
-        errors.push("docs/OPENCODE-COMPAT.md: missing V13 parallel capability boundary")
-      }
+  const piCompat = requireText(errors, readText(root, path.join("docs", "PI-COMPAT.md")), "docs/PI-COMPAT.md")
+  if (piCompat) {
+    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only"]) {
+      if (!piCompat.includes(marker)) errors.push(`docs/PI-COMPAT.md: missing current Pi contract marker ${marker}`)
     }
   }
 
-  // 5. Verify docs reflect actual counts (skip historical sections)
-  const docsToCheck = ["README.md", "docs/ENGINEERING-DESIGN.md", "docs/OPENCODE-COMPAT.md"]
-  for (const doc of docsToCheck) {
-    const content = rText(doc)
-    if (!content.ok) {
-      errors.push(content.error)
-      continue
-    }
-    const sections = content.value.split(/\n(?=#{1,6}\s)/)
-    for (const section of sections) {
-      const isHistorical = /^\s*#{1,6}\s+.*(V\d+\.|UES\s+\d+\.|historical|Historical)/im.test(section)
-      if (isHistorical) continue
-      if (section.includes("39 skills") || section.includes("39 namespaced skills")) {
-        errors.push(`${doc}: current section still references 39 skills (actual: ${skillCount})`)
-      }
-      if (section.includes("10 namespaced subagents") || section.includes("10 subagents")) {
-        errors.push(`${doc}: current section still references 10 subagents (actual: ${agentCount})`)
-      }
-      if (section.includes("34 static") && section.includes("scenarios")) {
-        errors.push(`${doc}: current section still references 34 static scenarios (actual: ${staticScenarioCount})`)
-      }
+  const openCodeCompat = requireText(errors, readText(root, path.join("docs", "OPENCODE-COMPAT.md")), "docs/OPENCODE-COMPAT.md")
+  if (openCodeCompat) {
+    for (const marker of ["Deprecated compatibility surface", "supported runtime in this repository is **Pi Agent**", "canonical runtime lives under `pi/` and `lib/`", "compatibility shim"]) {
+      if (!openCodeCompat.includes(marker)) errors.push(`docs/OPENCODE-COMPAT.md: missing legacy-boundary marker ${marker}`)
     }
   }
 
-  // 6. Check CI workflow
-  const ciYaml = rText(".github/workflows/ci.yml")
-  if (ciYaml.ok) {
-    if (!ciYaml.value.includes("evals:v11:validate")) {
-      errors.push(".github/workflows/ci.yml: missing evals:v11:validate job")
-    }
-    if (!/^\s*name:\s*CI Gate\s*$/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: missing CI Gate aggregate job name")
-    if (!/needs:\s*\[\s*static\s*,\s*unit\s*,\s*package\s*\]/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: CI Gate must depend on static, unit and package")
-    if (!/if:\s*always\(\)/m.test(ciYaml.value)) errors.push(".github/workflows/ci.yml: aggregate gate must use if: always()")
-    if (!ciYaml.value.includes("docs:check")) errors.push(".github/workflows/ci.yml: missing docs:check job")
-    for (const check of ["evals:v12:validate", ...(expectedVersion.startsWith("13.") ? ["evals:v13"] : []), "evals:repo-scale:validate"]) {
-      if (!ciYaml.value.includes(check)) errors.push(".github/workflows/ci.yml: missing " + check + " job")
-    }
-  } else {
-    errors.push(ciYaml.error)
+  const orchestrator = requireText(errors, readText(root, path.join("lib", "orchestrator-policy.mjs")), "lib/orchestrator-policy.mjs")
+  const legacyPolicy = requireText(errors, readText(root, path.join("global-config", "plugins", "ues-router", "policy-runtime.js")), "global-config/plugins/ues-router/policy-runtime.js")
+  const canonicalPolicy = requireText(errors, readText(root, path.join("lib", "task-policy.mjs")), "lib/task-policy.mjs")
+  if (orchestrator && !/from "\.\/task-policy\.mjs"/.test(orchestrator)) {
+    errors.push("lib/orchestrator-policy.mjs: must delegate to Pi-native lib/task-policy.mjs")
+  }
+  if (legacyPolicy && !/from "\.\.\/\.\.\/\.\.\/lib\/task-policy\.mjs"/.test(legacyPolicy)) {
+    errors.push("global-config/plugins/ues-router/policy-runtime.js: must remain a shim to lib/task-policy.mjs")
+  }
+  if (canonicalPolicy) {
+    if (!/export function classifyEngineeringTask/.test(canonicalPolicy)) errors.push("lib/task-policy.mjs: missing classifyEngineeringTask")
+    if (!/export function recoveryPolicyForAttempt/.test(canonicalPolicy)) errors.push("lib/task-policy.mjs: missing recoveryPolicyForAttempt")
   }
 
-  // 7. Check Security workflow
-  const securityYaml = rText(".github/workflows/security.yml")
-  if (securityYaml.ok) {
-    if (!/^\s*name:\s*Security Gate\s*$/m.test(securityYaml.value)) errors.push(".github/workflows/security.yml: missing Security Gate aggregate job name")
-    if (!/needs:\s*\[\s*codeql\s*,\s*dependency-review\s*\]/m.test(securityYaml.value)) errors.push(".github/workflows/security.yml: Security Gate must depend on codeql and dependency-review")
-  } else {
-    errors.push(securityYaml.error)
+  if (pkg) {
+    const scripts = pkg.scripts || {}
+    if (scripts.test !== "node --test test/*.test.mjs") errors.push("package.json: npm test must run the full test/*.test.mjs suite")
+    if (scripts["test:pi"] !== "node --test test/pi-package.test.mjs") errors.push("package.json: missing focused test:pi script")
+    if (scripts["docs:check"] !== "node scripts/check-release-consistency.mjs") errors.push("package.json: missing docs:check release-consistency script")
+    if (scripts["release:check-tag"] !== "node scripts/check-release-tag.mjs") errors.push("package.json: missing release:check-tag script")
+    if (scripts["eval:pi"] !== "node scripts/eval-pi.mjs") errors.push("package.json: missing Pi-native eval:pi script")
+    if (!String(scripts.ci || "").includes("npm run docs:check")) errors.push("package.json: ci must include docs:check")
+    if (!String(scripts.ci || "").includes("npm test")) errors.push("package.json: ci must include full npm test")
+    if (pkg.pi?.extensions?.[0] !== "./pi/extensions/ues.ts") errors.push("package.json: Pi extension entry drift")
+    if (!Array.isArray(pkg.pi?.skills) || !pkg.pi.skills.includes("./global-config/skills")) errors.push("package.json: Pi skills entry drift")
+    if (!Array.isArray(pkg.pi?.prompts) || !pkg.pi.prompts.includes("./pi/prompts/*.md")) errors.push("package.json: Pi prompts entry drift")
   }
 
-  // 8. Check publish workflow idempotency
-  const publishYaml = rText(".github/workflows/publish.yml")
-  if (publishYaml.ok) {
-    if (!publishYaml.value.includes("already published")) {
-      errors.push(".github/workflows/publish.yml: missing idempotency check for existing versions")
-    }
-  } else {
-    errors.push(publishYaml.error)
+  const ci = requireText(errors, readText(root, path.join(".github", "workflows", "ci.yml")), ".github/workflows/ci.yml")
+  if (ci) {
+    if (!ci.includes("ubuntu-latest") || !ci.includes("windows-latest")) errors.push(".github/workflows/ci.yml: Pi runtime matrix must cover Linux and Windows")
+    if (!ci.includes("npm run ci")) errors.push(".github/workflows/ci.yml: must execute canonical npm run ci")
+    if (!/^\s*name:\s*CI Gate\s*$/m.test(ci)) errors.push(".github/workflows/ci.yml: missing CI Gate aggregate job name")
+    if (!/needs:\s*\[\s*pi\s*\]/m.test(ci)) errors.push(".github/workflows/ci.yml: CI Gate must depend on pi")
+    if (!/if:\s*always\(\)/m.test(ci)) errors.push(".github/workflows/ci.yml: aggregate gate must use if: always()")
   }
 
-  // 9. Check npm script docs:check exists
-  if (pkg.ok) {
-    const pkgScripts = pkg.value.scripts || {}
-    if (!pkgScripts["docs:check"]) {
-      warnings.push("package.json: missing docs:check npm script")
-    }
-    if (expectedVersion.startsWith("13.") && !pkgScripts["evals:v13"]) {
-      errors.push("package.json: V13 requires evals:v13 regression script")
+  const security = requireText(errors, readText(root, path.join(".github", "workflows", "security.yml")), ".github/workflows/security.yml")
+  if (security) {
+    if (!/^\s*name:\s*Security Gate\s*$/m.test(security)) errors.push(".github/workflows/security.yml: missing Security Gate aggregate job name")
+    if (!/needs:\s*\[\s*codeql\s*,\s*dependency-review\s*\]/m.test(security)) {
+      errors.push(".github/workflows/security.yml: Security Gate must depend on codeql and dependency-review")
     }
   }
+
+  const publish = requireText(errors, readText(root, path.join(".github", "workflows", "publish.yml")), ".github/workflows/publish.yml")
+  if (publish) {
+    if (!publish.includes("npm run release:check-tag")) errors.push(".github/workflows/publish.yml: must verify release tag")
+    if (!publish.includes("already published")) errors.push(".github/workflows/publish.yml: missing idempotency check for existing versions")
+  }
+
+  if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)
+  if (promptCount < 10) warnings.push(`Pi prompt catalog unexpectedly small: ${promptCount}`)
 
   return {
     pass: errors.length === 0,
     errors,
     warnings,
-    version: expectedVersion,
+    version,
     skillCount,
     commandCount,
-    subagentCount: agentCount,
+    subagentCount,
+    promptCount,
     staticScenarioCount,
     routerCaseCount,
   }
@@ -247,14 +193,14 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const result = checkReleaseConsistency(process.env.UES_BUNDLE_ROOT || DEFAULT_ROOT)
   if (result.warnings.length) {
     console.warn("Warnings:")
-    for (const w of result.warnings) console.warn(`  WARN: ${w}`)
+    for (const warning of result.warnings) console.warn(`  WARN: ${warning}`)
   }
   if (result.errors.length) {
     console.error("Release consistency check FAILED:")
-    for (const e of result.errors) console.error(`  - ${e}`)
+    for (const error of result.errors) console.error(`  - ${error}`)
     process.exit(1)
   }
   console.log(
-    `Release consistency check PASS: package=${result.version}, skills=${result.skillCount}, commands=${result.commandCount}, subagents=${result.subagentCount}`,
+    `Release consistency check PASS: package=${result.version}, skills=${result.skillCount}, prompts=${result.promptCount}, subagents=${result.subagentCount}`,
   )
 }
