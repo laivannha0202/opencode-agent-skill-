@@ -5,7 +5,7 @@ import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { destructiveShellRisk } from "../../global-config/plugins/ues-router/safety.js";
+import { destructiveShellRisk } from "../../lib/safety.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OCSKILL_BIN = path.join(PACKAGE_ROOT, "bin", "ocskill.mjs");
