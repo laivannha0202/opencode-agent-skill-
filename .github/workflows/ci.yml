@@ -30,9 +30,6 @@ jobs:
       - name: Install package metadata
         run: npm ci --ignore-scripts
 
-      - name: Install Pi host peers
-        run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent typebox
-
       - name: Syntax
         run: npm run syntax
 
