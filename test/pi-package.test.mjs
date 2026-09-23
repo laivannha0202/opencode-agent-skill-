@@ -17,6 +17,7 @@ test("Pi package manifest exposes UES resources", () => {
   assert.ok(pkg.files.includes("global-config/plugins/"))
   assert.ok(pkg.files.includes("global-config/AGENTS.md"))
   assert.equal(pkg.scripts?.["smoke:packed"], "node scripts/smoke-packed-install.mjs")
+  assert.match(pkg.scripts?.ci || "", /npm run smoke:packed/)
   assert.equal(pkg.scripts?.postinstall, undefined)
   assert.equal(pkg.scripts?.preuninstall, undefined)
   assert.equal(pkg.pi.extensions[0], "./pi/extensions/ues.ts")
@@ -59,6 +60,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /taskkill/)
   assert.match(source, /stopChildTree\(proc\)/)
   assert.match(source, /UES controller: \$\{progress\.agent\} running/)
+  assert.match(source, /shouldRunDedicatedDiagnosis\(policy, 1\)/)
+  assert.match(source, /attempt > 1 && shouldRunDedicatedDiagnosis\(policy, attempt\)/)
   assert.match(source, /UES scheduler: \$\{item\.task\.id\} \$\{progress\.agent\} running/)
 
   const evalSource = fs.readFileSync(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
