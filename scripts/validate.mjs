@@ -110,6 +110,8 @@ if (!existsSync(routerTextRuntime)) errors.push("missing V13 UTF-aware router te
 if (!existsSync(routerVerifierRuntime)) errors.push("missing V13 verifier verdict runtime")
 if (existsSync(routerIndex)) {
   const source = await readFile(routerIndex, "utf8")
+  if (source.includes("@opencode/plugin")) errors.push("v2 router plugin must be self-contained and not require @opencode/plugin at runtime")
+  if (!source.includes("export default {")) errors.push("v2 router plugin must export a plain default plugin definition")
   if (!source.includes('id: "ues-router"')) errors.push("v2 router plugin must declare stable id ues-router")
   if (!source.includes('ctx.session.hook("prompt"')) errors.push("v2 router plugin must register prompt admission hook")
   if (!source.includes('ctx.session.hook("context"')) errors.push("v2 router plugin must register context guardrail hook")
