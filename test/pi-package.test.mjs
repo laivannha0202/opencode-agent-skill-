@@ -45,6 +45,10 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /stdio:\s*\["pipe",\s*"pipe",\s*"pipe"\]/)
   assert.match(source, /proc\.stdin\.end\(taskInput\)/)
   assert.match(source, /const taskInput = `Task:/)
+  assert.doesNotMatch(source, /"--no-extensions"/)
+  assert.match(source, /const READ_TOOLS = \["read", "grep", "find", "ls", "bash", "powershell"\]/)
+  assert.match(source, /const WRITE_TOOLS = \[\.\.\.READ_TOOLS, "edit", "write"\]/)
+  assert.match(source, /args\.push\("--tools", config\.tools\.join\(","\)\)/)
 
   const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
   assert.match(smokeSource, /sanitizedNpmChildEnv/)
