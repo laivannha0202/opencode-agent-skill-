@@ -42,6 +42,11 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /destructiveShellRisk/)
   assert.match(source, /writer agents require an explicit cwd/i)
 
+  const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
+  assert.match(smokeSource, /sanitizedNpmChildEnv/)
+  assert.match(smokeSource, /npm_config_allow_scripts/)
+  assert.match(smokeSource, /cwd:\s*tempDir/)
+
   const requiredPrompts = [
     "ues-run.md",
     "ues-plan.md",
