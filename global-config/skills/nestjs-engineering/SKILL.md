@@ -1,6 +1,6 @@
 ---
 name: nestjs-engineering
-description: Work on NestJS apps: modules, controllers, providers, DTO validation, guards, interceptors, persistence, and tests.
+description: "Work on NestJS apps: modules, controllers, providers, DTO validation, guards, interceptors, persistence, and tests."
 ---
 
 # Nestjs Engineering
