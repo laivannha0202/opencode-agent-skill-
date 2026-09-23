@@ -42,6 +42,10 @@ UES converts managed agent permission frontmatter to V2 ordered `permissions` an
 
 V13 also installs the 11 UES slash-command templates inside the managed router as V2 **prompt aliases** instead of registering them as native global custom commands. Typing `/ues-run ...`, `/ues-fix ...`, and the other `/ues-*` aliases therefore travels through `session.prompt`; the router expands the same bundled command contract before routing skills. This is a compatibility workaround for V2 custom-command transport failures such as `UnsupportedContentType` from the `session.command` path. Re-syncing with `ocskill install` removes stale UES-managed native command files from older installs.
 
+For `/ues-run`, V13.0.0-beta.3 adds adaptive admission before the prompt is sent to the model. The router classifies the real user arguments, not the expanded command template. FAST and STANDARD work receive compact envelopes, while only DEEP/long-horizon/high-risk work keeps the full durable workflow. `/ues-resume` stays explicitly durable. This prevents a trivial or bounded request from being turned into a long-running repository workflow simply because the user typed `/ues-run`.
+
+Prompt admission performs that classification **in-process** inside the managed V2 router using the same policy implementation exported to the CLI. It does not depend on launching the global `ocskill` shim or on the OpenCode service inheriting the user's npm PATH. This keeps the compact FAST/STANDARD envelope deterministic in service sessions as well as interactive shells.
+
 The plugin provides:
 
 - prompt-admission skill routing

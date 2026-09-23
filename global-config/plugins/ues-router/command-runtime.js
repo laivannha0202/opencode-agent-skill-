@@ -29,6 +29,60 @@ export function normalizeUesPromptPaste(text) {
   return value
 }
 
+export function policySourceForPromptAlias(promptAlias, promptText) {
+  if (!promptAlias) return normalizeUesPromptPaste(promptText).trim()
+
+  const args = String(promptAlias.arguments || "").trim()
+  if (promptAlias.alias === "ues-resume") {
+    return [
+      "Resume an existing durable UES execution.",
+      args,
+    ].filter(Boolean).join("\n")
+  }
+
+  return args || `/${promptAlias.alias}`
+}
+
+export function promptAliasTextForPolicy(promptAlias, policy) {
+  if (!promptAlias) return null
+  if (promptAlias.alias !== "ues-run") return promptAlias.text
+
+  const args = String(promptAlias.arguments || "").trim()
+  const mode = String(policy?.mode || "").toLowerCase()
+  const risk = String(policy?.risk || "").toLowerCase()
+  const profile = String(policy?.executionProfile || policy?.profile?.name || "").toLowerCase()
+  const isDeep = mode === "long-horizon" || risk === "high" || profile === "deep"
+  const isFast = !isDeep && (profile === "fast" || mode === "inline")
+  const isStandard = !isDeep && (profile === "standard" || mode === "standard")
+
+  if (isFast) {
+    return [
+      "UES V2 prompt alias: /ues-run. Adaptive policy selected FAST from the actual user request.",
+      "Preserve the user's exact requested outcome and response constraints.",
+      "Do not initialize .ues-work, create SPEC/PLAN state, inspect the repository, dispatch subagents, or run verification unless the request itself requires repository work or machine-checkable evidence.",
+      "If the request is directly answerable, answer it directly now.",
+      "",
+      "User request:",
+      args,
+    ].join("\n").trim()
+  }
+
+  if (isStandard) {
+    return [
+      "UES V2 prompt alias: /ues-run. Adaptive policy selected STANDARD from the actual user request.",
+      "Preserve the user's exact requested outcome and approval boundaries.",
+      "Use targeted repository evidence, bounded edits, and targeted + affected verification.",
+      "Do not create durable .ues-work state, plan gates, integration gates, or parallel workers unless new evidence justifies reclassification to DEEP/high-risk.",
+      "If evidence materially widens scope or risk, re-run ocskill task-policy on a concise updated summary before escalating.",
+      "",
+      "User request:",
+      args,
+    ].join("\n").trim()
+  }
+
+  return promptAlias.text
+}
+
 export function policyPromptForCli(text, maxChars = 12_000) {
   const raw = normalizeUesPromptPaste(text).trim()
   const limit = Math.max(2_000, Number(maxChars) || 12_000)

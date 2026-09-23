@@ -8,8 +8,11 @@ import {
   expandUesPromptAlias,
   normalizeUesPromptPaste,
   policyPromptForCli,
+  policySourceForPromptAlias,
+  promptAliasTextForPolicy,
   UES_PROMPT_ALIASES,
 } from "../global-config/plugins/ues-router/command-runtime.js"
+import { classifyEngineeringTask } from "../lib/orchestrator-policy.mjs"
 
 test("V13 exposes every managed UES slash command as a V2 prompt alias", () => {
   assert.deepEqual(UES_PROMPT_ALIASES, [
@@ -152,4 +155,135 @@ test("V13 expands a very large multiline /ues-run prompt without duplicating the
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
+})
+
+
+test("V13 /ues-run classifies the actual user request instead of forcing long-horizon", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-command-runtime-policy-"))
+  try {
+    await writeFile(
+      path.join(dir, "run.md"),
+      "---\ndescription: run\nagent: build\n---\n\nRun adaptive task: $ARGUMENTS\n",
+      "utf8",
+    )
+    const alias = expandUesPromptAlias("/ues-run\n\nChỉ trả lời đúng một từ: OK", dir)
+    const source = policySourceForPromptAlias(alias, alias.text)
+    assert.equal(source, "Chỉ trả lời đúng một từ: OK")
+
+    const policy = classifyEngineeringTask(source)
+    assert.equal(policy.mode, "inline")
+    assert.equal(policy.executionProfile, "fast")
+    assert.equal(policy.profile.durableState, false)
+
+    const runtimePrompt = promptAliasTextForPolicy(alias, policy)
+    assert.match(runtimePrompt, /selected FAST/)
+    assert.match(runtimePrompt, /Chỉ trả lời đúng một từ: OK/)
+    assert.doesNotMatch(runtimePrompt, /long-horizon workflow/)
+    assert.doesNotMatch(runtimePrompt, /ocskill work init/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("V13 /ues-run keeps STANDARD work compact and escalates real large work to DEEP", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-command-runtime-adaptive-"))
+  try {
+    await writeFile(
+      path.join(dir, "run.md"),
+      "---\ndescription: run\nagent: build\n---\n\nDEEP CONTRACT\nRun task: $ARGUMENTS\nocskill work init\n",
+      "utf8",
+    )
+
+    const standardRequest = [
+      "Fix this failing helper test and verify the affected behavior.",
+      "Inspect the direct caller and nearest test, preserve the existing public behavior,",
+      "make only the bounded change required by the failure, and run the affected test after the edit.",
+      "Do not broaden the task beyond the named helper unless deterministic evidence requires it.",
+    ].join(" ")
+    const standardAlias = expandUesPromptAlias("/ues-run " + standardRequest, dir)
+    const standardSource = policySourceForPromptAlias(standardAlias, standardAlias.text)
+    const standardPolicy = classifyEngineeringTask(standardSource)
+    assert.equal(standardPolicy.executionProfile, "standard")
+    const standardPrompt = promptAliasTextForPolicy(standardAlias, standardPolicy)
+    assert.match(standardPrompt, /selected STANDARD/)
+    assert.doesNotMatch(standardPrompt, /DEEP CONTRACT/)
+    assert.doesNotMatch(standardPrompt, /ocskill work init/)
+
+    const deepAlias = expandUesPromptAlias(
+      "/ues-run Refactor toàn bộ repository qua nhiều module và giữ trạng thái để tiếp tục công việc.",
+      dir,
+    )
+    const deepSource = policySourceForPromptAlias(deepAlias, deepAlias.text)
+    const deepPolicy = classifyEngineeringTask(deepSource)
+    assert.equal(deepPolicy.mode, "long-horizon")
+    assert.equal(deepPolicy.executionProfile, "deep")
+    assert.equal(promptAliasTextForPolicy(deepAlias, deepPolicy), deepAlias.text)
+    assert.match(deepAlias.text, /DEEP CONTRACT/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("V13 /ues-resume retains explicit durable resume semantics", async () => {
+  const alias = {
+    alias: "ues-resume",
+    arguments: "checkout-migration",
+    text: "resume contract",
+  }
+  const source = policySourceForPromptAlias(alias, alias.text)
+  assert.match(source, /Resume an existing durable UES execution/)
+  assert.match(source, /checkout-migration/)
+  assert.equal(classifyEngineeringTask(source).mode, "long-horizon")
+  assert.equal(promptAliasTextForPolicy(alias, classifyEngineeringTask(source)), "resume contract")
+})
+
+test("V13 bundled /ues-run template is adaptive and does not declare every task long-horizon", async () => {
+  const source = await readFile(new URL("../global-config/commands/run.md", import.meta.url), "utf8")
+  assert.match(source, /UES adaptive workflow/)
+  assert.match(source, /answer it directly and stop/i)
+  assert.match(source, /FAST \/ inline/)
+  assert.match(source, /STANDARD/)
+  assert.match(source, /DEEP \/ long-horizon \/ high-risk/)
+  assert.doesNotMatch(source, /Run this task using the UES long-horizon workflow/)
+})
+
+
+test("V13 adaptive prompt derives FAST/STANDARD from mode when profile metadata is absent", () => {
+  const alias = {
+    alias: "ues-run",
+    arguments: "Check the named helper.",
+    text: "DEEP CONTRACT",
+  }
+  const fast = promptAliasTextForPolicy(alias, { mode: "inline", risk: "low" })
+  assert.match(fast, /selected FAST/)
+  assert.doesNotMatch(fast, /DEEP CONTRACT/)
+
+  const standard = promptAliasTextForPolicy(alias, { mode: "standard", risk: "medium" })
+  assert.match(standard, /selected STANDARD/)
+  assert.doesNotMatch(standard, /DEEP CONTRACT/)
+
+  const deep = promptAliasTextForPolicy(alias, { mode: "standard", risk: "high" })
+  assert.equal(deep, "DEEP CONTRACT")
+})
+
+
+test("V13 V2 prompt admission classifies locally without spawning ocskill task-policy", async () => {
+  const source = await readFile(
+    new URL("../global-config/plugins/ues-router/index.js", import.meta.url),
+    "utf8",
+  )
+  assert.match(source, /classifyEngineeringTask\(policyInput\.text\)/)
+  assert.match(source, /from "\.\/policy-runtime\.js"/)
+  assert.doesNotMatch(source, /runOcskillJSON\(\["task-policy"/)
+})
+
+test("V13 CLI and V2 router share one task-policy implementation", async () => {
+  const libSource = await readFile(new URL("../lib/orchestrator-policy.mjs", import.meta.url), "utf8")
+  const runtimeSource = await readFile(
+    new URL("../global-config/plugins/ues-router/policy-runtime.js", import.meta.url),
+    "utf8",
+  )
+  assert.match(libSource, /from "\.\.\/global-config\/plugins\/ues-router\/policy-runtime\.js"/)
+  assert.match(runtimeSource, /export function classifyEngineeringTask/)
+  assert.match(runtimeSource, /export function recoveryPolicyForAttempt/)
 })

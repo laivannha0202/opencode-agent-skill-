@@ -1,6 +1,6 @@
 # V13 Parallel Weak-Model Runtime
 
-Status: beta prerelease (`13.0.0-beta.1`).
+Status: beta prerelease (`13.0.0-beta.3`).
 
 ## Goal
 
@@ -37,6 +37,16 @@ If no explicit model is supplied, the configured executor model is shared. If no
 V13 keeps CLI, durable state, receipts, task graphs and Windows text hardening available on OpenCode 1.x. Native `ues.dispatch_task` and `ues.dispatch_parallel` require the V2 router plugin plus the fresh-session capability surface. The router checks capabilities at runtime and fails closed if create/prompt/wait/interrupt/context/switch-agent are incomplete.
 
 When npm blocks lifecycle scripts (common with stricter npm 11+ `allowScripts` policy), install still leaves the CLI available; run `ocskill install` to perform the documented resource sync explicitly.
+
+### Adaptive /ues-run admission on OpenCode V2
+
+V2 prompt aliases classify the **actual alias arguments** before choosing the prompt envelope. `/ues-run` no longer forces long-horizon mode merely because the alias was used:
+
+- FAST requests receive a compact prompt that preserves the exact user outcome and skips durable planning unless repository work is actually required.
+- STANDARD requests use targeted repository evidence, bounded edits and affected verification without creating durable state by default.
+- DEEP / long-horizon / high-risk requests retain the full durable `.ues-work/<slug>/`, plan-gate, fresh-verifier and integration-gate contract.
+- `/ues-resume` remains explicitly durable so an existing long-running workspace is not accidentally downgraded.
+- Prompt admission classifies in-process from the bounded real request using the same policy module as the CLI; it does not shell out to `ocskill`, so OpenCode service PATH differences cannot silently disable FAST/STANDARD compaction.
 
 ## CLI hardening
 

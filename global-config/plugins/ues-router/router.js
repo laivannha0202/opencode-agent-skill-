@@ -2,6 +2,16 @@ function add(list, id) {
   if (!list.includes(id)) list.push(id)
 }
 
+const HIGH_RISK_MUTATION = /((?:fix|change|modify|update|alter|migrate|drop|truncate|delete|remove|rotate|deploy|publish|push|sửa|thay đổi|cập nhật|xóa|xoá|di trú|chuyển đổi|triển khai).{0,64}(?:\bauth\b|authorization|authentication|security|permission|payment(?: handling| flow)?|schema|database|production|public api|secret|credential|phân quyền|bảo mật|thanh toán|cơ sở dữ liệu|api công khai|bí mật|thông tin xác thực)|(?:\bauth\b|authorization|authentication|security|permission|payment(?: handling| flow)?|schema|database|production|public api|secret|credential|phân quyền|bảo mật|thanh toán|cơ sở dữ liệu|api công khai|bí mật|thông tin xác thực).{0,64}(?:fix|change|modify|update|alter|migrate|drop|truncate|delete|remove|rotate|deploy|publish|push|sửa|thay đổi|cập nhật|xóa|xoá|di trú|chuyển đổi|triển khai)|database migration|schema migration|migrate database|migrate schema|drop table|truncate table|deploy(?:ment)?\s+(?:to\s+)?production|production\s+deploy(?:ment)?|rotate\s+(?:secret|credential)|breaking\s+(?:change\s+to\s+)?(?:public\s+)?api|npm publish|git push|force push|reset --hard|git clean)/i
+
+function riskTextFor(value) {
+  return String(value || "")
+    .replace(/\b(?:do not|don't|without)\s+(?:edit|modify|change|write|delete|remove)[^.\n]*/gi, "")
+    .replace(/\b(?:no|read[- ]only)\s+(?:edits?|changes?|writes?)[^.\n]*/gi, "")
+    .replace(/không\s+(?:sửa|chỉnh sửa|thay đổi|ghi|xóa|xoá)[^.\n]*/gi, "")
+    .replace(/chỉ\s+đọc[^.\n]*/gi, "")
+}
+
 const PROCESS_SKILLS = new Set([
   "ues-engineering-orchestrator",
   "ues-long-task-state",
@@ -90,8 +100,8 @@ export function classifyIntent(text, facts = {}) {
   if (/(refactor|cleanup|restructure|refactor toàn bộ)/.test(value)) add(actions, "refactor")
   if (/(latest|current docs|documentation|release notes|version compatibility|dependency|package version|api changed|tài liệu mới nhất|phiên bản mới|tương thích phiên bản|package mới)/.test(value)) add(actions, "research")
 
-  const risky = /(migration|schema|database|sql|\bauth\b|authorization|authentication|permission|security|payment|webhook|public api|contract|dependency|deploy|\bci\b|production|rollback|cơ sở dữ liệu|phân quyền|xác thực|bảo mật|thanh toán|triển khai|phụ thuộc)/.test(value)
-  const longHorizon = value.length > 700 || /(large task|big task|long[- ]running|multi[- ]file|cross[- ]module|whole (?:repo|repository|project)|entire (?:repo|repository|project)|full refactor|refactor all|migrate all|resume this work|toàn bộ (?:repo|repository|dự án)|nhiều file|nhiều module|refactor toàn bộ|tiếp tục công việc)/.test(value)
+  const risky = HIGH_RISK_MUTATION.test(riskTextFor(value))
+  const longHorizon = value.length > 700 || /(large task|big task|long[- ]running|multi[- ]file|cross[- ]module|whole (?:repo|repository|project)|entire (?:repo|repository|project)|full refactor|refactor all|migrate all|multi[- ]step migration|migration across|resume this work|toàn bộ (?:repo|repository|dự án)|nhiều file|nhiều module|refactor toàn bộ|tiếp tục công việc)/.test(value)
   const nonTrivial = value.length > 220 || risky || actions.length > 0
 
   const feedbackDomains = [...new Set((facts.feedbackDomains || []).filter((item) => domains.includes(item)))]

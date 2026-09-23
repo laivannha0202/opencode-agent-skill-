@@ -8,7 +8,13 @@ import { runtimeCapabilities } from "./capabilities.js"
 import { parallelRootBaseline, runEventDrivenDAG } from "./parallel-runtime.js"
 import { readProjectJson, readProjectText } from "./text-runtime.js"
 import { extractVerifierVerdict } from "./verifier-runtime.js"
-import { expandUesPromptAlias, policyPromptForCli } from "./command-runtime.js"
+import {
+  expandUesPromptAlias,
+  policyPromptForCli,
+  policySourceForPromptAlias,
+  promptAliasTextForPolicy,
+} from "./command-runtime.js"
+import { classifyEngineeringTask } from "./policy-runtime.js"
 import {
   budgetToolResult,
   classifyProviderFailure,
@@ -1538,9 +1544,17 @@ export default {
       const config = routerConfig()
       if (!config.enabled) return
 
-      const promptAlias = expandUesPromptAlias(event.prompt?.text, COMMAND_TEMPLATE_DIR)
+      const originalPromptText = String(event.prompt?.text || "")
+      const promptAlias = expandUesPromptAlias(originalPromptText, COMMAND_TEMPLATE_DIR)
+      const routingText = promptAlias
+        ? (promptAlias.arguments || `/${promptAlias.alias}`)
+        : originalPromptText
+      const policySource = policySourceForPromptAlias(promptAlias, originalPromptText)
+      const policyInput = policyPromptForCli(policySource)
+      const policy = classifyEngineeringTask(policyInput.text)
+
       if (promptAlias && event.prompt) {
-        event.prompt.text = promptAlias.text
+        event.prompt.text = promptAliasTextForPolicy(promptAlias, policy)
         event.metadata = {
           ...event.metadata,
           uesPromptAlias: {
@@ -1548,27 +1562,12 @@ export default {
             sourceName: promptAlias.sourceName,
             preferredAgent: promptAlias.agent,
             transport: "session.prompt",
+            adaptiveProfile: policy?.executionProfile || policy?.profile?.name || null,
           },
         }
       }
 
-      const promptText = String(event.prompt?.text || "")
-      const routingText = promptAlias
-        ? (promptAlias.arguments || `/${promptAlias.alias}`)
-        : promptText
-      const policySource = promptAlias
-        ? [
-            ["ues-run", "ues-resume"].includes(promptAlias.alias)
-              ? "Explicit long-horizon engineering request."
-              : `UES command /${promptAlias.alias}.`,
-            promptAlias.arguments,
-          ].filter(Boolean).join("\n")
-        : routingText
-      const policyInput = policyPromptForCli(policySource)
-      let policy = null
-      try {
-        policy = runOcskillJSON(["task-policy", policyInput.text], projectRoot)
-      } catch {}
+      const promptText = String(event.prompt?.text || originalPromptText)
       const intent = classifyIntent(routingText, routingFacts)
       const effectiveMaxSkills = Math.max(
         1,

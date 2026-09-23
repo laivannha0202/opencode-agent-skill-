@@ -6,11 +6,36 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [13.0.0-beta.3] - 2026-09-23
+
 ### Fixed
-- Routed all 11 `/ues-*` commands through the stable V2 `session.prompt` path using router-managed prompt aliases, avoiding `UnsupportedContentType` failures from the native `session.command` transport while preserving the same command templates and V1 native-command behavior.
+- Separated sensitive-domain detection from high-risk mutation detection so read-only requests that merely mention database, auth, payment, security, production or public API concepts no longer escalate to DEEP by keyword alone.
+- Stripped explicit read-only negations such as `do not edit`, `without editing`, `không sửa` and `chỉ đọc` from mutation-risk matching so safety instructions do not become false mutation signals.
+- Kept real sensitive mutations high-risk, including database/schema migrations, auth or permission changes, payment-flow changes, production deployment, secret/credential rotation, destructive Git/database actions and breaking public-API changes.
+- Aligned V2 skill routing with the corrected risk semantics so FAST read-only domain inspection keeps direct domain skills without generic orchestration or change-impact overhead.
+- Preserved the beta.2 adaptive `/ues-run` transport fix: the real user request drives FAST/STANDARD/DEEP admission, while `/ues-resume` remains explicitly durable.
+
+### Regression coverage
+- Added exact regression coverage for the reported Vietnamese read-only repository inspection that mentions `database`.
+- Added coverage proving read-only auth/payment review is not high-risk while a real production database migration remains DEEP/high-risk.
+- Added routing coverage proving read-only database inspection keeps the direct database skill but drops orchestrator/change-impact skills under FAST policy.
+
+## [13.0.0-beta.2] - 2026-09-23
+
+### Fixed
+- Routed all 11 `/ues-*` commands through the stable V2 `session.prompt` path using router-managed prompt aliases, avoiding `UnsupportedContentType` failures from the native `session.command` transport while preserving compatible command behavior.
 - Prevented `/ues-run` from duplicating the full `$ARGUMENTS` payload inside its task-policy example, reducing long-prompt amplification.
 - Fixed OpenCode V2 local router loading on clean global configs by removing the unnecessary bare `@opencode/plugin` runtime import; `ues-router` now exports the plain `{ id, setup }` definition accepted by the V2 loader.
 - Prevented OpenCode V2 UES router subprocesses (`where`, `ocskill`, Node shim execution and Git probes) from flashing transient CMD windows on Windows by routing them through a hidden-window spawn wrapper.
+- Changed `/ues-run` from an unconditional long-horizon declaration into adaptive FAST / STANDARD / DEEP admission driven by the actual user request and task policy.
+- Removed the synthetic `Explicit long-horizon engineering request.` policy input for `/ues-run`; only `/ues-resume` retains explicit durable-resume semantics.
+- Added compact FAST and STANDARD V2 prompt envelopes so trivial or bounded work does not inherit `.ues-work`, plan-gate, subagent-dispatch and integration-gate overhead.
+- Removed the V2 prompt-admission dependency on spawning the global `ocskill task-policy` shim. The router now classifies in-process using the same shared policy implementation as the CLI, so FAST/ STANDARD envelope selection does not depend on the OpenCode service PATH.
+- Kept one task-policy implementation shared by the CLI and V2 router to prevent classification drift.
+
+### Regression coverage
+- Added V13 tests proving that `/ues-run Chỉ trả lời đúng một từ: OK` stays FAST, bounded fixes stay STANDARD, whole-repository work escalates to DEEP, and `/ues-resume` remains long-horizon.
+- Added a contract test ensuring the bundled `/ues-run` template itself is adaptive rather than declaring every invocation long-horizon.
 
 ## [13.0.0-beta.1] - 2026-09-23
 
