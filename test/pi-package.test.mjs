@@ -9,6 +9,12 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 test("Pi package manifest exposes UES resources", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"))
+  assert.equal(pkg.bin?.ues, "bin/ocskill.mjs")
+  assert.equal(pkg.bin?.ocskill, "bin/ocskill.mjs")
+  assert.equal(pkg.scripts?.["eval:pi"], "node scripts/eval-pi.mjs")
+  assert.ok(pkg.files.includes("scripts/"))
+  assert.ok(pkg.files.includes("evals/"))
+  assert.ok(pkg.files.includes("global-config/plugins/"))
   assert.equal(pkg.pi.extensions[0], "./pi/extensions/ues.ts")
   assert.deepEqual(pkg.pi.skills, ["./global-config/skills"])
   assert.deepEqual(pkg.pi.prompts, ["./pi/prompts/*.md"])
@@ -29,6 +35,10 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /name:\s*"ues_execute"/)
   assert.match(source, /buildAdaptiveTaskContext/)
   assert.match(source, /resolveCapabilityModel/)
+  assert.match(source, /computeSafeWaves/)
+  assert.match(source, /createTaskSandbox/)
+  assert.match(source, /UES_PLAN_JSON/)
+  assert.match(source, /recordModelPerformance/)
   assert.match(source, /destructiveShellRisk/)
   assert.match(source, /writer agents require an explicit cwd/i)
 
