@@ -12,13 +12,15 @@
     "lib/",
     "global-config/skills/",
     "global-config/agents/",
+    "global-config/commands/",
+    "global-config/plugins/",
     "pi/",
+    "scripts/",
+    "evals/",
     "docs/PI-COMPAT.md",
+    "docs/OPENCODE-COMPAT.md",
     "README.md",
-    "LICENSE",
-    "scripts/eval-pi.mjs",
-    "scripts/eval-report.mjs",
-    "evals/"
+    "LICENSE"
   ],
   "scripts": {
     "syntax": "node scripts/syntax-check.mjs",
