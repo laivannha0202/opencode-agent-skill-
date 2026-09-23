@@ -77,6 +77,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(packedSmokeSource, /"install", "-g", tarball, "--prefix", prefix, "--ignore-scripts"/)
   assert.match(packedSmokeSource, /\[cli, "install"\]/)
   assert.match(packedSmokeSource, /explicit legacy OpenCode sync from packed copy/)
+  assert.match(packedSmokeSource, /UES_CONFIG_DIR:\s*uesConfigDir/)
+  assert.match(packedSmokeSource, /packed smoke must not read the user's real UES model policy/)
   assert.doesNotMatch(packedSmokeSource, /automatic OpenCode sync/)
 
   const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
