@@ -494,6 +494,7 @@ function compactContextPack(pack: any, recentFailure?: string) {
       retrieval: item.retrieval || null,
     })),
     memoryRetrieval: pack?.memoryRetrieval || null,
+    providers: (pack?.capabilityFabric?.providers || []).slice(0, 12),
     instructions: (manifest.instructions || []).slice(0, 12),
     references: (manifest.rankedReferences || []).slice(0, 16),
     evidencePointers: (manifest.evidencePointers || []).slice(0, 16),
@@ -606,6 +607,7 @@ async function rememberVerifiedTask(
   task: string,
   verification: RunResult,
   integration: RunResult | null = null,
+  files: string[] = [],
 ) {
   try {
     return await recordVerifiedTaskMemory(cwd, {
@@ -614,6 +616,7 @@ async function rememberVerifiedTask(
       verifierOutput: verification.output || "",
       integrationOutput: integration?.output || "",
       sourceTask: task,
+      files,
     });
   } catch {
     // Persistent memory is an optimization. Never turn a verified task into a failure.
@@ -1257,7 +1260,8 @@ export default function (pi: ExtensionAPI) {
             };
           }
 
-          const memory = await rememberVerifiedTask(cwd, params.task, integration, integration);
+          const memoryFiles = [...new Set(structuredPlan.tasks.flatMap((task: any) => taskWriteFiles(task)))];
+          const memory = await rememberVerifiedTask(cwd, params.task, integration, integration, memoryFiles);
           return {
             content: [{
               type: "text",

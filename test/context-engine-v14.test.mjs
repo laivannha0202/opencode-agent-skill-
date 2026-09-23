@@ -47,6 +47,8 @@ test("V14 adaptive context carries hierarchy and verified memory into the child-
     assert.equal(result.memories[0].id, candidate.id)
     assert.equal(result.promptEnvelope.dynamic.memories[0].id, candidate.id)
     assert.ok(result.promptEnvelope.dynamic.contextHints.hierarchy.length > 0)
+    assert.ok(result.capabilityFabric.providers.some((item) => item.capability === "memory" && item.selected === "ues-memory"))
+    assert.ok(result.promptEnvelope.dynamic.contextHints.providers.some((item) => item.capability === "code.search"))
   } finally {
     await rm(root, { recursive: true, force: true })
   }

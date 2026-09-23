@@ -16,7 +16,7 @@ UES builds deterministic repository summaries on top of the incremental semantic
 - **L1**: bounded overview with child areas, important symbols, extensions and files;
 - **L2**: existing task-context source/test/instruction excerpts loaded only after scope selection.
 
-`buildContextManifest` still preserves declared files, tests, Git changes and graph evidence, but semantic references inside selected hierarchy scopes receive a deterministic boost. The compact Pi child context includes only the highest-ranked L0/L1 scopes. A diversity fence prevents a single parent/child directory chain from consuming the complete scope budget.
+`buildContextManifest` still preserves declared files, tests, Git changes and graph evidence, but semantic references inside selected hierarchy scopes receive a deterministic boost. The compact Pi child context includes only the highest-ranked L0/L1 scopes. A diversity fence prevents a single parent/child directory chain from consuming the complete scope budget. Durable `.ues-work` task packs use the same hierarchy, verified-memory recall and bounded capability-provider hints as inline Pi execution.
 
 ### Verified persistent memory
 
@@ -29,7 +29,7 @@ candidate -> durable evidence -> independent PASS -> verified -> retrieval
                                                 \-> superseded
 ```
 
-A memory cannot become retrievable merely because an agent emitted text. Verification requires at least one content-addressed Evidence Store reference and a named verifier. Successful `ues_execute` runs record a bounded evidence receipt and promote an episodic memory only after task or integration verification passes.
+A memory cannot become retrievable merely because an agent emitted text. Verification requires at least one content-addressed Evidence Store reference and a named verifier. Successful `ues_execute` runs record a bounded evidence receipt and promote an episodic memory only after task or integration verification passes. Durable work finalization does the same after a recorded integration PASS, using declared plan files rather than unrelated dirty workspace files.
 
 Retrieval combines deterministic lexical BM25-style relevance, hashed-vector similarity, file-path affinity, task-class affinity, scope, recency and confidence using reciprocal-rank fusion. Candidate, superseded and expired memories are excluded. Recalled memories track `lastUsedAt` and `useCount` for future policy tuning.
 

@@ -1,12 +1,14 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { spawnSync } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
 import { putEvidence } from "../lib/evidence-store.mjs"
 import {
   memoryStatus,
   proposeMemory,
+  recordVerifiedTaskMemory,
   retrieveMemories,
   supersedeMemory,
   verifyMemory,
@@ -116,6 +118,28 @@ test("V14 memory supports task-class affinity, expiry, and usage accounting", as
     const status = await memoryStatus(root)
     assert.equal(status.expired, 1)
     assert.equal(status.used, 1)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("V14 verified task memory keeps explicit declared file scope instead of absorbing unrelated dirty files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-memory-v14-scope-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "target.mjs"), "export const target = true\n")
+    await writeFile(path.join(root, "unrelated.txt"), "pre-existing unrelated change\n")
+    assert.equal(spawnSync("git", ["init"], { cwd: root, stdio: "ignore" }).status, 0)
+
+    const memory = await recordVerifiedTaskMemory(root, {
+      task: "Fix only the declared target module",
+      files: ["src/target.mjs"],
+      verifier: "ues-verifier",
+      verifierOutput: "UES_VERDICT: PASS",
+    })
+    assert.equal(memory.status, "verified")
+    assert.deepEqual(memory.files, ["src/target.mjs"])
   } finally {
     await rm(root, { recursive: true, force: true })
   }
