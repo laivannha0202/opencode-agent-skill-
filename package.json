@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
   "version": "13.0.0-beta.3",
-  "description": "Parallel weak-model engineering runtime with isolated same-model workers, event-driven DAG execution, transactional integration, adaptive context and evidence-gated verification for OpenCode",
+  "description": "Parallel weak-model engineering runtime with adaptive context, durable evidence and verified workflows for OpenCode and Pi",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs"
@@ -11,6 +11,7 @@
     "lib/",
     "scripts/",
     "global-config/",
+    "pi/",
     "evals/",
     "docs/",
     "README.md",
@@ -65,7 +66,9 @@
     "verification",
     "visual-testing",
     "browser-automation",
-    "multimodal-agents"
+    "multimodal-agents",
+    "pi-package",
+    "pi-agent"
   ],
   "engines": {
     "node": ">=20"
@@ -81,5 +84,28 @@
   "bugs": {
     "url": "https://github.com/laivannha0202/opencode-agent-skill-/issues"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "pi": {
+    "extensions": [
+      "./pi/extensions/ues.ts"
+    ],
+    "skills": [
+      "./global-config/skills"
+    ],
+    "prompts": [
+      "./pi/prompts/*.md"
+    ]
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  }
 }
