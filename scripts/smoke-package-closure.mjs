@@ -43,7 +43,7 @@ for (const required of [
   "scripts/eval-pi.mjs",
   "scripts/eval-report.mjs",
   "evals/live/tasks.json",
-  "global-config/commands/ues-run.md",
+  "global-config/commands/run.md",
   "global-config/plugins/ues-router/index.js",
 ]) {
   assert.ok(files.has(required), "packed package is missing required runtime file: " + required)
