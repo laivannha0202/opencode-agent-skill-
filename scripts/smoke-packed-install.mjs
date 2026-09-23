@@ -49,19 +49,13 @@ try {
   assert.equal(tarballs.length, 1, "expected exactly one packed tarball")
   const tarball = path.join(packDir, tarballs[0])
 
-  const npmVersion = runNpm(["--version"], { cwd: temp })
-  requireSuccess(npmVersion, "npm --version")
-  const npmMajor = Number.parseInt(npmVersion.stdout.trim().split(".")[0], 10)
-  const installArgs = ["install", "-g", tarball, "--prefix", prefix]
-  if (Number.isFinite(npmMajor) && npmMajor >= 11) {
-    installArgs.push(`--allow-scripts=${packageName}`)
-  }
+  const installArgs = ["install", "-g", tarball, "--prefix", prefix, "--ignore-scripts"]
 
   const install = runNpm(installArgs, {
     cwd: temp,
-    env: { ...process.env, OPENCODE_CONFIG_DIR: configDir, UES_OPENCODE_MAJOR: "2" },
+    env: process.env,
   })
-  requireSuccess(install, "packed global install with automatic OpenCode sync")
+  requireSuccess(install, "packed global install")
 
   const root = runNpm(["root", "-g", "--prefix", prefix], { cwd: temp })
   requireSuccess(root, "npm root -g")
@@ -81,7 +75,18 @@ try {
   assert.equal(packageJson.name, packageName)
 
   const cli = path.join(packageDir, "bin", "ocskill.mjs")
-  const env = { ...process.env, OPENCODE_CONFIG_DIR: configDir }
+  const env = {
+    ...process.env,
+    OPENCODE_CONFIG_DIR: configDir,
+    UES_OPENCODE_MAJOR: "2",
+  }
+
+  const sync = spawnSync(process.execPath, [cli, "install"], {
+    cwd: temp,
+    env,
+    encoding: "utf8",
+  })
+  requireSuccess(sync, "explicit legacy OpenCode sync from packed copy")
 
   const status = spawnSync(process.execPath, [cli, "status"], {
     cwd: temp,
