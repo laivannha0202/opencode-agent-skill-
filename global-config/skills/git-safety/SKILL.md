@@ -1,6 +1,6 @@
 ---
 name: git-safety
-description: Use Git safely: inspect status/diffs, preserve user work, stage intentional files, commit clearly, and avoid destructive history operations.
+description: "Use Git safely: inspect status/diffs, preserve user work, stage intentional files, commit clearly, and avoid destructive history operations."
 ---
 
 # Git Safety
