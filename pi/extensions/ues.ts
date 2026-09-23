@@ -898,6 +898,7 @@ export default function (pi: ExtensionAPI) {
       const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
       const steps: RunResult[] = [];
       let recentFailure = "";
+      let structuredPlan: any = null;
 
       const run = async (agent: AgentName, task: string, attempt = 1, failure?: string) => {
         const result = await runRoutedAgent(
@@ -934,13 +935,18 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (policy.requirePlanCheck) {
-        const architect = await run(
+        const planInstruction = [
+          params.task,
+          "",
+          "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
+          "For deterministic scheduling, end with UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks.",
+          "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
+          "Declare every file a task may write. Do not invent files: inspect the repository first.",
+        ].join("\n");
+
+        let architect = await run(
           "ues-architect",
-          [
-            params.task,
-            "",
-            "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
-          ].join("\n"),
+          planInstruction,
           1,
           recentFailure || undefined,
         );
@@ -952,6 +958,39 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
+        structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
+        let structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
+
+        if (
+          policy.mode === "long-horizon" &&
+          (!structuredPlan || structuredValidation?.valid !== true)
+        ) {
+          const repairEvidence = [
+            "The first architecture pass did not produce a valid UES_PLAN_JSON plan.",
+            structuredValidation ? JSON.stringify(structuredValidation, null, 2) : "UES_PLAN_JSON marker or JSON object was missing.",
+            "Return a corrected repository-grounded plan with the required marker and schema.",
+          ].join("\n");
+          architect = await run("ues-architect", planInstruction, 2, repairEvidence);
+          structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
+          structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
+          if (
+            architect.exitCode !== 0 ||
+            architect.stopReason === "error" ||
+            !structuredPlan ||
+            structuredValidation?.valid !== true
+          ) {
+            return {
+              content: [{
+                type: "text",
+                text: "Long-horizon plan could not be converted into a valid deterministic task graph.\n\n" +
+                  (structuredValidation ? JSON.stringify(structuredValidation, null, 2) : architect.output),
+              }],
+              details: { mode: "execute", policy, steps, structuredPlan, structuredValidation },
+              isError: true,
+            };
+          }
+        }
+
         const planCheck = await run(
           "ues-plan-checker",
           [
@@ -961,15 +1000,83 @@ export default function (pi: ExtensionAPI) {
             params.task,
             "",
             "Inline plan:",
-            architect.output,
+            structuredPlan ? JSON.stringify(structuredPlan, null, 2) : architect.output,
           ].join("\n"),
           1,
         );
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
             content: [{ type: "text", text: `Plan gate did not pass:\n\n${planCheck.output}` }],
-            details: { mode: "execute", policy, steps },
+            details: { mode: "execute", policy, steps, structuredPlan },
             isError: true,
+          };
+        }
+
+        if (structuredPlan?.tasks?.length > 1) {
+          const scheduled = await executeStructuredPlan({
+            plan: structuredPlan,
+            root: cwd,
+            inheritedModel,
+            inheritedThinking,
+            maxAttempts,
+            signal,
+            onUpdate,
+          });
+          for (const result of scheduled.results || []) steps.push(result as RunResult);
+
+          if (!scheduled.passed) {
+            return {
+              content: [{
+                type: "text",
+                text: "UES scheduled execution did not pass.\n\n" + String(scheduled.failure || scheduled.reason || "unknown scheduler failure"),
+              }],
+              details: { mode: "execute", policy, steps, structuredPlan, scheduled },
+              isError: true,
+            };
+          }
+
+          const integration = await run(
+            "ues-integration-verifier",
+            [
+              "Perform fresh integration verification for this completed structured plan and current working tree.",
+              "Original task:",
+              params.task,
+              "",
+              "Structured plan:",
+              JSON.stringify(structuredPlan, null, 2),
+              "",
+              "Scheduler result:",
+              JSON.stringify({
+                schedule: scheduled.schedule,
+                integrations: scheduled.integrations,
+              }, null, 2),
+              "",
+              "Do not require durable-work files for this inline controller run. Verify the final repository state, cross-task contracts, diff, and executable checks directly.",
+            ].join("\n"),
+            1,
+          );
+          if (integration.exitCode !== 0 || integration.verdict !== "PASS") {
+            return {
+              content: [{
+                type: "text",
+                text: "Structured plan completed task-level verification but final integration verification did not pass.\n\n" + integration.output,
+              }],
+              details: { mode: "execute", policy, steps, structuredPlan, scheduled },
+              isError: true,
+            };
+          }
+
+          return {
+            content: [{
+              type: "text",
+              text: [
+                `UES scheduled execution PASS across ${structuredPlan.tasks.length} task(s).`,
+                `Safe waves: ${scheduled.schedule?.safeWaves?.length || 0}; integrations: ${scheduled.integrations?.length || 0}.`,
+                "",
+                integration.output,
+              ].join("\n"),
+            }],
+            details: { mode: "execute", policy, steps, structuredPlan, scheduled, attempts: maxAttempts },
           };
         }
       }
