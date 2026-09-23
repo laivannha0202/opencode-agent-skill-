@@ -246,3 +246,22 @@ test("V13 bundled /ues-run template is adaptive and does not declare every task 
   assert.match(source, /DEEP \/ long-horizon \/ high-risk/)
   assert.doesNotMatch(source, /Run this task using the UES long-horizon workflow/)
 })
+
+
+test("V13 adaptive prompt derives FAST/STANDARD from mode when profile metadata is absent", () => {
+  const alias = {
+    alias: "ues-run",
+    arguments: "Check the named helper.",
+    text: "DEEP CONTRACT",
+  }
+  const fast = promptAliasTextForPolicy(alias, { mode: "inline", risk: "low" })
+  assert.match(fast, /selected FAST/)
+  assert.doesNotMatch(fast, /DEEP CONTRACT/)
+
+  const standard = promptAliasTextForPolicy(alias, { mode: "standard", risk: "medium" })
+  assert.match(standard, /selected STANDARD/)
+  assert.doesNotMatch(standard, /DEEP CONTRACT/)
+
+  const deep = promptAliasTextForPolicy(alias, { mode: "standard", risk: "high" })
+  assert.equal(deep, "DEEP CONTRACT")
+})
