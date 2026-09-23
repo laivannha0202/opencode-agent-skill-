@@ -30,6 +30,34 @@ function hasArg(name) {
   return args.includes(name)
 }
 
+function argValues(name) {
+  const values = []
+  for (let index = 0; index < args.length; index += 1) {
+    if (args[index] === name && index + 1 < args.length) {
+      values.push(args[index + 1])
+      index += 1
+    }
+  }
+  return values
+}
+
+function defaultProviderExtensions(modelRef) {
+  const provider = String(modelRef || "").split("/", 1)[0].toLowerCase()
+  if (provider !== "kilo") return []
+
+  const installed = path.join(
+    os.homedir(),
+    ".pi",
+    "agent",
+    "git",
+    "github.com",
+    "Kilo-Org",
+    "kilo-pi-provider",
+  )
+  if (existsSync(installed)) return [installed]
+  return ["git:github.com/Kilo-Org/kilo-pi-provider"]
+}
+
 function positiveInt(value, fallback) {
   const parsed = Number.parseInt(value ?? "", 10)
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
@@ -209,10 +237,14 @@ const keep = hasArg("--keep")
 const timeoutMs = positiveInt(argValue("--timeout-ms"), 20 * 60_000)
 const idleTimeoutMs = positiveInt(argValue("--idle-timeout-ms"), 7 * 60_000)
 const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
+const explicitProviderExtensions = argValues("--provider-extension")
+const providerExtensions = explicitProviderExtensions.length
+  ? explicitProviderExtensions
+  : defaultProviderExtensions(model)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-pi.mjs --model provider/model [--pi-command path-or-command] [--thinking off|minimal|low|medium|high|xhigh] [--suite live] [--trials N] [--task id] [--mode baseline|ues|both] [--keep]")
+  console.error("Usage: node scripts/eval-pi.mjs --model provider/model [--pi-command path-or-command] [--provider-extension path|npm:spec|git:spec] [--thinking off|minimal|low|medium|high|xhigh] [--suite live] [--trials N] [--task id] [--mode baseline|ues|both] [--keep]")
   process.exit(2)
 }
 if (!["baseline", "ues", "both"].includes(requestedMode)) {
@@ -282,6 +314,9 @@ try {
           "--model", model,
         ]
         if (thinking) piArgs.push("--thinking", thinking)
+        for (const extension of providerExtensions) {
+          piArgs.push("--extension", extension)
+        }
 
         let prompt = task.prompt
         if (mode === "ues") {
@@ -297,7 +332,10 @@ try {
         }
         piArgs.push(prompt)
 
-        console.log("[" + mode + "] " + task.id + " trial " + trial + ": starting Pi " + piVersion)
+        console.log(
+          "[" + mode + "] " + task.id + " trial " + trial + ": starting Pi " + piVersion +
+          (providerExtensions.length ? " with provider extension isolation" : ""),
+        )
         const agentRun = await runAsync(piCommand, piArgs, {
           cwd: workspace,
           env: childEnv,
@@ -375,6 +413,8 @@ try {
     trials,
     requestedMode,
     piVersion,
+    providerExtensionCount: providerExtensions.length,
+    providerExtensionSource: explicitProviderExtensions.length ? "explicit" : (providerExtensions.length ? "auto" : "none"),
     interrupted,
     generatedAt: new Date().toISOString(),
     summary,
