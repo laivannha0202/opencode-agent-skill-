@@ -24,7 +24,7 @@
   ],
   "scripts": {
     "syntax": "node scripts/syntax-check.mjs",
-    "test": "node --test test/*.test.mjs",
+    "test": "node --test",
     "test:pi": "node --test test/pi-package.test.mjs",
     "docs:check": "node scripts/check-release-consistency.mjs",
     "release:check-tag": "node scripts/check-release-tag.mjs",
