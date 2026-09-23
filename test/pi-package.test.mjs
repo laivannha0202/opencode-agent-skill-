@@ -15,6 +15,8 @@ test("Pi package manifest exposes UES resources", () => {
   assert.ok(pkg.files.includes("scripts/"))
   assert.ok(pkg.files.includes("evals/"))
   assert.ok(pkg.files.includes("global-config/plugins/"))
+  assert.ok(pkg.files.includes("global-config/AGENTS.md"))
+  assert.equal(pkg.scripts?.["smoke:packed"], "node scripts/smoke-packed-install.mjs")
   assert.equal(pkg.pi.extensions[0], "./pi/extensions/ues.ts")
   assert.deepEqual(pkg.pi.skills, ["./global-config/skills"])
   assert.deepEqual(pkg.pi.prompts, ["./pi/prompts/*.md"])
