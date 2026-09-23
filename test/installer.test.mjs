@@ -423,7 +423,7 @@ test("lifecycle scripts fail loudly and preserve state when it belongs to anothe
   const uninstallRun = spawnSync(
     process.execPath,
     [path.join(repoRoot, "scripts", "uninstall.mjs")],
-    { env: { ...process.env, OPENCODE_CONFIG_DIR: temp }, encoding: "utf8" },
+    { env: { ...process.env, OPENCODE_CONFIG_DIR: temp, npm_config_global: "true" }, encoding: "utf8" },
   )
   assert.equal(uninstallRun.status, 1)
   assert.match(uninstallRun.stderr, /State belongs to another package/)
