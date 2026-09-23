@@ -546,6 +546,11 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
 
     assert.equal(result.openCodeMajor, 2)
     assert.deepEqual(result.plugins, ["ues-router/index.js"])
+    assert.deepEqual(result.commands, [])
+    assert.ok(result.promptAliases.length >= 11)
+    assert.ok(result.promptAliases.includes("ues-run"))
+    await assert.rejects(access(path.join(temp, "commands", "ues-run.md")))
+    await access(path.join(temp, "plugins", "ues-router", "command-templates", "run.md"))
 
     const reviewer = await readFile(path.join(temp, "agents", "ues-reviewer.md"), "utf8")
     assert.match(reviewer, /permissions:/)
@@ -578,6 +583,8 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
 
     const status = await module.getStatus()
     assert.equal(status.pluginsPresent, 1)
+    assert.equal(status.commandsPresent, 0)
+    assert.equal(status.promptAliasesPresent, result.promptAliases.length)
 
     await module.removeResources()
     await assert.rejects(access(path.join(temp, "plugins", "ues-router", "index.js")))
@@ -598,6 +605,9 @@ test("switching from OpenCode v2 to v1 removes only the managed router and resto
     const result = await module.installResources({ openCodeMajor: 1 })
     assert.equal(result.openCodeMajor, 1)
     assert.deepEqual(result.plugins, [])
+    assert.deepEqual(result.promptAliases, [])
+    assert.ok(result.commands.includes("ues-run.md"))
+    await access(path.join(temp, "commands", "ues-run.md"))
     await assert.rejects(access(path.join(temp, "plugins", "ues-router", "index.js")))
 
     const reviewer = await readFile(path.join(temp, "agents", "ues-reviewer.md"), "utf8")
