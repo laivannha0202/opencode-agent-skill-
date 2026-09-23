@@ -137,7 +137,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
 
   if (pkg) {
     const scripts = pkg.scripts || {}
-    if (scripts.test !== "node --test test/*.test.mjs") errors.push("package.json: npm test must run the full test/*.test.mjs suite")
+    if (scripts.test !== "node --test") errors.push("package.json: npm test must run portable full Node test discovery")
     if (scripts["test:pi"] !== "node --test test/pi-package.test.mjs") errors.push("package.json: missing focused test:pi script")
     if (scripts["docs:check"] !== "node scripts/check-release-consistency.mjs") errors.push("package.json: missing docs:check release-consistency script")
     if (scripts["release:check-tag"] !== "node scripts/check-release-tag.mjs") errors.push("package.json: missing release:check-tag script")
