@@ -85,3 +85,42 @@ test("V10 keeps high-risk work at full DEEP context", () => {
   assert.equal(policy.contextBudget, 48_000)
   assert.equal(policy.maxSkills, 5)
 })
+
+
+test("read-only repository inspection mentioning database stays lightweight", () => {
+  const policy = classifyEngineeringTask(
+    "Kiểm tra nhanh repository hiện tại. Không sửa file. Xác định stack frontend backend database và lệnh build test.",
+  )
+  assert.equal(policy.risk, "low")
+  assert.equal(policy.mode, "inline")
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.profile.durableState, false)
+  assert.equal(policy.requirePlanCheck, false)
+  assert.equal(policy.requireIntegrationVerification, false)
+  assert.ok(policy.domains.includes("database"))
+  assert.equal(policy.signals.some((item) => item.name === "high-risk-operation"), false)
+})
+
+test("real database migration remains high-risk and deep", () => {
+  const policy = classifyEngineeringTask(
+    "Migrate the database schema for production and update the application code that depends on it.",
+  )
+  assert.equal(policy.risk, "high")
+  assert.equal(policy.executionProfile, "deep")
+  assert.equal(policy.modelTier, "heavy")
+  assert.equal(policy.profile.durableState, true)
+  assert.equal(policy.requirePlanCheck, true)
+  assert.equal(policy.requireIntegrationVerification, true)
+  assert.ok(policy.signals.some((item) => item.name === "high-risk-operation"))
+  assert.ok(policy.domains.includes("database"))
+})
+
+test("read-only auth and payment review does not become high-risk from domain words alone", () => {
+  const policy = classifyEngineeringTask(
+    "Review the auth and payment modules without editing files and report their responsibilities.",
+  )
+  assert.notEqual(policy.risk, "high")
+  assert.equal(policy.profile.durableState, false)
+  assert.ok(policy.domains.includes("auth-security"))
+  assert.ok(policy.domains.includes("payment"))
+})
