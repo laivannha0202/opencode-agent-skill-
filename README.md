@@ -1,7 +1,7 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V13 beta: 13.0.0-beta.0** — parallel weak-model runtime với same-model worker pool, event-driven DAG, transactional worktree integration và hardened CLI/Windows text handling.
-> **Stable latest vẫn là V11: 11.0.0.** V13 hiện là prerelease trong Git; trước khi tag V13 được publish, cài bản checkout bằng `npm install -g .` rồi `ocskill install`. Sau khi prerelease được publish, dist-tag `next` sẽ là đường cài npm.
+> **V13 beta: 13.0.0-beta.0** — parallel weak-model runtime với same-model worker pool, event-driven DAG, transactional worktree integration và hardened CLI/Windows runtime.
+> **Stable latest vẫn là V11: 11.0.0.** V13 được đóng gói dưới prerelease `13.0.0-beta.0`; npm prerelease dùng dist-tag `next`, còn `latest` tiếp tục giữ V11 cho đến khi V13 được promote stable.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -49,6 +49,17 @@ Parallel resume không còn yêu cầu root phải sạch tuyệt đối. Nếu 
 
 > **Compatibility:** V13 CLI/durable-state/verification hardening vẫn dùng được trên OpenCode 1.x. Native `ues.dispatch_task` / `ues.dispatch_parallel` cần router plugin và fresh-session APIs của OpenCode V2; nếu capability không đủ, runtime fail closed thay vì giả vờ chạy song song.
 
+### V13 beta validation hiện tại
+
+Bản đóng gói hiện tại đã được kiểm tra local trên Windows 10 với OpenCode V2.0.15:
+
+- `npm run evals:v13`: **30/30 PASS**;
+- `npm test`: **291 tests**, **289 pass**, **0 fail**, **2 platform-specific skip**;
+- managed `ues-router` load thành công dưới `~/.config/opencode/plugins/ues-router`;
+- router không còn phụ thuộc runtime bare import `@opencode/plugin`, nên clean global OpenCode config vẫn load được;
+- các subprocess nội bộ của router (`where`, `ocskill`, Node shim và Git probes) dùng hidden-window spawn trên Windows để tránh cửa sổ CMD nháy liên tục;
+- npm 11+ vẫn có thể chặn lifecycle script theo `allowScripts`; `ocskill install` là resource-sync fallback chính thức.
+
 ---
 
 
@@ -66,17 +77,18 @@ Cài đặt stable hiện tại từ npm:
 npm install -g opencode-agent-skill
 ```
 
-Cài V13 beta từ checkout hiện tại trước khi prerelease được publish:
+Cài V13 beta từ npm sau khi prerelease đã có trên registry:
+
+```cmd
+npm install -g opencode-agent-skill@next
+ocskill install
+```
+
+Nếu đang kiểm thử một commit mới hơn bản registry, cài trực tiếp từ checkout:
 
 ```cmd
 npm install -g .
 ocskill install
-```
-
-Sau khi tag prerelease V13 được publish thành công, có thể dùng:
-
-```cmd
-npm install -g opencode-agent-skill@next
 ```
 
 Kiểm tra:
@@ -95,7 +107,13 @@ ocskill install
 
 Đây là fallback được CI smoke kiểm tra; không cần dùng `--force` chỉ để vượt cảnh báo lifecycle script.
 
-Sau khi cài hoặc cập nhật UES, nên mở một OpenCode session mới để các skill, command, subagent và plugin được nạp lại đầy đủ.
+Sau khi cài hoặc cập nhật UES, hãy restart OpenCode service rồi mở một session mới để skill, command, subagent và plugin được nạp lại đầy đủ:
+
+```cmd
+opencode service restart
+```
+
+Trên OpenCode V2 có thể kiểm tra router bằng `/plugins`, sau đó gọi `ues.capabilities`. Native parallel chỉ nên dùng khi `freshDispatch` báo `true`.
 
 ---
 
@@ -761,7 +779,8 @@ UES chỉ quản lý resource có namespace/marker của chính nó và cố g�
 - [V7 Intelligence Runtime](docs/V7-INTELLIGENCE-RUNTIME.md)
 - [V8 Intelligence & Reliability](docs/V8-INTELLIGENCE-RELIABILITY.md)
 - [V9 Speed & Intelligence](docs/V9-SPEED-INTELLIGENCE.md)
-- [V12 Weak-Model Intelligence (beta)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)\n- [V13 Parallel Weak-Model Runtime (beta)](docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md)
+- [V12 Weak-Model Intelligence (beta)](docs/V12-WEAK-MODEL-INTELLIGENCE.md)
+- [V13 Parallel Weak-Model Runtime (beta)](docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md)
 
 ---
 
@@ -785,7 +804,23 @@ Phiên bản hiện tại:
 13.0.0-beta.0
 ```
 
-Khi V13 beta được publish, prerelease dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V13 hoàn tất.
+V13 beta dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V13 hoàn tất.
+
+Maintainer packaging gate:
+
+```cmd
+npm run ci
+npm pack --dry-run
+npm pack
+```
+
+Trước khi publish, kiểm tra version chưa tồn tại trên registry:
+
+```cmd
+npm view opencode-agent-skill@13.0.0-beta.0 version --registry=https://registry.npmjs.org/
+```
+
+Nếu version chưa tồn tại, prerelease được publish với dist-tag `next`.
 
 ---
 
