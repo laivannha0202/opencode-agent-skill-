@@ -45,6 +45,9 @@ jobs:
       - name: Package dry run
         run: npm pack --dry-run
 
+      - name: Package closure smoke
+        run: npm run smoke:package
+
   ci-gate:
     name: CI Gate
     needs: [pi]
