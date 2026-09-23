@@ -17,6 +17,8 @@ test("Pi package manifest exposes UES resources", () => {
   assert.ok(pkg.files.includes("global-config/plugins/"))
   assert.ok(pkg.files.includes("global-config/AGENTS.md"))
   assert.equal(pkg.scripts?.["smoke:packed"], "node scripts/smoke-packed-install.mjs")
+  assert.equal(pkg.scripts?.postinstall, undefined)
+  assert.equal(pkg.scripts?.preuninstall, undefined)
   assert.equal(pkg.pi.extensions[0], "./pi/extensions/ues.ts")
   assert.deepEqual(pkg.pi.skills, ["./global-config/skills"])
   assert.deepEqual(pkg.pi.prompts, ["./pi/prompts/*.md"])
@@ -67,6 +69,12 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(evalSource, /piArgs\.push\("--extension", path\.join\(root, "pi", "extensions", "ues\.ts"\)\)/)
   assert.match(evalSource, /--provider-extension/)
   assert.match(evalSource, /providerExtensionCount/)
+
+  const packedSmokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-packed-install.mjs"), "utf8")
+  assert.match(packedSmokeSource, /"install", "-g", tarball, "--prefix", prefix, "--ignore-scripts"/)
+  assert.match(packedSmokeSource, /\[cli, "install"\]/)
+  assert.match(packedSmokeSource, /explicit legacy OpenCode sync from packed copy/)
+  assert.doesNotMatch(packedSmokeSource, /automatic OpenCode sync/)
 
   const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
   assert.match(smokeSource, /sanitizedNpmChildEnv/)
