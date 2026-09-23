@@ -23,7 +23,7 @@ pi install git:github.com/laivannha0202/opencode-agent-skill-
 For a project-local install:
 
 ```cmd
-pi install -l git:github.com/laivannha0202/opencode-agent-skill-
+pi install git:github.com/laivannha0202/opencode-agent-skill- -l
 ```
 
 From npm after a release containing the Pi adapter:
