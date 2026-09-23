@@ -1,6 +1,6 @@
 ---
 name: performance-engineering
-description: Diagnose and improve performance using evidence: rendering, database, network, memory, caching, bundles, concurrency, and hot paths.
+description: "Diagnose and improve performance using evidence: rendering, database, network, memory, caching, bundles, concurrency, and hot paths."
 ---
 
 # Performance Engineering
