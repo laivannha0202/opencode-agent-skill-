@@ -42,6 +42,23 @@ test("V13 prompt alias expands command body and preserves arguments", async () =
   }
 })
 
+test("V13 prompt alias accepts command on its own line before multiline content", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-command-runtime-newline-"))
+  try {
+    await writeFile(
+      path.join(dir, "run.md"),
+      "---\ndescription: run\nagent: build\n---\n\nRun task: $ARGUMENTS\n",
+      "utf8",
+    )
+    const result = expandUesPromptAlias("/ues-run\n\nBạn đang làm việc trực tiếp trên repository:\nE:\\dev\\AgriMarket", dir)
+    assert.equal(result.alias, "ues-run")
+    assert.match(result.text, /Bạn đang làm việc trực tiếp trên repository:/)
+    assert.match(result.text, /E:\\\\dev\\\\AgriMarket/)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
 test("V13 prompt alias supports multiline arguments and positional placeholders", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "ues-command-runtime-multi-"))
   try {
