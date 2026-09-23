@@ -57,6 +57,7 @@ type RunResult = {
   usage?: any;
   toolCalls?: number;
   toolNames?: string[];
+  report?: any;
 };
 
 function cap(text: string, limit = OUTPUT_LIMIT) {
@@ -303,6 +304,31 @@ function verdictFromOutput(output: string) {
   return match ? match[1].toUpperCase() : null;
 }
 
+function parseStructuredReport(output: string) {
+  const sections: Record<string, string> = {};
+  let current: string | null = null;
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const heading = line.match(/^##\s+(.+?)\s*$/);
+    if (heading) {
+      current = heading[1]
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-|-$/g, "");
+      if (current && !(current in sections)) sections[current] = "";
+      continue;
+    }
+    if (current) sections[current] += (sections[current] ? "\n" : "") + line;
+  }
+  for (const key of Object.keys(sections)) sections[key] = sections[key].trim();
+  return {
+    schemaVersion: 1,
+    valid: Object.keys(sections).length > 0,
+    verdict: verdictFromOutput(output),
+    sections,
+  };
+}
+
 function taskRecord(task: string) {
   return {
     id: "pi-dispatch",
@@ -410,6 +436,7 @@ async function runRoutedAgent(
     contextQuality,
     contextError,
     verdict: verdictFromOutput(result.output),
+    report: parseStructuredReport(result.output),
     durationMs: Date.now() - startedAt,
   };
 }
