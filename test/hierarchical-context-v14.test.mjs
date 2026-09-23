@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { queryContextHierarchy } from "../lib/hierarchical-context.mjs"
+import { queryContextHierarchy, selectDiverseHierarchyScopes } from "../lib/hierarchical-context.mjs"
 
 test("V14 hierarchy uses L0/L1 scope routing before L2 source excerpts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-hierarchy-v14-"))
@@ -29,4 +29,16 @@ test("V14 hierarchy uses L0/L1 scope routing before L2 source excerpts", async (
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+
+test("V14 hierarchy diversity fence prevents a parent-child chain from consuming scope budget", () => {
+  const scopes = selectDiverseHierarchyScopes([
+    { path: "apps/api/orders", score: 20 },
+    { path: "apps/api", score: 19 },
+    { path: "apps", score: 18 },
+    { path: "packages/payments", score: 17 },
+    { path: "docs", score: 16 },
+  ], 3)
+  assert.deepEqual(scopes.map((item) => item.path), ["apps/api/orders", "packages/payments", "docs"])
 })
