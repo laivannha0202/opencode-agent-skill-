@@ -27,35 +27,49 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\opencode-agent-skill-11.0.0.tgz --allow-scripts=opencode-agent-skill
+npm install -g .\opencode-agent-skill-13.0.0-beta.0.tgz --allow-scripts=opencode-agent-skill
+ocskill install
 ocskill status
 ocskill doctor
 ```
+
+For the current V13 beta, also open a fresh OpenCode V2 session, check `/plugins`, and call `ues.capabilities`. Native parallel should only be exercised when `freshDispatch` is `true`.
 
 For routine development, the automated `smoke:pack` test uses an isolated npm prefix/OpenCode config so it does not replace the developer's currently installed UES.
 
 ## Manual publish
 
+Before publishing, verify the exact prerelease version is not already present:
+
+```cmd
+npm view opencode-agent-skill@13.0.0-beta.0 version --registry=https://registry.npmjs.org/
+```
+
+If it is not present, a manual prerelease publish uses `next`, not `latest`:
+
 ```cmd
 npm login
 npm whoami
 npm run ci
-npm publish --access public
+npm publish --access public --provenance --tag next
 ```
 
 After publication verify:
 
 ```cmd
 npm view opencode-agent-skill versions --json
-npm view opencode-agent-skill@11.0.0 version
+npm view opencode-agent-skill@13.0.0-beta.0 version
 npm dist-tag ls opencode-agent-skill
 ```
 
-The expected release tag is:
+For V13 beta the expected dist-tags are:
 
 ```text
 latest: 11.0.0
+next: 13.0.0-beta.0
 ```
+
+Do not move `latest` to V13 until the prerelease is intentionally promoted stable.
 
 ## GitHub Actions publishing
 
@@ -71,7 +85,7 @@ Workflow: publish.yml
 
 Then the GitHub-hosted workflow can authenticate through OIDC instead of a long-lived npm publish token. npm Trusted Publishing requires the corresponding publisher relationship to be configured on npm; repository code alone cannot create that account-side trust relationship.
 
-Until the npm-side Trusted Publisher relationship is configured, the workflow can fall back to a valid `NPM_TOKEN`. After OIDC publishing is verified, remove long-lived publish-token access where practical.
+The current `publish.yml` is tag-only. A matching prerelease tag such as `v13.0.0-beta.0` runs the full package gate and publishes with npm dist-tag `next`; a stable version publishes to `latest`. The workflow first checks whether that exact version already exists and skips duplicate publication.
 
 ## Release checklist
 
@@ -84,7 +98,7 @@ Until the npm-side Trusted Publisher relationship is configured, the workflow ca
 7. Commit and push the release branch.
 8. Merge only after review/local validation is clean.
 9. Create/push the matching `vX.Y.Z` tag or run the publish workflow.
-10. Verify registry version and `latest` dist-tag.
+10. Verify registry version and dist-tags (`next` for prerelease, `latest` for stable).
 11. Install the published package on a clean environment before announcing it.
 
 ## One-command user install
