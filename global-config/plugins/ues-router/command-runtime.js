@@ -52,8 +52,10 @@ export function promptAliasTextForPolicy(promptAlias, policy) {
   const risk = String(policy?.risk || "").toLowerCase()
   const profile = String(policy?.executionProfile || policy?.profile?.name || "").toLowerCase()
   const isDeep = mode === "long-horizon" || risk === "high" || profile === "deep"
+  const isFast = !isDeep && (profile === "fast" || mode === "inline")
+  const isStandard = !isDeep && (profile === "standard" || mode === "standard")
 
-  if (!isDeep && profile === "fast") {
+  if (isFast) {
     return [
       "UES V2 prompt alias: /ues-run. Adaptive policy selected FAST from the actual user request.",
       "Preserve the user's exact requested outcome and response constraints.",
@@ -65,12 +67,13 @@ export function promptAliasTextForPolicy(promptAlias, policy) {
     ].join("\n").trim()
   }
 
-  if (!isDeep && profile === "standard") {
+  if (isStandard) {
     return [
       "UES V2 prompt alias: /ues-run. Adaptive policy selected STANDARD from the actual user request.",
       "Preserve the user's exact requested outcome and approval boundaries.",
       "Use targeted repository evidence, bounded edits, and targeted + affected verification.",
       "Do not create durable .ues-work state, plan gates, integration gates, or parallel workers unless new evidence justifies reclassification to DEEP/high-risk.",
+      "If evidence materially widens scope or risk, re-run ocskill task-policy on a concise updated summary before escalating.",
       "",
       "User request:",
       args,
