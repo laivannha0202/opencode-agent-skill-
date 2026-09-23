@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   pi:
-    name: Pi runtime
+    name: Pi runtime (${{ matrix.os }})
     strategy:
       fail-fast: false
       matrix:
@@ -30,20 +30,8 @@ jobs:
       - name: Install package metadata
         run: npm ci --ignore-scripts
 
-      - name: Syntax
-        run: npm run syntax
-
-      - name: Pi package tests
-        run: npm test
-
-      - name: Pi extension smoke
-        run: npm run smoke:pi
-
-      - name: Package dry run
-        run: npm pack --dry-run
-
-      - name: Package closure smoke
-        run: npm run smoke:package
+      - name: Full Pi package validation
+        run: npm run ci
 
   ci-gate:
     name: CI Gate
@@ -52,6 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Verify Pi runtime passed
+        shell: bash
         run: |
           echo "pi: ${{ needs.pi.result }}"
           test "${{ needs.pi.result }}" = "success"
