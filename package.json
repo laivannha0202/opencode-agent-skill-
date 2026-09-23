@@ -4,6 +4,7 @@
   "description": "Pi Agent engineering runtime with adaptive context, durable evidence, specialist child agents, and evidence-gated verification",
   "type": "module",
   "bin": {
+    "ues": "bin/ocskill.mjs",
     "ocskill": "bin/ocskill.mjs"
   },
   "files": [
