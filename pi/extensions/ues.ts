@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
-import { classifyEngineeringTask } from "../../lib/task-policy.mjs";
+import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
 import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
@@ -1076,7 +1076,7 @@ export default function (pi: ExtensionAPI) {
         return result;
       };
 
-      if (/\b(fix|bug|debug|crash|regression|failure|error|broken|lỗi|sửa lỗi)\b/i.test(params.task)) {
+      if (shouldRunDedicatedDiagnosis(policy, 1)) {
         const diagnosis = await run("ues-debugger", params.task, 1);
         if (diagnosis.exitCode !== 0 || diagnosis.stopReason === "error") {
           return {
@@ -1236,6 +1236,25 @@ export default function (pi: ExtensionAPI) {
       }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1 && shouldRunDedicatedDiagnosis(policy, attempt)) {
+          const diagnosis = await run(
+            "ues-debugger",
+            [
+              params.task,
+              "",
+              "Diagnose the previous failed implementation/verification from fresh repository evidence before the next patch.",
+              recentFailure ? "\nPrevious failure evidence:\n" + cap(recentFailure, 7000) : "",
+            ].filter(Boolean).join("\n"),
+            attempt,
+            recentFailure || undefined,
+          );
+          if (diagnosis.exitCode !== 0 || diagnosis.stopReason === "error") {
+            recentFailure = diagnosis.output;
+            continue;
+          }
+          recentFailure = diagnosis.output;
+        }
+
         const executorTask = [
           params.task,
           recentFailure ? "\nEvidence from diagnosis/previous failed verification:\n" + cap(recentFailure, 7000) : "",
