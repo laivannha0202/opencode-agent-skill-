@@ -20,8 +20,9 @@
     "syntax": "node scripts/syntax-check.mjs",
     "test": "node --test test/pi-package.test.mjs",
     "smoke:pi": "node scripts/smoke-pi-extension.mjs",
-    "ci": "npm run syntax && npm test && npm pack --dry-run && npm run smoke:pi",
-    "prepublishOnly": "npm run ci"
+    "ci": "npm run syntax && npm test && npm pack --dry-run && npm run smoke:pi && npm run smoke:package",
+    "prepublishOnly": "npm run ci",
+    "smoke:package": "node scripts/smoke-package-closure.mjs"
   },
   "keywords": [
     "pi-package",
