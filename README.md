@@ -6,6 +6,22 @@
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+## Pi Agent (experimental compatibility)
+
+Nhánh `feat/pi-agent-port` bổ sung Pi package manifest, toàn bộ UES skills, slash prompts và Pi extension adapter mà không bỏ hỗ trợ OpenCode.
+
+Cài Pi hiện tại rồi cài trực tiếp nhánh chuyển đổi:
+
+```cmd
+npm install -g @earendil-works/pi-coding-agent
+pi install git:github.com/laivannha0202/opencode-agent-skill-@feat/pi-agent-port
+pi
+```
+
+Sau đó có thể dùng `/ues-run`, `/ues-plan`, `/ues-fix`, `/ues-review`, `/ues-verify`, `/ues-resume` và các prompt UES khác. Pi adapter cung cấp `ues_cli` cho CLI deterministic và `ues_dispatch` cho fresh child-agent context.
+
+Xem [docs/PI-COMPAT.md](docs/PI-COMPAT.md) để biết giới hạn parallel writer, cách cài local và khác biệt với OpenCode V2.
+
 ## Giới thiệu
 
 **OpenCode Universal Engineering System (UES)** là một engineering harness dành cho OpenCode. UES không thay đổi năng lực nền tảng của model, mà tổ chức cách model làm việc để:
