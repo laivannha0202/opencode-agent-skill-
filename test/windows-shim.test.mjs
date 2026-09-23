@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { resolveNodeShimEntry, resolveWindowsCommandCandidates } from "../lib/windows-shim.mjs"
+import { resolveManagedPiCommand, resolveNodeShimEntry, resolveWindowsCommandCandidates } from "../lib/windows-shim.mjs"
 
 test("Windows shim resolver accepts extensionless Node bin entries inside node_modules", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-win-shim-"))
@@ -110,5 +110,42 @@ test("Windows shim resolver accepts an explicit native package bin target", asyn
     assert.deepEqual(resolved?.argsPrefix, [])
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("Windows resolver finds installer-managed Pi releases", async () => {
+  const home = await mkdtemp(path.join(os.tmpdir(), "ues-managed-pi-"))
+  try {
+    const packageDir = path.join(
+      home,
+      ".pi",
+      "agent",
+      "install",
+      "releases",
+      "0.87.1",
+      "node_modules",
+      "@earendil-works",
+      "pi-coding-agent",
+    )
+    const entry = path.join(packageDir, "dist", "bundle", "cli.js")
+    await mkdir(path.dirname(entry), { recursive: true })
+    await writeFile(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        name: "@earendil-works/pi-coding-agent",
+        version: "0.87.1",
+        bin: { pi: "dist/bundle/cli.js" },
+      }),
+    )
+    await writeFile(entry, "#!/usr/bin/env node\nconsole.log('0.87.1')\n")
+
+    const resolved = resolveManagedPiCommand(home)
+    assert.equal(resolved?.kind, "node-shim")
+    assert.equal(resolved?.entry, entry)
+    assert.equal(resolved?.managedRelease, "0.87.1")
+    assert.deepEqual(resolved?.argsPrefix, [entry])
+  } finally {
+    await rm(home, { recursive: true, force: true })
   }
 })
