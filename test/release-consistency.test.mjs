@@ -3,171 +3,17 @@ import assert from "node:assert/strict"
 import { execSync } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
-import { existsSync, mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from "node:fs"
+import { mkdirSync, writeFileSync, rmSync, cpSync, readFileSync } from "node:fs"
 import { checkReleaseConsistency } from "../scripts/check-release-consistency.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const currentVersion = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8")).version
 
-function copyFixture(rootDir, targetDir, excludes) {
-  function copyRecursive(src, dest) {
-    const stat = existsSync(src) ? (src.endsWith("/") || !src.includes(".") ? null : null) : null
-    const relPath = path.relative(rootDir, src)
-    for (const exclude of excludes) {
-      if (relPath === exclude || relPath.startsWith(exclude + "/") || relPath.startsWith(exclude + "\\")) {
-        return
-      }
-    }
-    if (existsSync(src) && readFileSync(src, "utf8").length >= 0) {
-      // just check it exists
-    }
-  }
-}
-
-test("checkReleaseConsistency() returns pass for current release state", () => {
-  const result = checkReleaseConsistency(root)
-  assert.equal(result.pass, true)
-  assert.equal(result.version, currentVersion)
-  assert.equal(result.skillCount, 48)
-  assert.equal(result.commandCount, 11)
-  assert.equal(result.subagentCount, 12)
-})
-
-test("checkReleaseConsistency() CLI exits 0 on current state", () => {
-  const output = execSync(
-    `node "${path.join(root, "scripts", "check-release-consistency.mjs")}"`,
-    {
-      encoding: "utf8",
-      cwd: root,
-      env: { ...process.env },
-      timeout: 30000,
-    },
-  )
-  assert.match(output, /Release consistency check PASS/)
-})
-
-test("checkReleaseConsistency() fails on package/package-lock version mismatch", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const pkgPath = path.join(tmp, "package.json")
-    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
-    pkg.version = "99.99.99"
-    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2))
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((e) => e.includes("version")), "should have version mismatch error. Got: " + result.errors.join(", "))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() fails on README current version mismatch", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const readmePath = path.join(tmp, "README.md")
-    let readme = readFileSync(readmePath, "utf8")
-    readme = readme.replace(/(Phiên bản hiện tại:\s*\n```text\n)\S+/, (_match, prefix) => prefix + "9.0.0")
-    writeFileSync(readmePath, readme)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((e) => e.includes("README")), "should have README error. Got: " + result.errors.join(", "))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() fails on V11 doc with development status", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const docPath = path.join(tmp, "docs", "V11-PERCEPTION-ADAPTIVE.md")
-    let content = readFileSync(docPath, "utf8")
-    content = content.replace("Status: stable", "Status: development")
-    writeFileSync(docPath, content)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((e) => e.toLowerCase().includes("development")), "should have development status error. Got: " + result.errors.join(", "))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() fails on V13 prerelease doc version drift", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const docPath = path.join(tmp, "docs", "V13-PARALLEL-WEAK-MODEL-RUNTIME.md")
-    let content = readFileSync(docPath, "utf8")
-    content = content.replace(currentVersion, "13.0.0-beta.999")
-    writeFileSync(docPath, content)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(
-      result.errors.some((e) => e.includes("V13-PARALLEL-WEAK-MODEL-RUNTIME")),
-      "should have V13 prerelease drift error. Got: " + result.errors.join(", "),
-    )
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() fails when CI missing evals:v11:validate", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const ciPath = path.join(tmp, ".github", "workflows", "ci.yml")
-    let ci = readFileSync(ciPath, "utf8")
-    ci = ci.replace("evals:v11:validate", "EVALS_V11_REMOVED")
-    writeFileSync(ciPath, ci)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((e) => e.includes("evals:v11:validate")), "should have evals:v11:validate error. Got: " + result.errors.join(", "))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() fails when Security workflow missing Security Gate", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const secPath = path.join(tmp, ".github", "workflows", "security.yml")
-    let sec = readFileSync(secPath, "utf8")
-    sec = sec.replaceAll("Security Gate", "SECURITY_GATE_REMOVED")
-    writeFileSync(secPath, sec)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((e) => e.includes("Security Gate")), "should have Security Gate error. Got: " + result.errors.join(", "))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() fails when CI missing docs:check", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const ciPath = path.join(tmp, ".github", "workflows", "ci.yml")
-    let ci = readFileSync(ciPath, "utf8")
-    ci = ci.replace("docs:check", "DOCS_CHECK_REMOVED")
-    writeFileSync(ciPath, ci)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((e) => e.includes("docs:check")), "should have docs:check error. Got: " + result.errors.join(", "))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("checkReleaseConsistency() allows historical V9 sections with old counts", () => {
-  const result = checkReleaseConsistency(root)
-  assert.equal(result.pass, true)
-})
-
 function mkdirTemp() {
-  return path.join(process.env.TEMP || "/tmp", "ues-consistency-test-" + Date.now() + "-" + Math.random().toString(36).slice(2, 6))
+  return path.join(
+    process.env.TEMP || "/tmp",
+    "ues-consistency-test-" + Date.now() + "-" + Math.random().toString(36).slice(2, 8),
+  )
 }
 
 function fillFixture(tmp) {
@@ -179,22 +25,164 @@ function fillFixture(tmp) {
       if (rel === "node_modules" || rel.startsWith("node_modules/")) return false
       if (rel === ".git" || rel.startsWith(".git/")) return false
       if (rel.endsWith(".tgz")) return false
-      if (rel.startsWith("node_modules")) return false
       return true
     },
   })
 }
 
+test("checkReleaseConsistency() passes the current Pi-native release state", () => {
+  const result = checkReleaseConsistency(root)
+  assert.equal(result.pass, true, result.errors.join("\n"))
+  assert.equal(result.version, currentVersion)
+  assert.equal(result.skillCount, 48)
+  assert.equal(result.commandCount, 11)
+  assert.equal(result.subagentCount, 12)
+  assert.equal(result.promptCount, 11)
+})
+
+test("checkReleaseConsistency() CLI exits 0 on current state", () => {
+  const output = execSync(
+    `node "${path.join(root, "scripts", "check-release-consistency.mjs")}"`,
+    {
+      encoding: "utf8",
+      cwd: root,
+      env: { ...process.env },
+      timeout: 30_000,
+    },
+  )
+  assert.match(output, /Release consistency check PASS/)
+})
+
+test("release checker fails on package/package-lock version mismatch", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+    pkg.version = "99.99.99"
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("version")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker fails on README current version mismatch", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const readmePath = path.join(tmp, "README.md")
+    const readme = readFileSync(readmePath, "utf8").replace(
+      /(Phiên bản hiện tại:\s*\n```text\n)\S+/,
+      (_match, prefix) => prefix + "9.0.0",
+    )
+    writeFileSync(readmePath, readme)
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("README.md")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker fails when the Pi extension manifest drifts", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+    pkg.pi.extensions = ["./pi/extensions/other.ts"]
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("Pi extension entry drift")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker protects the Pi-native task-policy canonical source", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const orchestratorPath = path.join(tmp, "lib", "orchestrator-policy.mjs")
+    writeFileSync(
+      orchestratorPath,
+      'export { classifyEngineeringTask } from "../global-config/plugins/ues-router/policy-runtime.js"\n',
+    )
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("must delegate to Pi-native")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker fails when CI stops executing canonical npm run ci", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const ciPath = path.join(tmp, ".github", "workflows", "ci.yml")
+    const ci = readFileSync(ciPath, "utf8").replace("npm run ci", "npm run syntax")
+    writeFileSync(ciPath, ci)
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("npm run ci")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker fails when Security workflow loses Security Gate", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const securityPath = path.join(tmp, ".github", "workflows", "security.yml")
+    const security = readFileSync(securityPath, "utf8").replaceAll("Security Gate", "SECURITY_GATE_REMOVED")
+    writeFileSync(securityPath, security)
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("Security Gate")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker fails when publish workflow stops verifying the release tag", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const publishPath = path.join(tmp, ".github", "workflows", "publish.yml")
+    const publish = readFileSync(publishPath, "utf8").replace(
+      "npm run release:check-tag",
+      "node scripts/check-release-tag.mjs",
+    )
+    writeFileSync(publishPath, publish)
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("verify release tag")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
 test("release checker ignores skill directories without SKILL.md", () => {
   const tmp = mkdirTemp()
   try {
     fillFixture(tmp)
-    mkdirSync(path.join(tmp,"global-config","skills","not-a-skill"),{recursive:true})
+    mkdirSync(path.join(tmp, "global-config", "skills", "not-a-skill"), { recursive: true })
     const result = checkReleaseConsistency(tmp)
-    assert.equal(result.skillCount,48); assert.equal(result.pass,true)
-  } finally { rmSync(tmp,{recursive:true,force:true}) }
+    assert.equal(result.skillCount, 48)
+    assert.equal(result.pass, true, result.errors.join("\n"))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
 })
-test("release checker derives router scenario counts from eval JSON", () => {
+
+test("release checker still derives legacy eval counts without making them Pi release gates", () => {
   const result = checkReleaseConsistency(root)
-  assert.equal(result.staticScenarioCount,43); assert.equal(result.routerCaseCount,129)
+  assert.equal(result.staticScenarioCount, 43)
+  assert.equal(result.routerCaseCount, 129)
 })
