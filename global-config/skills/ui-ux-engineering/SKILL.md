@@ -1,6 +1,6 @@
 ---
 name: ui-ux-engineering
-description: Improve production UI/UX: hierarchy, responsive layout, components, forms, states, accessibility, realistic content, and design consistency.
+description: "Improve production UI/UX: hierarchy, responsive layout, components, forms, states, accessibility, realistic content, and design consistency."
 ---
 
 # Ui Ux Engineering
