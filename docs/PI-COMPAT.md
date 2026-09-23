@@ -55,9 +55,16 @@ Typical uses:
 - verification and recovery;
 - worktree isolation.
 
+### ues_execute
+
+Runs the high-level deterministic controller for end-to-end engineering work.
+
+The controller applies task policy, adaptive context, model-tier routing, optional diagnosis/plan gating, implementation, verifier/integration-verifier gates, bounded retries, and model-performance telemetry. This is the preferred entry point for weak models because the parent model no longer has to remember the orchestration protocol.
+
 ### ues_dispatch
 
-Runs bundled specialist roles in isolated child Pi processes.
+
+Runs bundled specialist roles in isolated child Pi processes. Each child receives routed model selection plus a bounded adaptive context pack before execution.
 
 Supported execution patterns:
 
@@ -96,7 +103,17 @@ npm ci --ignore-scripts
 npm test
 npm run syntax
 npm run smoke:pi
+npm run smoke:package
 npm pack --dry-run
 ```
 
 The npm package manifest is Pi-only: it does not run lifecycle setup for another coding-agent host.
+
+
+## Model routing
+
+Runtime model routing is configured with `ocskill models ...` and is consumed directly by Pi child-agent dispatch. Set `UES_CONFIG_DIR` to override the UES config root. If a native UES policy does not exist, the runtime can read an existing legacy OpenCode model policy for migration compatibility.
+
+## Package closure
+
+`npm run smoke:package` inspects the actual npm pack file list, verifies required Pi/runtime files are present, checks relative module imports do not point outside the published package, and smoke-runs the deterministic task policy. This guards against the previous class of errors where Git installs worked but npm publication omitted a core dependency.
