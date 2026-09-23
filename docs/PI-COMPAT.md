@@ -61,6 +61,8 @@ Runs the high-level deterministic controller for end-to-end engineering work.
 
 The controller applies task policy, adaptive context, model-tier routing, optional diagnosis/plan gating, implementation, verifier/integration-verifier gates, bounded retries, and model-performance telemetry. This is the preferred entry point for weak models because the parent model no longer has to remember the orchestration protocol.
 
+For a valid multi-task structured plan, the controller also computes dependency-safe waves, creates isolated Git worktrees for writing tasks, verifies each task independently, rejects writes outside the declared file scope, integrates successful work serially, and rolls back already-integrated work if a later integration in the same wave fails.
+
 ### ues_dispatch
 
 
@@ -109,6 +111,16 @@ npm pack --dry-run
 
 The npm package manifest is Pi-only: it does not run lifecycle setup for another coding-agent host.
 
+
+## Weak-model benchmark
+
+Use the Pi-native benchmark to compare the same model with and without UES:
+
+```cmd
+ues eval-pi --model provider/model --thinking low --suite live --trials 3 --mode both
+```
+
+Each run uses an isolated workspace and an external grader. UES mode uses an isolated `UES_CONFIG_DIR` so role routing cannot silently substitute a stronger configured model. Telemetry includes parent and child-agent token/tool usage.
 
 ## Model routing
 
