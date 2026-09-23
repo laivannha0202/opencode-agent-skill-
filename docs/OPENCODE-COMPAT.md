@@ -1,126 +1,53 @@
-# OpenCode compatibility
+# Legacy OpenCode compatibility
 
-V13 ships one npm package for OpenCode 1.x and 2.x. CLI/state/verification features remain available on both lines, while V2-native fresh-session and parallel runtime features are enabled only when the required V2 capabilities are detected.
+> Deprecated compatibility surface. The supported runtime in this repository is **Pi Agent**.
 
-## Detection
+UES no longer depends on the OpenCode router for its core task policy, model routing, context construction, specialist dispatch, scheduling, verification, or benchmark path. The canonical runtime lives under `pi/` and `lib/`.
 
-During resource sync, UES reads:
+## Why these files still exist
 
-```text
-opencode --version
-```
+A small compatibility layer is retained temporarily so older installations can be inspected or migrated without silently deleting user-managed resources. It is not loaded by the Pi package manifest and should not be used for new development.
 
-Tests may override with:
+Legacy-only surfaces include:
 
-```text
-UES_OPENCODE_MAJOR=1
-UES_OPENCODE_MAJOR=2
-```
+- `global-config/commands/`;
+- `global-config/plugins/ues-router/`;
+- OpenCode installer/router compatibility code in `lib/installer.mjs`, `lib/opencode-compat.mjs`, and `lib/router-config.mjs`;
+- `scripts/eval-live.mjs`, which exists only for historical OpenCode benchmark comparison.
 
-The detected major is recorded in the managed state.
+The old router policy file is now a compatibility shim that re-exports the canonical Pi-native `lib/task-policy.mjs`, preventing policy drift.
 
-## OpenCode 1.x
+## Current Pi equivalents
 
-UES installs:
+| Legacy surface | Pi-native replacement |
+|---|---|
+| OpenCode router task admission | `lib/task-policy.mjs` + `ues_execute` |
+| OpenCode dispatch | `ues_execute` / `ues_dispatch` |
+| OpenCode model routing | `lib/model-policy.mjs` consumed directly by Pi dispatch |
+| OpenCode prompt aliases | `pi/prompts/*.md` |
+| OpenCode live eval | `ues eval-pi ...` / `scripts/eval-pi.mjs` |
+| Manual writer worktree preparation | structured-plan safe-wave scheduler in `ues_execute` |
 
-- 48 namespaced skills
-- 11 namespaced commands
-- 12 namespaced subagents using compatible V1 `permission` frontmatter
-- managed global `AGENTS.md` block
+## Migration guidance
 
-The V2 runtime plugin is not installed.
-
-Durable CLI state, task DAG, plan/integration gates, Windows UTF text recovery and model-policy configuration remain available. `ues.dispatch_task` and `ues.dispatch_parallel` are unavailable because those tools live in the V2 router plugin.
-
-## OpenCode 2.x
-
-UES converts managed agent permission frontmatter to V2 ordered `permissions` and installs:
-
-```text
-<global-config>/plugins/ues-router/
-```
-
-V13 also installs the 11 UES slash-command templates inside the managed router as V2 **prompt aliases** instead of registering them as native global custom commands. Typing `/ues-run ...`, `/ues-fix ...`, and the other `/ues-*` aliases therefore travels through `session.prompt`; the router expands the same bundled command contract before routing skills. This is a compatibility workaround for V2 custom-command transport failures such as `UnsupportedContentType` from the `session.command` path. Re-syncing with `ocskill install` removes stale UES-managed native command files from older installs.
-
-For `/ues-run`, V13.0.0-beta.3 adds adaptive admission before the prompt is sent to the model. The router classifies the real user arguments, not the expanded command template. FAST and STANDARD work receive compact envelopes, while only DEEP/long-horizon/high-risk work keeps the full durable workflow. `/ues-resume` stays explicitly durable. This prevents a trivial or bounded request from being turned into a long-running repository workflow simply because the user typed `/ues-run`.
-
-Prompt admission performs that classification **in-process** inside the managed V2 router using the same policy implementation exported to the CLI. It does not depend on launching the global `ocskill` shim or on the OpenCode service inheriting the user's npm PATH. This keeps the compact FAST/STANDARD envelope deterministic in service sessions as well as interactive shells.
-
-The plugin provides:
-
-- prompt-admission skill routing
-- long-task context guardrails
-- permission safety evaluation when that hook exists
-- durable-state/task-graph/context-pack tools
-- `ues.dispatch_task` bounded fresh executor runtime
-- `ues.cancel_task` and `ues.recover_task` when session interruption is supported
-- `ues.dispatch_parallel` when the full fresh-dispatch surface is present; it runs independent approved tasks in isolated same-model sessions, verifies each task independently, and serializes integration
-
-`ues.dispatch_task` uses V2 session APIs to create a fresh session rooted at the selected execution directory, bind its session ID to the task lease, select `ues-executor`, optionally switch model tier, prompt one approved task, heartbeat while waiting, and interrupt on timeout. Concurrent writing tasks can be isolated in Git worktrees.
-
-## Router control
+New installs should use Pi:
 
 ```cmd
-ocskill router status
-ocskill router on
-ocskill router on --max 3
-ocskill router off
+npm install -g @earendil-works/pi-coding-agent
+pi install git:github.com/laivannha0202/opencode-agent-skill-
+pi
 ```
 
-Default maximum is 4 selected skills; supported range is 1–6.
-
-## Model routing
+Use the UES-native CLI alias for deterministic operations:
 
 ```cmd
-ocskill models status
-ocskill models on
-ocskill models set standard provider/model
-ocskill models set heavy provider/strong-model
+ues task-policy "fix a payment callback race" --json
+ues models status --json
+ues eval-pi --model provider/model --mode both
 ```
 
-Re-run `ocskill install` after changing static managed-agent model frontmatter. Runtime `ues.dispatch_task` also reads the current model policy for attempt-based executor escalation.
+`ocskill` remains an alias during the migration window so existing scripts do not break immediately.
 
-## Upgrading OpenCode
+## Removal rule
 
-After moving between V1/V2 lines:
-
-```cmd
-ocskill install
-ocskill status
-```
-
-Only UES-managed resources are rewritten/removed. Unrelated user plugins/resources are preserved.
-
-## Primary references
-
-- https://opencode.ai/v2/docs/build/plugins
-- https://opencode.ai/v2/docs/build/plugins/migrate-v1
-- https://opencode.ai/v2/docs/permissions
-- https://opencode.ai/v2/docs/plugins
-- https://opencode.ai/v2/docs/skills
-
-
-## V8 capability probing
-
-Version detection remains useful for install-time compatibility, but V8 runtime dispatch does not assume that a major version proves the availability of every session API.
-
-The managed V2 plugin probes for:
-
-- session creation
-- prompting
-- waiting
-- interruption
-- context retrieval
-- agent switching
-- model switching
-- session hooks
-- permission hooks
-
-`ues.capabilities` exposes the observed surface. Fresh dispatch fails closed when the minimum create/prompt/wait/interrupt/context/switch-agent surface is unavailable. Optional context/prompt/permission hooks degrade safely instead of preventing the plugin from loading.
-
-
-## V13 parallel compatibility
-
-`ues.dispatch_parallel` is capability-gated, not version-string-gated. It requires the complete fresh-dispatch surface reported by `ues.capabilities`: session create, prompt, wait, interrupt, context retrieval and agent switching. If any required API is missing, V13 fails closed and the durable CLI workflow remains usable in serial mode.
-
-OpenCode 1.x users can still use V13 CLI hardening, durable `.ues-work/<slug>/` state, receipts, task graphs and Windows text normalization. To use native multi-session parallel execution, use a runtime that exposes the V2 fresh-session APIs.
+Do not add new features to the legacy OpenCode compatibility surface. New runtime features must land in Pi/`lib` first. Legacy files may be removed once migration coverage proves that no supported Pi command imports or packages them.
