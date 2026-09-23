@@ -466,6 +466,331 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
   }
 }
 
+
+function extractMarkedJson(output: string, marker: string) {
+  const source = String(output || "");
+  const markerIndex = source.lastIndexOf(marker);
+  if (markerIndex < 0) return null;
+  const start = source.indexOf("{", markerIndex + marker.length);
+  if (start < 0) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+  for (let index = start; index < source.length; index++) {
+    const char = source[index];
+    if (inString) {
+      if (escaped) escaped = false;
+      else if (char === "\\") escaped = true;
+      else if (char === '"') inString = false;
+      continue;
+    }
+    if (char === '"') {
+      inString = true;
+      continue;
+    }
+    if (char === "{") depth += 1;
+    else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        try {
+          return JSON.parse(source.slice(start, index + 1));
+        } catch {
+          return null;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+async function sandboxChangedFiles(dir: string, base: string, signal?: AbortSignal) {
+  const intent = await runProcess("git", ["add", "-N", "."], dir, signal);
+  if (intent.exitCode !== 0) {
+    throw new Error(intent.stderr || intent.stdout || "git add -N failed");
+  }
+  const diff = await runProcess("git", ["diff", "--name-only", base, "--"], dir, signal);
+  if (diff.exitCode !== 0) {
+    throw new Error(diff.stderr || diff.stdout || "git diff --name-only failed");
+  }
+  return diff.stdout
+    .split(/\r?\n/)
+    .map((value) => value.trim().replaceAll("\\", "/"))
+    .filter(Boolean);
+}
+
+async function cleanupSandboxes(
+  root: string,
+  prepared: Array<{ sandbox?: any }>,
+) {
+  for (const item of prepared) {
+    if (!item.sandbox?.dir) continue;
+    await removeTaskSandbox(root, item.sandbox.dir, {
+      force: true,
+      deleteBranch: true,
+    }).catch(() => {});
+  }
+}
+
+async function executeStructuredPlan(input: {
+  plan: any;
+  root: string;
+  inheritedModel?: string;
+  inheritedThinking?: string;
+  maxAttempts: number;
+  signal?: AbortSignal;
+  onUpdate?: any;
+}) {
+  const validation = validatePlan(input.plan);
+  if (!validation.valid) {
+    return {
+      passed: false,
+      reason: "invalid-plan",
+      validation,
+      results: [],
+      integrations: [],
+    };
+  }
+
+  const safe = computeSafeWaves(input.plan);
+  const dynamic = planDynamicWorkflow(input.plan.tasks, {
+    maxConcurrent: MAX_CONCURRENCY,
+    maxLLMConcurrent: MAX_CONCURRENCY,
+  });
+  const taskByID = new Map(input.plan.tasks.map((task: any) => [task.id, task]));
+  const results: any[] = [];
+  const integrations: any[] = [];
+  const gitProbe = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], input.root, input.signal);
+  const gitCapable = gitProbe.exitCode === 0 && gitProbe.stdout.trim() === "true";
+
+  for (let waveIndex = 0; waveIndex < safe.waves.length; waveIndex++) {
+    const ids = safe.waves[waveIndex];
+    let lastWaveFailure = "";
+
+    for (let attempt = 1; attempt <= input.maxAttempts; attempt++) {
+      const prepared: Array<{
+        task: any;
+        cwd: string;
+        sandbox?: any;
+        writeFiles: string[];
+      }> = [];
+
+      try {
+        for (const id of ids) {
+          const task: any = taskByID.get(id);
+          if (!task) throw new Error("scheduled task disappeared: " + id);
+          const writeFiles = taskWriteFiles(task);
+          let cwd = input.root;
+          let sandbox: any = undefined;
+
+          if (gitCapable) {
+            const slug = "runtime-" + randomUUID().slice(0, 8) + "-w" + waveIndex + "-a" + attempt;
+            sandbox = await createTaskSandbox(input.root, slug, id, {
+              inheritDirtyRoot: true,
+            });
+            cwd = sandbox.dir;
+          }
+
+          prepared.push({ task, cwd, sandbox, writeFiles });
+        }
+
+        let completed = 0;
+        const waveResults = await mapLimit(
+          prepared,
+          gitCapable ? MAX_CONCURRENCY : 1,
+          async (item) => {
+            const taskText = [
+              "Execute exactly this structured plan task.",
+              "Do not broaden file scope. If the declared write file list is empty, do not edit files.",
+              "",
+              JSON.stringify(item.task, null, 2),
+              "",
+              "Overall goal:",
+              String(input.plan.goal || ""),
+              lastWaveFailure
+                ? "\nFresh failure evidence from the previous wave attempt:\n" + cap(lastWaveFailure, 7000)
+                : "",
+            ].filter(Boolean).join("\n");
+
+            const implementation = await runRoutedAgent(
+              "ues-executor",
+              taskText,
+              item.cwd,
+              input.inheritedModel,
+              input.inheritedThinking,
+              attempt,
+              lastWaveFailure || undefined,
+              input.signal,
+            );
+            results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", ...implementation });
+
+            if (implementation.exitCode !== 0 || implementation.stopReason === "error") {
+              completed += 1;
+              input.onUpdate?.({
+                content: [{ type: "text", text: `UES scheduler: wave ${waveIndex + 1}, ${completed}/${prepared.length} task(s) finished` }],
+                details: { wave: waveIndex, attempt, task: item.task.id, phase: "execute" },
+              });
+              return { item, implementation, verification: null, passed: false };
+            }
+
+            const verification = await runRoutedAgent(
+              "ues-verifier",
+              [
+                "Verify exactly this structured plan task in the current isolated worktree.",
+                JSON.stringify(item.task, null, 2),
+                "",
+                "Implementation handoff (not proof):",
+                implementation.output,
+              ].join("\n"),
+              item.cwd,
+              input.inheritedModel,
+              input.inheritedThinking,
+              attempt,
+              undefined,
+              input.signal,
+            );
+            results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", ...verification });
+            completed += 1;
+            input.onUpdate?.({
+              content: [{ type: "text", text: `UES scheduler: wave ${waveIndex + 1}, ${completed}/${prepared.length} task(s) verified` }],
+              details: { wave: waveIndex, attempt, task: item.task.id, phase: "verify" },
+            });
+            return {
+              item,
+              implementation,
+              verification,
+              passed: verification.exitCode === 0 && verification.verdict === "PASS",
+            };
+          },
+        );
+
+        const failed = waveResults.filter((item) => !item.passed);
+        if (failed.length) {
+          lastWaveFailure = failed
+            .map((item) => item.verification?.output || item.implementation?.output || "unknown failure")
+            .join("\n\n---\n\n");
+          await cleanupSandboxes(input.root, prepared);
+          if (attempt < input.maxAttempts) continue;
+          return {
+            passed: false,
+            reason: "wave-verification-failed",
+            wave: waveIndex,
+            attempt,
+            failure: lastWaveFailure,
+            validation,
+            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            results,
+            integrations,
+          };
+        }
+
+        if (!gitCapable) {
+          // Without Git worktrees the safe graph is still serialized. Verification above
+          // is the evidence gate; changes already exist in the root working directory.
+          break;
+        }
+
+        const actualByTask = new Map<string, string[]>();
+        let scopeFailure = "";
+        for (const item of prepared) {
+          const changed = await sandboxChangedFiles(item.sandbox.dir, item.sandbox.integrationBase, input.signal);
+          actualByTask.set(item.task.id, changed);
+          const allowed = new Set(item.writeFiles);
+          const unexpected = changed.filter((file) => !allowed.has(file));
+          if (unexpected.length) {
+            scopeFailure +=
+              `${item.task.id}: changed files outside declared write scope: ${unexpected.join(", ")}\n`;
+          }
+        }
+
+        const changedOwners = new Map<string, string>();
+        for (const [taskID, changed] of actualByTask) {
+          for (const file of changed) {
+            const previous = changedOwners.get(file);
+            if (previous && previous !== taskID) {
+              scopeFailure += `wave conflict: ${previous} and ${taskID} both changed ${file}\n`;
+            } else {
+              changedOwners.set(file, taskID);
+            }
+          }
+        }
+
+        if (scopeFailure) {
+          lastWaveFailure = scopeFailure.trim();
+          await cleanupSandboxes(input.root, prepared);
+          if (attempt < input.maxAttempts) continue;
+          return {
+            passed: false,
+            reason: "scope-or-wave-conflict",
+            wave: waveIndex,
+            attempt,
+            failure: lastWaveFailure,
+            validation,
+            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            results,
+            integrations,
+          };
+        }
+
+        const integrated: Array<{ item: any; receipt: any }> = [];
+        try {
+          for (const item of prepared) {
+            const receipt = await integrateTaskSandbox(input.root, item.sandbox.dir, { keep: true });
+            integrated.push({ item, receipt });
+            integrations.push({ wave: waveIndex, task: item.task.id, ...receipt });
+          }
+        } catch (error) {
+          for (const completedIntegration of [...integrated].reverse()) {
+            await rollbackTaskSandbox(
+              input.root,
+              completedIntegration.item.sandbox.dir,
+              { keep: true },
+            ).catch(() => {});
+          }
+          await cleanupSandboxes(input.root, prepared);
+          return {
+            passed: false,
+            reason: "integration-failed",
+            wave: waveIndex,
+            attempt,
+            failure: error instanceof Error ? error.message : String(error),
+            validation,
+            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            results,
+            integrations,
+          };
+        }
+
+        await cleanupSandboxes(input.root, prepared);
+        break;
+      } catch (error) {
+        await cleanupSandboxes(input.root, prepared);
+        lastWaveFailure = error instanceof Error ? error.message : String(error);
+        if (attempt < input.maxAttempts) continue;
+        return {
+          passed: false,
+          reason: "wave-runtime-failed",
+          wave: waveIndex,
+          attempt,
+          failure: lastWaveFailure,
+          validation,
+          schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+          results,
+          integrations,
+        };
+      }
+    }
+  }
+
+  return {
+    passed: true,
+    validation,
+    schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+    results,
+    integrations,
+  };
+}
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>) {
   const results = new Array<R>(items.length);
   let next = 0;
