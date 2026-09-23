@@ -15,11 +15,21 @@ const agentDir = path.join(root, ".tmp-pi-agent")
 const PI_SMOKE_VERSION = process.env.UES_PI_SMOKE_VERSION || "0.87.1"
 const TYPEBOX_SMOKE_VERSION = process.env.UES_TYPEBOX_SMOKE_VERSION || "1.3.27"
 
+function sanitizedNpmChildEnv(base = process.env) {
+  return Object.fromEntries(
+    Object.entries(base).filter(([key]) => key.toLowerCase() !== "npm_config_allow_scripts"),
+  )
+}
+
 function run(executable, args, options = {}) {
-  if (process.platform !== "win32") return spawnSync(executable, args, options)
+  const spawnOptions = executable === "npm"
+    ? { ...options, env: sanitizedNpmChildEnv(options.env || process.env) }
+    : options
+
+  if (process.platform !== "win32") return spawnSync(executable, args, spawnOptions)
   const resolved = resolveWindowsCommand(executable)
   if (!resolved) return { status: 127, stdout: "", stderr: "Unable to resolve command: " + executable }
-  return spawnSync(resolved.executable, [...resolved.argsPrefix, ...args], options)
+  return spawnSync(resolved.executable, [...resolved.argsPrefix, ...args], spawnOptions)
 }
 
 async function importSdkFromDir(nodeModulesRoot) {
@@ -56,7 +66,6 @@ async function loadPiSdk() {
     "npm",
     [
       "install",
-      "--prefix", tempDir,
       "--ignore-scripts",
       "--no-package-lock",
       "--no-save",
@@ -64,7 +73,7 @@ async function loadPiSdk() {
       `typebox@${TYPEBOX_SMOKE_VERSION}`,
     ],
     {
-      cwd: root,
+      cwd: tempDir,
       encoding: "utf8",
       maxBuffer: 8 * 1024 * 1024,
     },
