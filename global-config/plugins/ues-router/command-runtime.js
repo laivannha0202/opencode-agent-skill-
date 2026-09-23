@@ -45,7 +45,7 @@ function splitArgs(input) {
 
 export function expandUesPromptAlias(text, templateDir) {
   const raw = String(text || "")
-  const match = raw.match(/^\s*\/(ues-[a-z0-9]+(?:-[a-z0-9]+)*)(?:[ \t]+([\s\S]*))?\s*$/i)
+  const match = raw.match(/^\s*\/(ues-[a-z0-9]+(?:-[a-z0-9]+)*)(?:\s+([\s\S]*?))?\s*$/i)
   if (!match) return null
 
   const alias = match[1].toLowerCase()
