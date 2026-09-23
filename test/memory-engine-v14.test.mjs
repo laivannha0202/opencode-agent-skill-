@@ -74,3 +74,49 @@ test("V14 memory verification fails closed without durable evidence", async () =
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V14 memory supports task-class affinity, expiry, and usage accounting", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-memory-v14-usage-"))
+  try {
+    const evidence = await putEvidence(root, "review contract passed", { kind: "test-receipt" })
+    const current = await proposeMemory(root, {
+      content: "Review checkout changes for idempotency regressions.",
+      type: "procedural",
+      scope: "module",
+      taskClass: "review",
+      evidenceRefs: [evidence.ref],
+      files: ["src/checkout.mjs"],
+    })
+    await verifyMemory(root, current.id, {
+      verdict: "PASS",
+      verifier: "ues-verifier",
+      evidenceRefs: [evidence.ref],
+    })
+
+    const expired = await proposeMemory(root, {
+      content: "Old checkout rule that must no longer be recalled.",
+      evidenceRefs: [evidence.ref],
+      expiresAt: "2000-01-01T00:00:00.000Z",
+    })
+    await verifyMemory(root, expired.id, {
+      verdict: "PASS",
+      verifier: "ues-verifier",
+      evidenceRefs: [evidence.ref],
+    })
+
+    const result = await retrieveMemories(root, "review checkout idempotency", {
+      files: ["src/checkout.mjs"],
+      taskClass: "review",
+      touch: true,
+    })
+    assert.equal(result.results[0].id, current.id)
+    assert.equal(result.results.some((item) => item.id === expired.id), false)
+    assert.equal(result.results[0].retrieval.taskClass, 1)
+    const status = await memoryStatus(root)
+    assert.equal(status.expired, 1)
+    assert.equal(status.used, 1)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
