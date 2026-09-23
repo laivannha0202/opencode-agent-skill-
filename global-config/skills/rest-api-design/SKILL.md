@@ -1,6 +1,6 @@
 ---
 name: rest-api-design
-description: Design/review REST APIs: resources, methods, status codes, pagination, validation, errors, versioning, and idempotency.
+description: "Design/review REST APIs: resources, methods, status codes, pagination, validation, errors, versioning, and idempotency."
 ---
 
 # Rest Api Design
