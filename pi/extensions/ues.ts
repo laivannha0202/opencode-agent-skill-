@@ -54,7 +54,21 @@ function stripFrontmatter(raw: string) {
 }
 
 function getAgentPrompt(agent: AgentName) {
-  return stripFrontmatter(fs.readFileSync(path.join(AGENT_DIR, AGENTS[agent].file), "utf8"));
+  const original = stripFrontmatter(
+    fs.readFileSync(path.join(AGENT_DIR, AGENTS[agent].file), "utf8"),
+  );
+  const fallbackCli = `node ${JSON.stringify(OCSKILL_BIN)}`;
+  const bridge = [
+    "## Pi host bridge",
+    "",
+    "- You are running as a fresh UES specialist inside Pi, not OpenCode.",
+    "- When the inherited UES instructions say to run \`ocskill ...\`, prefer the \`ues_cli\` tool with the equivalent argument array.",
+    `- If \`ues_cli\` is unavailable, invoke the bundled CLI as \`${fallbackCli} ...\`; do not assume a global \`ocskill\` binary exists.`,
+    "- Do not call OpenCode-only dispatch tools such as \`ues.dispatch_task\` or \`ues.dispatch_parallel\`.",
+    "- Respect the original role's edit/read-only boundary and return evidence to the parent Pi session.",
+    "",
+  ].join("\\n");
+  return bridge + original;
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
