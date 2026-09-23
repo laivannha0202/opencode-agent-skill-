@@ -4,6 +4,11 @@ UES là engineering runtime dành cho **Pi Agent**. Runtime này giúp model là
 
 > Host được hỗ trợ trong package hiện tại: **Pi Agent**.
 
+Phiên bản hiện tại:
+```text
+13.0.0-beta.3
+```
+
 ## Yêu cầu
 
 - Node.js 22.19 trở lên
@@ -58,7 +63,7 @@ Extension đăng ký ba tool chính:
 - `ues_cli`: chạy deterministic UES operations như task policy, repo inspection, durable work state, evidence và verification receipts;
 - `ues_dispatch`: chạy specialist Pi child agents theo single, chain hoặc bounded parallel mode khi cần điều phối thủ công.
 
-Child specialist được cô lập khỏi resource discovery ngẫu nhiên và nhận bounded context pack từ UES trước khi chạy.
+Child specialist giữ extension discovery để custom model provider (ví dụ Kilo) vẫn hoạt động, nhưng tắt skill/prompt/context discovery và bị khóa bằng per-agent tool allowlist. Task/context dài được truyền qua stdin để tránh giới hạn command-line trên Windows.
 
 Với structured long-horizon plan, controller tự tính safe waves, tạo Git worktree riêng, kiểm tra declared write scope, verify từng task, tích hợp tuần tự và rollback phần đã tích hợp nếu bước integration của wave thất bại. Manual `ues_dispatch` vẫn fail closed nếu người gọi cố chạy nhiều writer chung một checkout.
 
