@@ -49,6 +49,13 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /const READ_TOOLS = \["read", "grep", "find", "ls", "bash", "powershell"\]/)
   assert.match(source, /const WRITE_TOOLS = \[\.\.\.READ_TOOLS, "edit", "write"\]/)
   assert.match(source, /args\.push\("--tools", config\.tools\.join\(","\)\)/)
+  assert.match(source, /UES_CHILD_HARD_TIMEOUT_MS/)
+  assert.match(source, /UES_CHILD_IDLE_TIMEOUT_MS/)
+  assert.match(source, /UES_CHILD_HEARTBEAT_MS/)
+  assert.match(source, /taskkill/)
+  assert.match(source, /stopChildTree\(proc\)/)
+  assert.match(source, /UES controller: \$\{progress\.agent\} running/)
+  assert.match(source, /UES scheduler: \$\{item\.task\.id\} \$\{progress\.agent\} running/)
 
   const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
   assert.match(smokeSource, /sanitizedNpmChildEnv/)
