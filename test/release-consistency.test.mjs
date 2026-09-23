@@ -22,9 +22,9 @@ function fillFixture(tmp) {
     recursive: true,
     filter: (src) => {
       const rel = path.relative(root, src).replace(/\\/g, "/")
-      if (rel === "node_modules" || rel.startsWith("node_modules/")) return false
-      if (rel === ".git" || rel.startsWith(".git/")) return false
-      if (rel.endsWith(".tgz")) return false
+      const runtimeRoots = ["node_modules", ".git", ".ues-cache", ".ues-evals", ".ues-work"]
+      if (runtimeRoots.some((name) => rel === name || rel.startsWith(name + "/"))) return false
+      if (rel === "nul" || rel.endsWith(".tgz")) return false
       return true
     },
   })
