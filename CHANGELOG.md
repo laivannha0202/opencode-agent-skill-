@@ -16,7 +16,8 @@ The project follows Semantic Versioning.
 - Changed `/ues-run` from an unconditional long-horizon declaration into adaptive FAST / STANDARD / DEEP admission driven by the actual user request and task policy.
 - Removed the synthetic `Explicit long-horizon engineering request.` policy input for `/ues-run`; only `/ues-resume` retains explicit durable-resume semantics.
 - Added compact FAST and STANDARD V2 prompt envelopes so trivial or bounded work does not inherit `.ues-work`, plan-gate, subagent-dispatch and integration-gate overhead.
-- Kept a conservative fallback: when policy classification is unavailable, the full command contract is preserved instead of weakening verification.
+- Removed the V2 prompt-admission dependency on spawning the global `ocskill task-policy` shim. The router now classifies in-process using the same shared policy implementation as the CLI, so FAST/ STANDARD envelope selection does not depend on the OpenCode service PATH.
+- Kept one task-policy implementation shared by the CLI and V2 router to prevent classification drift.
 
 ### Regression coverage
 - Added V13 tests proving that `/ues-run Chỉ trả lời đúng một từ: OK` stays FAST, bounded fixes stay STANDARD, whole-repository work escalates to DEEP, and `/ues-resume` remains long-horizon.
