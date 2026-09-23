@@ -197,7 +197,8 @@ async function runAgent(
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-pi-"));
   const promptPath = path.join(tempDir, `${agent}.md`);
   await fs.promises.writeFile(promptPath, getAgentPrompt(agent), { encoding: "utf8", mode: 0o600 });
-  args.push("--append-system-prompt", promptPath, `Task: ${task}`);
+  args.push("--append-system-prompt", promptPath);
+  const taskInput = `Task: ${task}\n`;
 
   let output = "";
   let stderr = "";
@@ -215,7 +216,7 @@ async function runAgent(
       const proc = spawn(invocation.command, invocation.args, {
         cwd,
         shell: false,
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"],
       });
       let buffer = "";
       let settled = false;
@@ -262,6 +263,11 @@ async function runAgent(
       proc.stderr.on("data", (data) => {
         if (stderr.length < 128 * 1024) stderr += data.toString();
       });
+      proc.stdin.on("error", (error) => {
+        if (stderr.length < 128 * 1024) {
+          stderr += `\nchild Pi stdin error: ${error instanceof Error ? error.message : String(error)}`;
+        }
+      });
       proc.on("error", (error) => {
         stderr += `\n${error instanceof Error ? error.message : String(error)}`;
         finish(1);
@@ -270,6 +276,10 @@ async function runAgent(
         if (buffer.trim()) processLine(buffer);
         finish(code ?? 0);
       });
+
+      // Pi print/JSON mode reads piped stdin as the initial prompt. Keeping the
+      // enriched task off argv avoids Windows command-line length limits.
+      proc.stdin.end(taskInput);
 
       if (signal) {
         const kill = () => {
