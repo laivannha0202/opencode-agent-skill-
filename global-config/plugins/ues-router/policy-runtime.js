@@ -1,8 +1,17 @@
-const HIGH_RISK = /(\bauth\b|authorization|authentication|security|permission|payment|migration|schema|database|production|deploy|public api|breaking|secret|credential|phân quyền|bảo mật|thanh toán|cơ sở dữ liệu|triển khai|migrate|migration)/i
-const LONG = /(whole repo|whole repository|whole project|entire repo|entire project|large refactor|major refactor|long[- ](?:running|horizon)|durable state|dependency graph|integration verification|resume|migration|refactor all|toàn bộ repo|toàn bộ repository|toàn bộ dự án|toàn bộ project|refactor lớn|tác vụ dài|nhiều file|nhiều module|tiếp tục công việc|refactor toàn bộ|xác minh tích hợp|kiểm tra tích hợp|chia (?:công việc|task|tác vụ).*(?:dependency|phụ thuộc))/i
+const SENSITIVE_DOMAIN = /(\bauth\b|authorization|authentication|security|permission|payment|schema|database|production|deploy|public api|secret|credential|phân quyền|bảo mật|thanh toán|cơ sở dữ liệu|triển khai|api công khai|bí mật|thông tin xác thực)/i
+const HIGH_RISK_MUTATION = /((?:fix|change|modify|update|alter|migrate|drop|truncate|delete|remove|rotate|deploy|publish|push|sửa|thay đổi|cập nhật|xóa|xoá|di trú|chuyển đổi|triển khai).{0,64}(?:\bauth\b|authorization|authentication|security|permission|payment(?: handling| flow)?|schema|database|production|public api|secret|credential|phân quyền|bảo mật|thanh toán|cơ sở dữ liệu|api công khai|bí mật|thông tin xác thực)|(?:\bauth\b|authorization|authentication|security|permission|payment(?: handling| flow)?|schema|database|production|public api|secret|credential|phân quyền|bảo mật|thanh toán|cơ sở dữ liệu|api công khai|bí mật|thông tin xác thực).{0,64}(?:fix|change|modify|update|alter|migrate|drop|truncate|delete|remove|rotate|deploy|publish|push|sửa|thay đổi|cập nhật|xóa|xoá|di trú|chuyển đổi|triển khai)|database migration|schema migration|migrate database|migrate schema|drop table|truncate table|deploy(?:ment)?\s+(?:to\s+)?production|production\s+deploy(?:ment)?|rotate\s+(?:secret|credential)|breaking\s+(?:change\s+to\s+)?(?:public\s+)?api|npm publish|git push|force push|reset --hard|git clean)/i
+const LONG = /(whole repo|whole repository|whole project|entire repo|entire project|large refactor|major refactor|long[- ](?:running|horizon)|durable state|dependency graph|integration verification|resume|refactor all|multi[- ]step migration|migration across|toàn bộ repo|toàn bộ repository|toàn bộ dự án|toàn bộ project|refactor lớn|tác vụ dài|nhiều file|nhiều module|tiếp tục công việc|refactor toàn bộ|xác minh tích hợp|kiểm tra tích hợp|chia (?:công việc|task|tác vụ).*(?:dependency|phụ thuộc))/i
 const DEBUG = /(fix|bug|debug|crash|regression|failure|error|broken|sửa lỗi|lỗi|điều tra lỗi|không chạy)/i
 const CONTRACT = /(public api|api contract|openapi|response schema|request schema|breaking api|hợp đồng api|api công khai)/i
 const DATA = /(database|sql|migration|schema|transaction|index|cơ sở dữ liệu|dữ liệu|migrate)/i
+
+function riskTextFor(value) {
+  return String(value || "")
+    .replace(/\b(?:do not|don't|without)\s+(?:edit|modify|change|write|delete|remove)[^.\n]*/gi, "")
+    .replace(/\b(?:no|read[- ]only)\s+(?:edits?|changes?|writes?)[^.\n]*/gi, "")
+    .replace(/không\s+(?:sửa|chỉnh sửa|thay đổi|ghi|xóa|xoá)[^.\n]*/gi, "")
+    .replace(/chỉ\s+đọc[^.\n]*/gi, "")
+}
 
 function signal(name, matched, weight) {
   return matched ? { name, weight } : null
@@ -134,6 +143,9 @@ export function recoveryPolicyForAttempt(taskPolicy = {}, attempt = 1) {
 
 export function classifyEngineeringTask(text, facts = {}) {
   const value = String(text || "")
+  const riskText = riskTextFor(value)
+  const sensitiveDomain = SENSITIVE_DOMAIN.test(value)
+  const sensitiveMutation = HIGH_RISK_MUTATION.test(riskText)
   const declaredHighRisk =
     ["high", "critical"].includes(String(facts.risk || "").toLowerCase()) ||
     /\b(?:risk|rủi ro)\s*[:=\/-]?\s*(?:high|critical|cao|nghiêm trọng)\b/i.test(value) ||
@@ -148,12 +160,13 @@ export function classifyEngineeringTask(text, facts = {}) {
   const signals = [
     signal("long-request-text", value.length > 700, 1),
     signal("medium-request-text", value.length > 250, 1),
-    signal("high-risk-domain", HIGH_RISK.test(value), 2),
+    signal("high-risk-domain", sensitiveDomain, 1),
+    signal("high-risk-operation", sensitiveMutation, 2),
     signal("declared-high-risk", declaredHighRisk, 2),
     signal("explicit-long-horizon", explicitLongHorizon, 2),
     signal("debugging", DEBUG.test(value), 1),
     signal("public-contract", CONTRACT.test(value) || facts.hasPublicContract, 2),
-    signal("data-migration", (DATA.test(value) && /migration|schema|migrate|di trú|chuyển đổi/i.test(value)) || facts.hasMigration, 2),
+    signal("data-migration", (DATA.test(riskText) && /migration|schema|migrate|di trú|chuyển đổi/i.test(riskText)) || facts.hasMigration, 2),
     signal("many-changed-files", Number(facts.changedFiles || 0) > 5, 1),
     signal("very-many-changed-files", Number(facts.changedFiles || 0) > 12, 1),
     signal("large-repository", Number(facts.repoFiles || 0) > 1500, 1),
@@ -161,7 +174,7 @@ export function classifyEngineeringTask(text, facts = {}) {
   ].filter(Boolean)
 
   const score = signals.reduce((sum, item) => sum + item.weight, 0)
-  const highRisk = declaredHighRisk || HIGH_RISK.test(value) || Boolean(facts.hasMigration) || Boolean(facts.hasPublicContract)
+  const highRisk = declaredHighRisk || sensitiveMutation || Boolean(facts.hasMigration) || Boolean(facts.hasPublicContract)
   const risk = highRisk ? "high" : score >= 3 ? "medium" : "low"
   const mode = explicitLongHorizon || score >= 4 ? "long-horizon" : score >= 2 ? "standard" : "inline"
   const modelTier = risk === "high" || mode === "long-horizon" ? "heavy" : score >= 2 ? "standard" : "light"
