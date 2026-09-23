@@ -1,7 +1,7 @@
 # OpenCode Universal Engineering System (UES)
 
-> **V13 beta: 13.0.0-beta.0** — parallel weak-model runtime với same-model worker pool, event-driven DAG, transactional worktree integration và hardened CLI/Windows runtime.
-> **Stable latest vẫn là V11: 11.0.0.** V13 được đóng gói dưới prerelease `13.0.0-beta.0`; npm prerelease dùng dist-tag `next`, còn `latest` tiếp tục giữ V11 cho đến khi V13 được promote stable.
+> **V13 beta: 13.0.0-beta.1** — parallel weak-model runtime với same-model worker pool, event-driven DAG, transactional worktree integration và hardened CLI/Windows runtime.
+> **Stable latest vẫn là V11: 11.0.0.** V13 được đóng gói dưới prerelease `13.0.0-beta.1`; npm prerelease dùng dist-tag `next`, còn `latest` tiếp tục giữ V11 cho đến khi V13 được promote stable.
 
 [![npm version](https://img.shields.io/npm/v/opencode-agent-skill.svg)](https://www.npmjs.com/package/opencode-agent-skill)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -49,9 +49,9 @@ Parallel resume không còn yêu cầu root phải sạch tuyệt đối. Nếu 
 
 > **Compatibility:** V13 CLI/durable-state/verification hardening vẫn dùng được trên OpenCode 1.x. Native `ues.dispatch_task` / `ues.dispatch_parallel` cần router plugin và fresh-session APIs của OpenCode V2; nếu capability không đủ, runtime fail closed thay vì giả vờ chạy song song.
 
-### V13 beta validation hiện tại
+### V13 beta validation baseline
 
-Bản đóng gói hiện tại đã được kiểm tra local trên Windows 10 với OpenCode V2.0.15:
+Baseline beta.0 đã được kiểm tra local trên Windows 10 với OpenCode V2.0.15; beta.1 phải chạy lại full gate trước khi publish:
 
 - `npm run evals:v13`: **36/36 PASS**;
 - `npm test`: **298 tests**, **296 pass**, **0 fail**, **2 platform-specific skip**;
@@ -819,7 +819,7 @@ npm install -g opencode-agent-skill
 Phiên bản hiện tại:
 
 ```text
-13.0.0-beta.0
+13.0.0-beta.1
 ```
 
 V13 beta dùng npm dist-tag `next`; `latest` tiếp tục trỏ tới V11 stable cho đến khi các release gate V13 hoàn tất.
@@ -835,7 +835,7 @@ npm pack
 Trước khi publish, kiểm tra version chưa tồn tại trên registry:
 
 ```cmd
-npm view opencode-agent-skill@13.0.0-beta.0 version --registry=https://registry.npmjs.org/
+npm view opencode-agent-skill@13.0.0-beta.1 version --registry=https://registry.npmjs.org/
 ```
 
 Nếu version chưa tồn tại, prerelease được publish với dist-tag `next`.
