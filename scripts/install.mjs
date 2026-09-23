@@ -5,6 +5,16 @@ import { installResources } from "../lib/installer.mjs"
 
 const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
+function isPiPackageInstall() {
+  const normalized = packageRoot.replaceAll("\\", "/").toLowerCase()
+  return [
+    "/.pi/agent/git/",
+    "/.pi/agent/npm/",
+    "/.pi/git/",
+    "/.pi/npm/",
+  ].some((marker) => normalized.includes(marker))
+}
+
 function npmGlobalPrefix() {
   if (process.platform === "win32") {
     const result = spawnSync(
@@ -28,6 +38,12 @@ function isGlobalInstall() {
   if (!prefix) return false
 
   return packageRoot.toLowerCase().startsWith(path.resolve(prefix).toLowerCase())
+}
+
+if (isPiPackageInstall()) {
+  console.log("[ocskill] Pi package install detected; Pi will load UES from the package manifest.")
+  console.log("[ocskill] Skipping OpenCode global resource setup.")
+  process.exit(0)
 }
 
 if (!isGlobalInstall()) {
