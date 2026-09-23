@@ -274,16 +274,18 @@ test("V13 V2 prompt admission classifies locally without spawning ocskill task-p
   )
   assert.match(source, /classifyEngineeringTask\(policyInput\.text\)/)
   assert.match(source, /from "\.\/policy-runtime\.js"/)
-  assert.doesNotMatch(source, /runOcskillJSON\(\["task-policy"/)
+  assert.doesNotMatch(source, /runOcskill(?:JSON)?\(\["task-policy"/)
 })
 
-test("V13 CLI and V2 router share one task-policy implementation", async () => {
-  const libSource = await readFile(new URL("../lib/orchestrator-policy.mjs", import.meta.url), "utf8")
+test("V13 CLI and legacy V2 router share the Pi-native task-policy implementation", async () => {
+  const orchestratorSource = await readFile(new URL("../lib/orchestrator-policy.mjs", import.meta.url), "utf8")
   const runtimeSource = await readFile(
     new URL("../global-config/plugins/ues-router/policy-runtime.js", import.meta.url),
     "utf8",
   )
-  assert.match(libSource, /from "\.\.\/global-config\/plugins\/ues-router\/policy-runtime\.js"/)
-  assert.match(runtimeSource, /export function classifyEngineeringTask/)
-  assert.match(runtimeSource, /export function recoveryPolicyForAttempt/)
+  const canonicalSource = await readFile(new URL("../lib/task-policy.mjs", import.meta.url), "utf8")
+  assert.match(orchestratorSource, /from "\.\/task-policy\.mjs"/)
+  assert.match(runtimeSource, /from "\.\.\/\.\.\/\.\.\/lib\/task-policy\.mjs"/)
+  assert.match(canonicalSource, /export function classifyEngineeringTask/)
+  assert.match(canonicalSource, /export function recoveryPolicyForAttempt/)
 })
