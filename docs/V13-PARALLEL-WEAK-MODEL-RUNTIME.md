@@ -46,8 +46,7 @@ V2 prompt aliases classify the **actual alias arguments** before choosing the pr
 - STANDARD requests use targeted repository evidence, bounded edits and affected verification without creating durable state by default.
 - DEEP / long-horizon / high-risk requests retain the full durable `.ues-work/<slug>/`, plan-gate, fresh-verifier and integration-gate contract.
 - `/ues-resume` remains explicitly durable so an existing long-running workspace is not accidentally downgraded.
-
-If policy classification is unavailable, the router fails conservatively by preserving the full command contract rather than silently weakening verification.
+- Prompt admission classifies in-process from the bounded real request using the same policy module as the CLI; it does not shell out to `ocskill`, so OpenCode service PATH differences cannot silently disable FAST/STANDARD compaction.
 
 ## CLI hardening
 
