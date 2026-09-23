@@ -41,6 +41,10 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /recordModelPerformance/)
   assert.match(source, /destructiveShellRisk/)
   assert.match(source, /writer agents require an explicit cwd/i)
+  assert.doesNotMatch(source, /args\.push\("--append-system-prompt",\s*promptPath,\s*`Task:/)
+  assert.match(source, /stdio:\s*\["pipe",\s*"pipe",\s*"pipe"\]/)
+  assert.match(source, /proc\.stdin\.end\(taskInput\)/)
+  assert.match(source, /const taskInput = `Task:/)
 
   const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
   assert.match(smokeSource, /sanitizedNpmChildEnv/)
