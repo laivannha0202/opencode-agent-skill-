@@ -144,6 +144,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["eval:pi"] !== "node scripts/eval-pi.mjs") errors.push("package.json: missing Pi-native eval:pi script")
     if (!String(scripts.ci || "").includes("npm run docs:check")) errors.push("package.json: ci must include docs:check")
     if (!String(scripts.ci || "").includes("npm test")) errors.push("package.json: ci must include full npm test")
+    if (!String(scripts.ci || "").includes("npm run smoke:packed")) errors.push("package.json: ci must include smoke:packed")
     if (pkg.pi?.extensions?.[0] !== "./pi/extensions/ues.ts") errors.push("package.json: Pi extension entry drift")
     if (!Array.isArray(pkg.pi?.skills) || !pkg.pi.skills.includes("./global-config/skills")) errors.push("package.json: Pi skills entry drift")
     if (!Array.isArray(pkg.pi?.prompts) || !pkg.pi.prompts.includes("./pi/prompts/*.md")) errors.push("package.json: Pi prompts entry drift")
