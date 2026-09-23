@@ -4,7 +4,12 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 
-import { expandUesPromptAlias, UES_PROMPT_ALIASES } from "../global-config/plugins/ues-router/command-runtime.js"
+import {
+  expandUesPromptAlias,
+  normalizeUesPromptPaste,
+  policyPromptForCli,
+  UES_PROMPT_ALIASES,
+} from "../global-config/plugins/ues-router/command-runtime.js"
 
 test("V13 exposes every managed UES slash command as a V2 prompt alias", () => {
   assert.deepEqual(UES_PROMPT_ALIASES, [
@@ -89,6 +94,61 @@ test("V13 prompt alias ignores non-UES and unknown slash commands", async () => 
     assert.equal(expandUesPromptAlias("hello", dir), null)
     assert.equal(expandUesPromptAlias("/help", dir), null)
     assert.equal(expandUesPromptAlias("/ues-unknown test", dir), null)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+
+test("V13 prompt alias accepts a ChatGPT-style outer markdown fence and BOM", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-command-runtime-fenced-"))
+  try {
+    await writeFile(
+      path.join(dir, "run.md"),
+      "---\ndescription: run\nagent: build\n---\n\nRun task: $ARGUMENTS\n",
+      "utf8",
+    )
+    const pasted = "\uFEFF\`\`\`text\n/ues-run\n\nKiểm tra toàn bộ repository, không push.\n\`\`\`"
+    assert.equal(
+      normalizeUesPromptPaste(pasted).trim(),
+      "/ues-run\n\nKiểm tra toàn bộ repository, không push.",
+    )
+    const result = expandUesPromptAlias(pasted, dir)
+    assert.equal(result.alias, "ues-run")
+    assert.match(result.text, /Kiểm tra toàn bộ repository, không push\./)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
+})
+
+test("V13 policy CLI input stays bounded for very large pasted prompts", () => {
+  const giant = [
+    "Refactor toàn bộ repository với long-horizon workflow.",
+    "Không push, không publish, không destructive reset.",
+    "x".repeat(70_000),
+    "END: preserve dirty working tree and verify integration.",
+  ].join("\n")
+  const bounded = policyPromptForCli(giant)
+  assert.equal(bounded.truncated, true)
+  assert.ok(bounded.originalChars > 70_000)
+  assert.ok(bounded.cliChars <= 12_000)
+  assert.match(bounded.text, /UES_POLICY_INPUT_TRUNCATED_FOR_CLI/)
+  assert.match(bounded.text, /preserve dirty working tree and verify integration\./)
+})
+
+test("V13 expands a very large multiline /ues-run prompt without duplicating the user payload", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-command-runtime-large-"))
+  try {
+    await writeFile(
+      path.join(dir, "run.md"),
+      "---\ndescription: run\nagent: build\n---\n\nRun task: $ARGUMENTS\n",
+      "utf8",
+    )
+    const payload = "BEGIN\n" + "abc123 ".repeat(12_000) + "\nEND-SENTINEL"
+    const result = expandUesPromptAlias("/ues-run\n\n" + payload, dir)
+    assert.equal(result.alias, "ues-run")
+    assert.equal((result.text.match(/END-SENTINEL/g) || []).length, 1)
+    assert.equal((result.text.match(/BEGIN/g) || []).length, 1)
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
