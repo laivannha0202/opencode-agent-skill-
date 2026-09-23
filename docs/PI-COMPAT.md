@@ -76,6 +76,10 @@ Supported execution patterns:
 
 Parallel writer agents require distinct explicit cwd/worktrees. Read-only agents may share the same repository.
 
+Child Pi processes keep extension discovery enabled so custom model providers remain available, while skills, prompt templates and context files are disabled and each specialist receives a strict tool allowlist. Enriched task/context input is piped through stdin instead of argv for Windows command-line safety.
+
+Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
+
 ## Prompts
 
 ```text
