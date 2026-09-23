@@ -56,3 +56,28 @@ test("structured facts can force long/high-risk without depending on score", () 
   assert.equal(policy.mode, "long-horizon")
   assert.equal(policy.executionProfile, "deep")
 })
+
+
+test("FAST read-only database inspection keeps direct database skill without orchestration", () => {
+  const prompt = "Kiểm tra repository, không sửa file. Xác định database và báo cáo ngắn gọn."
+  const policy = classifyEngineeringTask(prompt)
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.risk, "low")
+
+  const routed = routeSkillsForPolicy(prompt, policy, policy.maxSkills)
+  assert.ok(routed.includes("ues-database-engineering"))
+  assert.equal(routed.includes("ues-engineering-orchestrator"), false)
+  assert.equal(routed.includes("ues-change-impact-analysis"), false)
+})
+
+test("real database migration keeps orchestrated high-risk routing", () => {
+  const prompt = "Migrate the production database schema and update dependent application code."
+  const policy = classifyEngineeringTask(prompt)
+  assert.equal(policy.executionProfile, "deep")
+  assert.equal(policy.risk, "high")
+
+  const routed = routeSkillsForPolicy(prompt, policy, 6)
+  assert.ok(routed.includes("ues-engineering-orchestrator"))
+  assert.ok(routed.includes("ues-database-engineering"))
+  assert.ok(routed.includes("ues-change-impact-analysis"))
+})
