@@ -739,6 +739,17 @@ async function executeStructuredPlan(input: {
               attempt,
               lastWaveFailure || undefined,
               input.signal,
+              (progress) => {
+                input.onUpdate?.({
+                  content: [{
+                    type: "text",
+                    text:
+                      `UES scheduler: ${item.task.id} ${progress.agent} running ${Math.round(progress.elapsedMs / 1000)}s` +
+                      ` (idle ${Math.round(progress.idleMs / 1000)}s, tools ${progress.toolCalls})`,
+                  }],
+                  details: { wave: waveIndex, attempt, task: item.task.id, phase: "execute", progress },
+                });
+              },
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", ...implementation });
 
@@ -767,6 +778,17 @@ async function executeStructuredPlan(input: {
               attempt,
               undefined,
               input.signal,
+              (progress) => {
+                input.onUpdate?.({
+                  content: [{
+                    type: "text",
+                    text:
+                      `UES scheduler: ${item.task.id} ${progress.agent} running ${Math.round(progress.elapsedMs / 1000)}s` +
+                      ` (idle ${Math.round(progress.idleMs / 1000)}s, tools ${progress.toolCalls})`,
+                  }],
+                  details: { wave: waveIndex, attempt, task: item.task.id, phase: "verify", progress },
+                });
+              },
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", ...verification });
             const passed = verification.exitCode === 0 && verification.verdict === "PASS";
@@ -1031,6 +1053,17 @@ export default function (pi: ExtensionAPI) {
           attempt,
           failure,
           signal,
+          (progress) => {
+            onUpdate?.({
+              content: [{
+                type: "text",
+                text:
+                  `UES controller: ${progress.agent} running ${Math.round(progress.elapsedMs / 1000)}s` +
+                  ` (idle ${Math.round(progress.idleMs / 1000)}s, tools ${progress.toolCalls})`,
+              }],
+              details: { mode: "execute", policy, progress },
+            });
+          },
         );
         steps.push(result);
         onUpdate?.({
