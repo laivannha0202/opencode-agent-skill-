@@ -32,7 +32,7 @@
     "smoke:pi": "node scripts/smoke-pi-extension.mjs",
     "smoke:package": "node scripts/smoke-package-closure.mjs",
     "eval:pi": "node scripts/eval-pi.mjs",
-    "ci": "npm run syntax && npm test && npm run docs:check && npm pack --dry-run && npm run smoke:pi && npm run smoke:package",
+    "ci": "npm run syntax && npm test && npm run docs:check && npm pack --dry-run && npm run smoke:pi && npm run smoke:package && npm run smoke:packed",
     "prepublishOnly": "npm run ci",
     "smoke:packed": "node scripts/smoke-packed-install.mjs"
   },
