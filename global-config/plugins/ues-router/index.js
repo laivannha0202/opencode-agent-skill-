@@ -8,6 +8,7 @@ import { runtimeCapabilities } from "./capabilities.js"
 import { parallelRootBaseline, runEventDrivenDAG } from "./parallel-runtime.js"
 import { readProjectJson, readProjectText } from "./text-runtime.js"
 import { extractVerifierVerdict } from "./verifier-runtime.js"
+import { expandUesPromptAlias } from "./command-runtime.js"
 import {
   budgetToolResult,
   classifyProviderFailure,
@@ -23,6 +24,11 @@ const CONFIG_FILE = path.resolve(
   "..",
   ".ues",
   "router.json",
+)
+
+const COMMAND_TEMPLATE_DIR = path.resolve(
+  path.dirname(fileURLToPath(import.meta.url)),
+  "command-templates",
 )
 
 function routerConfig() {
@@ -1532,17 +1538,32 @@ export default {
       const config = routerConfig()
       if (!config.enabled) return
 
+      const promptAlias = expandUesPromptAlias(event.prompt?.text, COMMAND_TEMPLATE_DIR)
+      if (promptAlias && event.prompt) {
+        event.prompt.text = promptAlias.text
+        event.metadata = {
+          ...event.metadata,
+          uesPromptAlias: {
+            alias: promptAlias.alias,
+            sourceName: promptAlias.sourceName,
+            preferredAgent: promptAlias.agent,
+            transport: "session.prompt",
+          },
+        }
+      }
+
+      const promptText = String(event.prompt?.text || "")
       let policy = null
       try {
-        policy = runOcskillJSON(["task-policy", event.prompt.text], projectRoot)
+        policy = runOcskillJSON(["task-policy", promptText], projectRoot)
       } catch {}
-      const intent = classifyIntent(event.prompt.text, routingFacts)
+      const intent = classifyIntent(promptText, routingFacts)
       const effectiveMaxSkills = Math.max(
         1,
         Math.min(config.maxSkills, Number(policy?.maxSkills || config.maxSkills)),
       )
       const selected = []
-      for (const id of [...routeSkillsForPolicy(event.prompt.text, policy, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
+      for (const id of [...routeSkillsForPolicy(promptText, policy, effectiveMaxSkills, routingFacts), ...policySkills(policy)]) {
         if (!selected.includes(id)) selected.push(id)
         if (selected.length >= effectiveMaxSkills) break
       }
