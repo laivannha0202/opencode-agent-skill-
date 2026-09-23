@@ -108,16 +108,38 @@ jobs:
       - name: Plain one-command install smoke
         run: npm run smoke:plain-install
 
+  pi-compat:
+    name: pi compatibility (node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install package metadata
+        run: npm ci --ignore-scripts
+
+      - name: Install current Pi host peers for smoke validation
+        run: npm install --no-save --ignore-scripts @earendil-works/pi-coding-agent typebox
+
+      - name: Load UES extension through Pi ResourceLoader
+        run: node scripts/smoke-pi-extension.mjs
+
   ci-gate:
     name: CI Gate
-    needs: [static, unit, package]
+    needs: [static, unit, package, pi-compat]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Verify all required CI jobs passed
         run: |
           failed=0
-          for entry in "static:${{ needs.static.result }}" "unit:${{ needs.unit.result }}" "package:${{ needs.package.result }}"; do
+          for entry in "static:${{ needs.static.result }}" "unit:${{ needs.unit.result }}" "package:${{ needs.package.result }}" "pi-compat:${{ needs.pi-compat.result }}"; do
             name="${entry%%:*}"
             result="${entry##*:}"
             echo "$name: $result"
