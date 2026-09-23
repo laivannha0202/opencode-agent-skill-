@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -27,6 +27,45 @@ const AGENT_DIR = path.join(PACKAGE_ROOT, "global-config", "agents");
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const OUTPUT_LIMIT = 512 * 1024;
+
+function configuredDuration(name: string, fallback: number, min: number, max: number) {
+  const parsed = Number(process.env[name] || "");
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.max(min, Math.min(max, Math.trunc(parsed)));
+}
+
+const CHILD_HARD_TIMEOUT_MS = configuredDuration(
+  "UES_CHILD_HARD_TIMEOUT_MS",
+  30 * 60_000,
+  60_000,
+  2 * 60 * 60_000,
+);
+const CHILD_IDLE_TIMEOUT_MS = configuredDuration(
+  "UES_CHILD_IDLE_TIMEOUT_MS",
+  5 * 60_000,
+  30_000,
+  30 * 60_000,
+);
+const CHILD_HEARTBEAT_MS = configuredDuration(
+  "UES_CHILD_HEARTBEAT_MS",
+  15_000,
+  5_000,
+  60_000,
+);
+
+function stopChildTree(proc: any) {
+  if (!proc?.pid) return;
+  if (process.platform === "win32") {
+    spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    return;
+  }
+  try {
+    proc.kill("SIGTERM");
+  } catch {}
+}
 
 const READ_TOOLS = ["read", "grep", "find", "ls", "bash", "powershell"] as const;
 const WRITE_TOOLS = [...READ_TOOLS, "edit", "write"] as const;
@@ -187,6 +226,14 @@ async function runAgent(
   model: string | undefined,
   thinkingLevel: string | undefined,
   signal?: AbortSignal,
+  onProgress?: (progress: {
+    agent: AgentName;
+    elapsedMs: number;
+    idleMs: number;
+    toolCalls: number;
+    model?: string;
+    phase: "running";
+  }) => void,
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const args: string[] = [
@@ -224,15 +271,67 @@ async function runAgent(
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
       });
+      const childStartedAt = Date.now();
+      let lastActivityAt = childStartedAt;
       let buffer = "";
       let settled = false;
+      let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+      let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+
+      const cleanupTimers = () => {
+        if (heartbeatTimer) clearInterval(heartbeatTimer);
+        if (watchdogTimer) clearInterval(watchdogTimer);
+      };
 
       const finish = (code: number) => {
         if (settled) return;
         settled = true;
+        cleanupTimers();
         exitCode = code;
         resolve();
       };
+
+      const terminateForTimeout = (kind: "hard" | "idle") => {
+        if (settled) return;
+        const elapsedMs = Date.now() - childStartedAt;
+        const idleMs = Date.now() - lastActivityAt;
+        const message =
+          `UES child ${agent} ${kind} timeout after ${Math.round(elapsedMs / 1000)}s` +
+          (kind === "idle" ? ` (idle ${Math.round(idleMs / 1000)}s)` : "");
+        stopReason = "timeout";
+        errorMessage = message;
+        stderr += "\n" + message;
+        stopChildTree(proc);
+        finish(124);
+      };
+
+      const reportProgress = () => {
+        try {
+          onProgress?.({
+            agent,
+            elapsedMs: Date.now() - childStartedAt,
+            idleMs: Date.now() - lastActivityAt,
+            toolCalls,
+            model: seenModel || model,
+            phase: "running",
+          });
+        } catch {}
+      };
+
+      heartbeatTimer = setInterval(reportProgress, CHILD_HEARTBEAT_MS);
+      heartbeatTimer.unref?.();
+      watchdogTimer = setInterval(() => {
+        const now = Date.now();
+        if (now - childStartedAt >= CHILD_HARD_TIMEOUT_MS) {
+          terminateForTimeout("hard");
+          return;
+        }
+        if (now - lastActivityAt >= CHILD_IDLE_TIMEOUT_MS) {
+          terminateForTimeout("idle");
+        }
+      }, 1000);
+      watchdogTimer.unref?.();
+      reportProgress();
 
       const processLine = (line: string) => {
         if (!line.trim()) return;
@@ -261,12 +360,14 @@ async function runAgent(
       };
 
       proc.stdout.on("data", (data) => {
+        lastActivityAt = Date.now();
         buffer += data.toString();
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) processLine(line);
       });
       proc.stderr.on("data", (data) => {
+        lastActivityAt = Date.now();
         if (stderr.length < 128 * 1024) stderr += data.toString();
       });
       proc.stdin.on("error", (error) => {
@@ -289,10 +390,10 @@ async function runAgent(
 
       if (signal) {
         const kill = () => {
-          proc.kill("SIGTERM");
-          setTimeout(() => {
-            if (!proc.killed) proc.kill("SIGKILL");
-          }, 5000).unref?.();
+          stopReason = "aborted";
+          errorMessage = "UES child execution aborted";
+          stopChildTree(proc);
+          finish(130);
         };
         if (signal.aborted) kill();
         else signal.addEventListener("abort", kill, { once: true });
@@ -393,6 +494,7 @@ async function runRoutedAgent(
   attempt = 1,
   recentFailure?: string,
   signal?: AbortSignal,
+  onProgress?: Parameters<typeof runAgent>[6],
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
   const taskPolicy = classifyEngineeringTask(task);
@@ -451,7 +553,7 @@ async function runRoutedAgent(
   }
 
   const startedAt = Date.now();
-  const result = await runAgent(agent, enrichedTask, cwd, selectedModel, thinking, signal);
+  const result = await runAgent(agent, enrichedTask, cwd, selectedModel, thinking, signal, onProgress);
   return {
     ...result,
     task,
