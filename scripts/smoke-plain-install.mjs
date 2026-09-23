@@ -86,15 +86,21 @@ try {
   )
   const state = JSON.parse(await readFile(stateFile, "utf8"))
   assert.equal(state.package, packageName)
+  assert.equal(state.openCodeMajor, 2)
   assert.ok(state.skills.length >= 39)
-  assert.ok(state.commands.length >= 11)
+  assert.deepEqual(state.commands, [])
+  assert.ok(state.promptAliases.length >= 11)
+  assert.ok(state.promptAliases.includes("ues-run"))
   assert.ok(state.agents.length >= 10)
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "command-runtime.js")))
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "command-templates", "run.md")))
+  assert.equal(existsSync(path.join(configDir, "commands", "ues-run.md")), false)
 
   console.log(
     "Plain npm install compatibility smoke passed for " + packageName + "@" + packageJson.version +
     ": npm " + npmVersion + ", lifecycle auto-sync=" + autoSynced +
     ", manual sync fallback=" + manualSyncFallback +
-    ", final resources=" + state.skills.length + "/" + state.commands.length + "/" + state.agents.length + ".",
+    ", final resources=" + state.skills.length + " skills/" + state.promptAliases.length + " prompt-aliases/" + state.agents.length + " agents.",
   )
 
   if (Number.isFinite(npmMajor) && npmMajor >= 11 && manualSyncFallback) {
