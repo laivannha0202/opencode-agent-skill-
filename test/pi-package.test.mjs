@@ -57,6 +57,15 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /UES controller: \$\{progress\.agent\} running/)
   assert.match(source, /UES scheduler: \$\{item\.task\.id\} \$\{progress\.agent\} running/)
 
+  const evalSource = fs.readFileSync(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
+  assert.match(evalSource, /"--no-extensions"/)
+  assert.match(evalSource, /for \(const extension of providerExtensions\)/)
+  assert.match(evalSource, /piArgs\.push\("--extension", extension\)/)
+  assert.match(evalSource, /git:github\.com\/Kilo-Org\/kilo-pi-provider/)
+  assert.match(evalSource, /piArgs\.push\("--extension", path\.join\(root, "pi", "extensions", "ues\.ts"\)\)/)
+  assert.match(evalSource, /--provider-extension/)
+  assert.match(evalSource, /providerExtensionCount/)
+
   const smokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-pi-extension.mjs"), "utf8")
   assert.match(smokeSource, /sanitizedNpmChildEnv/)
   assert.match(smokeSource, /npm_config_allow_scripts/)
