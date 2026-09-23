@@ -133,3 +133,25 @@ Runtime model routing is configured with `ocskill models ...` and is consumed di
 ## Package closure
 
 `npm run smoke:package` inspects the actual npm pack file list, verifies required Pi/runtime files are present, checks relative module imports do not point outside the published package, and smoke-runs the deterministic task policy. This guards against the previous class of errors where Git installs worked but npm publication omitted a core dependency.
+
+
+## V14 context and memory fabric
+
+Pi child-agent dispatch keeps the existing specialist set. V14 strengthens the context supplied to those agents instead of adding more roles:
+
+- L0/L1 hierarchy scopes are selected before broad L2 excerpts;
+- only evidence-verified, non-superseded project memories are injected;
+- capability providers expose deterministic health and fallback state.
+
+Useful deterministic commands:
+
+```cmd
+ues capability-fabric status .
+ues hierarchy "task query" .
+ues memory status .
+ues memory search "task query" .
+```
+
+`ues_execute` may persist a verified episodic memory only after an independent verifier has returned PASS. The memory record is backed by a content-addressed evidence receipt and is stored under ignored local `.ues-memory/` state.
+
+See `docs/V14-CONTEXT-MEMORY-FABRIC.md`.

@@ -6,6 +6,31 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [14.0.0-beta.0] - 2026-09-24
+
+### Added
+- Added a deterministic capability fabric with provider health checks, primary/fallback selection, quality/cost/latency scoring, project overrides and `ues doctor` visibility.
+- Added hierarchical repository context with bounded L0 routing abstracts, L1 subtree overviews and existing L2 source/test/instruction excerpts.
+- Added verified persistent project memory under ignored `.ues-memory/` state with candidate/verified/superseded lifecycle, durable Evidence Store requirements, confidence and reinforcement metadata.
+- Added hybrid memory retrieval combining BM25-style lexical relevance, deterministic hashed-vector similarity, file-path affinity, recency/confidence and reciprocal-rank fusion.
+- Added `capability-fabric`, `hierarchy` and `memory` CLI surfaces plus V14 Control Center memory telemetry.
+- Added V14 deterministic contract/eval fixtures for hierarchy routing, evidence-backed recall, supersession, provider failover and context contamination.
+
+### Changed
+- Adaptive task context now scope-boosts semantic references using the hierarchy and injects only bounded verified memories into child Pi context.
+- Pi `ues_execute` records an episodic memory only after independent task/integration verification passes; memory failures remain non-fatal to an already verified engineering task.
+- Semantic indexing excludes `.ues-memory/` runtime state.
+
+### Safety
+- Candidate or superseded memories are never retrieved.
+- Memory verification fails closed without a named verifier, PASS verdict and at least one existing content-addressed evidence reference.
+- Supersession requires the replacement memory to be verified first.
+- Optional capability providers may be unavailable without pretending to be healthy or failing unrelated capabilities.
+
+### Regression coverage
+- Added focused V14 unit and CLI tests for capability fallback, L0/L1 hierarchy bounds, verified-memory retrieval, supersession, evidence fail-closed behavior and adaptive-context injection.
+
+
 ## [13.0.0-beta.3] - 2026-09-23
 
 ### Fixed

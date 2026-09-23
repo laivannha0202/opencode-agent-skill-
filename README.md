@@ -6,7 +6,7 @@ UES là engineering runtime dành cho **Pi Agent**. Runtime này giúp model là
 
 Phiên bản hiện tại:
 ```text
-13.0.0-beta.3
+14.0.0-beta.0
 ```
 
 ## Yêu cầu
@@ -66,6 +66,26 @@ Extension đăng ký ba tool chính:
 Child specialist giữ extension discovery để custom model provider (ví dụ Kilo) vẫn hoạt động, nhưng tắt skill/prompt/context discovery và bị khóa bằng per-agent tool allowlist. Task/context dài được truyền qua stdin để tránh giới hạn command-line trên Windows.
 
 Với structured long-horizon plan, controller tự tính safe waves, tạo Git worktree riêng, kiểm tra declared write scope, verify từng task, tích hợp tuần tự và rollback phần đã tích hợp nếu bước integration của wave thất bại. Manual `ues_dispatch` vẫn fail closed nếu người gọi cố chạy nhiều writer chung một checkout.
+
+## V14 Context & Memory Fabric
+
+V14 bổ sung ba lớp deterministic để giảm gánh suy luận hạ tầng cho model yếu:
+
+- **Hierarchical Context L0/L1/L2**: chọn subtree bằng abstract/overview trước khi nạp source excerpt;
+- **Verified Persistent Memory**: chỉ recall memory đã có durable evidence và verifier PASS, có confidence + supersession;
+- **Capability Fabric**: health-check và chọn primary/fallback provider theo capability thay vì để model tự đoán tool.
+
+`ues_execute` tự đưa hierarchy + verified memory vào context pack của child Pi. Sau khi task PASS verifier/integration-verifier, runtime có thể ghi một episodic memory kèm Evidence Store receipt; lỗi memory không làm task đã verify bị fail.
+
+CLI kiểm tra nhanh:
+
+```cmd
+ues capability-fabric status .
+ues hierarchy "checkout inventory" .
+ues memory status .
+```
+
+Chi tiết: `docs/V14-CONTEXT-MEMORY-FABRIC.md`.
 
 ## Benchmark model yếu
 

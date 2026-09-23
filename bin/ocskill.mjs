@@ -69,6 +69,9 @@ import { hermesStatus, buildHermesDelegationPrompt, buildHermesWorkflowPrompt, h
 import { readModelPolicy, recordModelPerformance, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
 import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
 import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
+import { capabilityFabricStatus } from "../lib/capability-fabric.mjs"
+import { queryContextHierarchy } from "../lib/hierarchical-context.mjs"
+import { memoryStatus, proposeMemory, retrieveMemories, supersedeMemory, verifyMemory } from "../lib/memory-engine.mjs"
 import { MODEL_TASK_CLASSES } from "../lib/model-performance.mjs"
 import { browserCapability, buildBrowserVerificationPlan } from "../lib/browser-adapter.mjs"
 import { inspectBrowserPage, summarizeBrowserInspection } from "../lib/browser-runtime.mjs"
@@ -146,6 +149,9 @@ Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill 
   ocskill hermes <action> ...   Optional Hermes sidecar/status/task/workflow planning
   ocskill store <status|put|get|gc> ... Content-addressed evidence storage and bounded retrieval
   ocskill capabilities <text>     Infer required execution/model capabilities
+  ocskill capability-fabric <status|select> ... Health-check and select tool/provider backends
+  ocskill hierarchy <query> [dir] Progressive L0/L1 repository scope routing before L2 excerpts
+  ocskill memory <action> ...      Verified persistent project memory and hybrid retrieval
   ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
   ocskill browser <action> ...    Browser capability, plan and bounded Playwright inspection
   ocskill ui <tokens|layout> ...  Extract design tokens or verify responsive geometry
@@ -421,6 +427,16 @@ async function doctor() {
     if (code !== 0) process.exitCode = code
   }
   await status()
+  try {
+    const fabric = await capabilityFabricStatus(process.cwd())
+    console.log("Capability fabric:")
+    for (const row of fabric.rows || []) {
+      const fallbacks = row.fallbacks?.length ? " -> " + row.fallbacks.join(" -> ") : ""
+      console.log(`  ${row.capability}: ${row.selected || "UNAVAILABLE"}${fallbacks} [${row.status}]`)
+    }
+  } catch (error) {
+    console.log("Capability fabric: unavailable (" + errorMessage(error) + ")")
+  }
 }
 
 async function evaluate() {
@@ -1389,6 +1405,102 @@ async function capabilityControl() {
   printJson(inferTaskCapabilities(text))
 }
 
+
+async function capabilityFabricControl() {
+  const action = args[1] || "status"
+  try {
+    if (action === "status") {
+      printJson(await capabilityFabricStatus(positionalArg(args, 2) || process.cwd()))
+      return
+    }
+    if (action === "select") {
+      const capability = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!capability) throw new Error("Usage: ocskill capability-fabric select <capability> [dir]")
+      const status = await capabilityFabricStatus(root)
+      const selected = status.capabilities?.[capability]
+      if (!selected) throw new Error("Unknown capability: " + capability)
+      printJson(selected)
+      return
+    }
+    throw new Error("Usage: ocskill capability-fabric <status|select> ...")
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
+async function hierarchyControl() {
+  const query = args[1]
+  const root = positionalArg(args, 2) || process.cwd()
+  if (!query) {
+    printCliError(Object.assign(new Error("Usage: ocskill hierarchy <query> [dir] [--max-scopes N]"), { code: "UES_USAGE", exitCode: 2 }))
+    return
+  }
+  try {
+    printJson(await queryContextHierarchy(root, query, { maxScopes: optionInt(args, "--max-scopes", 6) }))
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
+async function memoryControl() {
+  const action = args[1] || "status"
+  try {
+    if (action === "status") {
+      printJson(await memoryStatus(positionalArg(args, 2) || process.cwd()))
+      return
+    }
+    if (action === "search") {
+      const query = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!query) throw new Error("Usage: ocskill memory search <query> [dir] [--limit N] [--file <path>]")
+      const files = []
+      const file = optionValue(args, "--file")
+      if (file) files.push(file)
+      printJson(await retrieveMemories(root, query, { limit: optionInt(args, "--limit", 6), files }))
+      return
+    }
+    if (action === "propose") {
+      const content = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!content) throw new Error("Usage: ocskill memory propose <text> [dir] [--type <type>] [--scope <scope>] [--evidence <ref>] [--file <path>]")
+      const evidence = optionValue(args, "--evidence")
+      const file = optionValue(args, "--file")
+      printJson(await proposeMemory(root, {
+        content,
+        type: optionValue(args, "--type") || "episodic",
+        scope: optionValue(args, "--scope") || "project",
+        evidenceRefs: evidence ? [evidence] : [],
+        files: file ? [file] : [],
+      }))
+      return
+    }
+    if (action === "verify") {
+      const id = args[2]
+      const root = positionalArg(args, 3) || process.cwd()
+      if (!id) throw new Error("Usage: ocskill memory verify <id> [dir] --verdict PASS --verifier <name> [--evidence <ref>]")
+      const evidence = optionValue(args, "--evidence")
+      printJson(await verifyMemory(root, id, {
+        verdict: optionValue(args, "--verdict"),
+        verifier: optionValue(args, "--verifier"),
+        evidenceRefs: evidence ? [evidence] : [],
+      }))
+      return
+    }
+    if (action === "supersede") {
+      const id = args[2]
+      const replacement = args[3]
+      const root = positionalArg(args, 4) || process.cwd()
+      if (!id || !replacement) throw new Error("Usage: ocskill memory supersede <id> <replacement-id> [dir]")
+      printJson(await supersedeMemory(root, id, replacement))
+      return
+    }
+    throw new Error("Usage: ocskill memory <status|search|propose|verify|supersede> ...")
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
 async function visualControl() {
   const action = args[1]
   try {
@@ -1792,6 +1904,15 @@ async function main() {
     break
   case "capabilities":
     await capabilityControl()
+    break
+  case "capability-fabric":
+    await capabilityFabricControl()
+    break
+  case "hierarchy":
+    await hierarchyControl()
+    break
+  case "memory":
+    await memoryControl()
     break
   case "visual":
     await visualControl()

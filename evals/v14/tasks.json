@@ -1,0 +1,46 @@
+{
+  "schemaVersion": 1,
+  "suite": "v14-context-memory-fabric",
+  "tasks": [
+    {
+      "id": "hierarchy-scope",
+      "goal": "Route a repository query through L0/L1 directory scope before loading L2 source.",
+      "assertions": [
+        "relevant subtree ranks ahead of unrelated subtree",
+        "L0 and L1 remain bounded"
+      ]
+    },
+    {
+      "id": "verified-memory",
+      "goal": "Recall a prior verified engineering outcome.",
+      "assertions": [
+        "candidate memories are excluded",
+        "verified evidence-backed memory is retrieved"
+      ]
+    },
+    {
+      "id": "memory-supersession",
+      "goal": "Replace stale memory without retrieving both versions.",
+      "assertions": [
+        "replacement must be verified",
+        "superseded item is excluded"
+      ]
+    },
+    {
+      "id": "provider-failover",
+      "goal": "Continue when the primary capability provider is unavailable.",
+      "assertions": [
+        "unhealthy provider is ineligible",
+        "healthy fallback is selected deterministically"
+      ]
+    },
+    {
+      "id": "context-contamination",
+      "goal": "Avoid unrelated context dominating weak-model execution.",
+      "assertions": [
+        "hierarchy scopes bound broad semantic results",
+        "memory requires query/file relevance"
+      ]
+    }
+  ]
+}

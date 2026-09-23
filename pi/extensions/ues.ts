@@ -12,6 +12,7 @@ import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
+import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
 import { computeSafeWaves, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import {
@@ -477,6 +478,22 @@ function compactContextPack(pack: any, recentFailure?: string) {
     contextQuality: pack?.contextQuality || null,
     capabilities: pack?.capabilities || null,
     evidenceBudget: pack?.evidenceBudget || null,
+    hierarchy: (manifest.hierarchy?.scopes || []).slice(0, 6).map((item: any) => ({
+      path: item.path || null,
+      score: item.score || 0,
+      l0: cap(String(item.l0 || ""), 320),
+      l1: cap(String(item.l1 || ""), 1200),
+    })),
+    memories: (pack?.memories || []).slice(0, 6).map((item: any) => ({
+      id: item.id,
+      type: item.type,
+      scope: item.scope,
+      content: cap(String(item.content || ""), 1400),
+      confidence: item.confidence,
+      files: (item.files || []).slice(0, 12),
+      retrieval: item.retrieval || null,
+    })),
+    memoryRetrieval: pack?.memoryRetrieval || null,
     instructions: (manifest.instructions || []).slice(0, 12),
     references: (manifest.rankedReferences || []).slice(0, 16),
     evidencePointers: (manifest.evidencePointers || []).slice(0, 16),
@@ -581,6 +598,26 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
     });
   } catch {
     // Telemetry must never make the engineering task fail.
+  }
+}
+
+async function rememberVerifiedTask(
+  cwd: string,
+  task: string,
+  verification: RunResult,
+  integration: RunResult | null = null,
+) {
+  try {
+    return await recordVerifiedTaskMemory(cwd, {
+      task,
+      verifier: integration?.agent || verification.agent || "ues-verifier",
+      verifierOutput: verification.output || "",
+      integrationOutput: integration?.output || "",
+      sourceTask: task,
+    });
+  } catch {
+    // Persistent memory is an optimization. Never turn a verified task into a failure.
+    return null;
   }
 }
 
@@ -1220,6 +1257,7 @@ export default function (pi: ExtensionAPI) {
             };
           }
 
+          const memory = await rememberVerifiedTask(cwd, params.task, integration, integration);
           return {
             content: [{
               type: "text",
@@ -1230,7 +1268,7 @@ export default function (pi: ExtensionAPI) {
                 integration.output,
               ].join("\n"),
             }],
-            details: { mode: "execute", policy, steps, structuredPlan, scheduled, attempts: maxAttempts },
+            details: { mode: "execute", policy, steps, structuredPlan, scheduled, attempts: maxAttempts, memory },
           };
         }
       }
@@ -1292,8 +1330,9 @@ export default function (pi: ExtensionAPI) {
           continue;
         }
 
+        let integrationResult: RunResult | null = null;
         if (policy.requireIntegrationVerification) {
-          const integration = await run(
+          integrationResult = await run(
             "ues-integration-verifier",
             [
               "Perform fresh integration verification for the current working tree and this task:",
@@ -1303,17 +1342,18 @@ export default function (pi: ExtensionAPI) {
             ].join("\n"),
             attempt,
           );
-          if (integration.exitCode !== 0 || integration.verdict !== "PASS") {
-            recentFailure = integration.output;
+          if (integrationResult.exitCode !== 0 || integrationResult.verdict !== "PASS") {
+            recentFailure = integrationResult.output;
             if (attempt < maxAttempts) continue;
             return {
-              content: [{ type: "text", text: `Integration verification did not pass:\n\n${integration.output}` }],
+              content: [{ type: "text", text: `Integration verification did not pass:\n\n${integrationResult.output}` }],
               details: { mode: "execute", policy, steps, attempts: attempt },
               isError: true,
             };
           }
         }
 
+        const memory = await rememberVerifiedTask(cwd, params.task, verification, integrationResult);
         const final = steps.at(-1);
         return {
           content: [{
@@ -1325,7 +1365,7 @@ export default function (pi: ExtensionAPI) {
               final?.output || verification.output,
             ].join("\n"),
           }],
-          details: { mode: "execute", policy, steps, attempts: attempt },
+          details: { mode: "execute", policy, steps, attempts: attempt, memory },
         };
       }
 
