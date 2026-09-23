@@ -1,4 +1,3 @@
-import { Plugin } from "@opencode/plugin"
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
@@ -268,7 +267,7 @@ function projectRoutingFacts(projectRoot) {
   }
 }
 
-export default Plugin.define({
+export default {
   id: "ues-router",
   async setup(ctx) {
     const projectRoot = ctx.location.project?.canonical || ctx.location.directory
@@ -1585,4 +1584,4 @@ export default Plugin.define({
       sessionAssignments.clear()
     }
   },
-})
+}
