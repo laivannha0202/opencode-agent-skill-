@@ -15,6 +15,7 @@ import {
 import { compareVersions } from "../lib/version.mjs"
 import { resolveLatestPublishedVersion } from "../lib/update-resolver.mjs"
 import { readRouterConfig, writeRouterConfig } from "../lib/router-config.mjs"
+import { getUesConfigDir } from "../lib/runtime-config.mjs"
 import { resolveWindowsCommand } from "../lib/windows-shim.mjs"
 import {
   detectStack,
@@ -982,7 +983,7 @@ async function modelPolicy() {
     return
   }
   const attempt = optionInt(args, "--attempt", 1)
-  const policy = await readModelPolicy(getConfigDir())
+  const policy = await readModelPolicy(getUesConfigDir())
   const normalizedAttempt = Number.isInteger(attempt) && attempt > 0 ? attempt : 1
   const taskText = optionValue(args, "--text")
   if (taskText) {
@@ -996,16 +997,16 @@ async function modelPolicy() {
 
 async function modelsControl() {
   const action = args[1] || "status"
-  let policy = await readModelPolicy(getConfigDir())
+  let policy = await readModelPolicy(getUesConfigDir())
 
   if (action === "status") {
     printJson(policy)
     return
   }
   if (action === "on" || action === "off") {
-    policy = await writeModelPolicy(getConfigDir(), { enabled: action === "on" })
+    policy = await writeModelPolicy(getUesConfigDir(), { enabled: action === "on" })
     printJson(policy)
-    console.log("[ocskill] Run 'ocskill install' to rewrite managed agent frontmatter.")
+    console.log("[ocskill] Model routing is active immediately for Pi child-agent dispatch.")
     return
   }
   if (action === "set") {
@@ -1015,12 +1016,12 @@ async function modelsControl() {
       printCliError(Object.assign(new Error("Usage: ocskill models set <light|standard|heavy> <provider/model[#variant]>"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
-    policy = await writeModelPolicy(getConfigDir(), {
+    policy = await writeModelPolicy(getUesConfigDir(), {
       enabled: true,
       tiers: { [tier]: model },
     })
     printJson(policy)
-    console.log("[ocskill] Run 'ocskill install' to apply model mappings to managed agents.")
+    console.log("[ocskill] Model routing is active immediately for Pi child-agent dispatch.")
     return
   }
   if (action === "role") {
@@ -1030,11 +1031,11 @@ async function modelsControl() {
       printCliError(Object.assign(new Error("Usage: ocskill models role <role> <light|standard|heavy>"), { code: "UES_USAGE", exitCode: 2 }))
       return
     }
-    policy = await writeModelPolicy(getConfigDir(), {
+    policy = await writeModelPolicy(getUesConfigDir(), {
       roleTiers: { [role]: tier },
     })
     printJson(policy)
-    console.log("[ocskill] Run 'ocskill install' to apply role-tier changes.")
+    console.log("[ocskill] Role-tier routing is active immediately for Pi child-agent dispatch.")
     return
   }
 
@@ -1048,7 +1049,7 @@ async function modelsControl() {
     if (!MODEL_TASK_CLASSES.includes(taskClass)) throw new Error("--task-class must be one of: " + MODEL_TASK_CLASSES.join(", "))
     const passedRaw = String(optionValue(args, "--passed") || "").toLowerCase()
     if (!["on","off","true","false","pass","fail"].includes(passedRaw)) throw new Error("--passed must be on/off, true/false, or pass/fail")
-    policy = await recordModelPerformance(getConfigDir(), {
+    policy = await recordModelPerformance(getUesConfigDir(), {
       model, taskClass, passed: ["on","true","pass"].includes(passedRaw),
       retries: optionInt(args, "--retries", 0) || 0,
       tokens: optionInt(args, "--tokens", 0) || 0,
@@ -1078,7 +1079,7 @@ async function modelsControl() {
     const latency = optionValue(args, "--latency") || current.latencyClass
     if (cost && !["low", "medium", "high"].includes(cost)) throw new Error("--cost must be low|medium|high")
     if (latency && !["fast", "medium", "slow"].includes(latency)) throw new Error("--latency must be fast|medium|slow")
-    policy = await writeModelPolicy(getConfigDir(), {
+    policy = await writeModelPolicy(getUesConfigDir(), {
       capabilities: {
         [model]: {
           ...current,
