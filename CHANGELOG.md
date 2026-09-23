@@ -6,6 +6,20 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [13.0.0-beta.3] - 2026-09-23
+
+### Fixed
+- Separated sensitive-domain detection from high-risk mutation detection so read-only requests that merely mention database, auth, payment, security, production or public API concepts no longer escalate to DEEP by keyword alone.
+- Stripped explicit read-only negations such as `do not edit`, `without editing`, `không sửa` and `chỉ đọc` from mutation-risk matching so safety instructions do not become false mutation signals.
+- Kept real sensitive mutations high-risk, including database/schema migrations, auth or permission changes, payment-flow changes, production deployment, secret/credential rotation, destructive Git/database actions and breaking public-API changes.
+- Aligned V2 skill routing with the corrected risk semantics so FAST read-only domain inspection keeps direct domain skills without generic orchestration or change-impact overhead.
+- Preserved the beta.2 adaptive `/ues-run` transport fix: the real user request drives FAST/STANDARD/DEEP admission, while `/ues-resume` remains explicitly durable.
+
+### Regression coverage
+- Added exact regression coverage for the reported Vietnamese read-only repository inspection that mentions `database`.
+- Added coverage proving read-only auth/payment review is not high-risk while a real production database migration remains DEEP/high-risk.
+- Added routing coverage proving read-only database inspection keeps the direct database skill but drops orchestrator/change-impact skills under FAST policy.
+
 ## [13.0.0-beta.2] - 2026-09-23
 
 ### Fixed
