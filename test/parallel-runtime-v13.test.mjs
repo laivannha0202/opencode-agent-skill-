@@ -1,5 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
 import { adaptiveWorkerCount, parallelRootBaseline, runEventDrivenDAG } from "../global-config/plugins/ues-router/parallel-runtime.js"
 import { taskVerificationCommands, validatePlan } from "../lib/task-graph.mjs"
 
@@ -134,4 +135,30 @@ test("structured verification commands are validated and normalized for determin
   ])
   plan.tasks[0].verificationCommands = [{ command: "", args: "not-an-array" }]
   assert.equal(validatePlan(plan).valid, false)
+})
+
+
+test("integration failures remain task failures while telemetry progress is best-effort", async () => {
+  const result = await runEventDrivenDAG(
+    [{ id: "A", dependsOn: [], files: { modify: ["src/a.js"] } }],
+    {
+      worker: async () => ({ ok: true }),
+      integrate: async () => {
+        throw new Error("real integration failure")
+      },
+    },
+  )
+  assert.deepEqual(result.completed, [])
+  assert.match(result.failed.A.message, /real integration failure/)
+
+  const source = await readFile(
+    new URL("../global-config/plugins/ues-router/index.js", import.meta.url),
+    "utf8",
+  )
+  assert.match(source, /function bestEffortProgress\(tool, status\)/)
+  assert.match(source, /pending\.catch\(\(\) => \{\}\)/)
+  assert.doesNotMatch(
+    source,
+    /try \{ void tool\.progress\(\{ status: "parallel task "/,
+  )
 })
