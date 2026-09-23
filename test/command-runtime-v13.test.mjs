@@ -265,3 +265,25 @@ test("V13 adaptive prompt derives FAST/STANDARD from mode when profile metadata 
   const deep = promptAliasTextForPolicy(alias, { mode: "standard", risk: "high" })
   assert.equal(deep, "DEEP CONTRACT")
 })
+
+
+test("V13 V2 prompt admission classifies locally without spawning ocskill task-policy", async () => {
+  const source = await readFile(
+    new URL("../global-config/plugins/ues-router/index.js", import.meta.url),
+    "utf8",
+  )
+  assert.match(source, /classifyEngineeringTask\(policyInput\.text\)/)
+  assert.match(source, /from "\.\/policy-runtime\.js"/)
+  assert.doesNotMatch(source, /runOcskillJSON\(\["task-policy"/)
+})
+
+test("V13 CLI and V2 router share one task-policy implementation", async () => {
+  const libSource = await readFile(new URL("../lib/orchestrator-policy.mjs", import.meta.url), "utf8")
+  const runtimeSource = await readFile(
+    new URL("../global-config/plugins/ues-router/policy-runtime.js", import.meta.url),
+    "utf8",
+  )
+  assert.match(libSource, /from "\.\.\/global-config\/plugins\/ues-router\/policy-runtime\.js"/)
+  assert.match(runtimeSource, /export function classifyEngineeringTask/)
+  assert.match(runtimeSource, /export function recoveryPolicyForAttempt/)
+})
