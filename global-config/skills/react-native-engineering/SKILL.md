@@ -1,6 +1,6 @@
 ---
 name: react-native-engineering
-description: Work on React Native/Expo apps: components, hooks, navigation, styling, APIs, native modules, Android/iOS build failures, platform behavior, and performance with version-aware verification.
+description: "Work on React Native/Expo apps: components, hooks, navigation, styling, APIs, native modules, Android/iOS build failures, platform behavior, and performance with version-aware verification."
 ---
 
 # React Native Engineering
