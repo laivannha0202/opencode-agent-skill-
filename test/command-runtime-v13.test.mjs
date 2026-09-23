@@ -53,7 +53,7 @@ test("V13 prompt alias accepts command on its own line before multiline content"
     const result = expandUesPromptAlias("/ues-run\n\nBạn đang làm việc trực tiếp trên repository:\nE:\\dev\\AgriMarket", dir)
     assert.equal(result.alias, "ues-run")
     assert.match(result.text, /Bạn đang làm việc trực tiếp trên repository:/)
-    assert.match(result.text, /E:\\\\dev\\\\AgriMarket/)
+    assert.ok(result.text.includes("E:\\dev\\AgriMarket"))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
