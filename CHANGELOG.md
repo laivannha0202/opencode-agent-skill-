@@ -12,6 +12,17 @@ The project follows Semantic Versioning.
 - Fixed OpenCode V2 local router loading on clean global configs by removing the unnecessary bare `@opencode/plugin` runtime import; `ues-router` now exports the plain `{ id, setup }` definition accepted by the V2 loader.
 - Prevented OpenCode V2 UES router subprocesses (`where`, `ocskill`, Node shim execution and Git probes) from flashing transient CMD windows on Windows by routing them through a hidden-window spawn wrapper.
 
+## [13.0.0-beta.1] - 2026-09-23
+
+### Fixed
+- Hardened V2 prompt aliases for ChatGPT-style pasted prompts: BOM/zero-width prefixes and whole-prompt markdown fences are normalized before alias detection.
+- Bounded the text sent to `ocskill task-policy` so very large pasted prompts no longer risk Windows command-line length failures; the full user prompt still goes to the model while only a bounded head/tail classification view goes through the CLI.
+- Routed skill classification from the actual user request instead of the expanded command template, reducing template-induced over-routing on long prompts.
+- Kept installer result shape stable with `promptAliases: []` on foreign-state refusal.
+
+### Regression coverage
+- Added fenced-paste, BOM, 70k-character policy-input and oversized multiline `/ues-run` regression tests.
+
 ## [13.0.0-beta.0] - 2026-09-22
 
 ### Added
