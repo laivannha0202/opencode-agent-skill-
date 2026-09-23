@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -11,6 +12,13 @@ import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
+import { computeSafeWaves, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
+import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
+import {
+  createTaskSandbox,
+  integrateTaskSandbox,
+  removeTaskSandbox,
+} from "../../lib/worktree-sandbox.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OCSKILL_BIN = path.join(PACKAGE_ROOT, "bin", "ocskill.mjs");
