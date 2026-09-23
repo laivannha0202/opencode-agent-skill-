@@ -54,6 +54,9 @@ type RunResult = {
   contextError?: string;
   verdict?: string | null;
   durationMs?: number;
+  usage?: any;
+  toolCalls?: number;
+  toolNames?: string[];
 };
 
 function cap(text: string, limit = OUTPUT_LIMIT) {
@@ -189,6 +192,9 @@ async function runAgent(
   let stopReason: string | undefined;
   let errorMessage: string | undefined;
   let seenModel: string | undefined;
+  let usage: any = undefined;
+  let toolCalls = 0;
+  const toolNames = new Set<string>();
 
   try {
     const invocation = getPiInvocation(args);
@@ -212,6 +218,13 @@ async function runAgent(
         if (!line.trim()) return;
         try {
           const event = JSON.parse(line);
+          if (event.type === "tool_execution_start") {
+            toolCalls += 1;
+            if (event.toolName) toolNames.add(String(event.toolName));
+          }
+          if (event.type === "message_update" && event.usage) {
+            usage = event.usage;
+          }
           if (event.type === "message_end" && event.message) {
             const text = extractAssistantText(event.message);
             if (text) output = text;
@@ -219,6 +232,7 @@ async function runAgent(
               seenModel = event.message.model || seenModel;
               stopReason = event.message.stopReason || stopReason;
               errorMessage = event.message.errorMessage || errorMessage;
+              usage = event.message.usage || usage;
             }
           }
         } catch {
@@ -270,6 +284,9 @@ async function runAgent(
     model: seenModel || model,
     stopReason,
     errorMessage,
+    usage,
+    toolCalls,
+    toolNames: [...toolNames],
   };
 }
 
@@ -403,6 +420,7 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
       passed,
       retries,
       latencyMs: result.durationMs || 0,
+      tokens: Number(result.usage?.totalTokens || 0),
     });
   } catch {
     // Telemetry must never make the engineering task fail.
@@ -744,7 +762,7 @@ export default function (pi: ExtensionAPI) {
             model,
             thinking,
             1,
-            previous || undefined,
+            undefined,
             signal,
           );
           results.push(result);
