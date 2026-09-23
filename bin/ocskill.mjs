@@ -108,12 +108,9 @@ const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "
 
 function printHelp() {
   console.log(`
-OpenCode Universal Engineering System
-
-Usage:
-  ocskill install [--force]    Install or re-sync bundled OpenCode resources
+Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill remains a compatibility alias):\n  ocskill install [--force]    Legacy: install/re-sync OpenCode compatibility resources
   ocskill status               Show package/resource synchronization status
-  ocskill doctor               Check Node, npm, OpenCode and installed resources
+  ocskill doctor               Legacy migration doctor for OpenCode compatibility resources
   ocskill eval                 Validate the bundled static skill-routing suite
   ocskill eval-live [options]  Run legacy OpenCode baseline-vs-UES behavioral evals
   ocskill eval-pi [options]    Run Pi-native baseline-vs-UES weak-model benchmark
@@ -156,11 +153,7 @@ Usage:
   ocskill skills lint [dir]       Lint skill size, metadata and routing-description collisions
   ocskill dashboard [dir] [--serve] [--port N]
                               Generate/serve the local UES Control Center
-  ocskill models <status|on|off|set|role> ...
-                              Configure role/tier model routing, then re-sync
-  ocskill router [status|on|off] [--max N]
-                              Configure the OpenCode v2 automatic skill router
-  ocskill update               Update the global npm package and re-sync resources
+  ues models <status|on|off|set|role> ...\n                              Configure Pi runtime role/tier model routing immediately\n  ocskill router [status|on|off] [--max N]\n                              Legacy: configure the OpenCode v2 compatibility router\n  ocskill update               Update the global npm package and re-sync resources
   ocskill remove [--force]     Remove managed resources and uninstall the npm package
   ocskill version              Show package version
   ocskill help                 Show this help
