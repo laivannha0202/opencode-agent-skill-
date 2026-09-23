@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "13.0.0-beta.2",
+  "version": "13.0.0-beta.3",
   "description": "Parallel weak-model engineering runtime with isolated same-model workers, event-driven DAG execution, transactional integration, adaptive context and evidence-gated verification for OpenCode",
   "type": "module",
   "bin": {
