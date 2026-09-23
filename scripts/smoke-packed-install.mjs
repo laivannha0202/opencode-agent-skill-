@@ -292,7 +292,7 @@ try {
     encoding: "utf8",
   })
   requireSuccess(workComplete, "ocskill work complete from packed copy")
-  assert.match(workComplete.stdout, /"evidenceStrength": "receipt-backed"/)
+  assert.match(workComplete.stdout, /"evidenceStrength": "command-receipt-backed"/)
 
   const finalizeBeforeVerify = spawnSync(process.execPath, [cli, "work", "finalize", "packed-smoke", temp, "--evidence", "should fail"], {
     cwd: temp,
