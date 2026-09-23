@@ -26,6 +26,9 @@ test("control center renders durable work and evaluation data", async () => {
     const html = await readFile(result.file, "utf8")
     assert.match(html, /UES Control Center/)
     assert.match(html, /Demo goal/)
+    assert.ok(result.data.v14)
+    assert.equal(result.data.v14.memory.entries, 0)
+    assert.ok(result.data.v14.capabilityFabric.totalCapabilities >= 1)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
