@@ -14,7 +14,10 @@
     "pi/",
     "docs/PI-COMPAT.md",
     "README.md",
-    "LICENSE"
+    "LICENSE",
+    "scripts/eval-pi.mjs",
+    "scripts/eval-report.mjs",
+    "evals/"
   ],
   "scripts": {
     "syntax": "node scripts/syntax-check.mjs",
@@ -22,7 +25,8 @@
     "smoke:pi": "node scripts/smoke-pi-extension.mjs",
     "ci": "npm run syntax && npm test && npm pack --dry-run && npm run smoke:pi && npm run smoke:package",
     "prepublishOnly": "npm run ci",
-    "smoke:package": "node scripts/smoke-package-closure.mjs"
+    "smoke:package": "node scripts/smoke-package-closure.mjs",
+    "eval:pi": "node scripts/eval-pi.mjs"
   },
   "keywords": [
     "pi-package",
