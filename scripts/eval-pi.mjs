@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url"
 import { evalModeOrder } from "../lib/eval-order.mjs"
 import { runProcess } from "../lib/process-runner.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
-import { resolveWindowsCommand } from "../lib/windows-shim.mjs"
+import { resolveManagedPiCommand, resolveWindowsCommand } from "../lib/windows-shim.mjs"
 import { summarizeEvalResults } from "../lib/eval-report.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
@@ -42,7 +42,10 @@ function excerpt(value, limit = 16000) {
 
 function resolveCommand(executable) {
   if (process.platform !== "win32") return { executable, argsPrefix: [] }
-  return resolveWindowsCommand(executable)
+  const resolved = resolveWindowsCommand(executable)
+  if (resolved) return resolved
+  if (String(executable).toLowerCase() === "pi") return resolveManagedPiCommand()
+  return null
 }
 
 function runSync(executable, commandArgs, options = {}) {
@@ -195,6 +198,7 @@ function safeName(value) {
   return String(value || "model").replace(/[^a-z0-9._-]+/gi, "_").slice(0, 120)
 }
 
+const piCommand = argValue("--pi-command", process.env.UES_PI_COMMAND || "pi")
 const model = argValue("--model", process.env.UES_EVAL_MODEL)
 const thinking = argValue("--thinking", argValue("--variant", process.env.UES_EVAL_VARIANT))
 const trials = Math.min(positiveInt(argValue("--trials"), 1), 20)
@@ -208,7 +212,7 @@ const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-pi.mjs --model provider/model [--thinking off|minimal|low|medium|high|xhigh] [--suite live] [--trials N] [--task id] [--mode baseline|ues|both] [--keep]")
+  console.error("Usage: node scripts/eval-pi.mjs --model provider/model [--pi-command path-or-command] [--thinking off|minimal|low|medium|high|xhigh] [--suite live] [--trials N] [--task id] [--mode baseline|ues|both] [--keep]")
   process.exit(2)
 }
 if (!["baseline", "ues", "both"].includes(requestedMode)) {
@@ -220,9 +224,9 @@ if (!existsSync(path.join(suiteRoot, "tasks.json"))) {
   process.exit(2)
 }
 
-const probe = runSync("pi", ["--version"], { encoding: "utf8" })
+const probe = runSync(piCommand, ["--version"], { encoding: "utf8" })
 if (probe.status !== 0) {
-  console.error("Pi CLI is required for Pi-native evals.")
+  console.error("Pi CLI is required for Pi-native evals. Checked command: " + piCommand)
   console.error(excerpt(probe.stderr || probe.stdout))
   process.exit(2)
 }
@@ -294,7 +298,7 @@ try {
         piArgs.push(prompt)
 
         console.log("[" + mode + "] " + task.id + " trial " + trial + ": starting Pi " + piVersion)
-        const agentRun = await runAsync("pi", piArgs, {
+        const agentRun = await runAsync(piCommand, piArgs, {
           cwd: workspace,
           env: childEnv,
           maxBuffer: 8 * 1024 * 1024,
