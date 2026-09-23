@@ -593,6 +593,30 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
   }
 })
 
+test("switching from OpenCode v1 to v2 removes stale native UES commands and installs prompt aliases", async () => {
+  const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-v1-to-v2-alias-"))
+  process.env.OPENCODE_CONFIG_DIR = temp
+
+  try {
+    const module = await import(`../lib/installer.mjs?v1-to-v2-alias=${Date.now()}`)
+    const v1 = await module.installResources({ openCodeMajor: 1 })
+    assert.ok(v1.commands.includes("ues-run.md"))
+    await access(path.join(temp, "commands", "ues-run.md"))
+
+    const v2 = await module.installResources({ openCodeMajor: 2 })
+    assert.deepEqual(v2.commands, [])
+    assert.ok(v2.promptAliases.includes("ues-run"))
+    await assert.rejects(access(path.join(temp, "commands", "ues-run.md")))
+    await access(path.join(temp, "plugins", "ues-router", "command-templates", "run.md"))
+
+    const status = await module.getStatus()
+    assert.equal(status.commandsPresent, 0)
+    assert.equal(status.promptAliasesPresent, v2.promptAliases.length)
+  } finally {
+    await rm(temp, { recursive: true, force: true })
+  }
+})
+
 test("switching from OpenCode v2 to v1 removes only the managed router and restores legacy agent syntax", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-v1-v2-"))
   process.env.OPENCODE_CONFIG_DIR = temp
