@@ -176,7 +176,10 @@ async function runAgent(
   signal?: AbortSignal,
 ): Promise<RunResult> {
   const config = AGENTS[agent];
-  const args: string[] = ["--mode", "json", "-p", "--no-session"];
+  const args: string[] = [
+    "--mode", "json", "-p", "--no-session",
+    "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files",
+  ];
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
   if ("tools" in config && config.tools?.length) args.push("--tools", config.tools.join(","));
