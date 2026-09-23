@@ -27,7 +27,7 @@ Use:
 
 ```cmd
 npm pack
-npm install -g .\opencode-agent-skill-13.0.0-beta.1.tgz --allow-scripts=opencode-agent-skill
+npm install -g .\opencode-agent-skill-13.0.0-beta.3.tgz --allow-scripts=opencode-agent-skill
 ocskill install
 ocskill status
 ocskill doctor
@@ -42,7 +42,7 @@ For routine development, the automated `smoke:pack` test uses an isolated npm pr
 Before publishing, verify the exact prerelease version is not already present:
 
 ```cmd
-npm view opencode-agent-skill@13.0.0-beta.1 version --registry=https://registry.npmjs.org/
+npm view opencode-agent-skill@13.0.0-beta.3 version --registry=https://registry.npmjs.org/
 ```
 
 If it is not present, a manual prerelease publish uses `next`, not `latest`:
@@ -58,7 +58,7 @@ After publication verify:
 
 ```cmd
 npm view opencode-agent-skill versions --json
-npm view opencode-agent-skill@13.0.0-beta.1 version
+npm view opencode-agent-skill@13.0.0-beta.3 version
 npm dist-tag ls opencode-agent-skill
 ```
 
@@ -66,7 +66,7 @@ For V13 beta the expected dist-tags are:
 
 ```text
 latest: 11.0.0
-next: 13.0.0-beta.1
+next: 13.0.0-beta.3
 ```
 
 Do not move `latest` to V13 until the prerelease is intentionally promoted stable.
@@ -85,7 +85,7 @@ Workflow: publish.yml
 
 Then the GitHub-hosted workflow can authenticate through OIDC instead of a long-lived npm publish token. npm Trusted Publishing requires the corresponding publisher relationship to be configured on npm; repository code alone cannot create that account-side trust relationship.
 
-The current `publish.yml` is tag-only. A matching prerelease tag such as `v13.0.0-beta.1` runs the full package gate and publishes with npm dist-tag `next`; a stable version publishes to `latest`. The workflow first checks whether that exact version already exists and skips duplicate publication.
+The current `publish.yml` is tag-only. A matching prerelease tag such as `v13.0.0-beta.3` runs the full package gate and publishes with npm dist-tag `next`; a stable version publishes to `latest`. The workflow first checks whether that exact version already exists and skips duplicate publication.
 
 ## Release checklist
 
