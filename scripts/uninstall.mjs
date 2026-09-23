@@ -1,4 +1,20 @@
+import path from "node:path"
+import { fileURLToPath } from "node:url"
 import { removeResources } from "../lib/installer.mjs"
+
+const packageRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+const normalizedRoot = packageRoot.replaceAll("\\", "/").toLowerCase()
+const isPiPackageInstall = [
+  "/.pi/agent/git/",
+  "/.pi/agent/npm/",
+  "/.pi/git/",
+  "/.pi/npm/",
+].some((marker) => normalizedRoot.includes(marker))
+
+if (isPiPackageInstall) {
+  console.log("[ocskill] Pi package uninstall detected; leaving OpenCode resources untouched.")
+  process.exit(0)
+}
 
 try {
   const result = await removeResources()
