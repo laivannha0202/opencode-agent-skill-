@@ -40,6 +40,9 @@ for (const required of [
   "lib/model-policy.mjs",
   "lib/context-engine-v11.mjs",
   "lib/runtime-config.mjs",
+  "scripts/eval-pi.mjs",
+  "scripts/eval-report.mjs",
+  "evals/live/tasks.json",
 ]) {
   assert.ok(files.has(required), "packed package is missing required runtime file: " + required)
 }
