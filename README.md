@@ -6,7 +6,7 @@ UES là engineering runtime dành cho **Pi Agent**. Runtime này giúp model là
 
 Phiên bản hiện tại:
 ```text
-14.0.0-beta.0
+14.0.0-beta.1
 ```
 
 ## Yêu cầu
@@ -73,7 +73,8 @@ V14 bổ sung ba lớp deterministic để giảm gánh suy luận hạ tầng c
 
 - **Hierarchical Context L0/L1/L2**: chọn subtree bằng abstract/overview trước khi nạp source excerpt;
 - **Verified Persistent Memory**: chỉ recall memory đã có durable evidence và verifier PASS, có confidence + supersession;
-- **Capability Fabric**: health-check và chọn primary/fallback provider theo capability thay vì để model tự đoán tool.
+- **Capability Fabric**: health-check và chọn primary/fallback provider theo capability thay vì để model tự đoán tool; success/failure/latency telemetry được học dần theo nhiều mẫu;
+- **V14 hardening**: hierarchy chống trùng parent/child; memory có task-class affinity, expiry và usage accounting.
 
 `ues_execute` tự đưa hierarchy + verified memory vào context pack của child Pi. Sau khi task PASS verifier/integration-verifier, runtime có thể ghi một episodic memory kèm Evidence Store receipt; lỗi memory không làm task đã verify bị fail.
 
