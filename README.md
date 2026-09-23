@@ -52,12 +52,25 @@ Pi nạp trực tiếp:
 - `global-config/agents/`: specialist prompts mà `ues_dispatch` dùng trong child Pi processes;
 - `bin/ocskill.mjs` + `lib/`: deterministic UES engine.
 
-Extension đăng ký hai tool chính:
+Extension đăng ký ba tool chính:
 
+- `ues_execute`: controller end-to-end ưu tiên cho task coding; tự áp task policy, adaptive context, model routing, plan gate, retry, verifier, integration verifier và safe-wave/worktree scheduling cho plan nhiều task;
 - `ues_cli`: chạy deterministic UES operations như task policy, repo inspection, durable work state, evidence và verification receipts;
-- `ues_dispatch`: chạy specialist Pi child agents theo single, chain hoặc bounded parallel mode.
+- `ues_dispatch`: chạy specialist Pi child agents theo single, chain hoặc bounded parallel mode khi cần điều phối thủ công.
 
-Writer chạy song song phải dùng working directory/worktree riêng. Nếu không có isolation, runtime fail closed thay vì cho hai writer sửa cùng một checkout.
+Child specialist được cô lập khỏi resource discovery ngẫu nhiên và nhận bounded context pack từ UES trước khi chạy.
+
+Với structured long-horizon plan, controller tự tính safe waves, tạo Git worktree riêng, kiểm tra declared write scope, verify từng task, tích hợp tuần tự và rollback phần đã tích hợp nếu bước integration của wave thất bại. Manual `ues_dispatch` vẫn fail closed nếu người gọi cố chạy nhiều writer chung một checkout.
+
+## Benchmark model yếu
+
+So sánh cùng một model ở chế độ Pi thuần và Pi + UES:
+
+```cmd
+ues eval-pi --model provider/model --thinking low --suite live --trials 3 --mode both
+```
+
+Benchmark dùng Pi JSON event stream, grader bên ngoài workspace, và cộng cả usage/tool telemetry của child specialist để tránh làm đẹp số liệu bằng cách bỏ sót chi phí delegation.
 
 ## Safety
 
