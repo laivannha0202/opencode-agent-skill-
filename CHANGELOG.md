@@ -6,6 +6,21 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [14.0.0-beta.1] - 2026-09-24
+
+### Added
+- Persisted capability success/failure/latency observations under ignored `.ues-learning/` state with bounded confidence before routing influence.
+- Added task-class affinity, expiry filtering and usage accounting for verified persistent memory.
+- Added hierarchy scope diversity so a single parent/child directory chain cannot consume the context scope budget.
+- Exposed V14 capability-fabric health alongside memory status in Control Center.
+
+### Changed
+- Adaptive context now passes the current task class into memory retrieval and records actual recalled-memory usage.
+- Capability routing can learn away from repeatedly failing providers without letting one transient failure poison selection.
+
+### Regression coverage
+- Added focused V14 tests for learned provider failover, hierarchy diversity, memory expiry/task-class/use tracking and Control Center telemetry.
+
 ## [14.0.0-beta.0] - 2026-09-24
 
 ### Added
