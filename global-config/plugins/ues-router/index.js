@@ -38,8 +38,15 @@ function routerConfig() {
 }
 
 
+function spawnHidden(command, args, options = {}) {
+  return spawnSync(command, args, {
+    ...options,
+    windowsHide: true,
+  })
+}
+
 function findWindowsCommand(name) {
-  const result = spawnSync("where", [name], { encoding: "utf8" })
+  const result = spawnHidden("where", [name], { encoding: "utf8" })
   if (result.status !== 0 || !result.stdout) return null
   const matches = result.stdout.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
   return matches.find((item) => /\.(cmd|bat)$/i.test(item)) || matches[0] || null
@@ -63,16 +70,16 @@ function runOcskill(args, cwd) {
   }
   let result
   if (process.platform !== "win32") {
-    result = spawnSync("ocskill", args, common)
+    result = spawnHidden("ocskill", args, common)
   } else {
     const resolved = findWindowsCommand("ocskill")
     if (!resolved) throw new Error("ocskill command was not found on PATH")
     if (/\.(cmd|bat)$/i.test(resolved)) {
       const entry = findNodeShimEntry(resolved)
       if (!entry) throw new Error("refusing to execute an unrecognized ocskill batch shim through cmd.exe")
-      result = spawnSync(process.execPath, [entry, ...args], common)
+      result = spawnHidden(process.execPath, [entry, ...args], common)
     } else {
-      result = spawnSync(resolved, args, common)
+      result = spawnHidden(resolved, args, common)
     }
   }
   if (result.status !== 0) {
@@ -162,7 +169,7 @@ function workspaceSignal(root) {
   ]
   const parts = []
   for (const args of commands) {
-    const result = spawnSync("git", args, {
+    const result = spawnHidden("git", args, {
       cwd: root,
       encoding: "utf8",
       maxBuffer: 2 * 1024 * 1024,
