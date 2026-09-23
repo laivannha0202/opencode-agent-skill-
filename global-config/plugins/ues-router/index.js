@@ -57,6 +57,13 @@ function spawnHidden(command, args, options = {}) {
   })
 }
 
+function bestEffortProgress(tool, status) {
+  try {
+    const pending = tool?.progress?.({ status })
+    if (pending && typeof pending.catch === "function") pending.catch(() => {})
+  } catch {}
+}
+
 function findWindowsCommand(name) {
   const result = spawnHidden("where", [name], { encoding: "utf8" })
   if (result.status !== 0 || !result.stdout) return null
@@ -572,7 +579,7 @@ export default {
         },
         options: { namespace: "ues", codemode: true },
         execute: async (input) => ({
-          content: runOcskill(["task-policy", input.text], projectRoot),
+          content: JSON.stringify(classifyEngineeringTask(input.text), null, 2),
         }),
       })
       editor.add({
@@ -981,7 +988,7 @@ export default {
             ...(started?.contextPack?.task?.acceptance || []),
             started?.contextPack?.task?.risk ? "risk: " + started.contextPack.task.risk : null,
           ].filter(Boolean).join(" ")
-          const taskPolicy = runOcskillJSON(["task-policy", taskText], projectRoot)
+          const taskPolicy = classifyEngineeringTask(taskText)
           appendTrace(traceID, "dispatch.started", {
             slug: input.slug,
             task: input.task,
@@ -1479,7 +1486,7 @@ export default {
                 if (result.sandbox?.dir) {
                   try { runOcskill(["sandbox", "remove", result.sandbox.dir, projectRoot, "--force", "--delete-branch"], projectRoot) } catch {}
                 }
-                try { void tool.progress({ status: "parallel task " + task.id + " verified and integrated" }) } catch {}
+                bestEffortProgress(tool, "parallel task " + task.id + " verified and integrated")
                 return { integration, deterministicReceipts, receipt, completed }
               } catch (error) {
                 if (!durableCompleted) {
@@ -1495,7 +1502,7 @@ export default {
             },
             onEvent: (event) => {
               if (["task.started", "task.completed", "task.failed"].includes(event.type)) {
-                void tool.progress({ status: "parallel " + event.type + " " + event.task })
+                bestEffortProgress(tool, "parallel " + event.type + " " + event.task)
               }
             },
           })
