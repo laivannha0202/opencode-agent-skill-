@@ -38,6 +38,7 @@ const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-pack-smoke-"))
 const packDir = path.join(temp, "pack")
 const prefix = path.join(temp, "prefix")
 const configDir = path.join(temp, "opencode")
+const uesConfigDir = path.join(temp, "ues-config")
 
 try {
   await mkdir(packDir, { recursive: true })
@@ -78,6 +79,7 @@ try {
   const env = {
     ...process.env,
     OPENCODE_CONFIG_DIR: configDir,
+    UES_CONFIG_DIR: uesConfigDir,
     UES_OPENCODE_MAJOR: "2",
   }
 
@@ -475,7 +477,13 @@ try {
     encoding: "utf8",
   })
   requireSuccess(modelStatus, "ocskill models status from packed copy")
-  assert.match(modelStatus.stdout, /"enabled": false/)
+  const initialModelStatus = JSON.parse(modelStatus.stdout)
+  assert.equal(initialModelStatus.enabled, false)
+  assert.equal(
+    path.resolve(initialModelStatus.file),
+    path.resolve(uesConfigDir, ".ues", "model-policy.json"),
+    "packed smoke must not read the user's real UES model policy",
+  )
 
   const modelSet = spawnSync(process.execPath, [cli, "models", "set", "standard", "provider/mid"], {
     cwd: temp,
