@@ -3,6 +3,7 @@ import fs from "node:fs"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
+import { lintSkillCatalog, validateFrontmatterSource } from "../lib/skill-quality.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -25,6 +26,9 @@ test("Pi adapter and prompt resources are packaged", () => {
   const source = fs.readFileSync(extensionPath, "utf8")
   assert.match(source, /name:\s*"ues_cli"/)
   assert.match(source, /name:\s*"ues_dispatch"/)
+  assert.match(source, /name:\s*"ues_execute"/)
+  assert.match(source, /buildAdaptiveTaskContext/)
+  assert.match(source, /resolveCapabilityModel/)
   assert.match(source, /destructiveShellRisk/)
   assert.match(source, /writer agents require an explicit cwd/i)
 
@@ -51,7 +55,7 @@ test("Pi adapter and prompt resources are packaged", () => {
   }
 })
 
-test("existing UES skills remain Agent Skills compatible for Pi", () => {
+test("existing UES skills remain Agent Skills compatible for Pi", async () => {
   const skillsDir = path.join(root, "global-config", "skills")
   const skillDirs = fs.readdirSync(skillsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory())
   assert.ok(skillDirs.length >= 40)
@@ -63,5 +67,24 @@ test("existing UES skills remain Agent Skills compatible for Pi", () => {
     assert.match(content, /^---\n/)
     assert.match(content, /\nname:\s*[^\n]+/)
     assert.match(content, /\ndescription:\s*[^\n]+/)
+    const yaml = validateFrontmatterSource(content, { file: skillFile })
+    assert.equal(yaml.valid, true, JSON.stringify(yaml.errors))
   }
+
+  const lint = await lintSkillCatalog(root)
+  assert.equal(lint.valid, true, JSON.stringify(lint.errors))
+})
+
+test("Pi prompt frontmatter rejects unquoted colon scalars", () => {
+  const promptsDir = path.join(root, "pi", "prompts")
+  for (const file of fs.readdirSync(promptsDir).filter((name) => name.endsWith(".md"))) {
+    const prompt = path.join(promptsDir, file)
+    const content = fs.readFileSync(prompt, "utf8")
+    const yaml = validateFrontmatterSource(content, { file: prompt })
+    assert.equal(yaml.valid, true, JSON.stringify(yaml.errors))
+  }
+
+  const invalid = validateFrontmatterSource("---\nname: demo\ndescription: bad: nested scalar\n---\n")
+  assert.equal(invalid.valid, false)
+  assert.ok(invalid.errors.some((error) => error.issue === "unquoted-colon-in-scalar"))
 })
