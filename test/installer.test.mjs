@@ -6,7 +6,11 @@ import { fileURLToPath, pathToFileURL } from "node:url"
 import test from "node:test"
 import assert from "node:assert/strict"
 
-// Keep generic installer tests deterministic across developer machines.\n// Tests that exercise V2 pass openCodeMajor: 2 explicitly.\nprocess.env.UES_OPENCODE_MAJOR = "1"\n\ntest("install and remove are idempotent, recursive and preserve user AGENTS content", async () => {
+// Keep generic installer tests deterministic across developer machines.
+// Tests that exercise V2 pass openCodeMajor: 2 explicitly.
+process.env.UES_OPENCODE_MAJOR = "1"
+
+test("install and remove are idempotent, recursive and preserve user AGENTS content", async () => {
   const temp = await mkdtemp(path.join(os.tmpdir(), "ocskill-"))
   process.env.OPENCODE_CONFIG_DIR = temp
 
