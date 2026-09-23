@@ -40,6 +40,8 @@ UES converts managed agent permission frontmatter to V2 ordered `permissions` an
 <global-config>/plugins/ues-router/
 ```
 
+V13 also installs the 11 UES slash-command templates inside the managed router as V2 **prompt aliases** instead of registering them as native global custom commands. Typing `/ues-run ...`, `/ues-fix ...`, and the other `/ues-*` aliases therefore travels through `session.prompt`; the router expands the same bundled command contract before routing skills. This is a compatibility workaround for V2 custom-command transport failures such as `UnsupportedContentType` from the `session.command` path. Re-syncing with `ocskill install` removes stale UES-managed native command files from older installs.
+
 The plugin provides:
 
 - prompt-admission skill routing
