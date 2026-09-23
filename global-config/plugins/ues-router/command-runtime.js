@@ -17,6 +17,38 @@ export const UES_PROMPT_ALIASES = Object.freeze([
 
 const ALIAS_SET = new Set(UES_PROMPT_ALIASES)
 
+export function normalizeUesPromptPaste(text) {
+  let value = String(text || "")
+    .replace(/^\uFEFF/, "")
+    .replace(/^[\u200B-\u200D]+/, "")
+
+  const trimmed = value.trim()
+  const fenced = trimmed.match(/^\`\`\`(?:text|txt|md|markdown|prompt|plaintext)?[ \t]*\r?\n([\s\S]*?)\r?\n\`\`\`\s*$/i)
+  if (fenced) value = fenced[1]
+
+  return value
+}
+
+export function policyPromptForCli(text, maxChars = 12_000) {
+  const raw = normalizeUesPromptPaste(text).trim()
+  const limit = Math.max(2_000, Number(maxChars) || 12_000)
+  if (raw.length <= limit) {
+    return { text: raw, truncated: false, originalChars: raw.length, cliChars: raw.length }
+  }
+
+  const marker = "\n\n[UES_POLICY_INPUT_TRUNCATED_FOR_CLI]\n\n"
+  const usable = Math.max(1, limit - marker.length)
+  const headChars = Math.floor(usable * 0.72)
+  const tailChars = usable - headChars
+  const bounded = raw.slice(0, headChars) + marker + raw.slice(-tailChars)
+  return {
+    text: bounded,
+    truncated: true,
+    originalChars: raw.length,
+    cliChars: bounded.length,
+  }
+}
+
 function parseFrontmatter(source) {
   const text = String(source || "")
   if (!text.startsWith("---")) return { metadata: {}, body: text }
@@ -44,7 +76,7 @@ function splitArgs(input) {
 }
 
 export function expandUesPromptAlias(text, templateDir) {
-  const raw = String(text || "")
+  const raw = normalizeUesPromptPaste(text)
   const match = raw.match(/^\s*\/(ues-[a-z0-9]+(?:-[a-z0-9]+)*)(?:\s+([\s\S]*?))?\s*$/i)
   if (!match) return null
 
