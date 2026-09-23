@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, writeFile, rm } from "node:fs/promises"
+import { mkdtemp, readFile, writeFile, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import test from "node:test"
@@ -20,6 +20,11 @@ test("V13 exposes every managed UES slash command as a V2 prompt alias", () => {
     "ues-run",
     "ues-verify",
   ])
+})
+
+test("V13 run template injects the user request only once", async () => {
+  const source = await readFile(new URL("../global-config/commands/run.md", import.meta.url), "utf8")
+  assert.equal((source.match(/\$ARGUMENTS/g) || []).length, 1)
 })
 
 test("V13 prompt alias expands command body and preserves arguments", async () => {
