@@ -6,6 +6,11 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
+import { classifyEngineeringTask } from "../../lib/task-policy.mjs";
+import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
+import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
+import { getUesConfigDir } from "../../lib/runtime-config.mjs";
+import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OCSKILL_BIN = path.join(PACKAGE_ROOT, "bin", "ocskill.mjs");
@@ -29,7 +34,7 @@ const AGENTS = {
   "ues-visual-verifier": { file: "visual-verifier.md", tools: ["read", "grep", "find", "ls", "bash"] },
 } as const;
 
-const WRITE_AGENTS = new Set(["ues-executor", "ues-debugger", "ues-merge-arbiter"]);
+const WRITE_AGENTS = new Set(["ues-executor", "ues-merge-arbiter"]);
 
 type AgentName = keyof typeof AGENTS;
 type RunResult = {
@@ -42,6 +47,13 @@ type RunResult = {
   model?: string;
   stopReason?: string;
   errorMessage?: string;
+  modelTier?: string;
+  modelSelection?: any;
+  taskPolicy?: any;
+  contextQuality?: any;
+  contextError?: string;
+  verdict?: string | null;
+  durationMs?: number;
 };
 
 function cap(text: string, limit = OUTPUT_LIMIT) {
@@ -67,8 +79,14 @@ function getAgentPrompt(agent: AgentName) {
     "- Do not call OpenCode-only dispatch tools such as \`ues.dispatch_task\` or \`ues.dispatch_parallel\`.",
     "- Respect the original role's edit/read-only boundary and return evidence to the parent Pi session.",
     "",
-  ].join("\\n");
-  return bridge + original;
+  ].join("\n");
+  const verdictContract =
+    agent === "ues-verifier" || agent === "ues-integration-verifier"
+      ? "\nAfter the required sections, end with exactly one line: UES_VERDICT: PASS, FAIL, or PARTIAL.\n"
+      : agent === "ues-plan-checker"
+        ? "\nAfter the required sections, end with exactly one line: UES_VERDICT: PASS or REVISE.\n"
+        : "";
+  return bridge + "\n" + original + verdictContract;
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
@@ -255,6 +273,142 @@ async function runAgent(
   };
 }
 
+
+function roleForAgent(agent: AgentName) {
+  return agent.replace(/^ues-/, "");
+}
+
+function verdictFromOutput(output: string) {
+  const match = String(output || "").match(/UES_VERDICT:\s*(PASS|FAIL|PARTIAL|REVISE)\b/i);
+  return match ? match[1].toUpperCase() : null;
+}
+
+function taskRecord(task: string) {
+  return {
+    id: "pi-dispatch",
+    title: task.slice(0, 240),
+    summary: task,
+    acceptance: [],
+    verification: [],
+  };
+}
+
+function compactContextPack(pack: any, recentFailure?: string) {
+  const manifest = pack?.contextManifest || {};
+  const excerpts = (manifest.excerpts || []).slice(0, 8).map((item: any) => ({
+    path: item.path || null,
+    role: item.role || null,
+    evidenceRef: item.evidenceRef || null,
+    text: cap(String(item.text || ""), 1800),
+  }));
+  return {
+    contextQuality: pack?.contextQuality || null,
+    capabilities: pack?.capabilities || null,
+    evidenceBudget: pack?.evidenceBudget || null,
+    instructions: (manifest.instructions || []).slice(0, 12),
+    references: (manifest.rankedReferences || []).slice(0, 16),
+    evidencePointers: (manifest.evidencePointers || []).slice(0, 16),
+    excerpts,
+    recentFailure: recentFailure ? cap(recentFailure, 5000) : null,
+  };
+}
+
+async function runRoutedAgent(
+  agent: AgentName,
+  task: string,
+  cwd: string,
+  inheritedModel: string | undefined,
+  inheritedThinking: string | undefined,
+  attempt = 1,
+  recentFailure?: string,
+  signal?: AbortSignal,
+): Promise<RunResult> {
+  const role = roleForAgent(agent);
+  const taskPolicy = classifyEngineeringTask(task);
+  const modelPolicy = await readModelPolicy(getUesConfigDir());
+  const selection = resolveCapabilityModel(role, attempt, task, taskPolicy, modelPolicy);
+  if (
+    selection.capabilityBlocked &&
+    taskPolicy.antiHallucination?.failClosedOnMissingCapability
+  ) {
+    return {
+      agent,
+      task,
+      cwd,
+      exitCode: 2,
+      output:
+        "UES capability gate blocked this high-risk task because no configured model satisfies the required capabilities.",
+      stderr: "",
+      model: inheritedModel,
+      modelTier: selection.tier,
+      modelSelection: selection,
+      taskPolicy,
+      verdict: "FAIL",
+    };
+  }
+
+  const selectedModel = selection.model || inheritedModel;
+  const thinking = selectedModel && inheritedModel && selectedModel !== inheritedModel
+    ? undefined
+    : inheritedThinking;
+
+  let enrichedTask = task;
+  let contextQuality: any = null;
+  let contextError: string | undefined;
+  try {
+    const pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
+      policy: taskPolicy,
+      role,
+      recentFailure,
+      facts: { longContext: taskPolicy.mode === "long-horizon" },
+    });
+    contextQuality = pack.contextQuality;
+    enrichedTask = [
+      task,
+      "",
+      "## UES runtime context pack",
+      "Use this bounded evidence pack before broad repository exploration. Treat paths/excerpts as evidence, not as permission to invent missing facts.",
+      "```json",
+      JSON.stringify(compactContextPack(pack, recentFailure), null, 2),
+      "```",
+    ].join("\n");
+  } catch (error) {
+    contextError = error instanceof Error ? error.message : String(error);
+    if (recentFailure) {
+      enrichedTask += "\n\n## Previous failed verification\n" + cap(recentFailure, 5000);
+    }
+  }
+
+  const startedAt = Date.now();
+  const result = await runAgent(agent, enrichedTask, cwd, selectedModel, thinking, signal);
+  return {
+    ...result,
+    task,
+    modelTier: selection.tier,
+    modelSelection: selection,
+    taskPolicy,
+    contextQuality,
+    contextError,
+    verdict: verdictFromOutput(result.output),
+    durationMs: Date.now() - startedAt,
+  };
+}
+
+async function recordRuntimeOutcome(result: RunResult, task: string, passed: boolean, retries: number) {
+  if (!result.model) return;
+  try {
+    await recordModelPerformance(getUesConfigDir(), {
+      model: result.model,
+      text: task,
+      passed,
+      retries,
+      latencyMs: result.durationMs || 0,
+    });
+  } catch {
+    // Telemetry must never make the engineering task fail.
+  }
+}
+
 async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T, index: number) => Promise<R>) {
   const results = new Array<R>(items.length);
   let next = 0;
@@ -344,6 +498,187 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerTool({
+    name: "ues_execute",
+    label: "UES Execute",
+    description:
+      "Deterministically execute an engineering task through UES policy, optional diagnosis/plan gate, implementation, independent verification, retry escalation, and integration verification. Prefer this for end-to-end work so the parent model does not have to remember the orchestration protocol.",
+    parameters: Type.Object({
+      task: Type.String({ minLength: 1, description: "Engineering task to execute end-to-end" }),
+      cwd: Type.Optional(Type.String({ description: "Working directory; defaults to the current Pi cwd" })),
+      maxAttempts: Type.Optional(Type.Number({ minimum: 1, maximum: 3 })),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      const cwd = path.resolve(params.cwd || ctx.cwd);
+      const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
+      const inheritedThinking = ctx.thinkingLevel as string | undefined;
+      const policy = classifyEngineeringTask(params.task);
+      const requestedAttempts = Number(params.maxAttempts || policy.maxAttempts || 2);
+      const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
+      const steps: RunResult[] = [];
+      let recentFailure = "";
+
+      const run = async (agent: AgentName, task: string, attempt = 1, failure?: string) => {
+        const result = await runRoutedAgent(
+          agent,
+          task,
+          cwd,
+          inheritedModel,
+          inheritedThinking,
+          attempt,
+          failure,
+          signal,
+        );
+        steps.push(result);
+        onUpdate?.({
+          content: [{
+            type: "text",
+            text: `UES controller: ${agent} finished (exit ${result.exitCode}, model ${result.model || "inherited/default"})`,
+          }],
+          details: { mode: "execute", policy, steps },
+        });
+        return result;
+      };
+
+      if (/\b(fix|bug|debug|crash|regression|failure|error|broken|lỗi|sửa lỗi)\b/i.test(params.task)) {
+        const diagnosis = await run("ues-debugger", params.task, 1);
+        if (diagnosis.exitCode !== 0 || diagnosis.stopReason === "error") {
+          return {
+            content: [{ type: "text", text: `Diagnosis failed:\n\n${diagnosis.output}` }],
+            details: { mode: "execute", policy, steps },
+            isError: true,
+          };
+        }
+        recentFailure = diagnosis.output;
+      }
+
+      if (policy.requirePlanCheck) {
+        const architect = await run(
+          "ues-architect",
+          [
+            params.task,
+            "",
+            "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
+          ].join("\n"),
+          1,
+          recentFailure || undefined,
+        );
+        if (architect.exitCode !== 0 || architect.stopReason === "error") {
+          return {
+            content: [{ type: "text", text: `Architecture pass failed:\n\n${architect.output}` }],
+            details: { mode: "execute", policy, steps },
+            isError: true,
+          };
+        }
+
+        const planCheck = await run(
+          "ues-plan-checker",
+          [
+            "Validate the following inline plan against the current repository. If persistent SPEC/PLAN files do not exist yet, evaluate this inline plan directly instead of failing only because those files are absent.",
+            "",
+            "Original task:",
+            params.task,
+            "",
+            "Inline plan:",
+            architect.output,
+          ].join("\n"),
+          1,
+        );
+        if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
+          return {
+            content: [{ type: "text", text: `Plan gate did not pass:\n\n${planCheck.output}` }],
+            details: { mode: "execute", policy, steps },
+            isError: true,
+          };
+        }
+      }
+
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        const executorTask = [
+          params.task,
+          recentFailure ? "\nEvidence from diagnosis/previous failed verification:\n" + cap(recentFailure, 7000) : "",
+          "\nImplement the smallest coherent change. Do not push, publish, deploy, rewrite history, or broaden scope without evidence.",
+        ].filter(Boolean).join("\n");
+
+        const implementation = await run(
+          "ues-executor",
+          executorTask,
+          attempt,
+          recentFailure || undefined,
+        );
+        if (implementation.exitCode !== 0 || implementation.stopReason === "error") {
+          recentFailure = implementation.output;
+          await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
+          continue;
+        }
+
+        const verification = await run(
+          "ues-verifier",
+          [
+            "Independently verify the current working tree against this task:",
+            params.task,
+            "",
+            "Implementation handoff (not proof by itself):",
+            implementation.output,
+          ].join("\n"),
+          attempt,
+          recentFailure || undefined,
+        );
+        const verified = verification.exitCode === 0 && verification.verdict === "PASS";
+        await recordRuntimeOutcome(implementation, params.task, verified, attempt - 1);
+        if (!verified) {
+          recentFailure = verification.output;
+          continue;
+        }
+
+        if (policy.requireIntegrationVerification) {
+          const integration = await run(
+            "ues-integration-verifier",
+            [
+              "Perform fresh integration verification for the current working tree and this task:",
+              params.task,
+              "",
+              "Do not require durable-work files when this controller is running an inline task; verify repository state, diff, contracts and executable checks directly.",
+            ].join("\n"),
+            attempt,
+          );
+          if (integration.exitCode !== 0 || integration.verdict !== "PASS") {
+            recentFailure = integration.output;
+            if (attempt < maxAttempts) continue;
+            return {
+              content: [{ type: "text", text: `Integration verification did not pass:\n\n${integration.output}` }],
+              details: { mode: "execute", policy, steps, attempts: attempt },
+              isError: true,
+            };
+          }
+        }
+
+        const final = steps.at(-1);
+        return {
+          content: [{
+            type: "text",
+            text: [
+              `UES execution PASS after ${attempt} attempt(s).`,
+              `Policy: ${policy.executionProfile}/${policy.risk}; model tier: ${implementation.modelTier || "default"}.`,
+              "",
+              final?.output || verification.output,
+            ].join("\n"),
+          }],
+          details: { mode: "execute", policy, steps, attempts: attempt },
+        };
+      }
+
+      return {
+        content: [{
+          type: "text",
+          text: `UES execution exhausted ${maxAttempts} attempt(s) without a verified PASS.\n\n${recentFailure}`,
+        }],
+        details: { mode: "execute", policy, steps, attempts: maxAttempts },
+        isError: true,
+      };
+    },
+  });
+
+  pi.registerTool({
     name: "ues_dispatch",
     label: "UES Dispatch",
     description:
@@ -382,7 +717,7 @@ export default function (pi: ExtensionAPI) {
           };
         }
         const cwd = path.resolve(params.cwd || baseCwd);
-        const result = await runAgent(params.agent!, params.task!, cwd, model, thinking, signal);
+        const result = await runRoutedAgent(params.agent!, params.task!, cwd, model, thinking, 1, undefined, signal);
         return {
           content: [{ type: "text", text: result.output }],
           details: { mode: "single", results: [result] },
@@ -402,12 +737,14 @@ export default function (pi: ExtensionAPI) {
             };
           }
           const task = step.task.replace(/\{previous\}/g, previous);
-          const result = await runAgent(
+          const result = await runRoutedAgent(
             step.agent,
             task,
             path.resolve(step.cwd || baseCwd),
             model,
             thinking,
+            1,
+            previous || undefined,
             signal,
           );
           results.push(result);
@@ -468,12 +805,14 @@ export default function (pi: ExtensionAPI) {
 
       let completed = 0;
       const results = await mapLimit(tasks, MAX_CONCURRENCY, async (item) => {
-        const result = await runAgent(
+        const result = await runRoutedAgent(
           item.agent as AgentName,
           item.task,
           path.resolve(item.cwd || baseCwd),
           model,
           thinking,
+          1,
+          undefined,
           signal,
         );
         completed++;
