@@ -101,6 +101,26 @@ ocskill status
 ocskill doctor
 ```
 
+### Dùng UES với Pi Agent
+
+UES V13 cũng có thể được cài như một Pi package. Pi sẽ nạp trực tiếp catalog skill hiện có, các prompt `/ues-*` và adapter cho fresh child-agent + safety gate.
+
+```cmd
+npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+pi install git:github.com/laivannha0202/opencode-agent-skill-
+```
+
+Sau khi cài, mở session Pi mới rồi dùng ví dụ:
+
+```text
+/ues-run sửa lỗi đăng nhập và kiểm thử lại
+/ues-plan refactor auth module
+/ues-verify
+/ues-doctor
+```
+
+Xem chi tiết tại `docs/PI-COMPAT.md`.
+
 Nếu npm không chạy lifecycle script trong lúc cài đặt (npm 11+ có thể cảnh báo `install-scripts ... not yet covered by allowScripts`), package CLI vẫn có thể đã được cài. Chạy resource sync rõ ràng:
 
 ```cmd
