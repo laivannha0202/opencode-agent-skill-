@@ -48,6 +48,14 @@ ues eval-pi --model provider/model --mode both
 
 `ocskill` remains an alias during the migration window so existing scripts do not break immediately.
 
+For an existing OpenCode installation that still needs the deprecated compatibility resources, synchronization is now explicit rather than an npm lifecycle side effect:
+
+```cmd
+ocskill install
+```
+
+The npm package intentionally has no `postinstall` or `preuninstall` compatibility hooks. Installing UES for Pi must not silently mutate OpenCode configuration.
+
 ## Removal rule
 
 Do not add new features to the legacy OpenCode compatibility surface. New runtime features must land in Pi/`lib` first. Legacy files may be removed once migration coverage proves that no supported Pi command imports or packages them.
