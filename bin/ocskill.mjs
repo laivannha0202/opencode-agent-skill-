@@ -350,7 +350,11 @@ async function install() {
   console.log(`[ocskill] Installed resources for v${result.version}`)
   console.log(`[ocskill] OpenCode config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skills.length}`)
-  console.log(`[ocskill] Commands: ${result.commands.length}`)
+  if (Number(result.openCodeMajor) >= 2) {
+    console.log(`[ocskill] Prompt aliases: ${(result.promptAliases || []).length} (session.prompt compatibility path)`)
+  } else {
+    console.log(`[ocskill] Commands: ${result.commands.length}`)
+  }
   console.log(`[ocskill] Subagents: ${result.agents.length}`)
   console.log(`[ocskill] OpenCode major: ${result.openCodeMajor}`)
   console.log(
@@ -382,7 +386,11 @@ async function status() {
   console.log(`[ocskill] Sync: ${synced ? "OK" : "OUTDATED - run ocskill install"}`)
   console.log(`[ocskill] Config: ${result.configDir}`)
   console.log(`[ocskill] Skills: ${result.skillsPresent}/${result.skills.length}`)
-  console.log(`[ocskill] Commands: ${result.commandsPresent}/${result.commands.length}`)
+  if (Number(result.openCodeMajor) >= 2) {
+    console.log(`[ocskill] Prompt aliases: ${result.promptAliasesPresent || 0}/${(result.promptAliases || []).length}`)
+  } else {
+    console.log(`[ocskill] Commands: ${result.commandsPresent}/${result.commands.length}`)
+  }
   console.log(`[ocskill] Subagents: ${result.agentsPresent}/${(result.agents || []).length}`)
   console.log(`[ocskill] OpenCode major: ${result.openCodeMajor ?? "legacy/unknown"}`)
   console.log(
@@ -396,6 +404,7 @@ async function status() {
   if (!synced ||
       result.skillsPresent !== result.skills.length ||
       result.commandsPresent !== result.commands.length ||
+      (result.promptAliasesPresent || 0) !== (result.promptAliases || []).length ||
       result.agentsPresent !== (result.agents || []).length ||
       result.pluginsPresent !== (result.plugins || []).length ||
       !result.workflowPresent) {
