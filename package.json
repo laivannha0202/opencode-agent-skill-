@@ -24,12 +24,15 @@
   ],
   "scripts": {
     "syntax": "node scripts/syntax-check.mjs",
-    "test": "node --test test/pi-package.test.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:pi": "node --test test/pi-package.test.mjs",
+    "docs:check": "node scripts/check-release-consistency.mjs",
+    "release:check-tag": "node scripts/check-release-tag.mjs",
     "smoke:pi": "node scripts/smoke-pi-extension.mjs",
-    "ci": "npm run syntax && npm test && npm pack --dry-run && npm run smoke:pi && npm run smoke:package",
-    "prepublishOnly": "npm run ci",
     "smoke:package": "node scripts/smoke-package-closure.mjs",
-    "eval:pi": "node scripts/eval-pi.mjs"
+    "eval:pi": "node scripts/eval-pi.mjs",
+    "ci": "npm run syntax && npm test && npm run docs:check && npm pack --dry-run && npm run smoke:pi && npm run smoke:package",
+    "prepublishOnly": "npm run ci"
   },
   "keywords": [
     "pi-package",
