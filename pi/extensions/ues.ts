@@ -28,19 +28,22 @@ const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const OUTPUT_LIMIT = 512 * 1024;
 
+const READ_TOOLS = ["read", "grep", "find", "ls", "bash", "powershell"] as const;
+const WRITE_TOOLS = [...READ_TOOLS, "edit", "write"] as const;
+
 const AGENTS = {
-  "ues-architect": { file: "architect.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-codebase-mapper": { file: "codebase-mapper.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-critic": { file: "critic.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-debugger": { file: "debugger.md" },
-  "ues-executor": { file: "executor.md" },
-  "ues-integration-verifier": { file: "integration-verifier.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-merge-arbiter": { file: "merge-arbiter.md" },
-  "ues-plan-checker": { file: "plan-checker.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-researcher": { file: "researcher.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-reviewer": { file: "reviewer.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-verifier": { file: "verifier.md", tools: ["read", "grep", "find", "ls", "bash"] },
-  "ues-visual-verifier": { file: "visual-verifier.md", tools: ["read", "grep", "find", "ls", "bash"] },
+  "ues-architect": { file: "architect.md", tools: READ_TOOLS },
+  "ues-codebase-mapper": { file: "codebase-mapper.md", tools: READ_TOOLS },
+  "ues-critic": { file: "critic.md", tools: READ_TOOLS },
+  "ues-debugger": { file: "debugger.md", tools: READ_TOOLS },
+  "ues-executor": { file: "executor.md", tools: WRITE_TOOLS },
+  "ues-integration-verifier": { file: "integration-verifier.md", tools: READ_TOOLS },
+  "ues-merge-arbiter": { file: "merge-arbiter.md", tools: WRITE_TOOLS },
+  "ues-plan-checker": { file: "plan-checker.md", tools: READ_TOOLS },
+  "ues-researcher": { file: "researcher.md", tools: READ_TOOLS },
+  "ues-reviewer": { file: "reviewer.md", tools: READ_TOOLS },
+  "ues-verifier": { file: "verifier.md", tools: READ_TOOLS },
+  "ues-visual-verifier": { file: "visual-verifier.md", tools: READ_TOOLS },
 } as const;
 
 const WRITE_AGENTS = new Set(["ues-executor", "ues-merge-arbiter"]);
@@ -188,11 +191,14 @@ async function runAgent(
   const config = AGENTS[agent];
   const args: string[] = [
     "--mode", "json", "-p", "--no-session",
-    "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files",
+    // Keep extension discovery enabled so custom model providers (for example
+    // Kilo) are available to the child process. Tool recursion is prevented
+    // by the strict per-agent --tools allowlist below.
+    "--no-skills", "--no-prompt-templates", "--no-context-files",
   ];
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
-  if ("tools" in config && config.tools?.length) args.push("--tools", config.tools.join(","));
+  args.push("--tools", config.tools.join(","));
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-pi-"));
   const promptPath = path.join(tempDir, `${agent}.md`);
