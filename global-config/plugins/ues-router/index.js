@@ -14,6 +14,7 @@ import {
   policySourceForPromptAlias,
   promptAliasTextForPolicy,
 } from "./command-runtime.js"
+import { classifyEngineeringTask } from "./policy-runtime.js"
 import {
   budgetToolResult,
   classifyProviderFailure,
@@ -1550,10 +1551,7 @@ export default {
         : originalPromptText
       const policySource = policySourceForPromptAlias(promptAlias, originalPromptText)
       const policyInput = policyPromptForCli(policySource)
-      let policy = null
-      try {
-        policy = runOcskillJSON(["task-policy", policyInput.text], projectRoot)
-      } catch {}
+      const policy = classifyEngineeringTask(policyInput.text)
 
       if (promptAlias && event.prompt) {
         event.prompt.text = promptAliasTextForPolicy(promptAlias, policy)
