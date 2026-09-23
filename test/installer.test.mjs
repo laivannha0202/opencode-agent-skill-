@@ -558,7 +558,7 @@ test("OpenCode v2 install uses native permissions and installs managed router pl
     assert.match(plugin, /export default \{/)
     assert.match(plugin, /function spawnHidden/)
     assert.match(plugin, /windowsHide:\s*true/)
-    assert.equal((plugin.match(/\\bspawnSync\\s*\\(/g) || []).length, 1)
+    assert.equal((plugin.match(/\bspawnSync\s*\(/g) || []).length, 1)
     assert.match(plugin, /name: "dispatch_task"/)
     assert.match(plugin, /ctx\.session\.create/)
     assert.match(plugin, /ctx\.session\.switchAgent/)
