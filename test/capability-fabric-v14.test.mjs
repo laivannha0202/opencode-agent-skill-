@@ -3,7 +3,11 @@ import assert from "node:assert/strict"
 import { mkdtemp, rm } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { capabilityFabricStatus, selectCapabilityProvider } from "../lib/capability-fabric.mjs"
+import {
+  capabilityFabricStatus,
+  recordCapabilityObservation,
+  selectCapabilityProvider,
+} from "../lib/capability-fabric.mjs"
 
 test("V14 capability fabric prefers a healthy provider and keeps bounded fallbacks", () => {
   const selected = selectCapabilityProvider("research.web", [
@@ -30,6 +34,27 @@ test("V14 capability fabric health-checks deterministic providers without making
     assert.equal(status.capabilities.memory.selected.id, "memory")
     assert.equal(status.capabilities.optional.selected, null)
     assert.equal(status.capabilities.optional.fallbackNeeded, true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("V14 capability fabric learns away from repeatedly failing providers", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-capability-v14-learning-"))
+  try {
+    for (let index = 0; index < 5; index += 1) {
+      await recordCapabilityObservation(root, "research.web", "primary", { success: false, latencyMs: 900, error: "timeout" })
+      await recordCapabilityObservation(root, "research.web", "fallback", { success: true, latencyMs: 200 })
+    }
+    const status = await capabilityFabricStatus(root, {
+      registry: { capabilities: { "research.web": [
+        { id: "primary", kind: "builtin", priority: 100, quality: 0.9, costClass: "low", latencyClass: "fast" },
+        { id: "fallback", kind: "builtin", priority: 90, quality: 0.85, costClass: "low", latencyClass: "fast" },
+      ] } },
+    })
+    assert.equal(status.capabilities["research.web"].selected.id, "fallback")
+    assert.equal(status.observationState.capabilities, 1)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
