@@ -10,6 +10,7 @@
   "files": [
     "bin/ocskill.mjs",
     "lib/",
+    "global-config/AGENTS.md",
     "global-config/skills/",
     "global-config/agents/",
     "global-config/commands/",
@@ -32,7 +33,8 @@
     "smoke:package": "node scripts/smoke-package-closure.mjs",
     "eval:pi": "node scripts/eval-pi.mjs",
     "ci": "npm run syntax && npm test && npm run docs:check && npm pack --dry-run && npm run smoke:pi && npm run smoke:package",
-    "prepublishOnly": "npm run ci"
+    "prepublishOnly": "npm run ci",
+    "smoke:packed": "node scripts/smoke-packed-install.mjs"
   },
   "keywords": [
     "pi-package",
