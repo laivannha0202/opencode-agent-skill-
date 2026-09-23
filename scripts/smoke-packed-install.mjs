@@ -96,7 +96,9 @@ try {
   assert.equal(state.package, packageName)
   assert.equal(state.version, packageJson.version)
   assert.ok(state.skills.length >= 39)
-  assert.ok(state.commands.length >= 11)
+  assert.deepEqual(state.commands, [])
+  assert.ok(state.promptAliases.length >= 11)
+  assert.ok(state.promptAliases.includes("ues-run"))
   assert.ok(state.agents.length >= 10)
   assert.equal(state.openCodeMajor, 2)
   assert.deepEqual(state.plugins, ["ues-router/index.js"])
@@ -109,6 +111,9 @@ try {
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "parallel-runtime.js")), "v13 parallel runtime was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "text-runtime.js")), "v13 UTF-aware text runtime was not installed from packed package")
   assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "verifier-runtime.js")), "v13 verifier runtime was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "command-runtime.js")), "v13 prompt alias runtime was not installed from packed package")
+  assert.ok(existsSync(path.join(configDir, "plugins", "ues-router", "command-templates", "run.md")), "v13 /ues-run prompt alias template was not installed from packed package")
+  assert.equal(existsSync(path.join(configDir, "commands", "ues-run.md")), false, "v2 install must not leave a native /ues-run custom command")
   const routerSource = await readFile(routerPlugin, "utf8")
   assert.match(routerSource, /name: "dispatch_task"/)
   assert.match(routerSource, /name: "dispatch_parallel"/)
@@ -484,7 +489,7 @@ try {
 
   console.log(
     `One-command packed install smoke passed for ${packageName}@${packageJson.version}: ` +
-      `${state.skills.length} skills, ${state.commands.length} commands, ${state.agents.length} subagents, ${state.plugins.length} v2 router plugin.`,
+      `${state.skills.length} skills, ${state.promptAliases.length} prompt aliases, ${state.agents.length} subagents, ${state.plugins.length} v2 router plugin.`,
   )
 } finally {
   await rm(temp, { recursive: true, force: true })
