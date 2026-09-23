@@ -396,7 +396,21 @@ Child session không được tự động merge, push, publish hoặc deploy.
 
 ## Slash commands
 
-Trên OpenCode 1.x, UES tiếp tục cài các command Markdown native. Trên OpenCode V2, 11 lệnh `/ues-*` được cài dưới dạng **prompt aliases** của `ues-router`: UI gửi chúng qua đường `session.prompt` đang ổn định, router mới mở rộng template UES. Cách này tránh phụ thuộc vào `session.command` V2 khi endpoint custom-command trả lỗi transport/content-type. Cú pháp người dùng không đổi, ví dụ `/ues-run <yêu cầu>`.
+Trên OpenCode 1.x, UES tiếp tục cài các command Markdown native. Trên OpenCode V2, 11 lệnh `/ues-*` được cài dưới dạng **prompt aliases** của `ues-router`: UI gửi chúng qua đường `session.prompt` đang ổn định, router mới mở rộng template UES. Cách này tránh phụ thuộc vào `session.command` V2 khi endpoint custom-command trả lỗi transport/content-type. Cú pháp người dùng không đổi, cả hai dạng đều hợp lệ:
+
+```text
+/ues-run <yêu cầu>
+```
+
+hoặc:
+
+```text
+/ues-run
+
+<yêu cầu nhiều dòng>
+```
+
+Trên V2 các alias này có thể không xuất hiện trong autocomplete slash menu vì UES chủ động không đăng ký native custom-command để tránh đường `session.command` đang lỗi; vẫn có thể gõ trực tiếp `/ues-run`, `/ues-fix`, v.v.
 
 Sau khi nâng cấp từ bản V13 cũ, chạy `ocskill install`; installer sẽ xóa các native UES command file cũ do chính UES quản lý để OpenCode V2 không còn bắt chúng qua `session.command`.
 
