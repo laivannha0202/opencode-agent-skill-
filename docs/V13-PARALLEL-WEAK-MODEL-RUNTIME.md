@@ -1,6 +1,6 @@
 # V13 Parallel Weak-Model Runtime
 
-Status: beta prerelease (`13.0.0-beta.2`).
+Status: beta prerelease (`13.0.0-beta.3`).
 
 ## Goal
 
