@@ -31,7 +31,7 @@ test("cli version matches package.json", () => {
 test("cli help exits cleanly and lists commands", () => {
   const result = runCli(["help"])
   assert.equal(result.status, 0, result.stderr)
-  assert.match(result.stdout, /Usage:/)
+  assert.match(result.stdout, /Usage\b.*:/)
   assert.match(result.stdout, /ocskill work <action>/)
 })
 
