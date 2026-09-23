@@ -194,7 +194,13 @@ test("V13 /ues-run keeps STANDARD work compact and escalates real large work to 
       "utf8",
     )
 
-    const standardAlias = expandUesPromptAlias("/ues-run Fix this failing helper test and verify the affected test.", dir)
+    const standardRequest = [
+      "Fix this failing helper test and verify the affected behavior.",
+      "Inspect the direct caller and nearest test, preserve the existing public behavior,",
+      "make only the bounded change required by the failure, and run the affected test after the edit.",
+      "Do not broaden the task beyond the named helper unless deterministic evidence requires it.",
+    ].join(" ")
+    const standardAlias = expandUesPromptAlias("/ues-run " + standardRequest, dir)
     const standardSource = policySourceForPromptAlias(standardAlias, standardAlias.text)
     const standardPolicy = classifyEngineeringTask(standardSource)
     assert.equal(standardPolicy.executionProfile, "standard")
