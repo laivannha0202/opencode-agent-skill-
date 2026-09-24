@@ -15,6 +15,7 @@ import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
 import { computeSafeWaves, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
+import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import {
   createTaskSandbox,
   integrateTaskSandbox,
@@ -52,6 +53,12 @@ const CHILD_HEARTBEAT_MS = configuredDuration(
   15_000,
   5_000,
   60_000,
+);
+const MODEL_VISIBLE_OUTPUT_LIMIT = configuredDuration(
+  "UES_MODEL_VISIBLE_OUTPUT_LIMIT",
+  64 * 1024,
+  16 * 1024,
+  256 * 1024,
 );
 
 function stopChildTree(proc: any) {
@@ -1048,15 +1055,41 @@ export default function (pi: ExtensionAPI) {
       }
 
       const result = await runOcskill(params.args, cwd, signal);
-      const text = [
+      const rawText = [
         `exitCode: ${result.exitCode}`,
         result.stdout.trim(),
         result.stderr.trim() ? `stderr:\n${result.stderr.trim()}` : "",
       ].filter(Boolean).join("\n");
+      const compacted = await compactReversibleOutput(cwd, rawText, {
+        maxChars: MODEL_VISIBLE_OUTPUT_LIMIT,
+        kind: "ues-cli-output",
+        source: `ues_cli:${String(params.args[0] || "unknown")}`,
+      }).catch(() => ({
+        schemaVersion: 1,
+        compacted: false,
+        strategy: "raw-fail-open",
+        originalChars: rawText.length,
+        returnedChars: rawText.length,
+        evidenceRef: null,
+        text: rawText,
+      }));
 
       return {
-        content: [{ type: "text", text }],
-        details: { ...result, cwd, args: params.args },
+        content: [{ type: "text", text: compacted.text }],
+        details: {
+          exitCode: result.exitCode,
+          cwd,
+          args: params.args,
+          stdoutChars: result.stdout.length,
+          stderrChars: result.stderr.length,
+          modelVisibleCompaction: {
+            compacted: compacted.compacted,
+            strategy: compacted.strategy,
+            originalChars: compacted.originalChars,
+            returnedChars: compacted.returnedChars,
+            evidenceRef: compacted.evidenceRef,
+          },
+        },
         isError: result.exitCode !== 0,
       };
     },

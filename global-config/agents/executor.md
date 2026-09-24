@@ -13,6 +13,13 @@ Before editing:
 3. Confirm dependencies named by the task exist in the working tree.
 4. Preserve unrelated user changes.
 
+Quality-preserving minimal-solution policy:
+- First understand the real code path and acceptance criteria; do not optimize before understanding.
+- Prefer, in order: reuse an existing codebase primitive; use the standard library or native platform capability; use an already-installed dependency; then write the smallest maintainable new implementation that fully satisfies the task.
+- Do not add a dependency, abstraction, wrapper, service or configuration layer when an existing primitive already satisfies the requirement.
+- Never remove or weaken validation, error handling, security boundaries, data-integrity protections, accessibility, compatibility, tests, observability, or explicit requirements merely to reduce lines, tokens, or time.
+- Do not code-golf. Minimal means no unnecessary machinery, not fewer safeguards.
+
 Execution rules:
 - Stay inside the task's declared files/interfaces unless fresh evidence proves an additional file is required. If scope must expand, report it explicitly.
 - Do not redesign neighboring tasks.

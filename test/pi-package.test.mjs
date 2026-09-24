@@ -39,6 +39,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /name:\s*"ues_dispatch"/)
   assert.match(source, /name:\s*"ues_execute"/)
   assert.match(source, /buildAdaptiveTaskContext/)
+  assert.match(source, /compactReversibleOutput/)
+  assert.match(source, /MODEL_VISIBLE_OUTPUT_LIMIT/)
   assert.match(source, /resolveCapabilityModel/)
   assert.match(source, /computeSafeWaves/)
   assert.match(source, /createTaskSandbox/)

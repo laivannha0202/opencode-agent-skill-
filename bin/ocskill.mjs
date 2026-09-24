@@ -150,7 +150,8 @@ Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill 
   ocskill store <status|put|get|gc> ... Content-addressed evidence storage and bounded retrieval
   ocskill capabilities <text>     Infer required execution/model capabilities
   ocskill capability-fabric <status|select> ... Health-check and select tool/provider backends
-  ocskill hierarchy <query> [dir] Progressive L0/L1 repository scope routing before L2 excerpts
+  ocskill hierarchy <query> [dir] [--full]
+                              Progressive L0/L1 scope routing; compact by default, --full includes complete file lists
   ocskill memory <action> ...      Verified persistent project memory and hybrid retrieval
   ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
   ocskill browser <action> ...    Browser capability, plan and bounded Playwright inspection
@@ -1433,11 +1434,31 @@ async function hierarchyControl() {
   const query = args[1]
   const root = positionalArg(args, 2) || process.cwd()
   if (!query) {
-    printCliError(Object.assign(new Error("Usage: ocskill hierarchy <query> [dir] [--max-scopes N]"), { code: "UES_USAGE", exitCode: 2 }))
+    printCliError(Object.assign(new Error("Usage: ocskill hierarchy <query> [dir] [--max-scopes N] [--full]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   try {
-    printJson(await queryContextHierarchy(root, query, { maxScopes: optionInt(args, "--max-scopes", 6) }))
+    const result = await queryContextHierarchy(root, query, { maxScopes: optionInt(args, "--max-scopes", 6) })
+    if (args.includes("--full")) {
+      printJson(result)
+      return
+    }
+    printJson({
+      ...result,
+      compact: true,
+      scopes: (result.scopes || []).map((scope) => ({
+        path: scope.path,
+        score: scope.score,
+        reasons: scope.reasons,
+        fileCount: scope.fileCount,
+        bytes: scope.bytes,
+        l0: scope.l0,
+        l1: scope.l1,
+        topFiles: (scope.files || []).slice(0, 12),
+        topSymbols: (scope.symbols || []).slice(0, 12),
+        childCount: (scope.children || []).length,
+      })),
+    })
   } catch (error) {
     printCliError(error)
   }

@@ -34,7 +34,18 @@ test("V14 hierarchy CLI returns progressive context scopes", async () => {
     const result = run(["hierarchy", "checkout orders", "."], dir)
     assert.equal(result.status, 0, result.stderr)
     const payload = JSON.parse(result.stdout)
-    assert.ok(payload.scopes.some((item) => item.path.includes("src/orders")))
+    assert.equal(payload.compact, true)
+    const scope = payload.scopes.find((item) => item.path.includes("src/orders"))
+    assert.ok(scope)
+    assert.equal(Object.hasOwn(scope, "files"), false)
+    assert.ok(scope.topFiles.some((item) => item.includes("checkout.mjs")))
+
+    const full = run(["hierarchy", "checkout orders", ".", "--full"], dir)
+    assert.equal(full.status, 0, full.stderr)
+    const fullPayload = JSON.parse(full.stdout)
+    const fullScope = fullPayload.scopes.find((item) => item.path.includes("src/orders"))
+    assert.ok(Array.isArray(fullScope.files))
+    assert.ok(fullScope.files.some((item) => item.includes("checkout.mjs")))
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

@@ -59,3 +59,21 @@ test("V14 capability fabric learns away from repeatedly failing providers", asyn
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V14.1 capability fabric keeps reversible UES compaction primary and external compressors optional", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-capability-v141-output-"))
+  try {
+    const status = await capabilityFabricStatus(root)
+    const output = status.capabilities["output.compaction"]
+    assert.equal(output.selected.id, "ues-reversible-compactor")
+    assert.equal(output.selected.metadata.reversible, true)
+    assert.equal(output.selected.metadata.lossy, false)
+    const candidates = new Set(output.candidates.map((item) => item.id))
+    assert.ok(candidates.has("rtk-cli"))
+    assert.ok(candidates.has("caveman-cli"))
+    assert.ok(candidates.has("headroom-cli"))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
