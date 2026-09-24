@@ -1,4 +1,4 @@
-import { spawn, spawnSync } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -102,8 +102,27 @@ const BROWSER_MCP_TOOL_LIMIT = configuredCount(
   1,
   32,
 );
+const CONTEXT_CACHE_MAX = configuredCount(
+  "UES_CONTEXT_CACHE_MAX",
+  24,
+  4,
+  128,
+);
+
+function configuredBoolean(name: string, fallback = true) {
+  const raw = String(process.env[name] ?? "").trim().toLowerCase();
+  if (!raw) return fallback;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return fallback;
+}
+
+const ADAPTIVE_CONTEXT_ENABLED = configuredBoolean("UES_ADAPTIVE_CONTEXT", true);
+const MICRO_SKILLS_ENABLED = configuredBoolean("UES_MICRO_SKILLS", true);
+const AFFECTED_TEST_HINTS_ENABLED = configuredBoolean("UES_AFFECTED_TEST_HINTS", true);
 
 let HOST_BROWSER_TOOL_NAMES: string[] = [];
+const CONTEXT_PACK_CACHE = new Map<string, any>();
 
 function configuredBrowserToolNames() {
   return String(process.env.UES_BROWSER_MCP_TOOL_NAMES || "")
@@ -615,6 +634,24 @@ function taskRecord(task: string) {
   };
 }
 
+function rememberContextPack(key: string, value: any) {
+  if (CONTEXT_PACK_CACHE.has(key)) CONTEXT_PACK_CACHE.delete(key);
+  CONTEXT_PACK_CACHE.set(key, value);
+  while (CONTEXT_PACK_CACHE.size > CONTEXT_CACHE_MAX) {
+    const oldest = CONTEXT_PACK_CACHE.keys().next().value;
+    if (!oldest) break;
+    CONTEXT_PACK_CACHE.delete(oldest);
+  }
+}
+
+function cachedContextKey(cwd: string, task: string, role: string, budget: number) {
+  let fingerprint = "unknown";
+  try {
+    fingerprint = workspaceFingerprint(cwd);
+  } catch {}
+  return [cwd, fingerprint, role, String(budget), task].join("\u0000");
+}
+
 function compactContextPack(pack: any, recentFailure?: string) {
   const manifest = pack?.contextManifest || {};
   const excerpts = (manifest.excerpts || []).slice(0, 8).map((item: any) => ({
@@ -667,6 +704,17 @@ async function runRoutedAgent(
   const browserRequested = browserEvidenceNeeded(task, role);
   const browserTools = browserRequested ? [...HOST_BROWSER_TOOL_NAMES] : [];
   const taskPolicy = classifyEngineeringTask(task);
+  const budgetDecision = adaptiveContextBudget(taskPolicy, role, attempt, {
+    disabled: !ADAPTIVE_CONTEXT_ENABLED,
+  });
+  const runtimePolicy = {
+    ...taskPolicy,
+    contextBudget: budgetDecision.budget,
+    profile: {
+      ...(taskPolicy.profile || {}),
+      contextBudget: budgetDecision.budget,
+    },
+  };
   const modelPolicy = await readModelPolicy(getUesConfigDir());
   const selection = resolveCapabilityModel(role, attempt, task, taskPolicy, modelPolicy);
   if (
@@ -697,27 +745,57 @@ async function runRoutedAgent(
   let enrichedTask = task;
   let contextQuality: any = null;
   let contextError: string | undefined;
+  let microSkills: any = null;
+  let affectedTests: any = null;
   try {
-    const pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
-      policy: taskPolicy,
-      role,
-      recentFailure,
-      facts: {
-        longContext: taskPolicy.mode === "long-horizon",
-        browser: browserRequested,
-        vision: visualEvidenceNeeded(task),
-      },
-    });
+    const cacheKey = cachedContextKey(cwd, task, role, budgetDecision.budget);
+    let pack = CONTEXT_PACK_CACHE.get(cacheKey);
+    const contextCacheHit = Boolean(pack);
+    if (!pack) {
+      pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
+        policy: runtimePolicy,
+        role,
+        facts: {
+          longContext: taskPolicy.mode === "long-horizon",
+          browser: browserRequested,
+          vision: visualEvidenceNeeded(task),
+        },
+      });
+      rememberContextPack(cacheKey, pack);
+    }
+
+    if (MICRO_SKILLS_ENABLED) {
+      microSkills = await compileSkillContext(taskPolicy, role, {
+        maxSkills: taskPolicy.maxSkills,
+        totalChars: taskPolicy.executionProfile === "fast" ? 1800 : 3200,
+      }).catch(() => null);
+    }
+
+    if (
+      AFFECTED_TEST_HINTS_ENABLED &&
+      ["executor", "debugger", "verifier", "integration-verifier"].includes(role)
+    ) {
+      affectedTests = await resolveAffectedTests(cwd, { limit: 10 }).catch(() => null);
+    }
+
     contextQuality = pack.contextQuality;
     enrichedTask = [
       task,
       "",
       "## UES runtime context pack",
+      `Adaptive context: ${budgetDecision.budget}/${budgetDecision.baseBudget} chars budget; cache ${contextCacheHit ? "HIT" : "MISS"}.`,
       "Use this bounded evidence pack before broad repository exploration. Treat paths/excerpts as evidence, not as permission to invent missing facts.",
       "```json",
       JSON.stringify(compactContextPack(pack, recentFailure), null, 2),
       "```",
-    ].join("\n");
+      microSkills?.text
+        ? "\n## UES micro-skills (selected, bounded)\nThese are the only skill excerpts preloaded for this role. Apply them when relevant; repository evidence still wins.\n" + microSkills.text
+        : "",
+      affectedTests?.tests?.length
+        ? "\n## UES affected-test hints\nLikely tests from changed-file proximity/reference analysis (hints, not proof):\n" +
+          affectedTests.tests.slice(0, 10).map((item: any) => `- ${item.path} (score ${item.score}; ${(item.reasons || []).join(", ")})`).join("\n")
+        : "",
+    ].filter(Boolean).join("\n");
   } catch (error) {
     contextError = error instanceof Error ? error.message : String(error);
     if (recentFailure) {
@@ -758,7 +836,10 @@ async function runRoutedAgent(
     task,
     modelTier: selection.tier,
     modelSelection: selection,
-    taskPolicy,
+    taskPolicy: {
+      ...taskPolicy,
+      runtimeContextBudget: budgetDecision,
+    },
     contextQuality,
     contextError,
     browserRequested,
