@@ -364,7 +364,11 @@ try {
         const afterSnapshot = await snapshotWorkspace(workspace)
         const changedFiles = diffWorkspaceSnapshots(beforeSnapshot, afterSnapshot)
         const telemetry = parsePiTelemetry(agentRun.stdout)
-        const controllerValid = mode !== "ues" || (telemetry.controllerUsed && telemetry.controllerPass)
+        const baselineIsolated = mode !== "baseline" || telemetry.controllerUsed === false
+        const controllerValid =
+          mode === "baseline"
+            ? baselineIsolated
+            : (telemetry.controllerUsed && telemetry.controllerPass)
         const passed = agentRun.status === 0 && graderRun.status === 0 && controllerValid
 
         results.push({
@@ -378,6 +382,7 @@ try {
           agentExit: agentRun.status,
           graderExit: graderRun.status,
           controllerValid,
+          baselineIsolated,
           durationMs: agentRun.durationMs,
           timedOut: agentRun.timedOut,
           idleTimedOut: agentRun.idleTimedOut,
@@ -397,7 +402,8 @@ try {
           "[" + mode + "] " + task.id + " trial " + trial + ": " +
           (passed ? "PASS" : "FAIL") +
           " (agent=" + agentRun.status + ", grader=" + graderRun.status +
-          ", controller=" + controllerValid + ")",
+          ", controller=" + controllerValid +
+          (mode === "baseline" ? ", isolated=" + baselineIsolated : "") + ")",
         )
       }
     }
