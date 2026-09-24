@@ -434,7 +434,7 @@ async function durableRecordIntegration(
 ) {
   const bounded = cap(evidence || `integration ${verdict}`, 7000);
   if (verdict !== "PASS") {
-    await runOcskillJson(
+    const verification = await runOcskillJson(
       [
         "work", "verify-integration", slug, root,
         "--verdict", verdict,
@@ -443,7 +443,7 @@ async function durableRecordIntegration(
       root,
       signal,
     );
-    return;
+    return { verification, finalized: null };
   }
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-integration-receipt-"));
@@ -460,7 +460,7 @@ async function durableRecordIntegration(
       root,
       signal,
     );
-    await runOcskillJson(
+    const verification = await runOcskillJson(
       [
         "work", "verify-integration", slug, root,
         "--verdict", "PASS",
@@ -470,11 +470,12 @@ async function durableRecordIntegration(
       root,
       signal,
     );
-    await runOcskillJson(
+    const finalized = await runOcskillJson(
       ["work", "finalize", slug, root, "--evidence", bounded],
       root,
       signal,
     );
+    return { verification, finalized };
   } finally {
     await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
