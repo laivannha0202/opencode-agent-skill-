@@ -31,6 +31,7 @@ import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs
 import {
   browserEvidenceNeeded,
   selectBrowserMcpToolNames,
+  selectBrowserToolsForTask,
   visualEvidenceNeeded,
 } from "../../lib/browser-mcp-routing.mjs";
 import {
@@ -702,7 +703,9 @@ async function runRoutedAgent(
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
   const browserRequested = browserEvidenceNeeded(task, role);
-  const browserTools = browserRequested ? [...HOST_BROWSER_TOOL_NAMES] : [];
+  const browserTools = browserRequested
+    ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
+    : [];
   const taskPolicy = classifyEngineeringTask(task);
   const budgetDecision = adaptiveContextBudget(taskPolicy, role, attempt, {
     disabled: !ADAPTIVE_CONTEXT_ENABLED,
