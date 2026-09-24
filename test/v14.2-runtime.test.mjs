@@ -12,6 +12,8 @@ import { findReusableVerification, recordVerification } from "../lib/verificatio
 import { runtimeWorkspaceFingerprint } from "../lib/workspace-fingerprint.mjs"
 import { runSupervisedProcess } from "../lib/process-supervisor.mjs"
 import { selectBrowserToolsForTask } from "../lib/browser-mcp-routing.mjs"
+import { rankContextGraph } from "../lib/context-graph-rank.mjs"
+import { destructiveShellAnalysis, shellCommandSegments } from "../lib/safety.mjs"
 
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" })
@@ -133,4 +135,49 @@ test("browser task routing exposes a smaller task-specific subset", () => {
   assert.ok(selected.includes("browser_screenshot"))
   assert.ok(selected.length <= 10)
   assert.ok(selected.length < names.length)
+})
+
+test("non-git runtime fingerprints fail closed instead of reusing stale cache", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v142-nongit-"))
+  try {
+    const first = runtimeWorkspaceFingerprint(root)
+    const second = runtimeWorkspaceFingerprint(root)
+    assert.notEqual(first, second)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("personalized graph ranking propagates semantic relevance through dependencies", () => {
+  const graph = {
+    nodes: [
+      { path: "src/api.ts" },
+      { path: "src/service.ts" },
+      { path: "src/db.ts" },
+      { path: "src/unrelated.ts" },
+    ],
+    edges: [
+      { from: "src/api.ts", to: "src/service.ts", kind: "local-import" },
+      { from: "src/service.ts", to: "src/db.ts", kind: "local-import" },
+    ],
+  }
+  const ranked = rankContextGraph(graph, {
+    semanticResults: [{ path: "src/api.ts", score: 20 }],
+    declared: ["src/api.ts"],
+    changed: [],
+  })
+  const service = ranked.find((item) => item.path === "src/service.ts")
+  const unrelated = ranked.find((item) => item.path === "src/unrelated.ts")
+  assert.ok(service)
+  assert.ok(service.score > (unrelated?.score || 0))
+})
+
+test("shell safety inspects compound command segments without splitting quoted operators", () => {
+  const segments = shellCommandSegments("echo 'a && b' && npm publish | cat")
+  assert.equal(segments.length, 3)
+  assert.equal(segments[0].text, "echo 'a && b'")
+  const analysis = destructiveShellAnalysis("echo safe && npm publish | cat")
+  assert.equal(analysis.risky, true)
+  assert.equal(analysis.id, "publish")
+  assert.equal(analysis.findings[0].segment, "npm publish")
 })
