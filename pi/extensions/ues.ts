@@ -2048,6 +2048,7 @@ export default function (pi: ExtensionAPI) {
       const steps: RunResult[] = [];
       let recentFailure = "";
       let structuredPlan: any = null;
+      let durableWork: any = null;
 
       const run = async (agent: AgentName, task: string, attempt = 1, failure?: string) => {
         const result = await runRoutedAgent(
@@ -2125,7 +2126,7 @@ export default function (pi: ExtensionAPI) {
         let structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
 
         if (
-          policy.mode === "long-horizon" &&
+          (policy.mode === "long-horizon" || policy.profile?.durableState === true) &&
           (!structuredPlan || structuredValidation?.valid !== true)
         ) {
           const repairEvidence = [
@@ -2175,13 +2176,61 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
-        if (structuredPlan?.tasks?.length > 1) {
+        const durableRequested =
+          policy.mode === "long-horizon" || policy.profile?.durableState === true;
+        if (durableRequested) {
+          if (!structuredPlan || validatePlan(structuredPlan).valid !== true) {
+            return {
+              content: [{
+                type: "text",
+                text: "Durable execution requires a valid structured plan, but the plan gate did not produce one.",
+              }],
+              details: { mode: "execute", policy, steps, structuredPlan },
+              isError: true,
+            };
+          }
+          try {
+            durableWork = await initializeDurableControllerWork(
+              cwd,
+              params.task,
+              structuredPlan,
+              planCheck.output,
+              signal,
+            );
+            onUpdate?.({
+              content: [{
+                type: "text",
+                text: `UES durable lane: .ues-work/${durableWork.slug} initialized and plan-gated`,
+              }],
+              details: {
+                mode: "execute",
+                phase: "durable-work",
+                slug: durableWork.slug,
+                dir: durableWork.dir,
+              },
+            });
+          } catch (error) {
+            return {
+              content: [{
+                type: "text",
+                text:
+                  "Durable work initialization failed; UES will not silently downgrade a DEEP task to non-durable execution.\n\n" +
+                  (error instanceof Error ? error.message : String(error)),
+              }],
+              details: { mode: "execute", policy, steps, structuredPlan },
+              isError: true,
+            };
+          }
+        }
+
+        if (structuredPlan?.tasks?.length > 1 || durableWork) {
           const scheduled = await executeStructuredPlan({
             plan: structuredPlan,
             root: cwd,
             inheritedModel,
             inheritedThinking,
             maxAttempts,
+            durableSlug: durableWork?.slug,
             signal,
             onUpdate,
           });
@@ -2193,7 +2242,7 @@ export default function (pi: ExtensionAPI) {
                 type: "text",
                 text: "UES scheduled execution did not pass.\n\n" + String(scheduled.failure || scheduled.reason || "unknown scheduler failure"),
               }],
-              details: { mode: "execute", policy, steps, structuredPlan, scheduled },
+              details: { mode: "execute", policy, steps, structuredPlan, scheduled, durableWork },
               isError: true,
             };
           }
@@ -2214,17 +2263,28 @@ export default function (pi: ExtensionAPI) {
                 integrations: scheduled.integrations,
               }, null, 2),
               "",
-              "Do not require durable-work files for this inline controller run. Verify the final repository state, cross-task contracts, diff, and executable checks directly.",
+              durableWork
+                ? `Durable state is active at .ues-work/${durableWork.slug}. Verify the final repository state independently; durable receipts are state, not proof by themselves.`
+                : "Do not require durable-work files for this inline controller run. Verify the final repository state, cross-task contracts, diff, and executable checks directly.",
             ].join("\n"),
             1,
           );
           if (integration.exitCode !== 0 || integration.verdict !== "PASS") {
+            if (durableWork) {
+              await durableRecordIntegration(
+                cwd,
+                durableWork.slug,
+                integration.verdict === "PARTIAL" ? "PARTIAL" : "FAIL",
+                integration.output,
+                signal,
+              ).catch(() => {});
+            }
             return {
               content: [{
                 type: "text",
                 text: "Structured plan completed task-level verification but final integration verification did not pass.\n\n" + integration.output,
               }],
-              details: { mode: "execute", policy, steps, structuredPlan, scheduled },
+              details: { mode: "execute", policy, steps, structuredPlan, scheduled, durableWork },
               isError: true,
             };
           }
@@ -2247,30 +2307,80 @@ export default function (pi: ExtensionAPI) {
               1,
             );
             if (visualResult.exitCode !== 0 || visualResult.verdict !== "PASS") {
+              if (durableWork) {
+                await durableRecordIntegration(
+                  cwd,
+                  durableWork.slug,
+                  visualResult.verdict === "PARTIAL" ? "PARTIAL" : "FAIL",
+                  visualResult.output,
+                  signal,
+                ).catch(() => {});
+              }
               return {
                 content: [{
                   type: "text",
                   text: "Code/integration checks passed, but final browser/visual verification did not pass.\n\n" + visualResult.output,
                 }],
-                details: { mode: "execute", policy, steps, structuredPlan, scheduled },
+                details: { mode: "execute", policy, steps, structuredPlan, scheduled, durableWork },
+                isError: true,
+              };
+            }
+          }
+
+          let durableFinalization: any = null;
+          if (durableWork) {
+            const finalEvidence = [
+              integration.output,
+              visualResult?.output || "",
+            ].filter(Boolean).join("\n\n--- VISUAL ---\n\n");
+            try {
+              durableFinalization = await durableRecordIntegration(
+                cwd,
+                durableWork.slug,
+                "PASS",
+                finalEvidence,
+                signal,
+              );
+            } catch (error) {
+              return {
+                content: [{
+                  type: "text",
+                  text:
+                    "All model verification gates passed, but durable finalization failed. UES will not report a durable PASS without a fresh integration receipt.\n\n" +
+                    (error instanceof Error ? error.message : String(error)),
+                }],
+                details: { mode: "execute", policy, steps, structuredPlan, scheduled, durableWork },
                 isError: true,
               };
             }
           }
 
           const memoryFiles = [...new Set(structuredPlan.tasks.flatMap((task: any) => taskWriteFiles(task)))];
-          const memory = await rememberVerifiedTask(cwd, params.task, integration, integration, memoryFiles);
+          const memory = durableWork
+            ? durableFinalization?.finalized?.memory || null
+            : await rememberVerifiedTask(cwd, params.task, integration, integration, memoryFiles);
           return {
             content: [{
               type: "text",
               text: [
                 `UES scheduled execution PASS across ${structuredPlan.tasks.length} task(s).`,
                 `Safe waves: ${scheduled.schedule?.safeWaves?.length || 0}; integrations: ${scheduled.integrations?.length || 0}.`,
+                durableWork ? `Durable state: .ues-work/${durableWork.slug} finalized with fresh integration receipt.` : "",
                 "",
                 integration.output,
               ].join("\n"),
             }],
-            details: { mode: "execute", policy, steps, structuredPlan, scheduled, attempts: maxAttempts, memory },
+            details: {
+              mode: "execute",
+              policy,
+              steps,
+              structuredPlan,
+              scheduled,
+              attempts: maxAttempts,
+              memory,
+              durableWork,
+              durableFinalization,
+            },
           };
         }
       }
