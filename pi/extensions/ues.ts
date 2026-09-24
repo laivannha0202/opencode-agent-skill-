@@ -288,6 +288,198 @@ async function runOcskill(args: string[], cwd: string, signal?: AbortSignal) {
   return runProcess(process.execPath, [OCSKILL_BIN, ...args], cwd, signal);
 }
 
+
+async function runOcskillJson(args: string[], cwd: string, signal?: AbortSignal): Promise<any> {
+  const result = await runOcskill(["--json", ...args], cwd, signal);
+  if (result.exitCode !== 0) {
+    throw new Error(
+      `UES CLI failed (${args.slice(0, 4).join(" ")}): ` +
+      cap(result.stderr || result.stdout || "unknown error", 6000),
+    );
+  }
+  const text = String(result.stdout || "").trim();
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error(
+      `UES CLI returned non-JSON output for ${args.slice(0, 4).join(" ")}:\n` +
+      cap(text, 6000),
+    );
+  }
+}
+
+async function initializeDurableControllerWork(
+  root: string,
+  originalTask: string,
+  plan: any,
+  planCheckEvidence: string,
+  signal?: AbortSignal,
+) {
+  const slug = "auto-" + Date.now().toString(36) + "-" + randomUUID().slice(0, 8);
+  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-durable-"));
+  const planFile = path.join(tempDir, "PLAN.json");
+  const receiptFile = path.join(tempDir, "plan-receipt.json");
+  await fs.promises.writeFile(planFile, JSON.stringify(plan, null, 2) + "\n", "utf8");
+  try {
+    await runOcskillJson(
+      ["work", "init", slug, root, "--goal", cap(originalTask, 5000)],
+      root,
+      signal,
+    );
+    await runOcskillJson(["work", "plan", slug, planFile, root], root, signal);
+    await runOcskillJson(
+      [
+        "work", "gate-receipt", slug, "plan", root,
+        "--verdict", "PASS",
+        "--verifier", "ues-plan-checker",
+        "--evidence", cap(planCheckEvidence, 6000),
+        "--out", receiptFile,
+      ],
+      root,
+      signal,
+    );
+    await runOcskillJson(
+      [
+        "work", "approve-plan", slug, root,
+        "--evidence", cap(planCheckEvidence, 6000),
+        "--receipt-file", receiptFile,
+      ],
+      root,
+      signal,
+    );
+    return { slug, dir: path.join(root, ".ues-work", slug) };
+  } catch (error) {
+    throw new Error(
+      `UES durable-work initialization failed for ${slug}: ` +
+      (error instanceof Error ? error.message : String(error)),
+    );
+  } finally {
+    await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function durableStartTask(
+  root: string,
+  slug: string,
+  taskID: string,
+  signal?: AbortSignal,
+) {
+  const started = await runOcskillJson(
+    ["work", "start", slug, taskID, root, "--lease-ms", String(CHILD_HARD_TIMEOUT_MS + 120_000)],
+    root,
+    signal,
+  );
+  const runId = String(started?.record?.runId || "");
+  if (!runId) throw new Error(`Durable work did not return a runId for ${taskID}`);
+  return runId;
+}
+
+async function durableFailTask(
+  root: string,
+  slug: string,
+  taskID: string,
+  runId: string | undefined,
+  reason: string,
+  signal?: AbortSignal,
+) {
+  if (!runId) return;
+  await runOcskillJson(
+    [
+      "work", "fail", slug, taskID, root,
+      "--run-id", runId,
+      "--reason", cap(reason || "structured task attempt failed", 4000),
+    ],
+    root,
+    signal,
+  ).catch(() => {});
+}
+
+async function durableCompleteTask(
+  root: string,
+  slug: string,
+  taskID: string,
+  runId: string,
+  verification: RunResult,
+  signal?: AbortSignal,
+) {
+  const evidence = cap(verification.output || "independent verifier PASS", 7000);
+  await runOcskillJson(
+    [
+      "work", "agent-receipt", slug, taskID, root,
+      "--run-id", runId,
+      "--verdict", "PASS",
+      "--verifier", verification.agent || "ues-verifier",
+      "--evidence", evidence,
+    ],
+    root,
+    signal,
+  );
+  await runOcskillJson(
+    [
+      "work", "complete", slug, taskID, root,
+      "--run-id", runId,
+      "--evidence", evidence,
+    ],
+    root,
+    signal,
+  );
+}
+
+async function durableRecordIntegration(
+  root: string,
+  slug: string,
+  verdict: "PASS" | "FAIL" | "PARTIAL",
+  evidence: string,
+  signal?: AbortSignal,
+) {
+  const bounded = cap(evidence || `integration ${verdict}`, 7000);
+  if (verdict !== "PASS") {
+    await runOcskillJson(
+      [
+        "work", "verify-integration", slug, root,
+        "--verdict", verdict,
+        "--evidence", bounded,
+      ],
+      root,
+      signal,
+    );
+    return;
+  }
+
+  const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-integration-receipt-"));
+  const receiptFile = path.join(tempDir, "integration-receipt.json");
+  try {
+    await runOcskillJson(
+      [
+        "work", "gate-receipt", slug, "integration", root,
+        "--verdict", "PASS",
+        "--verifier", "ues-integration-verifier",
+        "--evidence", bounded,
+        "--out", receiptFile,
+      ],
+      root,
+      signal,
+    );
+    await runOcskillJson(
+      [
+        "work", "verify-integration", slug, root,
+        "--verdict", "PASS",
+        "--evidence", bounded,
+        "--receipt-file", receiptFile,
+      ],
+      root,
+      signal,
+    );
+    await runOcskillJson(
+      ["work", "finalize", slug, root, "--evidence", bounded],
+      root,
+      signal,
+    );
+  } finally {
+    await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 async function runAgentCli(
   agent: AgentName,
   task: string,
