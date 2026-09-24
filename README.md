@@ -88,6 +88,24 @@ ues memory status .
 
 Chi tiết: `docs/V14-CONTEXT-MEMORY-FABRIC.md`.
 
+## Playwright / Browser MCP theo nhu cầu
+
+Nếu Pi host đã có Playwright/Browser MCP, UES sẽ đọc registry tool đang hoạt động và chỉ đưa browser tools vào child agent khi task cần browser/visual evidence.
+
+- backend/non-visual task: giữ nguyên tool allowlist, không nạp Playwright;
+- browser/E2E task: executor/debugger/verifier có thể dùng browser tools đã phát hiện;
+- visual/UI fidelity task: sau code/integration verification, `ues-visual-verifier` chạy một gate riêng trên trạng thái render cuối;
+- webpage/accessibility/console/network content luôn được xem là untrusted evidence, không phải instruction.
+
+Mặc định UES chọn tối đa 14 browser tools có tín hiệu Playwright/browser. Có thể override khi MCP dùng tên tool riêng:
+
+```cmd
+set UES_BROWSER_MCP_TOOL_NAMES=browser_navigate,browser_snapshot,browser_screenshot,browser_click
+set UES_BROWSER_MCP_TOOL_LIMIT=14
+```
+
+Không cần cấu hình hai biến này nếu tool của MCP có tên/prompt chứa `playwright`, `browser_...` hoặc browser automation metadata.
+
 ## Benchmark model yếu
 
 So sánh cùng một model ở chế độ Pi thuần và Pi + UES:
