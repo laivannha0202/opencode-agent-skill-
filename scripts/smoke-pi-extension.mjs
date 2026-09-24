@@ -9,6 +9,7 @@ import { resolveWindowsCommand } from "../lib/windows-shim.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const extensionPath = path.join(root, "pi", "extensions", "ues.ts")
+const childRuntimeExtensionPath = path.join(root, "pi", "extensions", "ues-child-runtime.ts")
 const skillsPath = path.join(root, "global-config", "skills")
 const promptsPath = path.join(root, "pi", "prompts")
 const agentDir = path.join(root, ".tmp-pi-agent")
@@ -102,7 +103,7 @@ try {
   const loader = new DefaultResourceLoader({
     cwd: root,
     agentDir,
-    additionalExtensionPaths: [extensionPath],
+    additionalExtensionPaths: [extensionPath, childRuntimeExtensionPath],
     additionalSkillPaths: [skillsPath],
     additionalPromptTemplatePaths: [promptsPath],
   })
@@ -115,7 +116,7 @@ try {
     0,
     result.errors.map((entry) => `${entry.path}: ${entry.error}`).join("\n"),
   )
-  assert.ok(result.extensions.length >= 1, "Pi did not load the UES extension")
+  assert.ok(result.extensions.length >= 2, "Pi did not load the UES controller + child runtime extensions")
 
   const skillResult = loader.getSkills()
   assert.equal(
