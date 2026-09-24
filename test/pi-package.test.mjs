@@ -41,6 +41,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /buildAdaptiveTaskContext/)
   assert.match(source, /compactReversibleOutput/)
   assert.match(source, /MODEL_VISIBLE_OUTPUT_LIMIT/)
+  assert.match(source, /deterministicReadOnly/)
+  assert.match(source, /fastPath: "deterministic-read-only"/)
   assert.match(source, /resolveCapabilityModel/)
   assert.match(source, /computeSafeWaves/)
   assert.match(source, /createTaskSandbox/)

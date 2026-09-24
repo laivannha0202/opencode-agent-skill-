@@ -723,6 +723,9 @@ async function executeStructuredPlan(input: {
     maxLLMConcurrent: MAX_CONCURRENCY,
   });
   const taskByID = new Map(input.plan.tasks.map((task: any) => [task.id, task]));
+  const dynamicTaskByID = new Map(
+    dynamic.waves.flatMap((wave: any) => wave.tasks).map((task: any) => [task.id, task]),
+  );
   const results: any[] = [];
   const integrations: any[] = [];
   const gitProbe = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], input.root, input.signal);
@@ -776,6 +779,66 @@ async function executeStructuredPlan(input: {
                 ? "\nFresh failure evidence from the previous wave attempt:\n" + cap(lastWaveFailure, 7000)
                 : "",
             ].filter(Boolean).join("\n");
+
+            const plannedExecution: any = dynamicTaskByID.get(item.task.id);
+            const deterministicReadOnly =
+              plannedExecution?.execution === "deterministic" && item.writeFiles.length === 0;
+
+            if (deterministicReadOnly) {
+              const verification = await runRoutedAgent(
+                "ues-verifier",
+                [
+                  "Verify exactly this deterministic, read-only structured plan task.",
+                  "The executor phase is intentionally skipped because Dynamic Workflow classified the task as deterministic and it has no declared write scope.",
+                  "Do not edit files. Execute or inspect the declared checks and acceptance criteria directly, then return independent evidence.",
+                  "",
+                  JSON.stringify(item.task, null, 2),
+                  "",
+                  "Overall goal:",
+                  String(input.plan.goal || ""),
+                  lastWaveFailure
+                    ? "\nFresh failure evidence from the previous wave attempt:\n" + cap(lastWaveFailure, 7000)
+                    : "",
+                ].filter(Boolean).join("\n"),
+                item.cwd,
+                input.inheritedModel,
+                input.inheritedThinking,
+                attempt,
+                undefined,
+                input.signal,
+              );
+              results.push({
+                wave: waveIndex,
+                attempt,
+                task: item.task.id,
+                phase: "verify",
+                fastPath: "deterministic-read-only",
+                ...verification,
+              });
+              const passed = verification.exitCode === 0 && verification.verdict === "PASS";
+              await recordRuntimeOutcome(verification, taskText, passed, attempt - 1);
+              completed += 1;
+              input.onUpdate?.({
+                content: [{
+                  type: "text",
+                  text: `UES scheduler: wave ${waveIndex + 1}, ${completed}/${prepared.length} deterministic task(s) verified`,
+                }],
+                details: {
+                  wave: waveIndex,
+                  attempt,
+                  task: item.task.id,
+                  phase: "verify",
+                  fastPath: "deterministic-read-only",
+                },
+              });
+              return {
+                item,
+                implementation: null,
+                verification,
+                passed,
+                fastPath: "deterministic-read-only",
+              };
+            }
 
             const implementation = await runRoutedAgent(
               "ues-executor",
