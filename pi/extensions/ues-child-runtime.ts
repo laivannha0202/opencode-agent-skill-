@@ -2,6 +2,20 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
+import { recordVerification } from "../../lib/verification-broker.mjs";
+
+
+const VERIFICATION_COMMAND =
+  /(?:^|\s|&&|;|\|)(?:pnpm|npm|yarn|bun|npx|node|python|pytest|go|cargo|dotnet|mvn|gradle|\.\/gradlew|gradlew\.bat)[^\n]*(?:test|jest|vitest|pytest|typecheck|tsc|lint|eslint|ruff|mypy|check|build|compile)/i;
+
+function shellExitCode(event: any, rawText: string) {
+  if (!event.isError) return 0;
+  const match = String(rawText || "").match(/Command exited with code\s+(\d+)/i);
+  if (match) return Number(match[1]);
+  if (/timed out|timeout/i.test(rawText)) return 124;
+  if (/aborted/i.test(rawText)) return 130;
+  return 1;
+}
 
 function configuredLimit() {
   const raw = Number(process.env.UES_CHILD_TOOL_OUTPUT_LIMIT || 24 * 1024);
@@ -11,8 +25,8 @@ function configuredLimit() {
 
 export default function (pi: ExtensionAPI) {
   pi.on("tool_result", async (event, ctx) => {
-    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
-    if (!["bash", "powershell", "grep", "find", "ls"].includes(String(event.toolName || ""))) {
+    const toolName = String(event.toolName || "");
+    if (!["bash", "powershell", "grep", "find", "ls"].includes(toolName)) {
       return undefined;
     }
 
@@ -21,18 +35,37 @@ export default function (pi: ExtensionAPI) {
       .map((part: any) => part.text)
       .join("\n");
     const images = (event.content || []).filter((part: any) => part?.type !== "text");
-    const maxChars = configuredLimit();
-    if (!rawText || rawText.length <= maxChars) return undefined;
-
     const commandHint = String(
       (event.input as any)?.command ||
       (event.input as any)?.pattern ||
-      event.toolName ||
+      toolName ||
       "tool",
     );
+
+    if (
+      ["bash", "powershell"].includes(toolName) &&
+      VERIFICATION_COMMAND.test(commandHint)
+    ) {
+      const finishedAt = new Date().toISOString();
+      await recordVerification(ctx.cwd, {
+        command: "shell",
+        args: [commandHint],
+        exitCode: shellExitCode(event, rawText),
+        stdout: rawText,
+        stderr: event.isError ? rawText : "",
+        startedAt: finishedAt,
+        finishedAt,
+        durationMs: 0,
+      }).catch(() => null);
+    }
+
+    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
+    const maxChars = configuredLimit();
+    if (!rawText || rawText.length <= maxChars) return undefined;
+
     const compacted = await compactReversibleOutput(ctx.cwd, rawText, {
       maxChars,
-      kind: `child-${event.toolName}-output`,
+      kind: `child-${toolName}-output`,
       source: commandHint,
     }).catch(() => null);
     if (!compacted?.compacted) return undefined;
