@@ -1,7 +1,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
-import { getEvidence } from "../../lib/evidence-store.mjs";
+import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 
 function configuredLimit() {
   const raw = Number(process.env.UES_CHILD_TOOL_OUTPUT_LIMIT || 24 * 1024);
@@ -66,7 +66,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
-        const result = await getEvidence(ctx.cwd, params.ref, {
+        const result = await getEvidenceSelected(ctx.cwd, params.ref, {
           start: params.start || 0,
           maxBytes: params.maxBytes || 16000,
         });
