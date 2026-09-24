@@ -17,10 +17,17 @@ import { computeSafeWaves, taskVerificationCommands, taskWriteFiles, validatePla
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import {
+  createToolOutputAccumulator,
   detectHungToolEvidence,
   isToolExecutionError,
   toolResultText,
 } from "../../lib/process-hang-detector.mjs";
+import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
+import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
+import { compileSkillContext } from "../../lib/skill-compiler.mjs";
+import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
+import { findReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
+import { workspaceFingerprint } from "../../lib/task-engine.mjs";
 import {
   browserEvidenceNeeded,
   selectBrowserMcpToolNames,
@@ -118,17 +125,7 @@ function refreshHostBrowserToolNames(pi: ExtensionAPI) {
 }
 
 function stopChildTree(proc: any) {
-  if (!proc?.pid) return;
-  if (process.platform === "win32") {
-    spawnSync("taskkill", ["/PID", String(proc.pid), "/T", "/F"], {
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    return;
-  }
-  try {
-    proc.kill("SIGTERM");
-  } catch {}
+  terminateProcessTree(proc, { graceMs: 1500 });
 }
 
 const READ_TOOLS = ["read", "grep", "find", "ls", "bash", "powershell"] as const;
@@ -240,47 +237,26 @@ async function runProcess(
   args: string[],
   cwd: string,
   signal?: AbortSignal,
-): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-  return await new Promise((resolve) => {
-    const proc = spawn(command, args, {
-      cwd,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    let settled = false;
-
-    const finish = (exitCode: number) => {
-      if (settled) return;
-      settled = true;
-      resolve({ exitCode, stdout: cap(stdout), stderr: cap(stderr, 128 * 1024) });
-    };
-
-    proc.stdout.on("data", (data) => {
-      if (stdout.length < OUTPUT_LIMIT) stdout += data.toString();
-    });
-    proc.stderr.on("data", (data) => {
-      if (stderr.length < 128 * 1024) stderr += data.toString();
-    });
-    proc.on("error", (error) => {
-      stderr += `\n${error instanceof Error ? error.message : String(error)}`;
-      finish(1);
-    });
-    proc.on("close", (code) => finish(code ?? 0));
-
-    if (signal) {
-      const kill = () => {
-        proc.kill("SIGTERM");
-        setTimeout(() => {
-          if (!proc.killed) proc.kill("SIGKILL");
-        }, 5000).unref?.();
-      };
-      if (signal.aborted) kill();
-      else signal.addEventListener("abort", kill, { once: true });
-    }
+): Promise<{ exitCode: number; stdout: string; stderr: string; durationMs?: number; startedAt?: string; finishedAt?: string; stopReason?: string | null }> {
+  const result: any = await runSupervisedProcess(command, args, {
+    cwd,
+    signal,
+    stdoutLimit: OUTPUT_LIMIT,
+    stderrLimit: 128 * 1024,
+    hardTimeoutMs: CHILD_HARD_TIMEOUT_MS,
+    idleTimeoutMs: CHILD_IDLE_TIMEOUT_MS,
+    drainTimeoutMs: 1500,
+    killGraceMs: 1500,
   });
+  return {
+    exitCode: result.exitCode,
+    stdout: cap(String(result.stdout || "")),
+    stderr: cap(String(result.stderr || ""), 128 * 1024),
+    durationMs: result.durationMs,
+    startedAt: result.startedAt,
+    finishedAt: result.finishedAt,
+    stopReason: result.stopReason,
+  };
 }
 
 async function runOcskill(args: string[], cwd: string, signal?: AbortSignal) {
@@ -341,6 +317,8 @@ async function runAgent(
       const proc = spawn(invocation.command, invocation.args, {
         cwd,
         shell: false,
+        detached: process.platform !== "win32",
+        windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
       const childStartedAt = Date.now();
@@ -350,6 +328,7 @@ async function runAgent(
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
       let watchdogTimer: ReturnType<typeof setInterval> | null = null;
       const activeTools = new Map<string, { name: string; args: any }>();
+      const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
       const hangTimers = new Map<string, ReturnType<typeof setTimeout>>();
       let lastToolErrorAt = 0;
       let lastToolErrorEvidence = "";
@@ -359,6 +338,7 @@ async function runAgent(
         if (watchdogTimer) clearInterval(watchdogTimer);
         for (const timer of hangTimers.values()) clearTimeout(timer);
         hangTimers.clear();
+        toolOutput.clear();
       };
 
       const finish = (code: number) => {
@@ -485,7 +465,7 @@ async function runAgent(
             const toolCallId = String(event.toolCallId || "");
             const toolName =
               String(event.toolName || activeTools.get(toolCallId)?.name || "");
-            const text = toolResultText(event.partialResult);
+            const text = toolOutput.append(toolCallId, toolResultText(event.partialResult));
             const detection = detectHungToolEvidence({
               toolName,
               args: event.args || activeTools.get(toolCallId)?.args,
@@ -501,6 +481,7 @@ async function runAgent(
               hangTimers.delete(toolCallId);
             }
             activeTools.delete(toolCallId);
+            toolOutput.delete(toolCallId);
             if (isToolExecutionError(event)) {
               lastToolErrorAt = Date.now();
               lastToolErrorEvidence = toolResultText(event.result);
