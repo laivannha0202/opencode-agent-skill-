@@ -1,5 +1,5 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Type } from "@sinclair/typebox";
+import { Type } from "typebox";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidence } from "../../lib/evidence-store.mjs";
 
