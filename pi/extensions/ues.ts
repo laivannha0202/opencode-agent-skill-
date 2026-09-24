@@ -27,7 +27,7 @@ import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
-import { workspaceFingerprint } from "../../lib/task-engine.mjs";
+import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import {
   browserEvidenceNeeded,
   selectBrowserMcpToolNames,
@@ -647,7 +647,7 @@ function rememberContextPack(key: string, value: any) {
 function cachedContextKey(cwd: string, task: string, role: string, budget: number) {
   let fingerprint = "unknown";
   try {
-    fingerprint = workspaceFingerprint(cwd);
+    fingerprint = runtimeWorkspaceFingerprint(cwd);
   } catch {}
   return [cwd, fingerprint, role, String(budget), task].join("\u0000");
 }
