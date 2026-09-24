@@ -30,6 +30,7 @@ import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
+import { getEvidence } from "../../lib/evidence-store.mjs";
 import {
   browserEvidenceNeeded,
   selectBrowserMcpToolNames,
@@ -123,6 +124,7 @@ function configuredBoolean(name: string, fallback = true) {
 const ADAPTIVE_CONTEXT_ENABLED = configuredBoolean("UES_ADAPTIVE_CONTEXT", true);
 const MICRO_SKILLS_ENABLED = configuredBoolean("UES_MICRO_SKILLS", true);
 const AFFECTED_TEST_HINTS_ENABLED = configuredBoolean("UES_AFFECTED_TEST_HINTS", true);
+const CHILD_TOOL_COMPACTION_ENABLED = configuredBoolean("UES_CHILD_TOOL_COMPACTION", true);
 const CHILD_RUNTIME = String(process.env.UES_CHILD_RUNTIME || "auto").trim().toLowerCase();
 const RPC_POOL = new PiRpcWorkerPool({
   maxWorkers: configuredCount("UES_RPC_MAX_WORKERS", 8, 1, 16),
@@ -500,6 +502,7 @@ async function runAgentCli(
     note?: string;
   }) => void,
   extraTools: string[] = [],
+  runtimeOptions: { compactToolOutput?: boolean; toolOutputLimit?: number } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const args: string[] = [
@@ -511,7 +514,11 @@ async function runAgentCli(
   ];
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
-  const allowedTools = [...new Set([...config.tools, ...extraTools])];
+  const allowedTools = [...new Set([
+    ...config.tools,
+    ...extraTools,
+    ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
+  ])];
   args.push("--tools", allowedTools.join(","));
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-pi-"));
@@ -535,6 +542,12 @@ async function runAgentCli(
     await new Promise<void>((resolve) => {
       const proc = spawn(invocation.command, invocation.args, {
         cwd,
+        env: {
+          ...process.env,
+          UES_CHILD_PROCESS: "1",
+          UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
+          UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
+        },
         shell: false,
         detached: process.platform !== "win32",
         windowsHide: true,
@@ -816,6 +829,7 @@ async function runAgentRpc(
     note?: string;
   }) => void,
   extraTools: string[] = [],
+  runtimeOptions: { compactToolOutput?: boolean; toolOutputLimit?: number } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const args: string[] = [
@@ -824,7 +838,11 @@ async function runAgentRpc(
   ];
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
-  const allowedTools = [...new Set([...config.tools, ...extraTools])];
+  const allowedTools = [...new Set([
+    ...config.tools,
+    ...extraTools,
+    ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
+  ])];
   args.push("--tools", allowedTools.join(","));
   args.push("--append-system-prompt", rpcPromptPath(agent));
 
@@ -834,6 +852,8 @@ async function runAgentRpc(
     cwd,
     invocation.command,
     invocation.args,
+    Boolean(runtimeOptions.compactToolOutput),
+    Number(runtimeOptions.toolOutputLimit || 0),
   ]);
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
@@ -867,6 +887,12 @@ async function runAgentRpc(
         command: invocation.command,
         args: invocation.args,
         cwd,
+        env: {
+          ...process.env,
+          UES_CHILD_PROCESS: "1",
+          UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
+          UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
+        },
       },
       taskInput,
       {
@@ -983,6 +1009,7 @@ async function runAgent(
   signal?: AbortSignal,
   onProgress?: Parameters<typeof runAgentCli>[6],
   extraTools: string[] = [],
+  runtimeOptions: { compactToolOutput?: boolean; toolOutputLimit?: number } = {},
 ): Promise<RunResult> {
   if (CHILD_RUNTIME !== "cli") {
     try {
@@ -995,6 +1022,7 @@ async function runAgent(
         signal,
         onProgress,
         extraTools,
+        runtimeOptions,
       );
     } catch (error) {
       if (CHILD_RUNTIME === "rpc") throw error;
@@ -1020,6 +1048,7 @@ async function runAgent(
     signal,
     onProgress,
     extraTools,
+    runtimeOptions,
   );
 }
 
@@ -1278,6 +1307,17 @@ async function runRoutedAgent(
     signal,
     onProgress,
     browserTools,
+    {
+      compactToolOutput:
+        CHILD_TOOL_COMPACTION_ENABLED &&
+        !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase()),
+      toolOutputLimit:
+        taskPolicy.executionProfile === "fast"
+          ? 12 * 1024
+          : taskPolicy.executionProfile === "standard"
+            ? 24 * 1024
+            : 48 * 1024,
+    },
   );
   const enrichedResult: RunResult = {
     ...result,
@@ -1967,6 +2007,59 @@ export default function (pi: ExtensionAPI) {
     await RPC_POOL.stopAll().catch(() => {});
   });
 
+  pi.on("tool_result", async (event, ctx) => {
+    if (process.env.UES_CHILD_PROCESS !== "1") return undefined;
+    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
+    if (!["bash", "powershell", "grep", "find", "ls"].includes(String(event.toolName || ""))) {
+      return undefined;
+    }
+
+    const rawText = (event.content || [])
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n");
+    const images = (event.content || []).filter((part: any) => part?.type !== "text");
+    const maxChars = configuredDuration(
+      "UES_CHILD_TOOL_OUTPUT_LIMIT",
+      24 * 1024,
+      4 * 1024,
+      128 * 1024,
+    );
+    if (!rawText || rawText.length <= maxChars) return undefined;
+
+    const commandHint = String(
+      (event.input as any)?.command ||
+      (event.input as any)?.pattern ||
+      event.toolName ||
+      "tool",
+    );
+    const compacted = await compactReversibleOutput(ctx.cwd, rawText, {
+      maxChars,
+      kind: `child-${event.toolName}-output`,
+      source: commandHint,
+    }).catch(() => null);
+    if (!compacted?.compacted) return undefined;
+
+    return {
+      content: [
+        { type: "text", text: compacted.text },
+        ...images,
+      ],
+      details: {
+        ...(event.details && typeof event.details === "object" ? event.details : {}),
+        uesCompaction: {
+          strategy: compacted.strategy,
+          originalChars: compacted.originalChars,
+          returnedChars: compacted.returnedChars,
+          evidenceRef: compacted.evidenceRef,
+          recoveryTool: "ues_evidence_get",
+        },
+      },
+      isError: event.isError,
+      usage: event.usage,
+    };
+  });
+
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "bash" && event.toolName !== "powershell") return undefined;
     const command = String((event.input as any)?.command || "");
@@ -1976,6 +2069,52 @@ export default function (pi: ExtensionAPI) {
     const allowed = await approveRisk(ctx, command, risk.id || "destructive");
     if (!allowed) return { block: true, reason: `Blocked by UES safety gate: ${risk.id}` };
     return undefined;
+  });
+
+  pi.registerTool({
+    name: "ues_evidence_get",
+    label: "UES Evidence Get",
+    description:
+      "Read an exact bounded slice from a UES Evidence Store reference. Use only when a compacted tool result says raw evidence is available and the omitted bytes are needed.",
+    parameters: Type.Object({
+      ref: Type.String({ minLength: 1 }),
+      start: Type.Optional(Type.Number({ minimum: 0 })),
+      maxBytes: Type.Optional(Type.Number({ minimum: 1, maximum: 64000 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        const result = await getEvidence(ctx.cwd, params.ref, {
+          start: params.start || 0,
+          maxBytes: params.maxBytes || 16000,
+        });
+        return {
+          content: [{
+            type: "text",
+            text: [
+              `ref: ${result.ref}`,
+              `bytes: ${result.bytes}; start: ${result.start}; returned: ${result.returnedBytes}; truncated: ${result.truncated}`,
+              "",
+              result.content,
+            ].join("\n"),
+          }],
+          details: {
+            ref: result.ref,
+            start: result.start,
+            returnedBytes: result.returnedBytes,
+            truncated: result.truncated,
+          },
+        };
+      } catch (error) {
+        return {
+          content: [{
+            type: "text",
+            text: error instanceof Error ? error.message : String(error),
+          }],
+          details: { ref: params.ref },
+          isError: true,
+        };
+      }
+    },
   });
 
   pi.registerTool({
