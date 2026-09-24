@@ -1673,6 +1673,8 @@ async function executeStructuredPlan(input: {
                 attempt,
                 undefined,
                 input.signal,
+                undefined,
+                input.traceID,
               );
               results.push({
                 wave: waveIndex,
@@ -1727,6 +1729,7 @@ async function executeStructuredPlan(input: {
                   details: { wave: waveIndex, attempt, task: item.task.id, phase: "execute", progress },
                 });
               },
+              input.traceID,
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", ...implementation });
 
@@ -1766,6 +1769,7 @@ async function executeStructuredPlan(input: {
                   details: { wave: waveIndex, attempt, task: item.task.id, phase: "verify", progress },
                 });
               },
+              input.traceID,
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", ...verification });
             const passed = verification.exitCode === 0 && verification.verdict === "PASS";
