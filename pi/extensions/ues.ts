@@ -29,6 +29,7 @@ import { compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
+import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
   browserEvidenceNeeded,
   selectBrowserMcpToolNames,
@@ -1132,6 +1133,7 @@ async function runRoutedAgent(
   recentFailure?: string,
   signal?: AbortSignal,
   onProgress?: Parameters<typeof runAgent>[6],
+  traceID?: string,
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
   const browserRequested = browserEvidenceNeeded(task, role);
@@ -1152,6 +1154,17 @@ async function runRoutedAgent(
   };
   const modelPolicy = await readModelPolicy(getUesConfigDir());
   const selection = resolveCapabilityModel(role, attempt, task, taskPolicy, modelPolicy);
+  if (traceID) {
+    await appendTrajectoryEvent(cwd, traceID, "agent.started", {
+      agent,
+      role,
+      attempt,
+      modelTier: selection.tier,
+      profile: taskPolicy.executionProfile,
+      risk: taskPolicy.risk,
+      browserRequested,
+    }).catch(() => {});
+  }
   if (
     selection.capabilityBlocked &&
     taskPolicy.antiHallucination?.failClosedOnMissingCapability
@@ -1266,7 +1279,7 @@ async function runRoutedAgent(
     onProgress,
     browserTools,
   );
-  return {
+  const enrichedResult: RunResult = {
     ...result,
     task,
     modelTier: selection.tier,
@@ -1283,6 +1296,25 @@ async function runRoutedAgent(
     report: parseStructuredReport(result.output),
     durationMs: Date.now() - startedAt,
   };
+  if (traceID) {
+    await appendTrajectoryEvent(cwd, traceID, "agent.completed", {
+      agent,
+      role,
+      attempt,
+      exitCode: enrichedResult.exitCode,
+      stopReason: enrichedResult.stopReason || null,
+      verdict: enrichedResult.verdict || null,
+      durationMs: enrichedResult.durationMs || 0,
+      toolCalls: enrichedResult.toolCalls || 0,
+      toolNames: enrichedResult.toolNames || [],
+      model: enrichedResult.model || null,
+      modelTier: enrichedResult.modelTier || null,
+      contextBudget: budgetDecision,
+      contextQuality,
+      browserTools,
+    }).catch(() => {});
+  }
+  return enrichedResult;
 }
 
 async function recordRuntimeOutcome(result: RunResult, task: string, passed: boolean, retries: number) {
@@ -1396,6 +1428,7 @@ async function executeStructuredPlan(input: {
   inheritedThinking?: string;
   maxAttempts: number;
   durableSlug?: string;
+  traceID?: string;
   signal?: AbortSignal;
   onUpdate?: any;
 }) {
@@ -2025,6 +2058,12 @@ export default function (pi: ExtensionAPI) {
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const policy = classifyEngineeringTask(params.task);
+      const traceID = createTraceID("ues-execute");
+      await appendTrajectoryEvent(cwd, traceID, "controller.started", {
+        profile: policy.executionProfile,
+        risk: policy.risk,
+        mode: policy.mode,
+      }).catch(() => {});
       const browserLaneRequested =
         browserEvidenceNeeded(params.task, "executor") || visualEvidenceNeeded(params.task);
       if (browserLaneRequested) {
@@ -2071,9 +2110,10 @@ export default function (pi: ExtensionAPI) {
                   ")" +
                   (progress.note ? ` — ${progress.note}` : ""),
               }],
-              details: { mode: "execute", policy, progress },
+              details: { mode: "execute", policy, progress, traceID },
             });
           },
+          traceID,
         );
         steps.push(result);
         onUpdate?.({
@@ -2231,6 +2271,7 @@ export default function (pi: ExtensionAPI) {
             inheritedThinking,
             maxAttempts,
             durableSlug: durableWork?.slug,
+            traceID,
             signal,
             onUpdate,
           });
@@ -2380,6 +2421,7 @@ export default function (pi: ExtensionAPI) {
               memory,
               durableWork,
               durableFinalization,
+              traceID,
             },
           };
         }
@@ -2506,7 +2548,7 @@ export default function (pi: ExtensionAPI) {
               final?.output || verification.output,
             ].join("\n"),
           }],
-          details: { mode: "execute", policy, steps, attempts: attempt, memory },
+          details: { mode: "execute", policy, steps, attempts: attempt, memory, traceID },
         };
       }
 
@@ -2515,7 +2557,7 @@ export default function (pi: ExtensionAPI) {
           type: "text",
           text: `UES execution exhausted ${maxAttempts} attempt(s) without a verified PASS.\n\n${recentFailure}`,
         }],
-        details: { mode: "execute", policy, steps, attempts: maxAttempts },
+        details: { mode: "execute", policy, steps, attempts: maxAttempts, traceID },
         isError: true,
       };
     },
