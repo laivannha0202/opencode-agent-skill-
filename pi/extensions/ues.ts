@@ -1304,11 +1304,29 @@ export default function (pi: ExtensionAPI) {
       maxAttempts: Type.Optional(Type.Number({ minimum: 1, maximum: 3 })),
     }),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      refreshHostBrowserToolNames(pi);
+      const hostBrowserTools = refreshHostBrowserToolNames(pi);
       const cwd = path.resolve(params.cwd || ctx.cwd);
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const policy = classifyEngineeringTask(params.task);
+      const browserLaneRequested =
+        browserEvidenceNeeded(params.task, "executor") || visualEvidenceNeeded(params.task);
+      if (browserLaneRequested) {
+        onUpdate?.({
+          content: [{
+            type: "text",
+            text: hostBrowserTools.length
+              ? `UES browser lane: ${hostBrowserTools.length} Playwright/Browser MCP tool(s) selected on demand`
+              : "UES browser lane requested, but no Playwright/Browser MCP tools were detected in the host registry",
+          }],
+          details: {
+            mode: "execute",
+            phase: "browser-capability",
+            requested: true,
+            browserTools: hostBrowserTools,
+          },
+        });
+      }
       const requestedAttempts = Number(params.maxAttempts || policy.maxAttempts || 2);
       const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
       const steps: RunResult[] = [];
