@@ -27,7 +27,7 @@ import { PiRpcWorkerPool } from "../../lib/pi-rpc-pool.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
-import { findReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
+import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
@@ -1226,6 +1226,7 @@ async function runRoutedAgent(
   let contextError: string | undefined;
   let microSkills: any = null;
   let affectedTests: any = null;
+  let reusableVerification: any = null;
   try {
     const cacheKey = cachedContextKey(cwd, task, role, budgetDecision.budget);
     let pack = CONTEXT_PACK_CACHE.get(cacheKey);
@@ -1257,6 +1258,14 @@ async function runRoutedAgent(
       affectedTests = await resolveAffectedTests(cwd, { limit: 10 }).catch(() => null);
     }
 
+    if (["verifier", "integration-verifier"].includes(role)) {
+      reusableVerification = await listReusableVerification(cwd, {
+        limit: 8,
+        maxAgeMs: 30 * 60_000,
+        previewBytes: 2200,
+      }).catch(() => null);
+    }
+
     contextQuality = pack.contextQuality;
     enrichedTask = [
       task,
@@ -1273,6 +1282,16 @@ async function runRoutedAgent(
       affectedTests?.tests?.length
         ? "\n## UES affected-test hints\nLikely tests from changed-file proximity/reference analysis (hints, not proof):\n" +
           affectedTests.tests.slice(0, 10).map((item: any) => `- ${item.path} (score ${item.score}; ${(item.reasons || []).join(", ")})`).join("\n")
+        : "",
+      reusableVerification?.results?.length
+        ? "\n## Fresh verification receipts at the current workspace fingerprint\n" +
+          "These are executable-check receipts captured at the tool boundary, not implementation claims. Avoid re-running an identical check only when it fully covers the acceptance criterion and policy permits reuse; high-risk work still requires independent verification where mandated.\n" +
+          reusableVerification.results.map((row: any) => [
+            `- receipt ${row.receipt.id}: ${row.receipt.command} ${(row.receipt.args || []).join(" ")} => PASS`,
+            row.stdoutRef ? `  stdout: ${row.stdoutRef}` : "",
+            row.stderrRef ? `  stderr: ${row.stderrRef}` : "",
+            row.stdoutPreview ? `  preview: ${cap(String(row.stdoutPreview).replace(/\s+/g, " "), 900)}` : "",
+          ].filter(Boolean).join("\n")).join("\n")
         : "",
     ].filter(Boolean).join("\n");
   } catch (error) {
