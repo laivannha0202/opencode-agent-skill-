@@ -1394,6 +1394,7 @@ async function executeStructuredPlan(input: {
   inheritedModel?: string;
   inheritedThinking?: string;
   maxAttempts: number;
+  durableSlug?: string;
   signal?: AbortSignal;
   onUpdate?: any;
 }) {
@@ -1422,6 +1423,41 @@ async function executeStructuredPlan(input: {
   const gitProbe = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], input.root, input.signal);
   const gitCapable = gitProbe.exitCode === 0 && gitProbe.stdout.trim() === "true";
 
+  const failDurablePrepared = async (prepared: any[], reason: string) => {
+    if (!input.durableSlug) return;
+    await Promise.all(
+      prepared.map((item) =>
+        durableFailTask(
+          input.root,
+          input.durableSlug!,
+          item.task?.id,
+          item.runId,
+          reason,
+          input.signal,
+        ),
+      ),
+    );
+  };
+
+  const completeDurableWave = async (waveResults: any[]) => {
+    if (!input.durableSlug) return;
+    for (const row of waveResults) {
+      if (!row?.passed || !row?.item?.runId || !row?.verification) {
+        throw new Error(
+          `Durable completion missing verified run state for ${row?.item?.task?.id || "unknown task"}`,
+        );
+      }
+      await durableCompleteTask(
+        input.root,
+        input.durableSlug,
+        row.item.task.id,
+        row.item.runId,
+        row.verification,
+        input.signal,
+      );
+    }
+  };
+
   for (let waveIndex = 0; waveIndex < safe.waves.length; waveIndex++) {
     const ids = safe.waves[waveIndex];
     let lastWaveFailure = "";
@@ -1432,6 +1468,7 @@ async function executeStructuredPlan(input: {
         cwd: string;
         sandbox?: any;
         writeFiles: string[];
+        runId?: string;
       }> = [];
 
       try {
@@ -1451,6 +1488,17 @@ async function executeStructuredPlan(input: {
           }
 
           prepared.push({ task, cwd, sandbox, writeFiles });
+        }
+
+        if (input.durableSlug) {
+          for (const item of prepared) {
+            item.runId = await durableStartTask(
+              input.root,
+              input.durableSlug,
+              item.task.id,
+              input.signal,
+            );
+          }
         }
 
         let completed = 0;
@@ -1707,6 +1755,7 @@ async function executeStructuredPlan(input: {
           lastWaveFailure = failed
             .map((item) => item.verification?.output || item.implementation?.output || "unknown failure")
             .join("\n\n---\n\n");
+          await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
           if (attempt < input.maxAttempts) continue;
           return {
@@ -1725,6 +1774,7 @@ async function executeStructuredPlan(input: {
         if (!gitCapable) {
           // Without Git worktrees the safe graph is still serialized. Verification above
           // is the evidence gate; changes already exist in the root working directory.
+          await completeDurableWave(waveResults);
           break;
         }
 
@@ -1755,6 +1805,7 @@ async function executeStructuredPlan(input: {
 
         if (scopeFailure) {
           lastWaveFailure = scopeFailure.trim();
+          await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
           if (attempt < input.maxAttempts) continue;
           return {
@@ -1785,6 +1836,10 @@ async function executeStructuredPlan(input: {
               { keep: true },
             ).catch(() => {});
           }
+          await failDurablePrepared(
+            prepared,
+            error instanceof Error ? error.message : String(error),
+          );
           await cleanupSandboxes(input.root, prepared);
           return {
             passed: false,
@@ -1799,9 +1854,14 @@ async function executeStructuredPlan(input: {
           };
         }
 
+        await completeDurableWave(waveResults);
         await cleanupSandboxes(input.root, prepared);
         break;
       } catch (error) {
+        await failDurablePrepared(
+          prepared,
+          error instanceof Error ? error.message : String(error),
+        );
         await cleanupSandboxes(input.root, prepared);
         lastWaveFailure = error instanceof Error ? error.message : String(error);
         if (attempt < input.maxAttempts) continue;
