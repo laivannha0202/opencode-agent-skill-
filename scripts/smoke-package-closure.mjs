@@ -36,6 +36,7 @@ const files = new Set((packed[0].files || []).map((entry) => String(entry.path).
 for (const required of [
   "bin/ocskill.mjs",
   "pi/extensions/ues.ts",
+  "pi/extensions/ues-child-runtime.ts",
   "lib/task-policy.mjs",
   "lib/model-policy.mjs",
   "lib/context-engine-v11.mjs",
