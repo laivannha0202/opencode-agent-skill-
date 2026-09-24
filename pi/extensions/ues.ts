@@ -1057,11 +1057,50 @@ async function executeStructuredPlan(input: {
                   );
                   continue;
                 }
+                const cached = await findReusableVerification(
+                  item.cwd,
+                  spec.command,
+                  spec.args,
+                  { maxAgeMs: 20 * 60_000, maxBytes: 12_000 },
+                ).catch(() => null);
+                if (cached) {
+                  commandEvidence.push(
+                    [
+                      `DECLARED CHECK REUSED: ${rendered}`,
+                      "reason: exact command + unchanged workspace fingerprint + prior PASS receipt",
+                      `receipt: ${cached.receipt.id}`,
+                      cached.stdoutRef ? `stdoutEvidence: ${cached.stdoutRef}` : "",
+                      cached.stderrRef ? `stderrEvidence: ${cached.stderrRef}` : "",
+                      cached.stdout.trim() ? `stdout:\n${cap(cached.stdout.trim(), 5000)}` : "",
+                      cached.stderr.trim() ? `stderr:\n${cap(cached.stderr.trim(), 5000)}` : "",
+                    ].filter(Boolean).join("\n"),
+                  );
+                  continue;
+                }
+
+                const workspaceBefore = runtimeWorkspaceFingerprint(item.cwd);
                 const check = await runProcess(spec.command, spec.args, item.cwd, input.signal);
+                const workspaceAfter = runtimeWorkspaceFingerprint(item.cwd);
+                const broker = await recordVerification(item.cwd, {
+                  task: item.task.id,
+                  command: spec.command,
+                  args: spec.args,
+                  exitCode: check.exitCode,
+                  stdout: check.stdout,
+                  stderr: check.stderr,
+                  startedAt: check.startedAt,
+                  finishedAt: check.finishedAt,
+                  durationMs: check.durationMs,
+                  workspaceBefore,
+                  workspaceAfter,
+                }).catch(() => null);
                 commandEvidence.push(
                   [
                     `DECLARED CHECK: ${rendered}`,
                     `exitCode: ${check.exitCode}`,
+                    broker?.receipt?.id ? `receipt: ${broker.receipt.id}` : "",
+                    broker?.stdoutRef ? `stdoutEvidence: ${broker.stdoutRef}` : "",
+                    broker?.stderrRef ? `stderrEvidence: ${broker.stderrRef}` : "",
                     check.stdout.trim() ? `stdout:\n${cap(check.stdout.trim(), 5000)}` : "",
                     check.stderr.trim() ? `stderr:\n${cap(check.stderr.trim(), 5000)}` : "",
                   ].filter(Boolean).join("\n"),
