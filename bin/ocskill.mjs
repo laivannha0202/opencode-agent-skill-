@@ -67,7 +67,7 @@ import { createTaskSandbox, integrateTaskSandbox, listTaskSandboxes, removeTaskS
 import { analyzeEvalTraces, saveLearningAnalysis, readLearningState, acceptLearning, promoteLearning } from "../lib/learning-engine.mjs"
 import { hermesStatus, buildHermesDelegationPrompt, buildHermesWorkflowPrompt, hermesOneShotArgs, hermesSidecarPlan } from "../lib/hermes-bridge.mjs"
 import { readModelPolicy, recordModelPerformance, validateModelID, writeModelPolicy } from "../lib/model-config.mjs"
-import { evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
+import { evidenceStoreStatus, gcEvidenceStore, getEvidenceSelected, putEvidence } from "../lib/evidence-store.mjs"
 import { inferTaskCapabilities } from "../lib/capability-registry.mjs"
 import { capabilityFabricStatus } from "../lib/capability-fabric.mjs"
 import { queryContextHierarchy } from "../lib/hierarchical-context.mjs"
@@ -1377,7 +1377,7 @@ async function evidenceStoreControl() {
       const ref = args[2]
       const root = positionalArg(args, 3) || process.cwd()
       if (!ref) throw new Error("Usage: ocskill store get <evidence-ref> [dir] [--max N] [--start N]")
-      printJson(await getEvidence(root, ref, {
+      printJson(await getEvidenceSelected(root, ref, {
         maxChars: optionInt(args, "--max", 24_000),
         start: optionInt(args, "--start", 0),
       }))
@@ -1898,110 +1898,3 @@ async function main() {
     break
   case "task-graph":
     await inspectTaskGraph()
-    break
-  case "context-pack":
-    await inspectContextPack()
-    break
-  case "work":
-    await workControl()
-    break
-  case "model-policy":
-    await modelPolicy()
-    break
-  case "task-policy":
-    await taskPolicyControl()
-    break
-  case "sandbox":
-    await sandboxControl()
-    break
-  case "learn":
-    await learningControl()
-    break
-  case "hermes":
-    await hermesControl()
-    break
-  case "store":
-    await evidenceStoreControl()
-    break
-  case "capabilities":
-    await capabilityControl()
-    break
-  case "capability-fabric":
-    await capabilityFabricControl()
-    break
-  case "hierarchy":
-    await hierarchyControl()
-    break
-  case "memory":
-    await memoryControl()
-    break
-  case "visual":
-    await visualControl()
-    break
-  case "browser":
-    await browserControl()
-    break
-  case "workflow-plan":
-    await workflowPlanControl()
-    break
-  case "diff":
-    await diffControl().catch((error) => printCliError(error))
-    break
-  case "text-read":
-    await textReadControl().catch((error) => printCliError(error))
-    break
-  case "normalize-text":
-    await normalizeTextControl().catch((error) => printCliError(error))
-    break
-  case "ui":
-    await uiControl()
-    break
-  case "skills":
-    await skillsControl()
-    break
-  case "dashboard":
-    await dashboardControl()
-    break
-  case "models":
-    await modelsControl()
-    break
-  case "detect-stack":
-    await inspectStack()
-    break
-  case "detect-tests":
-    await inspectTests()
-    break
-  case "router":
-    await routerControl()
-    break
-  case "update":
-    await update()
-    break
-  case "remove":
-  case "uninstall":
-    await remove()
-    break
-  case "version":
-  case "--version":
-  case "-v":
-    console.log(await getPackageVersion())
-    break
-  case "help":
-  case "--help":
-  case "-h":
-    printHelp()
-    break
-  default: {
-    const error = new Error("Unknown command: " + command)
-    error.code = "UES_USAGE"
-    error.exitCode = 2
-    throw error
-  }
-  }
-}
-
-try {
-  await main()
-} catch (error) {
-  printCliError(error)
-}
