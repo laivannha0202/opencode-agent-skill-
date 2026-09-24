@@ -23,6 +23,7 @@ import {
   toolResultText,
 } from "../../lib/process-hang-detector.mjs";
 import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
+import { PiRpcWorkerPool } from "../../lib/pi-rpc-pool.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
@@ -121,6 +122,10 @@ function configuredBoolean(name: string, fallback = true) {
 const ADAPTIVE_CONTEXT_ENABLED = configuredBoolean("UES_ADAPTIVE_CONTEXT", true);
 const MICRO_SKILLS_ENABLED = configuredBoolean("UES_MICRO_SKILLS", true);
 const AFFECTED_TEST_HINTS_ENABLED = configuredBoolean("UES_AFFECTED_TEST_HINTS", true);
+const CHILD_RUNTIME = String(process.env.UES_CHILD_RUNTIME || "auto").trim().toLowerCase();
+const RPC_POOL = new PiRpcWorkerPool({
+  maxWorkers: configuredCount("UES_RPC_MAX_WORKERS", 8, 1, 16),
+});
 
 let HOST_BROWSER_TOOL_NAMES: string[] = [];
 const CONTEXT_PACK_CACHE = new Map<string, any>();
@@ -283,7 +288,7 @@ async function runOcskill(args: string[], cwd: string, signal?: AbortSignal) {
   return runProcess(process.execPath, [OCSKILL_BIN, ...args], cwd, signal);
 }
 
-async function runAgent(
+async function runAgentCli(
   agent: AgentName,
   task: string,
   cwd: string,
@@ -588,6 +593,240 @@ async function runAgent(
     toolNames: [...toolNames],
     browserTools: [...extraTools],
   };
+}
+
+
+function rpcPromptPath(agent: AgentName) {
+  const dir = path.join(os.tmpdir(), "ues-pi-rpc-prompts");
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, agent + ".md");
+  fs.writeFileSync(file, getAgentPrompt(agent), { encoding: "utf8", mode: 0o600 });
+  return file;
+}
+
+async function runAgentRpc(
+  agent: AgentName,
+  task: string,
+  cwd: string,
+  model: string | undefined,
+  thinkingLevel: string | undefined,
+  signal?: AbortSignal,
+  onProgress?: (progress: {
+    agent: AgentName;
+    elapsedMs: number;
+    idleMs: number;
+    toolCalls: number;
+    model?: string;
+    phase: "running";
+    activeTool?: string;
+    note?: string;
+  }) => void,
+  extraTools: string[] = [],
+): Promise<RunResult> {
+  const config = AGENTS[agent];
+  const args: string[] = [
+    "--mode", "rpc", "--no-session",
+    "--no-skills", "--no-prompt-templates", "--no-context-files",
+  ];
+  if (model) args.push("--model", model);
+  if (thinkingLevel) args.push("--thinking", thinkingLevel);
+  const allowedTools = [...new Set([...config.tools, ...extraTools])];
+  args.push("--tools", allowedTools.join(","));
+  args.push("--append-system-prompt", rpcPromptPath(agent));
+
+  const invocation = getPiInvocation(args);
+  const workerKey = JSON.stringify([
+    agent,
+    cwd,
+    invocation.command,
+    invocation.args,
+  ]);
+  const taskInput = `Task: ${task}\n`;
+  const startedAt = Date.now();
+  let lastActivityAt = startedAt;
+  let toolCalls = 0;
+  const toolNames = new Set<string>();
+  const activeTools = new Map<string, { name: string; args: any }>();
+  const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
+  let detectedHang: any = null;
+
+  const progressTimer = setInterval(() => {
+    try {
+      const active = [...activeTools.values()].at(-1);
+      onProgress?.({
+        agent,
+        elapsedMs: Date.now() - startedAt,
+        idleMs: Date.now() - lastActivityAt,
+        toolCalls,
+        model,
+        phase: "running",
+        activeTool: active?.name,
+      });
+    } catch {}
+  }, CHILD_HEARTBEAT_MS);
+  progressTimer.unref?.();
+
+  try {
+    const rpc: any = await RPC_POOL.run(
+      workerKey,
+      {
+        command: invocation.command,
+        args: invocation.args,
+        cwd,
+      },
+      taskInput,
+      {
+        signal,
+        hardTimeoutMs: CHILD_HARD_TIMEOUT_MS,
+        idleTimeoutMs: CHILD_IDLE_TIMEOUT_MS,
+        postToolErrorIdleTimeoutMs: POST_TOOL_ERROR_IDLE_TIMEOUT_MS,
+        onEvent: (event: any) => {
+          lastActivityAt = Date.now();
+          if (event.type === "tool_execution_start") {
+            toolCalls += 1;
+            const toolName = String(event.toolName || "");
+            if (toolName) toolNames.add(toolName);
+            if (event.toolCallId) {
+              activeTools.set(String(event.toolCallId), { name: toolName, args: event.args });
+            }
+          }
+          if (event.type === "tool_execution_update") {
+            const toolCallId = String(event.toolCallId || "");
+            const toolName = String(event.toolName || activeTools.get(toolCallId)?.name || "");
+            const text = toolOutput.append(toolCallId, toolResultText(event.partialResult));
+            const detection = detectHungToolEvidence({
+              toolName,
+              args: event.args || activeTools.get(toolCallId)?.args,
+              text,
+            });
+            if (detection) {
+              detectedHang = detection;
+              try {
+                onProgress?.({
+                  agent,
+                  elapsedMs: Date.now() - startedAt,
+                  idleMs: 0,
+                  toolCalls,
+                  model,
+                  phase: "running",
+                  activeTool: toolName,
+                  note: `RPC detected ${detection.kind}; aborting completed-but-stuck tool`,
+                });
+              } catch {}
+              return { abort: true, reason: "hung-tool:" + detection.kind };
+            }
+          }
+          if (event.type === "tool_execution_end") {
+            const id = String(event.toolCallId || "");
+            activeTools.delete(id);
+            toolOutput.delete(id);
+          }
+          return undefined;
+        },
+      },
+    );
+
+    const message = rpc.message;
+    const output = extractAssistantText(message) || rpc.stderr || "(no assistant output)";
+    return {
+      agent,
+      task,
+      cwd,
+      exitCode: 0,
+      output: cap(output, 100 * 1024),
+      stderr: cap(String(rpc.stderr || ""), 64 * 1024),
+      model: message?.model || model,
+      stopReason: message?.stopReason,
+      errorMessage: message?.errorMessage,
+      usage: message?.usage,
+      toolCalls: rpc.toolCalls ?? toolCalls,
+      toolNames: rpc.toolNames?.length ? rpc.toolNames : [...toolNames],
+      browserTools: [...extraTools],
+    };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (detectedHang) {
+      return {
+        agent,
+        task,
+        cwd,
+        exitCode: 125,
+        output: [
+          `UES RPC stopped a stuck tool after detecting ${detectedHang.kind}.`,
+          detectedHang.message || "",
+          detectedHang.diagnosticHint || "",
+          detectedHang.evidence ? "\nObserved evidence:\n" + cap(String(detectedHang.evidence), 6000) : "",
+        ].filter(Boolean).join("\n"),
+        stderr: cap(message, 64 * 1024),
+        model,
+        stopReason: "hung-tool",
+        errorMessage: message,
+        toolCalls,
+        toolNames: [...toolNames],
+        browserTools: [...extraTools],
+      };
+    }
+    if (signal?.aborted || /UES RPC aborted/i.test(message)) {
+      return {
+        agent, task, cwd, exitCode: 130, output: message, stderr: message,
+        model, stopReason: "aborted", errorMessage: message,
+        toolCalls, toolNames: [...toolNames], browserTools: [...extraTools],
+      };
+    }
+    throw error;
+  } finally {
+    clearInterval(progressTimer);
+    toolOutput.clear();
+  }
+}
+
+async function runAgent(
+  agent: AgentName,
+  task: string,
+  cwd: string,
+  model: string | undefined,
+  thinkingLevel: string | undefined,
+  signal?: AbortSignal,
+  onProgress?: Parameters<typeof runAgentCli>[6],
+  extraTools: string[] = [],
+): Promise<RunResult> {
+  if (CHILD_RUNTIME !== "cli") {
+    try {
+      return await runAgentRpc(
+        agent,
+        task,
+        cwd,
+        model,
+        thinkingLevel,
+        signal,
+        onProgress,
+        extraTools,
+      );
+    } catch (error) {
+      if (CHILD_RUNTIME === "rpc") throw error;
+      try {
+        onProgress?.({
+          agent,
+          elapsedMs: 0,
+          idleMs: 0,
+          toolCalls: 0,
+          model,
+          phase: "running",
+          note: "RPC worker unavailable; falling back to isolated CLI child",
+        });
+      } catch {}
+    }
+  }
+  return runAgentCli(
+    agent,
+    task,
+    cwd,
+    model,
+    thinkingLevel,
+    signal,
+    onProgress,
+    extraTools,
+  );
 }
 
 
