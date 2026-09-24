@@ -13,7 +13,7 @@ import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
-import { computeSafeWaves, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
+import { computeSafeWaves, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import {
@@ -785,14 +785,69 @@ async function executeStructuredPlan(input: {
               plannedExecution?.execution === "deterministic" && item.writeFiles.length === 0;
 
             if (deterministicReadOnly) {
+              const declaredCommands = taskVerificationCommands(item.task);
+              const commandEvidence: string[] = [];
+              for (const spec of declaredCommands) {
+                const rendered = [spec.command, ...spec.args].join(" ");
+                const risk = destructiveShellRisk(rendered);
+                if (risk.risky) {
+                  commandEvidence.push(
+                    [
+                      `DECLARED CHECK BLOCKED: ${rendered}`,
+                      `reason: safety policy ${risk.id}`,
+                      "result: not executed; verifier must use a safe alternative and must not infer PASS from this blocked check",
+                    ].join("\n"),
+                  );
+                  continue;
+                }
+                const check = await runProcess(spec.command, spec.args, item.cwd, input.signal);
+                commandEvidence.push(
+                  [
+                    `DECLARED CHECK: ${rendered}`,
+                    `exitCode: ${check.exitCode}`,
+                    check.stdout.trim() ? `stdout:\n${cap(check.stdout.trim(), 5000)}` : "",
+                    check.stderr.trim() ? `stderr:\n${cap(check.stderr.trim(), 5000)}` : "",
+                  ].filter(Boolean).join("\n"),
+                );
+              }
+
+              if (declaredCommands.length) {
+                results.push({
+                  wave: waveIndex,
+                  attempt,
+                  task: item.task.id,
+                  phase: "deterministic-check",
+                  fastPath: "deterministic-read-only",
+                  checks: commandEvidence,
+                });
+                input.onUpdate?.({
+                  content: [{
+                    type: "text",
+                    text: `UES scheduler: ${item.task.id} ran ${declaredCommands.length} declared deterministic check(s) before verification`,
+                  }],
+                  details: {
+                    wave: waveIndex,
+                    attempt,
+                    task: item.task.id,
+                    phase: "deterministic-check",
+                    fastPath: "deterministic-read-only",
+                    checkCount: declaredCommands.length,
+                  },
+                });
+              }
+
               const verification = await runRoutedAgent(
                 "ues-verifier",
                 [
                   "Verify exactly this deterministic, read-only structured plan task.",
                   "The executor phase is intentionally skipped because Dynamic Workflow classified the task as deterministic and it has no declared write scope.",
-                  "Do not edit files. Execute or inspect the declared checks and acceptance criteria directly, then return independent evidence.",
+                  declaredCommands.length
+                    ? "UES already ran the task's declared verificationCommands below. Treat this as fresh evidence, inspect it critically, and run additional safe checks only when needed."
+                    : "No structured verificationCommands were declared. Execute or inspect the narrowest safe checks required by the acceptance criteria.",
+                  "Do not edit files. The verifier remains the independent PASS/FAIL gate.",
                   "",
                   JSON.stringify(item.task, null, 2),
+                  declaredCommands.length ? "\nFresh deterministic command evidence:\n" + commandEvidence.join("\n\n---\n\n") : "",
                   "",
                   "Overall goal:",
                   String(input.plan.goal || ""),
