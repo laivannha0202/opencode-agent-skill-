@@ -1672,6 +1672,11 @@ const ChainItem = Type.Object({
 });
 
 export default function (pi: ExtensionAPI) {
+  pi.on("session_shutdown", async () => {
+    CONTEXT_PACK_CACHE.clear();
+    await RPC_POOL.stopAll().catch(() => {});
+  });
+
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "bash" && event.toolName !== "powershell") return undefined;
     const command = String((event.input as any)?.command || "");
