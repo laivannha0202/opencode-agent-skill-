@@ -1402,7 +1402,7 @@ Package version hiện tại trong <code>package.json</code> là:
 14.2.0-beta.1
 ~~~
 
-V14.1 hiện là incremental work trên package version đó.
+V14.2 Turbo Weak-Model Runtime hiện là incremental work trên package version đó.
 
 Test file packed với Pi:
 

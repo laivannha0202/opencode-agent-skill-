@@ -47,6 +47,10 @@ The project follows Semantic Versioning.
 - Pi shell `fullOutputPath` is used when available so raw evidence is not limited to the already-truncated model-visible result.
 - Browser MCP exposure is reduced from the discovered provider set to the subset relevant to the current browser/visual task.
 - Model-performance reranking now uses a Wilson lower confidence bound instead of letting very small samples move weak-model selection.
+- Verification-broker cache updates now use a cross-process lock so parallel child Pi workers cannot overwrite each other's reusable receipts; malformed/stale receipt metadata fails closed.
+- RPC worker-cache eviction never terminates an active specialist just to satisfy the warm-worker limit; dead/idle workers are pruned safely and steer/abort control latency is bounded.
+- The canonical local `npm run ci` release-consistency gate no longer depends on GitHub Actions workflow configuration.
+- Source-integrity checks now protect the V14.2 regression suite and verification broker against accidental fragment/truncation overwrites.
 
 ### Safety
 - Thinking level is not lowered by V14.2.

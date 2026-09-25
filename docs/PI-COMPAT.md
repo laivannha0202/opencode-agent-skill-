@@ -87,7 +87,7 @@ V14.2 keeps the Pi-native controller and specialist roles but changes the hot pa
 
 - `UES_CHILD_RUNTIME=auto` prefers persistent Pi RPC workers and falls back to one-shot CLI children.
 - A fresh Pi session is started between specialist runs even when the worker process stays warm.
-- Interactive steering is forwarded to the single active RPC child; stop/cancel/dừng/hủy abort active children.
+- Interactive steering is forwarded to the single active RPC child; stop/cancel/dừng/hủy abort active children. RPC steer/abort control waits are bounded to 3 seconds by default before abort escalates to process-tree termination.
 - `pi/extensions/ues-child-runtime.ts` is loaded explicitly in child sessions for output compaction, evidence recovery, shell safety and verification receipts.
 - Test/lint/typecheck/build commands receive bounded default timeouts when the model omitted one.
 - Pi's `details.fullOutputPath` is used when available so Evidence Store can preserve the full shell output instead of only the visible truncated tail.
@@ -100,6 +100,7 @@ Useful switches:
 ```text
 UES_CHILD_RUNTIME=auto
 UES_RPC_MAX_WORKERS=8
+UES_RPC_CONTROL_TIMEOUT_MS=3000
 UES_ADAPTIVE_CONTEXT=1
 UES_MICRO_SKILLS=1
 UES_AFFECTED_TEST_HINTS=1
