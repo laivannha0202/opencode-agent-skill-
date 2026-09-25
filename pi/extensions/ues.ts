@@ -28,7 +28,7 @@ import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
-import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
+import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
   browserEvidenceNeeded,
@@ -1256,10 +1256,15 @@ async function runRoutedAgent(
     ? undefined
     : inheritedThinking;
 
-  let workspaceFingerprint = "unknown";
+  let workspaceState: any = {
+    cacheable: false,
+    fingerprint: "unknown",
+    changedFiles: [],
+  };
   try {
-    workspaceFingerprint = runtimeWorkspaceFingerprint(cwd);
+    workspaceState = runtimeWorkspaceSnapshot(cwd);
   } catch {}
+  const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
 
   let enrichedTask = task;
   let contextQuality: any = null;
@@ -1275,7 +1280,9 @@ async function runRoutedAgent(
       budgetDecision.budget,
       workspaceFingerprint,
     );
-    const cacheableContext = workspaceFingerprint !== "unknown";
+    const cacheableContext =
+      workspaceState.cacheable === true &&
+      workspaceFingerprint !== "unknown";
     let pack = cacheableContext ? CONTEXT_PACK_CACHE.get(cacheKey) : null;
     const contextCacheHit = Boolean(pack);
     if (!pack) {
@@ -1287,6 +1294,9 @@ async function runRoutedAgent(
           browser: browserRequested,
           vision: visualEvidenceNeeded(task),
         },
+        changedFiles: workspaceState.changedFiles || [],
+        workspaceFingerprint:
+          workspaceState.cacheable === true ? workspaceFingerprint : undefined,
       });
       if (cacheableContext) rememberContextPack(cacheKey, pack);
     }
@@ -1304,7 +1314,10 @@ async function runRoutedAgent(
     ) {
       affectedTests = await resolveAffectedTests(cwd, {
         limit: 10,
-        ...(workspaceFingerprint !== "unknown" ? { workspaceFingerprint } : {}),
+        changedFiles: workspaceState.changedFiles || [],
+        ...(workspaceState.cacheable === true && workspaceFingerprint !== "unknown"
+          ? { workspaceFingerprint }
+          : {}),
       }).catch(() => null);
     }
 
@@ -1316,7 +1329,9 @@ async function runRoutedAgent(
         limit: 8,
         maxAgeMs: 30 * 60_000,
         previewBytes: 2200,
-        ...(workspaceFingerprint !== "unknown" ? { workspaceFingerprint } : {}),
+        ...(workspaceState.cacheable === true && workspaceFingerprint !== "unknown"
+          ? { workspaceFingerprint }
+          : {}),
       }).catch(() => null);
     }
 
