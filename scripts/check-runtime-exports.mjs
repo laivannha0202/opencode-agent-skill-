@@ -13,7 +13,7 @@ const extensionFiles = [
 
 function parseNamedLibImports(source) {
   const rows = []
-  const pattern = /import\s*\{([\s\S]*?)\}\s*from\s*["'](\.\.\/\.\.\/lib\/[^"']+\.mjs)["']\s*;?/g
+  const pattern = /import\s*\{([^}]*)\}\s*from\s*["'](\.\.\/\.\.\/lib\/[^"']+\.mjs)["']\s*;?/g
   let match
   while ((match = pattern.exec(source))) {
     const names = match[1]
