@@ -25,8 +25,8 @@ import {
 import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
 import { PiRpcWorkerPool } from "../../lib/pi-rpc-pool.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
-import { compileSkillContext } from "../../lib/skill-compiler.mjs";
-import { resolveAffectedTests } from "../../lib/affected-tests.mjs";
+import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-compiler.mjs";
+import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
@@ -36,6 +36,7 @@ import {
   selectBrowserToolsForTask,
   visualEvidenceNeeded,
 } from "../../lib/browser-mcp-routing.mjs";
+import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
 import {
   createTaskSandbox,
   integrateTaskSandbox,
@@ -2152,6 +2153,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_shutdown", async () => {
     CONTEXT_PACK_CACHE.clear();
+    clearSkillCompilerCache();
+    clearAffectedTestCache();
+    clearRepoGraphRuntimeCache();
     await RPC_POOL.stopAll().catch(() => {});
   });
 
