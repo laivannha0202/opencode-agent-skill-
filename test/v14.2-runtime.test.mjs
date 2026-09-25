@@ -68,6 +68,16 @@ test("adaptive context shrinks low-risk roles and expands after failure", () => 
 
   const highRisk = { ...policy, risk: "high", contextBudget: 48_000, profile: { contextBudget: 48_000 } }
   assert.equal(adaptiveContextBudget(highRisk, "verifier", 1).budget, 48_000)
+
+  const deep = {
+    executionProfile: "deep",
+    risk: "medium",
+    contextBudget: 48_000,
+    profile: { name: "deep", contextBudget: 48_000 },
+  }
+  assert.equal(adaptiveContextBudget(deep, "executor", 1).budget, 26_000)
+  assert.equal(adaptiveContextBudget(deep, "executor", 2).budget, 39_000)
+  assert.equal(adaptiveContextBudget(deep, "executor", 3).budget, 48_000)
 })
 
 test("micro-skill compiler selects bounded role/domain skills", async () => {
