@@ -58,6 +58,9 @@ for (const required of [
   assert.ok(files.has(required), "packed package is missing required runtime file: " + required)
 }
 
+const controllerStat = (packed[0].files || []).find((entry) => String(entry.path).replaceAll("\\", "/") === "pi/extensions/ues.ts")
+assert.ok(Number(controllerStat?.size || 0) > 80_000, "packed UES controller appears truncated")
+
 const codeFiles = [...files].filter((file) => /\.(?:mjs|js|ts)$/.test(file))
 const missingRelativeImports = []
 
