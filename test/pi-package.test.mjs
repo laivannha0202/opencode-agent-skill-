@@ -93,6 +93,7 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(childRuntimeSource, /tool_result/)
   assert.match(childRuntimeSource, /compactReversibleOutput/)
   assert.match(childRuntimeSource, /recordVerification/)
+  assert.match(childRuntimeSource, /canonicalVerificationCommand/)
   assert.match(childRuntimeSource, /runtimeWorkspaceFingerprint/)
   assert.match(childRuntimeSource, /workspaceBefore/)
   assert.match(childRuntimeSource, /session_start/)
