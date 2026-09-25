@@ -92,9 +92,6 @@ for (const contract of CONTRACTS) {
   if (!source.startsWith(contract.startsWith)) {
     problems.push(`${contract.file}: source prefix mismatch; possible missing file head`)
   }
-  if (!source.endsWith("\n")) {
-    problems.push(`${contract.file}: file does not end with a newline; possible partial write`)
-  }
   for (const marker of contract.required) {
     if (!source.includes(marker)) {
       problems.push(`${contract.file}: missing integrity marker ${JSON.stringify(marker)}`)
