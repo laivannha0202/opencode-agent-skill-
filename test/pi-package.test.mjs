@@ -75,7 +75,9 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(supervisorSource, /drainTimeoutMs/)
   assert.match(source, /UES controller: \$\{progress\.agent\} running/)
   assert.match(source, /shouldRunDedicatedDiagnosis\(policy, 1\)/)
-  assert.match(source, /attempt > 1 && shouldRunDedicatedDiagnosis\(policy, attempt\)/)
+  assert.match(source, /runtimeFailureNeedsDiagnosis/)
+  assert.match(source, /shouldRunDedicatedDiagnosis\(policy, attempt\)/)
+  assert.match(source, /"steer", "followUp"/)
   assert.match(source, /UES scheduler: \$\{item\.task\.id\} \$\{progress\.agent\} running/)
 
   const childRuntimePath = path.join(root, "pi", "extensions", "ues-child-runtime.ts")
