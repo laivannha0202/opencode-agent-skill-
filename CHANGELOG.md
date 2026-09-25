@@ -27,6 +27,8 @@ The project follows Semantic Versioning.
 
 ### Changed
 - Test/lint/typecheck/build commands executed by child agents now receive policy-bounded default timeouts when no timeout was specified.
+- Reusable child verification receipts now canonicalize safe simple shell commands into exact executable + argument keys, preventing unrelated checks from cross-reusing a PASS.
+- POSIX process supervision now escalates against surviving descendants after the direct child exits, closing the inherited-pipe/open-handle gap that can otherwise keep test trees alive.
 - Low/medium-risk verifiers can consume fresh executable-check receipts captured at the tool boundary; high-risk verification keeps independent fresh checking.
 - Reusable executable-check receipts now require an unchanged verification state (`workspaceBefore === workspaceAfter === currentFingerprint`); checks that mutate repository state cannot seed a reusable PASS.
 - Hot-path runtime caches now include regression/integrity guards for compiled micro-skills, affected-test caching and one-pass workspace snapshots.
