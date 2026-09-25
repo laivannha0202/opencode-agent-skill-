@@ -36,6 +36,10 @@ The project follows Semantic Versioning.
 - Repository graph and affected-test scans now exclude all UES runtime/sandbox state while preserving legitimate source under `bin/`.
 - CLI fallback children are tracked so interactive stop/cancel can terminate their process trees even when RPC steering is unavailable.
 - Semantic snapshots are cached by trusted workspace fingerprint and shared across specialist context builds.
+- Warm RPC workers are isolated by verification-timeout policy, and `auto` fallback is now startup-only: in-task RPC timeout/failure never triggers a blind second execution through CLI.
+- Interactive stop/cancel now aborts the active RPC promise with exit-code-130 semantics; CLI fallback children remain tracked until termination is actually requested.
+- Untracked workspace fingerprinting is bounded by both per-file and aggregate byte limits to avoid expensive cache-key scans on large local artifacts.
+- Turbo benchmark promotion now requires explicit baseline-isolation evidence and explicit UES-controller telemetry for every paired UES arm.
 - Child output compaction runs before the result returns to the model and preserves recoverable Evidence Store references.
 - Pi shell `fullOutputPath` is used when available so raw evidence is not limited to the already-truncated model-visible result.
 - Browser MCP exposure is reduced from the discovered provider set to the subset relevant to the current browser/visual task.
