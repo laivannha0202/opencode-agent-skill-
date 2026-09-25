@@ -19,6 +19,7 @@ import { buildSemanticIndexCached, clearSemanticIndexRuntimeCache } from "../lib
 import { buildRepoGraph } from "../lib/repo-graph.mjs"
 import {
   canRecordReusableVerification,
+  canonicalVerificationCommand,
   hasMaskedShellExitRisk,
   looksLikeVerificationCommand,
 } from "../lib/verification-command.mjs"
@@ -293,6 +294,28 @@ test("verification receipt eligibility rejects masked shell exits", () => {
   assert.equal(canRecordReusableVerification("pnpm test | tee test.log"), false)
   assert.equal(canRecordReusableVerification("pnpm test\necho done"), false)
   assert.equal(canRecordReusableVerification("pnpm test & echo background"), false)
+})
+
+test("simple verification commands canonicalize to executable plus args", () => {
+  assert.deepEqual(
+    canonicalVerificationCommand("pnpm --filter @agrimarket/api test -- refund.spec.ts"),
+    {
+      command: "pnpm",
+      args: ["--filter", "@agrimarket/api", "test", "--", "refund.spec.ts"],
+      raw: "pnpm --filter @agrimarket/api test -- refund.spec.ts",
+    },
+  )
+  assert.deepEqual(
+    canonicalVerificationCommand('npm test -- "test/payment refund.spec.ts"'),
+    {
+      command: "npm",
+      args: ["test", "--", "test/payment refund.spec.ts"],
+      raw: 'npm test -- "test/payment refund.spec.ts"',
+    },
+  )
+  assert.equal(canonicalVerificationCommand("pnpm test || true"), null)
+  assert.equal(canonicalVerificationCommand("pnpm test | tee test.log"), null)
+  assert.equal(canonicalVerificationCommand("powershell -Command pnpm test"), null)
 })
 
 test("workspace snapshot shares fingerprint and changed-file evidence", async () => {
