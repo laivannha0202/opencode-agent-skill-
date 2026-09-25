@@ -131,6 +131,19 @@ const CHILD_RUNTIME = String(process.env.UES_CHILD_RUNTIME || "auto").trim().toL
 const RPC_POOL = new PiRpcWorkerPool({
   maxWorkers: configuredCount("UES_RPC_MAX_WORKERS", 8, 1, 16),
 });
+const ACTIVE_CLI_CHILDREN = new Map<number, any>();
+
+function abortActiveCliChildren() {
+  let aborted = 0;
+  for (const [pid, proc] of [...ACTIVE_CLI_CHILDREN.entries()]) {
+    ACTIVE_CLI_CHILDREN.delete(pid);
+    try {
+      stopChildTree(proc);
+      aborted += 1;
+    } catch {}
+  }
+  return aborted;
+}
 
 let HOST_BROWSER_TOOL_NAMES: string[] = [];
 const CONTEXT_PACK_CACHE = new Map<string, any>();
@@ -564,6 +577,7 @@ async function runAgentCli(
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
+      if (proc.pid) ACTIVE_CLI_CHILDREN.set(proc.pid, proc);
       const childStartedAt = Date.now();
       let lastActivityAt = childStartedAt;
       let buffer = "";
@@ -582,6 +596,7 @@ async function runAgentCli(
         if (watchdogTimer) clearInterval(watchdogTimer);
         if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
         abortHandler = null;
+        if (proc.pid) ACTIVE_CLI_CHILDREN.delete(proc.pid);
         for (const timer of hangTimers.values()) clearTimeout(timer);
         hangTimers.clear();
         toolOutput.clear();
@@ -2198,6 +2213,7 @@ export default function (pi: ExtensionAPI) {
     clearAffectedTestCache();
     clearRepoGraphRuntimeCache();
     clearSemanticIndexRuntimeCache();
+    abortActiveCliChildren();
     await RPC_POOL.stopAll().catch(() => {});
   });
 
@@ -2215,8 +2231,16 @@ export default function (pi: ExtensionAPI) {
 
     if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
       const result = await RPC_POOL.abortActive();
-      if (result.aborted > 0) {
-        try { ctx.ui.notify(`UES: aborted ${result.aborted} active child worker(s)`, "warning"); } catch {}
+      const cliAborted = abortActiveCliChildren();
+      const total = result.aborted + cliAborted;
+      if (total > 0) {
+        try {
+          ctx.ui.notify(
+            `UES: aborted ${total} active child worker(s)` +
+              (cliAborted ? ` (${cliAborted} CLI fallback)` : ""),
+            "warning",
+          );
+        } catch {}
         return { action: "handled" };
       }
       return { action: "continue" };
