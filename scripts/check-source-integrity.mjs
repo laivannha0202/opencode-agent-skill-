@@ -90,6 +90,24 @@ const CONTRACTS = [
     startsWith: "import ",
     required: ["class RpcWorker", "steerActive", "abortActive", "stopAll"],
   },
+  {
+    file: "lib/workspace-fingerprint.mjs",
+    minBytes: 3_000,
+    startsWith: "import ",
+    required: ["runtimeWorkspaceFingerprint", "runtimeWorkspaceSnapshot", "changedFiles", "cacheable"],
+  },
+  {
+    file: "lib/skill-compiler.mjs",
+    minBytes: 4_000,
+    startsWith: "import ",
+    required: ["compileSkillContext", "clearSkillCompilerCache", "COMPILED_SKILL_CACHE.set", "return result"],
+  },
+  {
+    file: "lib/affected-tests.mjs",
+    minBytes: 7_500,
+    startsWith: "import ",
+    required: ["resolveAffectedTests", "clearAffectedTestCache", "AFFECTED_TEST_CACHE.set", "return result"],
+  },
 ]
 
 const problems = []
