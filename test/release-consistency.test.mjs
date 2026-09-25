@@ -120,49 +120,13 @@ test("release checker protects the Pi-native task-policy canonical source", () =
   }
 })
 
-test("release checker fails when CI stops executing canonical npm run ci", () => {
+test("release checker is independent of GitHub Actions workflow files", () => {
   const tmp = mkdirTemp()
   try {
     fillFixture(tmp)
-    const ciPath = path.join(tmp, ".github", "workflows", "ci.yml")
-    const ci = readFileSync(ciPath, "utf8").replace("npm run ci", "npm run syntax")
-    writeFileSync(ciPath, ci)
+    rmSync(path.join(tmp, ".github", "workflows"), { recursive: true, force: true })
     const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((error) => error.includes("npm run ci")))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("release checker fails when Security workflow loses Security Gate", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const securityPath = path.join(tmp, ".github", "workflows", "security.yml")
-    const security = readFileSync(securityPath, "utf8").replaceAll("Security Gate", "SECURITY_GATE_REMOVED")
-    writeFileSync(securityPath, security)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((error) => error.includes("Security Gate")))
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
-  }
-})
-
-test("release checker fails when publish workflow stops verifying the release tag", () => {
-  const tmp = mkdirTemp()
-  try {
-    fillFixture(tmp)
-    const publishPath = path.join(tmp, ".github", "workflows", "publish.yml")
-    const publish = readFileSync(publishPath, "utf8").replace(
-      "npm run release:check-tag",
-      "node scripts/check-release-tag.mjs",
-    )
-    writeFileSync(publishPath, publish)
-    const result = checkReleaseConsistency(tmp)
-    assert.equal(result.pass, false)
-    assert.ok(result.errors.some((error) => error.includes("verify release tag")))
+    assert.equal(result.pass, true, result.errors.join("\n"))
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }

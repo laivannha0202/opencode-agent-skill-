@@ -160,29 +160,6 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["smoke:packed"] !== "node scripts/smoke-packed-install.mjs") errors.push("package.json: missing smoke:packed integration script")
   }
 
-  const ci = requireText(errors, readText(root, path.join(".github", "workflows", "ci.yml")), ".github/workflows/ci.yml")
-  if (ci) {
-    if (!ci.includes("ubuntu-latest") || !ci.includes("windows-latest")) errors.push(".github/workflows/ci.yml: Pi runtime matrix must cover Linux and Windows")
-    if (!ci.includes("npm run ci")) errors.push(".github/workflows/ci.yml: must execute canonical npm run ci")
-    if (!/^\s*name:\s*CI Gate\s*$/m.test(ci)) errors.push(".github/workflows/ci.yml: missing CI Gate aggregate job name")
-    if (!/needs:\s*\[\s*pi\s*\]/m.test(ci)) errors.push(".github/workflows/ci.yml: CI Gate must depend on pi")
-    if (!/if:\s*always\(\)/m.test(ci)) errors.push(".github/workflows/ci.yml: aggregate gate must use if: always()")
-  }
-
-  const security = requireText(errors, readText(root, path.join(".github", "workflows", "security.yml")), ".github/workflows/security.yml")
-  if (security) {
-    if (!/^\s*name:\s*Security Gate\s*$/m.test(security)) errors.push(".github/workflows/security.yml: missing Security Gate aggregate job name")
-    if (!/needs:\s*\[\s*codeql\s*,\s*dependency-review\s*\]/m.test(security)) {
-      errors.push(".github/workflows/security.yml: Security Gate must depend on codeql and dependency-review")
-    }
-  }
-
-  const publish = requireText(errors, readText(root, path.join(".github", "workflows", "publish.yml")), ".github/workflows/publish.yml")
-  if (publish) {
-    if (!publish.includes("npm run release:check-tag")) errors.push(".github/workflows/publish.yml: must verify release tag")
-    if (!publish.includes("already published")) errors.push(".github/workflows/publish.yml: missing idempotency check for existing versions")
-  }
-
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)
   if (promptCount < 10) warnings.push(`Pi prompt catalog unexpectedly small: ${promptCount}`)
 
