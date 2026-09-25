@@ -502,7 +502,11 @@ async function runAgentCli(
     note?: string;
   }) => void,
   extraTools: string[] = [],
-  runtimeOptions: { compactToolOutput?: boolean; toolOutputLimit?: number } = {},
+  runtimeOptions: {
+    compactToolOutput?: boolean;
+    toolOutputLimit?: number;
+    verificationTimeoutSec?: number;
+  } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const args: string[] = [
@@ -548,6 +552,7 @@ async function runAgentCli(
           UES_CHILD_PROCESS: "1",
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
+          UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
         },
         shell: false,
         detached: process.platform !== "win32",
@@ -830,7 +835,11 @@ async function runAgentRpc(
     note?: string;
   }) => void,
   extraTools: string[] = [],
-  runtimeOptions: { compactToolOutput?: boolean; toolOutputLimit?: number } = {},
+  runtimeOptions: {
+    compactToolOutput?: boolean;
+    toolOutputLimit?: number;
+    verificationTimeoutSec?: number;
+  } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const args: string[] = [
@@ -894,6 +903,7 @@ async function runAgentRpc(
           UES_CHILD_PROCESS: "1",
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
+          UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
         },
       },
       taskInput,
@@ -1011,7 +1021,11 @@ async function runAgent(
   signal?: AbortSignal,
   onProgress?: Parameters<typeof runAgentCli>[6],
   extraTools: string[] = [],
-  runtimeOptions: { compactToolOutput?: boolean; toolOutputLimit?: number } = {},
+  runtimeOptions: {
+    compactToolOutput?: boolean;
+    toolOutputLimit?: number;
+    verificationTimeoutSec?: number;
+  } = {},
 ): Promise<RunResult> {
   if (CHILD_RUNTIME !== "cli") {
     try {
@@ -1258,7 +1272,10 @@ async function runRoutedAgent(
       affectedTests = await resolveAffectedTests(cwd, { limit: 10 }).catch(() => null);
     }
 
-    if (["verifier", "integration-verifier"].includes(role)) {
+    if (
+      ["verifier", "integration-verifier"].includes(role) &&
+      !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase())
+    ) {
       reusableVerification = await listReusableVerification(cwd, {
         limit: 8,
         maxAgeMs: 30 * 60_000,
@@ -1338,6 +1355,14 @@ async function runRoutedAgent(
           : taskPolicy.executionProfile === "standard"
             ? 24 * 1024
             : 48 * 1024,
+      verificationTimeoutSec:
+        taskPolicy.risk === "high"
+          ? 900
+          : taskPolicy.executionProfile === "fast"
+            ? 120
+            : taskPolicy.executionProfile === "standard"
+              ? 300
+              : 600,
     },
   );
   const enrichedResult: RunResult = {
