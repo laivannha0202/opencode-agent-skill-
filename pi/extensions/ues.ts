@@ -2053,6 +2053,39 @@ export default function (pi: ExtensionAPI) {
     await RPC_POOL.stopAll().catch(() => {});
   });
 
+  pi.on("input", async (event, ctx) => {
+    if (process.env.UES_CHILD_PROCESS === "1") return { action: "continue" };
+    if (event.source !== "interactive" || event.streamingBehavior !== "steer") {
+      return { action: "continue" };
+    }
+
+    const text = String(event.text || "").trim();
+    if (!text) return { action: "continue" };
+
+    if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
+      const result = await RPC_POOL.abortActive();
+      if (result.aborted > 0) {
+        try { ctx.ui.notify(`UES: aborted ${result.aborted} active child worker(s)`, "warning"); } catch {}
+        return { action: "handled" };
+      }
+      return { action: "continue" };
+    }
+
+    const steered = await RPC_POOL.steerActive(text).catch(() => ({
+      accepted: false,
+      reason: "steer-failed",
+      active: 0,
+    }));
+    if (steered.accepted) {
+      try { ctx.ui.notify("UES: steering message forwarded to the active child", "info"); } catch {}
+      return { action: "handled" };
+    }
+
+    // With multiple parallel children there is no safe deterministic target.
+    // Leave the message in the parent queue instead of broadcasting it.
+    return { action: "continue" };
+  });
+
   pi.on("tool_call", async (event, ctx) => {
     if (event.toolName !== "bash" && event.toolName !== "powershell") return undefined;
     const command = String((event.input as any)?.command || "");
