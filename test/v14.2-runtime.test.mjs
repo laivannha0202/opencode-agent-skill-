@@ -131,3 +131,41 @@ test("affected-test cache reuses only an identical workspace snapshot", async ()
     git(root, ["commit", "-m", "base"])
     await writeFile(path.join(root, "src", "thing.ts"), "export const thing = 2\n")
     const snapshot = runtimeWorkspaceSnapshot(root)
+
+test("verification broker preserves concurrent receipts in one workspace", async () => {
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "a.txt"), "one\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    const fp = runtimeWorkspaceFingerprint(root)
+
+    await Promise.all([
+      recordVerification(root, {
+        command: "node",
+        args: ["--version"],
+        exitCode: 0,
+        stdout: "v1",
+        stderr: "",
+        workspaceBefore: fp,
+        workspaceAfter: fp,
+        durationMs: 1,
+      }),
+      recordVerification(root, {
+        command: "npm",
+        args: ["test"],
+        exitCode: 0,
+        stdout: "pass",
+        stderr: "",
+        workspaceBefore: fp,
+        workspaceAfter: fp,
+        durationMs: 1,
+      }),
+    ])
+
+    assert.ok(await findReusableVerification(root, "node", ["--version"]))
+    assert.ok(await findReusableVerification(root, "npm", ["test"]))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
