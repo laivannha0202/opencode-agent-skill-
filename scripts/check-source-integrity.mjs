@@ -17,6 +17,9 @@ const CONTRACTS = [
       "runRoutedAgent",
       "PiRpcWorkerPool",
       "CHILD_RUNTIME_EXTENSION",
+      "isAbortedRun",
+      "abortedResponse",
+      'reason: "aborted"',
     ],
   },
   {
