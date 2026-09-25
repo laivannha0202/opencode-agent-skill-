@@ -141,6 +141,19 @@ function parsePiTelemetry(stdout) {
   let controllerPass = false
   let finalAssistant = ""
   let jsonLines = 0
+  const turbo = {
+    routedAgentSteps: 0,
+    rpcRuns: 0,
+    cliRuns: 0,
+    warmWorkerReuses: 0,
+    contextCacheHits: 0,
+    microSkillCacheHits: 0,
+    affectedTestCacheHits: 0,
+    reusableVerificationReceipts: 0,
+    compactedToolOutputSteps: 0,
+    adaptiveContextChars: 0,
+    baseContextChars: 0,
+  }
 
   for (const line of String(stdout || "").split(/\r?\n/)) {
     if (!line.trim()) continue
@@ -177,6 +190,20 @@ function parsePiTelemetry(stdout) {
       const details = event.result?.details
       const steps = Array.isArray(details?.steps) ? details.steps : []
       for (const step of steps) {
+        const optimization = step?.optimizations
+        if (optimization && typeof optimization === "object") {
+          turbo.routedAgentSteps += 1
+          if (optimization.childRuntime === "rpc") turbo.rpcRuns += 1
+          if (optimization.childRuntime === "cli") turbo.cliRuns += 1
+          if (optimization.warmWorkerReused === true) turbo.warmWorkerReuses += 1
+          if (optimization.contextCacheHit === true) turbo.contextCacheHits += 1
+          if (optimization.microSkillCacheHit === true) turbo.microSkillCacheHits += 1
+          if (optimization.affectedTestCacheHit === true) turbo.affectedTestCacheHits += 1
+          turbo.reusableVerificationReceipts += Number(optimization.reusableVerificationReceipts || 0)
+          if (optimization.compactToolOutput === true) turbo.compactedToolOutputSteps += 1
+          turbo.adaptiveContextChars += Number(optimization.runtimeContextBudget || 0)
+          turbo.baseContextChars += Number(optimization.baseContextBudget || 0)
+        }
         if (step?.usage) {
           addUsage(childUsage, step.usage)
           childUsageSamples += 1
@@ -220,6 +247,13 @@ function parsePiTelemetry(stdout) {
     controllerUsed,
     controllerPass,
     finalAssistant,
+    turbo: {
+      ...turbo,
+      warmWorkerReuseRate: turbo.rpcRuns > 0 ? turbo.warmWorkerReuses / turbo.rpcRuns : null,
+      contextCacheHitRate: turbo.routedAgentSteps > 0 ? turbo.contextCacheHits / turbo.routedAgentSteps : null,
+      adaptiveContextRatio:
+        turbo.baseContextChars > 0 ? turbo.adaptiveContextChars / turbo.baseContextChars : null,
+    },
   }
 }
 
