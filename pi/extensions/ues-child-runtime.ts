@@ -71,7 +71,7 @@ async function capturedText(event: any, fallback: string) {
 }
 
 export default function (pi: ExtensionAPI) {
-  pi.on("tool_call", async (event) => {
+  pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     if (!["bash", "powershell"].includes(toolName)) return undefined;
 
@@ -90,7 +90,7 @@ export default function (pi: ExtensionAPI) {
     const reusableCandidate = canRecordReusableVerification(command);
     const workspaceBefore = reusableCandidate
       ? (() => {
-          try { return runtimeWorkspaceFingerprint(process.cwd()); } catch { return undefined; }
+          try { return runtimeWorkspaceFingerprint(ctx.cwd); } catch { return undefined; }
         })()
       : undefined;
     toolExecutionState.set(String(event.toolCallId || ""), {
