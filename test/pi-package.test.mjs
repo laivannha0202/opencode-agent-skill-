@@ -63,6 +63,9 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /UES_CHILD_HARD_TIMEOUT_MS/)
   assert.match(source, /UES_CHILD_IDLE_TIMEOUT_MS/)
   assert.match(source, /UES_CHILD_HEARTBEAT_MS/)
+  assert.match(source, /pi\.on\("input"/)
+  assert.match(source, /RPC_POOL\.steerActive/)
+  assert.match(source, /RPC_POOL\.abortActive/)
   assert.match(source, /terminateProcessTree/)
   assert.match(source, /stopChildTree\(proc\)/)
   const supervisorSource = fs.readFileSync(path.join(root, "lib", "process-supervisor.mjs"), "utf8")
@@ -79,6 +82,10 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(childRuntimeSource, /name:\s*"ues_evidence_get"/)
   assert.match(childRuntimeSource, /tool_result/)
   assert.match(childRuntimeSource, /compactReversibleOutput/)
+  assert.match(childRuntimeSource, /recordVerification/)
+  assert.match(childRuntimeSource, /destructiveShellRisk/)
+  assert.match(childRuntimeSource, /fullOutputPath/)
+  assert.match(childRuntimeSource, /UES_CHILD_VERIFICATION_TIMEOUT_SEC/)
 
   const evalSource = fs.readFileSync(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
   assert.match(evalSource, /"--no-extensions"/)
@@ -89,6 +96,7 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(evalSource, /--provider-extension/)
   assert.match(evalSource, /providerExtensionCount/)
   assert.match(evalSource, /baselineIsolated/)
+  assert.match(evalSource, /pairedBenchmarkConfidence/)
 
   const packedSmokeSource = fs.readFileSync(path.join(root, "scripts", "smoke-packed-install.mjs"), "utf8")
   assert.match(packedSmokeSource, /"install", "-g", tarball, "--prefix", prefix, "--ignore-scripts"/)
