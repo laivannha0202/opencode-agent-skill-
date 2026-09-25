@@ -16,6 +16,7 @@ import { rankContextGraph } from "../lib/context-graph-rank.mjs"
 import { destructiveShellAnalysis, shellCommandSegments } from "../lib/safety.mjs"
 import { getEvidenceSelected, putEvidence } from "../lib/evidence-store.mjs"
 import { buildSemanticIndexCached, clearSemanticIndexRuntimeCache } from "../lib/semantic-index.mjs"
+import { buildRepoGraph } from "../lib/repo-graph.mjs"
 import {
   canRecordReusableVerification,
   hasMaskedShellExitRisk,
@@ -410,6 +411,38 @@ test("semantic runtime cache reuses an unchanged workspace snapshot", async () =
       maxFiles: 100,
     })
     assert.equal(third.runtimeCacheHit, false)
+  } finally {
+    clearSemanticIndexRuntimeCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("semantic index includes legitimate bin source while graph skips UES sandboxes", async () => {
+  const root = await gitRepo()
+  try {
+    await mkdir(path.join(root, "bin"), { recursive: true })
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await mkdir(path.join(root, ".ues-sandboxes", "copy", "src"), { recursive: true })
+    await writeFile(path.join(root, "bin", "cli.mjs"), "export function cliEntry() { return 1 }\n")
+    await writeFile(path.join(root, "src", "app.mjs"), "import { cliEntry } from '../bin/cli.mjs'\nexport const app = cliEntry()\n")
+    await writeFile(path.join(root, ".ues-sandboxes", "copy", "src", "ghost.mjs"), "export const ghost = 1\n")
+    git(root, ["add", "bin", "src"])
+    git(root, ["commit", "-m", "base"])
+
+    clearSemanticIndexRuntimeCache()
+    const snapshot = runtimeWorkspaceSnapshot(root)
+    const semantic = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: snapshot.fingerprint,
+      maxFiles: 100,
+    })
+    assert.ok(Object.hasOwn(semantic.index.files, "bin/cli.mjs"))
+
+    const graph = await buildRepoGraph(root, { maxFiles: 100 })
+    assert.ok(graph.nodes.some((node) => node.path === "bin/cli.mjs"))
+    assert.equal(
+      graph.nodes.some((node) => node.path.includes(".ues-sandboxes")),
+      false,
+    )
   } finally {
     clearSemanticIndexRuntimeCache()
     await rm(root, { recursive: true, force: true })
