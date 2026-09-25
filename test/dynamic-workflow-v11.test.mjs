@@ -45,3 +45,13 @@ test("V11 workflow scheduler bounds vision workers separately from general LLM c
   assert.equal(plan.visionAgentTaskCount, 4)
   assert.ok(plan.waves.every((wave) => wave.visionAgentSlots <= 1))
 })
+
+test("V14.2 structured runtime can disable phantom inline savings", () => {
+  const plan = planDynamicWorkflow([
+    { id: "one", title: "Rename one local helper", files: { modify: ["helper.js"] } },
+  ], { allowInline: false })
+  assert.equal(plan.agentTaskCount, 1)
+  assert.equal(plan.inlineTaskCount, 0)
+  assert.equal(plan.waves[0].tasks[0].execution, "agent")
+  assert.equal(plan.estimatedCoordinationSaved, 0)
+})
