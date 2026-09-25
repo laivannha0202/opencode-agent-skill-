@@ -37,6 +37,7 @@ import {
   visualEvidenceNeeded,
 } from "../../lib/browser-mcp-routing.mjs";
 import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
+import { clearSemanticIndexRuntimeCache } from "../../lib/semantic-index.mjs";
 import {
   createTaskSandbox,
   integrateTaskSandbox,
@@ -2193,6 +2194,7 @@ export default function (pi: ExtensionAPI) {
     clearSkillCompilerCache();
     clearAffectedTestCache();
     clearRepoGraphRuntimeCache();
+    clearSemanticIndexRuntimeCache();
     await RPC_POOL.stopAll().catch(() => {});
   });
 
