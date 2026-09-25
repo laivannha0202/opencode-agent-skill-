@@ -146,6 +146,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["docs:check"] !== "node scripts/check-release-consistency.mjs") errors.push("package.json: missing docs:check release-consistency script")
     if (scripts["release:check-tag"] !== "node scripts/check-release-tag.mjs") errors.push("package.json: missing release:check-tag script")
     if (scripts["eval:pi"] !== "node scripts/eval-pi.mjs") errors.push("package.json: missing Pi-native eval:pi script")
+    if (!String(scripts.ci || "").includes("npm run integrity")) errors.push("package.json: ci must include source-integrity gate")
     if (!String(scripts.ci || "").includes("npm run docs:check")) errors.push("package.json: ci must include docs:check")
     if (!String(scripts.ci || "").includes("npm test")) errors.push("package.json: ci must include full npm test")
     if (!String(scripts.ci || "").includes("npm run smoke:packed")) errors.push("package.json: ci must include smoke:packed")
