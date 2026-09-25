@@ -15,6 +15,7 @@ import { selectBrowserToolsForTask } from "../lib/browser-mcp-routing.mjs"
 import { rankContextGraph } from "../lib/context-graph-rank.mjs"
 import { destructiveShellAnalysis, shellCommandSegments } from "../lib/safety.mjs"
 import { getEvidenceSelected, putEvidence } from "../lib/evidence-store.mjs"
+import { buildSemanticIndexCached, clearSemanticIndexRuntimeCache } from "../lib/semantic-index.mjs"
 import {
   canRecordReusableVerification,
   hasMaskedShellExitRisk,
@@ -367,6 +368,40 @@ test("verification broker rejects a PASS receipt when the check changed workspac
     const reused = await findReusableVerification(root, "shell", ["pnpm test"])
     assert.equal(reused, null)
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("semantic runtime cache reuses an unchanged workspace snapshot", async () => {
+  const root = await gitRepo()
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "demo.ts"), "export const demo = 1\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+
+    clearSemanticIndexRuntimeCache()
+    const snapshot = runtimeWorkspaceSnapshot(root)
+    const first = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: snapshot.fingerprint,
+      maxFiles: 100,
+    })
+    const second = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: snapshot.fingerprint,
+      maxFiles: 100,
+    })
+    assert.equal(first.runtimeCacheHit, false)
+    assert.equal(second.runtimeCacheHit, true)
+
+    await writeFile(path.join(root, "src", "demo.ts"), "export const demo = 2\n")
+    const changed = runtimeWorkspaceSnapshot(root)
+    const third = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: changed.fingerprint,
+      maxFiles: 100,
+    })
+    assert.equal(third.runtimeCacheHit, false)
+  } finally {
+    clearSemanticIndexRuntimeCache()
     await rm(root, { recursive: true, force: true })
   }
 })
