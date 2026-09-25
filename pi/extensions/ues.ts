@@ -1032,6 +1032,27 @@ async function runAgentRpc(
         agent, task, cwd, exitCode: 130, output: message, stderr: message,
         model, stopReason: "aborted", errorMessage: message,
         toolCalls, toolNames: [...toolNames], browserTools: [...extraTools],
+        childRuntime: "rpc", workerReused: false,
+      };
+    }
+    if ((error as any)?.uesRpcPhase === "runtime") {
+      const timeout = /hard-timeout|idle-timeout/i.test(message);
+      const toolStall = /post-tool-error-stall/i.test(message);
+      return {
+        agent,
+        task,
+        cwd,
+        exitCode: timeout ? 124 : toolStall ? 125 : 1,
+        output: message,
+        stderr: message,
+        model,
+        stopReason: timeout ? "timeout" : toolStall ? "tool-error-stall" : "rpc-runtime-error",
+        errorMessage: message,
+        toolCalls,
+        toolNames: [...toolNames],
+        browserTools: [...extraTools],
+        childRuntime: "rpc",
+        workerReused: false,
       };
     }
     throw error;
@@ -1071,6 +1092,11 @@ async function runAgent(
       );
     } catch (error) {
       if (CHILD_RUNTIME === "rpc") throw error;
+      // Auto mode may fall back only when RPC failed before the delegated task
+      // started. In-task failures must not cause a blind second execution.
+      if ((error as any)?.uesRpcPhase && (error as any).uesRpcPhase !== "startup") {
+        throw error;
+      }
       try {
         onProgress?.({
           agent,
@@ -1079,7 +1105,7 @@ async function runAgent(
           toolCalls: 0,
           model,
           phase: "running",
-          note: "RPC worker unavailable; falling back to isolated CLI child",
+          note: "RPC startup unavailable; falling back to isolated CLI child",
         });
       } catch {}
     }
