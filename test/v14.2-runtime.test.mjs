@@ -314,3 +314,33 @@ test("micro-skill compiler reuses bounded compiled excerpts", async () => {
   assert.equal(second.cacheHit, true)
   assert.equal(second.text, first.text)
 })
+
+test("verification broker rejects a PASS receipt when the check changed workspace state", async () => {
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "a.txt"), "one\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    const before = runtimeWorkspaceFingerprint(root)
+
+    await writeFile(path.join(root, "a.txt"), "two\n")
+    const after = runtimeWorkspaceFingerprint(root)
+    assert.notEqual(after, before)
+
+    await recordVerification(root, {
+      command: "shell",
+      args: ["pnpm test"],
+      exitCode: 0,
+      stdout: "Tests: 1 passed, 1 total",
+      stderr: "",
+      workspaceBefore: before,
+      workspaceAfter: after,
+      durationMs: 1,
+    })
+
+    const reused = await findReusableVerification(root, "shell", ["pnpm test"])
+    assert.equal(reused, null)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
