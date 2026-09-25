@@ -198,3 +198,43 @@ test("selective evidence retrieval returns only the requested JSON subtree", asy
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("runtime fingerprint ignores UES internal state in target repositories", async () => {
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "source.txt"), "one\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    const before = runtimeWorkspaceFingerprint(root)
+
+    await mkdir(path.join(root, ".ues-cache"), { recursive: true })
+    await mkdir(path.join(root, ".ues-traces"), { recursive: true })
+    await mkdir(path.join(root, ".ues-work", "demo"), { recursive: true })
+    await writeFile(path.join(root, ".ues-cache", "state.json"), "{}\n")
+    await writeFile(path.join(root, ".ues-traces", "trace.jsonl"), "{}\n")
+    await writeFile(path.join(root, ".ues-work", "demo", "STATE.json"), "{}\n")
+
+    const afterInternalState = runtimeWorkspaceFingerprint(root)
+    assert.equal(afterInternalState, before)
+
+    await writeFile(path.join(root, "source.txt"), "two\n")
+    const afterSourceChange = runtimeWorkspaceFingerprint(root)
+    assert.notEqual(afterSourceChange, before)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("process supervisor reports user abort with shell-style exit code 130", async () => {
+  const controller = new AbortController()
+  const promise = runSupervisedProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
+    signal: controller.signal,
+    hardTimeoutMs: 5000,
+    drainTimeoutMs: 200,
+    killGraceMs: 50,
+  })
+  setTimeout(() => controller.abort(), 50)
+  const result = await promise
+  assert.equal(result.stopReason, "aborted")
+  assert.equal(result.exitCode, 130)
+})
