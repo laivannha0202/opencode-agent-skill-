@@ -44,6 +44,7 @@ for (const required of [
   "lib/skill-compiler.mjs",
   "lib/affected-tests.mjs",
   "lib/verification-broker.mjs",
+  "lib/verification-command.mjs",
   "lib/task-policy.mjs",
   "lib/model-policy.mjs",
   "lib/context-engine-v11.mjs",
