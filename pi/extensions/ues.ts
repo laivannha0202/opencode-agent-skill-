@@ -1141,11 +1141,13 @@ function runtimeContextAuxStamp(cwd: string) {
   }).join("|");
 }
 
-function cachedContextKey(cwd: string, task: string, role: string, budget: number) {
-  let fingerprint = "unknown";
-  try {
-    fingerprint = runtimeWorkspaceFingerprint(cwd);
-  } catch {}
+function cachedContextKey(
+  cwd: string,
+  task: string,
+  role: string,
+  budget: number,
+  fingerprint = "unknown",
+) {
   const auxStamp = runtimeContextAuxStamp(cwd);
   return [cwd, fingerprint, auxStamp, role, String(budget), task].join("\u0000");
 }
@@ -1254,6 +1256,11 @@ async function runRoutedAgent(
     ? undefined
     : inheritedThinking;
 
+  let workspaceFingerprint = "unknown";
+  try {
+    workspaceFingerprint = runtimeWorkspaceFingerprint(cwd);
+  } catch {}
+
   let enrichedTask = task;
   let contextQuality: any = null;
   let contextError: string | undefined;
@@ -1261,7 +1268,13 @@ async function runRoutedAgent(
   let affectedTests: any = null;
   let reusableVerification: any = null;
   try {
-    const cacheKey = cachedContextKey(cwd, task, role, budgetDecision.budget);
+    const cacheKey = cachedContextKey(
+      cwd,
+      task,
+      role,
+      budgetDecision.budget,
+      workspaceFingerprint,
+    );
     let pack = CONTEXT_PACK_CACHE.get(cacheKey);
     const contextCacheHit = Boolean(pack);
     if (!pack) {
@@ -1288,7 +1301,10 @@ async function runRoutedAgent(
       AFFECTED_TEST_HINTS_ENABLED &&
       ["executor", "debugger", "verifier", "integration-verifier"].includes(role)
     ) {
-      affectedTests = await resolveAffectedTests(cwd, { limit: 10 }).catch(() => null);
+      affectedTests = await resolveAffectedTests(cwd, {
+        limit: 10,
+        workspaceFingerprint,
+      }).catch(() => null);
     }
 
     if (
@@ -1299,6 +1315,7 @@ async function runRoutedAgent(
         limit: 8,
         maxAgeMs: 30 * 60_000,
         previewBytes: 2200,
+        workspaceFingerprint,
       }).catch(() => null);
     }
 
