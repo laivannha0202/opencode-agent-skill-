@@ -90,3 +90,59 @@ test("V10 confidence accepts bounded token overhead with stronger correctness", 
   assert.equal(report.checks.tokensAcceptable, true)
   assert.equal(report.promotionEligible, true)
 })
+
+test("V14.2 turbo gate accepts quality parity only when efficiency improves and no false PASS occurs", () => {
+  const results = []
+  for (let index = 0; index < 24; index += 1) {
+    results.push(
+      {
+        suite: "live", task: "turbo-" + index, trial: 1, mode: "baseline",
+        passed: index < 20, baselineIsolated: true, durationMs: 200,
+        graderExit: index < 20 ? 0 : 1,
+        telemetry: { firstUsage: { input: 1500 }, tokens: { total: 3000 } },
+      },
+      {
+        suite: "live", task: "turbo-" + index, trial: 1, mode: "ues",
+        passed: index < 20, durationMs: 120,
+        graderExit: index < 20 ? 0 : 1,
+        telemetry: {
+          controllerPass: index < 20,
+          firstUsage: { input: 900 },
+          tokens: { total: 1900 },
+        },
+      },
+    )
+  }
+  const report = pairedBenchmarkConfidence(results)
+  assert.equal(report.delta, 0)
+  assert.equal(report.turbo.checks.qualityNonRegression, true)
+  assert.equal(report.turbo.checks.efficiencyImproved, true)
+  assert.equal(report.turbo.checks.noControllerFalsePass, true)
+  assert.equal(report.turbo.promotionEligible, true)
+})
+
+test("V14.2 turbo gate rejects controller false PASS even when faster", () => {
+  const results = []
+  for (let index = 0; index < 24; index += 1) {
+    results.push(
+      {
+        suite: "live", task: "false-pass-" + index, trial: 1, mode: "baseline",
+        passed: true, baselineIsolated: true, durationMs: 200, graderExit: 0,
+        telemetry: { firstUsage: { input: 1200 }, tokens: { total: 2500 } },
+      },
+      {
+        suite: "live", task: "false-pass-" + index, trial: 1, mode: "ues",
+        passed: index !== 0, durationMs: 100, graderExit: index === 0 ? 1 : 0,
+        telemetry: {
+          controllerPass: true,
+          firstUsage: { input: 800 },
+          tokens: { total: 1500 },
+        },
+      },
+    )
+  }
+  const report = pairedBenchmarkConfidence(results, { qualityRegressionTolerance: 0.1 })
+  assert.equal(report.turbo.uesFalsePasses, 1)
+  assert.equal(report.turbo.checks.noControllerFalsePass, false)
+  assert.equal(report.turbo.promotionEligible, false)
+})
