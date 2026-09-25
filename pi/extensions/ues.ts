@@ -136,9 +136,11 @@ const ACTIVE_CLI_CHILDREN = new Map<number, any>();
 function abortActiveCliChildren() {
   let aborted = 0;
   for (const [pid, proc] of [...ACTIVE_CLI_CHILDREN.entries()]) {
-    ACTIVE_CLI_CHILDREN.delete(pid);
     try {
-      if (stopChildTree(proc)) aborted += 1;
+      const requested = stopChildTree(proc);
+      const alreadyExited = proc?.exitCode !== null || proc?.signalCode !== null;
+      if (requested) aborted += 1;
+      if (requested || alreadyExited) ACTIVE_CLI_CHILDREN.delete(pid);
     } catch {}
   }
   return aborted;
