@@ -1123,12 +1123,31 @@ function rememberContextPack(key: string, value: any) {
   }
 }
 
+function runtimeContextAuxStamp(cwd: string) {
+  const files = [
+    path.join(cwd, ".ues-memory", "MEMORY.json"),
+    path.join(cwd, ".ues-learning", "CAPABILITY-OBSERVATIONS.json"),
+    path.join(cwd, ".ues-learning", "LEARNINGS.json"),
+    path.join(cwd, ".ues-capabilities.json"),
+  ];
+  return files.map((file) => {
+    const relative = path.relative(cwd, file).replaceAll("\\", "/");
+    try {
+      const info = fs.statSync(file);
+      return relative + ":" + info.size + ":" + Math.trunc(info.mtimeMs);
+    } catch {
+      return relative + ":missing";
+    }
+  }).join("|");
+}
+
 function cachedContextKey(cwd: string, task: string, role: string, budget: number) {
   let fingerprint = "unknown";
   try {
     fingerprint = runtimeWorkspaceFingerprint(cwd);
   } catch {}
-  return [cwd, fingerprint, role, String(budget), task].join("\u0000");
+  const auxStamp = runtimeContextAuxStamp(cwd);
+  return [cwd, fingerprint, auxStamp, role, String(budget), task].join("\u0000");
 }
 
 function compactContextPack(pack: any, recentFailure?: string) {
