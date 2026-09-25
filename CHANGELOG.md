@@ -30,6 +30,10 @@ The project follows Semantic Versioning.
 - Low/medium-risk verifiers can consume fresh executable-check receipts captured at the tool boundary; high-risk verification keeps independent fresh checking.
 - Reusable executable-check receipts now require an unchanged verification state (`workspaceBefore === workspaceAfter === currentFingerprint`); checks that mutate repository state cannot seed a reusable PASS.
 - Hot-path runtime caches now include regression/integrity guards for compiled micro-skills, affected-test caching and one-pass workspace snapshots.
+- Runtime fingerprints now hash untracked file contents, avoid following untracked symlinks outside the repository, and fail closed when an untracked artifact is too large to fingerprint safely.
+- Repository graph and affected-test scans now exclude all UES runtime/sandbox state while preserving legitimate source under `bin/`.
+- CLI fallback children are tracked so interactive stop/cancel can terminate their process trees even when RPC steering is unavailable.
+- Semantic snapshots are cached by trusted workspace fingerprint and shared across specialist context builds.
 - Child output compaction runs before the result returns to the model and preserves recoverable Evidence Store references.
 - Pi shell `fullOutputPath` is used when available so raw evidence is not limited to the already-truncated model-visible result.
 - Browser MCP exposure is reduced from the discovered provider set to the subset relevant to the current browser/visual task.
@@ -118,5 +122,3 @@ The project follows Semantic Versioning.
 ## [13.0.0-beta.3] - 2026-09-23
 
 ### Fixed
-- Separated sensitive-domain detection from high-risk mutation detection so read-only requests that merely mention database, auth, payment, security, production or public API concepts no longer escalate to DEEP by keyword alone.
-- Stripped explicit read-only negations such as `do not edit`, `without editing`, `không sửa` and `chỉ đọc` from mutation-risk matching so safety instructions do not become false mutation signals.
