@@ -9,6 +9,7 @@ import { runProcess } from "../lib/process-runner.mjs"
 import { snapshotWorkspace, diffWorkspaceSnapshots } from "../lib/workspace-snapshot.mjs"
 import { resolveManagedPiCommand, resolveWindowsCommand } from "../lib/windows-shim.mjs"
 import { summarizeEvalResults } from "../lib/eval-report.mjs"
+import { pairedBenchmarkConfidence } from "../lib/benchmark-confidence.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const args = process.argv.slice(2)
@@ -410,6 +411,16 @@ try {
   }
 
   const summary = summarizeEvalResults(results)
+  const confidence = requestedMode === "both"
+    ? pairedBenchmarkConfidence(results, {
+        minPairs: positiveInt(argValue("--min-pairs"), 20),
+        suiteRegressionTolerance: Number(argValue("--suite-regression-tolerance", "0")),
+        qualityRegressionTolerance: Number(argValue("--quality-regression-tolerance", "0")),
+        maxDurationRatio: Number(argValue("--max-duration-ratio", "1.75")),
+        maxInitialInputRatio: Number(argValue("--max-initial-input-ratio", "1.5")),
+        maxTokenRatio: Number(argValue("--max-token-ratio", "1.75")),
+      })
+    : null
   const payload = {
     schemaVersion: 1,
     runtime: "pi",
@@ -424,6 +435,7 @@ try {
     interrupted,
     generatedAt: new Date().toISOString(),
     summary,
+    confidence,
     results,
   }
 
@@ -436,6 +448,10 @@ try {
 
   console.log("\nPi-native eval summary")
   console.log(JSON.stringify(summary, null, 2))
+  if (confidence) {
+    console.log("\nPi-native paired confidence")
+    console.log(JSON.stringify(confidence, null, 2))
+  }
   console.log("Result file: " + outputFile)
 } finally {
   if (!keep) await rm(runRoot, { recursive: true, force: true }).catch(() => {})
