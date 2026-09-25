@@ -40,6 +40,9 @@ The project follows Semantic Versioning.
 - Interactive stop/cancel now aborts the active RPC promise with exit-code-130 semantics; CLI fallback children remain tracked until termination is actually requested.
 - Untracked workspace fingerprinting is bounded by both per-file and aggregate byte limits to avoid expensive cache-key scans on large local artifacts.
 - Turbo benchmark promotion now requires explicit baseline-isolation evidence and explicit UES-controller telemetry for every paired UES arm.
+- User stop/cancel is terminal across structured and ordinary retries: exit-code-130/aborted runs clean up state and are never promoted into another automatic attempt.
+- User-aborted runs are excluded from model-performance learning so manual cancellation cannot poison future model routing.
+- Semantic-index, dependency-graph and affected-test scanners coalesce concurrent identical builds, while the warm RPC worker map now uses true LRU refresh on reuse.
 - Child output compaction runs before the result returns to the model and preserves recoverable Evidence Store references.
 - Pi shell `fullOutputPath` is used when available so raw evidence is not limited to the already-truncated model-visible result.
 - Browser MCP exposure is reduced from the discovered provider set to the subset relevant to the current browser/visual task.
