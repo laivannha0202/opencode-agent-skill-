@@ -7,7 +7,6 @@ import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
 import {
-  canRecordReusableVerification,
   canonicalVerificationCommand,
   looksLikeVerificationCommand,
 } from "../../lib/verification-command.mjs";
@@ -141,19 +140,20 @@ export default function (pi: ExtensionAPI) {
       try { workspaceAfter = runtimeWorkspaceFingerprint(ctx.cwd); } catch {}
       if (workspaceAfter && workspaceAfter === executionState.workspaceBefore) {
         const canonical = executionState.canonicalVerification;
-        if (!canonical) return undefined;
-        await recordVerification(ctx.cwd, {
-          command: canonical.command,
-          args: canonical.args,
-          exitCode: shellExitCode(event, shownText || rawText),
-          stdout: rawText,
-          stderr: "",
-          startedAt: new Date(executionState.startedAt).toISOString(),
-          finishedAt: new Date(finishedAtMs).toISOString(),
-          durationMs: Math.max(0, finishedAtMs - executionState.startedAt),
-          workspaceBefore: executionState.workspaceBefore,
-          workspaceAfter,
-        }).catch(() => null);
+        if (canonical) {
+          await recordVerification(ctx.cwd, {
+            command: canonical.command,
+            args: canonical.args,
+            exitCode: shellExitCode(event, shownText || rawText),
+            stdout: rawText,
+            stderr: "",
+            startedAt: new Date(executionState.startedAt).toISOString(),
+            finishedAt: new Date(finishedAtMs).toISOString(),
+            durationMs: Math.max(0, finishedAtMs - executionState.startedAt),
+            workspaceBefore: executionState.workspaceBefore,
+            workspaceAfter,
+          }).catch(() => null);
+        }
       }
     }
     toolExecutionState.delete(String(event.toolCallId || ""));
