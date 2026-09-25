@@ -80,6 +80,34 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
+
+## V14.2 Turbo Weak-Model Runtime
+
+V14.2 keeps the Pi-native controller and specialist roles but changes the hot path to reduce repeated startup, context and verification work.
+
+- `UES_CHILD_RUNTIME=auto` prefers persistent Pi RPC workers and falls back to one-shot CLI children.
+- A fresh Pi session is started between specialist runs even when the worker process stays warm.
+- Interactive steering is forwarded to the single active RPC child; stop/cancel/dừng/hủy abort active children.
+- `pi/extensions/ues-child-runtime.ts` is loaded explicitly in child sessions for output compaction, evidence recovery, shell safety and verification receipts.
+- Test/lint/typecheck/build commands receive bounded default timeouts when the model omitted one.
+- Pi's `details.fullOutputPath` is used when available so Evidence Store can preserve the full shell output instead of only the visible truncated tail.
+- Low/medium-risk verifier roles may reuse an exact fresh PASS receipt when the workspace fingerprint is unchanged; high-risk verification does not receive this optimization.
+- Context uses adaptive role budgets, bounded micro-skills, cached dependency graphs and affected-test hints.
+- DEEP/long-horizon structured runs auto-create `.ues-work/<slug>` and require plan/task/integration receipts before finalization.
+
+Useful switches:
+
+```text
+UES_CHILD_RUNTIME=auto
+UES_RPC_MAX_WORKERS=8
+UES_ADAPTIVE_CONTEXT=1
+UES_MICRO_SKILLS=1
+UES_AFFECTED_TEST_HINTS=1
+UES_CHILD_TOOL_COMPACTION=1
+```
+
+See `docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md`.
+
 ## Prompts
 
 ```text
@@ -125,6 +153,8 @@ ues eval-pi --model provider/model --thinking low --suite live --trials 3 --mode
 ```
 
 Each run uses an isolated workspace and an external grader. Extension discovery is disabled for fairness, then the model-provider extension is loaded explicitly in both baseline and UES modes; only UES mode additionally loads the UES extension. For `kilo/...` models the benchmark reuses the installed Kilo Pi provider when available and otherwise uses `git:github.com/Kilo-Org/kilo-pi-provider`. Other custom providers can be supplied with repeatable `--provider-extension <source>`. UES mode uses an isolated `UES_CONFIG_DIR` so role routing cannot silently substitute a stronger configured model. Telemetry includes parent and child-agent token/tool usage.
+
+When `--mode both` is used, V14.2 also emits paired benchmark confidence. The turbo promotion view requires quality non-regression, isolated baseline arms, no controller false-PASS, bounded overhead and at least one measured efficiency improvement.
 
 ## Model routing
 
