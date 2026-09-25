@@ -131,14 +131,18 @@ const CHILD_RUNTIME = String(process.env.UES_CHILD_RUNTIME || "auto").trim().toL
 const RPC_POOL = new PiRpcWorkerPool({
   maxWorkers: configuredCount("UES_RPC_MAX_WORKERS", 8, 1, 16),
 });
-const ACTIVE_CLI_CHILDREN = new Map<number, any>();
+const ACTIVE_CLI_CHILDREN = new Map<number, {
+  proc: any;
+  abort: () => boolean;
+}>();
 
 function abortActiveCliChildren() {
   let aborted = 0;
-  for (const [pid, proc] of [...ACTIVE_CLI_CHILDREN.entries()]) {
+  for (const [pid, entry] of [...ACTIVE_CLI_CHILDREN.entries()]) {
     try {
-      const requested = stopChildTree(proc);
-      const alreadyExited = proc?.exitCode !== null || proc?.signalCode !== null;
+      const requested = entry.abort();
+      const alreadyExited =
+        entry.proc?.exitCode !== null || entry.proc?.signalCode !== null;
       if (requested) aborted += 1;
       if (requested || alreadyExited) ACTIVE_CLI_CHILDREN.delete(pid);
     } catch {}
@@ -578,7 +582,6 @@ async function runAgentCli(
         windowsHide: true,
         stdio: ["pipe", "pipe", "pipe"],
       });
-      if (proc.pid) ACTIVE_CLI_CHILDREN.set(proc.pid, proc);
       const childStartedAt = Date.now();
       let lastActivityAt = childStartedAt;
       let buffer = "";
@@ -610,6 +613,23 @@ async function runAgentCli(
         exitCode = code;
         resolve();
       };
+
+      const abortExternally = () => {
+        if (settled) return false;
+        stopReason = "aborted";
+        errorMessage = "UES child execution aborted";
+        const requested = stopChildTree(proc);
+        const alreadyExited = proc.exitCode !== null || proc.signalCode !== null;
+        if (!requested && !alreadyExited) {
+          stderr += "\nUES could not terminate the active CLI child process tree.";
+          return false;
+        }
+        finish(130);
+        return true;
+      };
+      if (proc.pid) {
+        ACTIVE_CLI_CHILDREN.set(proc.pid, { proc, abort: abortExternally });
+      }
 
       const terminateForTimeout = (kind: "hard" | "idle" | "post-tool-error") => {
         if (settled) return;
@@ -801,10 +821,7 @@ async function runAgentCli(
 
       if (signal) {
         abortHandler = () => {
-          stopReason = "aborted";
-          errorMessage = "UES child execution aborted";
-          stopChildTree(proc);
-          finish(130);
+          abortExternally();
         };
         if (signal.aborted) abortHandler();
         else signal.addEventListener("abort", abortHandler, { once: true });
@@ -1138,6 +1155,16 @@ function verdictFromOutput(output: string) {
 function runtimeFailureNeedsDiagnosis(value: string) {
   return /(hung-tool|jest-open-handle|hard timeout|idle timeout|tool-error-stall|post-tool-error|did not recover after a failed\/aborted tool|timed out|timeout after)/i
     .test(String(value || ""));
+}
+
+function isAbortedRun(result: any) {
+  return Boolean(
+    result &&
+    (
+      Number(result.exitCode) === 130 ||
+      String(result.stopReason || "").toLowerCase() === "aborted"
+    )
+  );
 }
 
 function parseStructuredReport(output: string) {
