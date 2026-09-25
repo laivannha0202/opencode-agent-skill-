@@ -17,6 +17,7 @@ import { destructiveShellAnalysis, shellCommandSegments } from "../lib/safety.mj
 import { getEvidenceSelected, putEvidence } from "../lib/evidence-store.mjs"
 import { buildSemanticIndexCached, clearSemanticIndexRuntimeCache } from "../lib/semantic-index.mjs"
 import { buildRepoGraph } from "../lib/repo-graph.mjs"
+import { PiRpcWorkerPool } from "../lib/pi-rpc-pool.mjs"
 import {
   canRecordReusableVerification,
   canonicalVerificationCommand,
@@ -530,6 +531,86 @@ test("runtime fingerprint changes when untracked file content changes", async ()
     assert.equal(second.cacheable, true)
     assert.notEqual(second.fingerprint, first.fingerprint)
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+async function waitFor(predicate, timeoutMs = 3000) {
+  const started = Date.now()
+  while (Date.now() - started < timeoutMs) {
+    if (predicate()) return true
+    await new Promise((resolve) => setTimeout(resolve, 20))
+  }
+  return false
+}
+
+test("RPC pool labels pre-prompt worker failure as startup", async () => {
+  const pool = new PiRpcWorkerPool({ maxWorkers: 1 })
+  try {
+    let error = null
+    try {
+      await pool.run(
+        "startup-failure",
+        {
+          command: process.execPath,
+          args: ["-e", "process.exit(2)"],
+          cwd: process.cwd(),
+          env: process.env,
+        },
+        "never-dispatched",
+      )
+    } catch (caught) {
+      error = caught
+    }
+    assert.ok(error)
+    assert.equal(error.uesRpcPhase, "startup")
+  } finally {
+    await pool.stopAll()
+  }
+})
+
+test("external RPC abort rejects the active run instead of settling normally", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-rpc-abort-"))
+  const script = path.join(root, "fake-rpc.mjs")
+  const source = [
+    "import readline from 'node:readline'",
+    "const rl = readline.createInterface({ input: process.stdin })",
+    "rl.on('line', (line) => {",
+    "  const msg = JSON.parse(line)",
+    "  if (msg.type === 'get_state' || msg.type === 'prompt' || msg.type === 'abort') {",
+    "    process.stdout.write(JSON.stringify({ type: 'response', id: msg.id, success: true }) + '\\n')",
+    "  }",
+    "})",
+  ].join("\n")
+  await writeFile(script, source)
+
+  const pool = new PiRpcWorkerPool({ maxWorkers: 1 })
+  try {
+    const outcome = pool.run(
+      "runtime-abort",
+      {
+        command: process.execPath,
+        args: [script],
+        cwd: root,
+        env: process.env,
+      },
+      "stay active until aborted",
+      { hardTimeoutMs: 60_000, idleTimeoutMs: 60_000 },
+    ).then(
+      (value) => ({ value, error: null }),
+      (error) => ({ value: null, error }),
+    )
+
+    assert.equal(await waitFor(() => pool.status().activeWorkers === 1), true)
+    const aborted = await pool.abortActive()
+    assert.equal(aborted.aborted, 1)
+
+    const result = await outcome
+    assert.ok(result.error)
+    assert.equal(result.error.uesRpcPhase, "runtime")
+    assert.match(String(result.error.message || result.error), /UES RPC aborted/i)
+  } finally {
+    await pool.stopAll()
     await rm(root, { recursive: true, force: true })
   }
 })
