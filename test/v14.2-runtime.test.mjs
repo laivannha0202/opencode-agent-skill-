@@ -169,3 +169,66 @@ test("verification broker preserves concurrent receipts in one workspace", async
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("semantic runtime cache coalesces concurrent builds for one fingerprint", async () => {
+  const root = await gitRepo()
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    for (let index = 0; index < 40; index += 1) {
+      await writeFile(
+        path.join(root, "src", "f" + index + ".ts"),
+        "export const value" + index + " = " + index + "\n",
+      )
+    }
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    clearSemanticIndexRuntimeCache()
+    const snapshot = runtimeWorkspaceSnapshot(root)
+
+    const [first, second] = await Promise.all([
+      buildSemanticIndexCached(root, { workspaceFingerprint: snapshot.fingerprint, maxFiles: 200 }),
+      buildSemanticIndexCached(root, { workspaceFingerprint: snapshot.fingerprint, maxFiles: 200 }),
+    ])
+    assert.equal(first.index.files["src/f0.ts"] != null, true)
+    assert.equal(second.index.files["src/f0.ts"] != null, true)
+    assert.equal(
+      first.runtimeCacheCoalesced === true || second.runtimeCacheCoalesced === true,
+      true,
+    )
+  } finally {
+    clearSemanticIndexRuntimeCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("affected-test resolver coalesces concurrent identical scans", async () => {
+  const root = await gitRepo()
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await mkdir(path.join(root, "test"), { recursive: true })
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { test: "jest" } }))
+    await writeFile(path.join(root, "src", "thing.ts"), "export const thing = 1\n")
+    await writeFile(path.join(root, "test", "thing.spec.ts"), "import { thing } from '../src/thing'\ntest('thing',()=>thing)\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    await writeFile(path.join(root, "src", "thing.ts"), "export const thing = 2\n")
+    clearAffectedTestCache()
+    const snapshot = runtimeWorkspaceSnapshot(root)
+    const options = {
+      limit: 5,
+      changedFiles: snapshot.changedFiles,
+      workspaceFingerprint: snapshot.fingerprint,
+    }
+
+    const [first, second] = await Promise.all([
+      resolveAffectedTests(root, options),
+      resolveAffectedTests(root, options),
+    ])
+    assert.equal(first.tests[0]?.path, "test/thing.spec.ts")
+    assert.equal(second.tests[0]?.path, "test/thing.spec.ts")
+    assert.equal(first.cacheCoalesced === true || second.cacheCoalesced === true, true)
+  } finally {
+    clearAffectedTestCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
