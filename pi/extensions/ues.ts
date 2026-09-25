@@ -1965,7 +1965,9 @@ async function executeStructuredPlan(input: {
                 ...verification,
               });
               const passed = verification.exitCode === 0 && verification.verdict === "PASS";
-              await recordRuntimeOutcome(verification, taskText, passed, attempt - 1);
+              if (!isAbortedRun(verification)) {
+                await recordRuntimeOutcome(verification, taskText, passed, attempt - 1);
+              }
               completed += 1;
               input.onUpdate?.({
                 content: [{
@@ -2060,7 +2062,9 @@ async function executeStructuredPlan(input: {
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", ...implementation });
 
             if (implementation.exitCode !== 0 || implementation.stopReason === "error") {
-              await recordRuntimeOutcome(implementation, taskText, false, attempt - 1);
+              if (!isAbortedRun(implementation)) {
+                await recordRuntimeOutcome(implementation, taskText, false, attempt - 1);
+              }
               completed += 1;
               input.onUpdate?.({
                 content: [{ type: "text", text: `UES scheduler: wave ${waveIndex + 1}, ${completed}/${prepared.length} task(s) finished` }],
@@ -2105,7 +2109,9 @@ async function executeStructuredPlan(input: {
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", ...verification });
             const passed = verification.exitCode === 0 && verification.verdict === "PASS";
-            await recordRuntimeOutcome(implementation, taskText, passed, attempt - 1);
+            if (!isAbortedRun(verification)) {
+              await recordRuntimeOutcome(implementation, taskText, passed, attempt - 1);
+            }
             completed += 1;
             input.onUpdate?.({
               content: [{ type: "text", text: `UES scheduler: wave ${waveIndex + 1}, ${completed}/${prepared.length} task(s) verified` }],
