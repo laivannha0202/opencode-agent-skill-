@@ -1314,7 +1314,20 @@ async function runRoutedAgent(
         workspaceFingerprint:
           workspaceState.cacheable === true ? workspaceFingerprint : undefined,
       });
-      if (cacheableContext) rememberContextPack(cacheKey, pack);
+      if (cacheableContext) {
+        rememberContextPack(cacheKey, pack);
+        // Memory usage/accounting may update UES runtime metadata while building
+        // this pack. Store the same immutable pack under the post-build aux
+        // stamp too, so UES telemetry cannot invalidate its own context cache.
+        const postBuildKey = cachedContextKey(
+          cwd,
+          task,
+          role,
+          budgetDecision.budget,
+          workspaceFingerprint,
+        );
+        if (postBuildKey !== cacheKey) rememberContextPack(postBuildKey, pack);
+      }
     }
 
     if (MICRO_SKILLS_ENABLED) {
