@@ -1855,6 +1855,27 @@ async function executeStructuredPlan(input: {
 
                 const workspaceBefore = runtimeWorkspaceFingerprint(item.cwd);
                 const check = await runProcess(spec.command, spec.args, item.cwd, input.signal);
+                if (check.exitCode === 130 || check.stopReason === "aborted") {
+                  const abortOutput = `Declared verification command aborted: ${rendered}`;
+                  commandEvidence.push(abortOutput);
+                  results.push({
+                    wave: waveIndex,
+                    attempt,
+                    task: item.task.id,
+                    phase: "deterministic-check",
+                    fastPath: "deterministic-read-only",
+                    aborted: true,
+                    checks: [...commandEvidence],
+                  });
+                  return {
+                    item,
+                    implementation: null,
+                    verification: null,
+                    passed: false,
+                    aborted: true,
+                    abortOutput,
+                  };
+                }
                 const workspaceAfter = runtimeWorkspaceFingerprint(item.cwd);
                 const broker = await recordVerification(item.cwd, {
                   task: item.task.id,
@@ -1964,6 +1985,7 @@ async function executeStructuredPlan(input: {
                 implementation: null,
                 verification,
                 passed,
+                aborted: isAbortedRun(verification),
                 fastPath: "deterministic-read-only",
               };
             }
@@ -1997,6 +2019,15 @@ async function executeStructuredPlan(input: {
                 phase: "diagnose",
                 ...diagnosis,
               });
+              if (isAbortedRun(diagnosis)) {
+                return {
+                  item,
+                  implementation: null,
+                  verification: diagnosis,
+                  passed: false,
+                  aborted: true,
+                };
+              }
               if (diagnosis.exitCode === 0 && diagnosis.stopReason !== "error") {
                 focusedFailure = diagnosis.output;
               }
@@ -2035,7 +2066,13 @@ async function executeStructuredPlan(input: {
                 content: [{ type: "text", text: `UES scheduler: wave ${waveIndex + 1}, ${completed}/${prepared.length} task(s) finished` }],
                 details: { wave: waveIndex, attempt, task: item.task.id, phase: "execute" },
               });
-              return { item, implementation, verification: null, passed: false };
+              return {
+                item,
+                implementation,
+                verification: null,
+                passed: false,
+                aborted: isAbortedRun(implementation),
+              };
             }
 
             const verification = await runRoutedAgent(
@@ -2079,9 +2116,34 @@ async function executeStructuredPlan(input: {
               implementation,
               verification,
               passed,
+              aborted: isAbortedRun(verification),
             };
           },
         );
+
+        const aborted = waveResults.find((item) => item.aborted === true);
+        if (aborted) {
+          const abortFailure = String(
+            aborted.abortOutput ||
+            aborted.verification?.output ||
+            aborted.implementation?.output ||
+            "UES structured execution aborted by user.",
+          );
+          await failDurablePrepared(prepared, abortFailure);
+          await cleanupSandboxes(input.root, prepared);
+          return {
+            passed: false,
+            aborted: true,
+            reason: "aborted",
+            wave: waveIndex,
+            attempt,
+            failure: abortFailure,
+            validation,
+            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            results,
+            integrations,
+          };
+        }
 
         const failed = waveResults.filter((item) => !item.passed);
         if (failed.length) {
@@ -2197,6 +2259,20 @@ async function executeStructuredPlan(input: {
         );
         await cleanupSandboxes(input.root, prepared);
         lastWaveFailure = error instanceof Error ? error.message : String(error);
+        if (input.signal?.aborted) {
+          return {
+            passed: false,
+            aborted: true,
+            reason: "aborted",
+            wave: waveIndex,
+            attempt,
+            failure: lastWaveFailure || "UES structured execution aborted by user.",
+            validation,
+            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            results,
+            integrations,
+          };
+        }
         if (attempt < input.maxAttempts) continue;
         return {
           passed: false,
@@ -2442,6 +2518,24 @@ export default function (pi: ExtensionAPI) {
       let structuredPlan: any = null;
       let durableWork: any = null;
 
+      const abortedResponse = (result?: RunResult | null, stage = "execution") => ({
+        content: [{
+          type: "text",
+          text: `UES execution aborted by user during ${stage}.` +
+            (result?.output ? "\n\n" + result.output : ""),
+        }],
+        details: {
+          mode: "execute",
+          policy,
+          steps,
+          traceID,
+          aborted: true,
+          abortedStage: stage,
+          abortedAgent: result?.agent || null,
+        },
+        isError: true,
+      });
+
       const run = async (agent: AgentName, task: string, attempt = 1, failure?: string) => {
         const result = await runRoutedAgent(
           agent,
@@ -2481,6 +2575,7 @@ export default function (pi: ExtensionAPI) {
 
       if (shouldRunDedicatedDiagnosis(policy, 1)) {
         const diagnosis = await run("ues-debugger", params.task, 1);
+        if (isAbortedRun(diagnosis)) return abortedResponse(diagnosis, "diagnosis");
         if (diagnosis.exitCode !== 0 || diagnosis.stopReason === "error") {
           return {
             content: [{ type: "text", text: `Diagnosis failed:\n\n${diagnosis.output}` }],
@@ -2507,6 +2602,7 @@ export default function (pi: ExtensionAPI) {
           1,
           recentFailure || undefined,
         );
+        if (isAbortedRun(architect)) return abortedResponse(architect, "planning");
         if (architect.exitCode !== 0 || architect.stopReason === "error") {
           return {
             content: [{ type: "text", text: `Architecture pass failed:\n\n${architect.output}` }],
@@ -2528,6 +2624,7 @@ export default function (pi: ExtensionAPI) {
             "Return a corrected repository-grounded plan with the required marker and schema.",
           ].join("\n");
           architect = await run("ues-architect", planInstruction, 2, repairEvidence);
+          if (isAbortedRun(architect)) return abortedResponse(architect, "plan-repair");
           structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
           structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
           if (
@@ -2561,6 +2658,7 @@ export default function (pi: ExtensionAPI) {
           ].join("\n"),
           1,
         );
+        if (isAbortedRun(planCheck)) return abortedResponse(planCheck, "plan-verification");
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
             content: [{ type: "text", text: `Plan gate did not pass:\n\n${planCheck.output}` }],
@@ -2630,6 +2728,12 @@ export default function (pi: ExtensionAPI) {
           });
           for (const result of scheduled.results || []) steps.push(result as RunResult);
 
+          if (scheduled.aborted === true) {
+            return abortedResponse(
+              (scheduled.results || []).find((result: any) => isAbortedRun(result)) || null,
+              "structured-execution",
+            );
+          }
           if (!scheduled.passed) {
             return {
               content: [{
@@ -2663,6 +2767,7 @@ export default function (pi: ExtensionAPI) {
             ].join("\n"),
             1,
           );
+          if (isAbortedRun(integration)) return abortedResponse(integration, "integration-verification");
           if (integration.exitCode !== 0 || integration.verdict !== "PASS") {
             if (durableWork) {
               await durableRecordIntegration(
@@ -2700,6 +2805,7 @@ export default function (pi: ExtensionAPI) {
               ].join("\n"),
               1,
             );
+            if (isAbortedRun(visualResult)) return abortedResponse(visualResult, "visual-verification");
             if (visualResult.exitCode !== 0 || visualResult.verdict !== "PASS") {
               if (durableWork) {
                 await durableRecordIntegration(
@@ -2799,6 +2905,7 @@ export default function (pi: ExtensionAPI) {
             attempt,
             recentFailure || undefined,
           );
+          if (isAbortedRun(diagnosis)) return abortedResponse(diagnosis, "retry-diagnosis");
           if (diagnosis.exitCode !== 0 || diagnosis.stopReason === "error") {
             recentFailure = diagnosis.output;
             continue;
@@ -2818,6 +2925,7 @@ export default function (pi: ExtensionAPI) {
           attempt,
           recentFailure || undefined,
         );
+        if (isAbortedRun(implementation)) return abortedResponse(implementation, "implementation");
         if (implementation.exitCode !== 0 || implementation.stopReason === "error") {
           recentFailure = implementation.output;
           await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
@@ -2836,6 +2944,7 @@ export default function (pi: ExtensionAPI) {
           attempt,
           recentFailure || undefined,
         );
+        if (isAbortedRun(verification)) return abortedResponse(verification, "verification");
         const verified = verification.exitCode === 0 && verification.verdict === "PASS";
         await recordRuntimeOutcome(implementation, params.task, verified, attempt - 1);
         if (!verified) {
@@ -2855,6 +2964,7 @@ export default function (pi: ExtensionAPI) {
             ].join("\n"),
             attempt,
           );
+          if (isAbortedRun(integrationResult)) return abortedResponse(integrationResult, "integration-verification");
           if (integrationResult.exitCode !== 0 || integrationResult.verdict !== "PASS") {
             recentFailure = integrationResult.output;
             if (attempt < maxAttempts) continue;
@@ -2881,6 +2991,7 @@ export default function (pi: ExtensionAPI) {
             attempt,
             recentFailure || undefined,
           );
+          if (isAbortedRun(visualResult)) return abortedResponse(visualResult, "visual-verification");
           if (visualResult.exitCode !== 0 || visualResult.verdict !== "PASS") {
             recentFailure = visualResult.output;
             if (attempt < maxAttempts) continue;
