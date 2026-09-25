@@ -1287,6 +1287,7 @@ async function runRoutedAgent(
   let microSkills: any = null;
   let affectedTests: any = null;
   let reusableVerification: any = null;
+  let contextCacheHit = false;
   try {
     const cacheKey = cachedContextKey(
       cwd,
@@ -1299,7 +1300,7 @@ async function runRoutedAgent(
       workspaceState.cacheable === true &&
       workspaceFingerprint !== "unknown";
     let pack = cacheableContext ? CONTEXT_PACK_CACHE.get(cacheKey) : null;
-    const contextCacheHit = Boolean(pack);
+    contextCacheHit = Boolean(pack);
     if (!pack) {
       pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
         policy: runtimePolicy,
