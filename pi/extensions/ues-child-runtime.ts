@@ -5,9 +5,10 @@ import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
-
-const VERIFICATION_COMMAND =
-  /(?:^|\s|&&|;|\|)(?:pnpm|npm|yarn|bun|npx|node|python|pytest|go|cargo|dotnet|mvn|gradle|\.\/gradlew|gradlew\.bat)[^\n]*(?:test|jest|vitest|pytest|typecheck|tsc|lint|eslint|ruff|mypy|check|build|compile)/i;
+import {
+  canRecordReusableVerification,
+  looksLikeVerificationCommand,
+} from "../../lib/verification-command.mjs";
 
 const toolStartedAt = new Map<string, number>();
 
@@ -46,7 +47,7 @@ function visibleText(event: any) {
 }
 
 async function capturedText(event: any, fallback: string) {
-  const fullOutputPath = String(event.details?.fullOutputPath || "").trim();
+  const fullOutputPath = String((event.details as any)?.fullOutputPath || "").trim();
   if (!fullOutputPath) return { text: fallback, full: false, sourcePath: null };
 
   try {
@@ -81,7 +82,7 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    if (VERIFICATION_COMMAND.test(command) && (event.input as any)?.timeout == null) {
+    if (looksLikeVerificationCommand(command) && (event.input as any)?.timeout == null) {
       (event.input as any).timeout = configuredVerificationTimeout();
     }
     return undefined;
@@ -106,7 +107,7 @@ export default function (pi: ExtensionAPI) {
 
     if (
       ["bash", "powershell"].includes(toolName) &&
-      VERIFICATION_COMMAND.test(commandHint)
+      canRecordReusableVerification(commandHint)
     ) {
       const finishedAtMs = Date.now();
       const startedAtMs = toolStartedAt.get(String(event.toolCallId || "")) || finishedAtMs;
