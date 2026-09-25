@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 The project follows Semantic Versioning.
 
-## [Unreleased]
+## [14.1.0-beta.1] - 2026-09-24
 
 ### Added
 - V14.1 introduces a quality-preserving performance fabric for model-visible UES output. Oversized deterministic CLI output is compacted into a bounded head/high-signal/tail preview while the byte-exact original is stored in Evidence Store behind a recovery reference.
