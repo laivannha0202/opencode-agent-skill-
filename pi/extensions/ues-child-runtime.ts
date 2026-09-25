@@ -71,6 +71,10 @@ async function capturedText(event: any, fallback: string) {
 }
 
 export default function (pi: ExtensionAPI) {
+  const clearExecutionState = () => toolExecutionState.clear();
+  pi.on("session_start", clearExecutionState);
+  pi.on("session_shutdown", clearExecutionState);
+
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     if (!["bash", "powershell"].includes(toolName)) return undefined;
