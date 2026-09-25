@@ -58,6 +58,12 @@ test("micro-skill compiler selects bounded role/domain skills", async () => {
   assert.ok(compiled.loaded.length >= 1)
   assert.ok(compiled.chars <= 1800)
   assert.ok(compiled.text.length <= 1800)
+  assert.equal(compiled.cacheHit, false)
+
+  const cached = await compileSkillContext(policy, "executor", { totalChars: 1800 })
+  assert.deepEqual(cached.loaded, compiled.loaded)
+  assert.equal(cached.text, compiled.text)
+  assert.equal(cached.cacheHit, true)
 })
 
 test("affected-test resolver ranks a nearby referencing test", async () => {
