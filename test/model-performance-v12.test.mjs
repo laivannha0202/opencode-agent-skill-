@@ -24,3 +24,25 @@ test("empirical routing does not rerank from a single noisy observation", () => 
   const reranked = rerankCapabilitySelection(selection, history, { taskClass: "debugging", minSamples: 3 })
   assert.equal(reranked.selected.id, "provider/a")
 })
+
+test("V14.2 default empirical routing waits for the stronger sample floor", () => {
+  const selection = {
+    candidates: [
+      { id: "provider/a", eligible: true, score: 80 },
+      { id: "provider/b", eligible: true, score: 77 },
+    ],
+    selected: { id: "provider/a", eligible: true, score: 80 },
+  }
+  let history = {}
+  for (let i = 0; i < 6; i += 1) {
+    history = recordPerformanceOutcome(history, {
+      model: "provider/b",
+      taskClass: "debugging",
+      passed: true,
+      retries: 0,
+    })
+  }
+  const reranked = rerankCapabilitySelection(selection, history, { taskClass: "debugging" })
+  assert.equal(reranked.selected.id, "provider/a")
+  assert.equal(reranked.candidates.find((item) => item.id === "provider/b").empiricalConfidence < 1, true)
+})
