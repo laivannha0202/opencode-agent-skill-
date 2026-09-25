@@ -4,8 +4,8 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>14.0.0-beta.1</code>  
-**Nhánh phát triển hiện tại:** V14 + V14.1 quality-preserving performance work  
+**Phiên bản package hiện tại:** <code>14.2.0-beta.1</code>  
+**Nhánh phát triển hiện tại:** V14.2 Turbo Weak-Model Runtime  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
 
@@ -29,7 +29,8 @@
 12. [Worktree sandbox](#worktree-sandbox)
 13. [Evidence Store, receipts và verification gates](#evidence-store-receipts-và-verification-gates)
 14. [V14.1 reversible output compaction](#v141-reversible-output-compaction)
-15. [Verified Persistent Memory](#verified-persistent-memory)
+15. [V14.2 Turbo Weak-Model Runtime](#v142-turbo-weak-model-runtime)
+16. [Verified Persistent Memory](#verified-persistent-memory)
 16. [Capability Fabric](#capability-fabric)
 17. [Playwright / Browser MCP on-demand](#playwright--browser-mcp-on-demand)
 18. [Trajectory và observability](#trajectory-và-observability)
@@ -860,6 +861,70 @@ High-signal lines ưu tiên các pattern như:
 
 ---
 
+# V14.2 Turbo Weak-Model Runtime
+
+V14.2 tối ưu hot path cho model yếu/siêu yếu mà không hạ thinking hoặc bỏ verification gate.
+
+~~~mermaid
+flowchart TD
+    T[Task] --> P[Task Policy]
+    P --> C[Adaptive context]
+    C --> G[Semantic + dependency graph rank]
+    G --> S[Bounded micro-skills]
+    S --> W[Warm Pi RPC worker]
+
+    W --> E[Executor]
+    E --> R[Tool-boundary verification receipts]
+    R --> V[Verifier]
+
+    V -->|fresh receipt fully covers check| REUSE[Reuse exact PASS receipt]
+    V -->|missing/stale/high-risk| RUN[Run fresh check]
+
+    REUSE --> IV[Integration verification when required]
+    RUN --> IV
+
+    E --> O[Large tool output]
+    O --> COMP[Command-aware compaction]
+    COMP --> RAW[Raw bytes in Evidence Store]
+    RAW --> REC[Selective recovery on demand]
+~~~
+
+Các thay đổi chính:
+
+- warm Pi RPC worker pool với fresh session giữa specialist runs;
+- interactive steering/abort khi một child đang active;
+- unified process-tree supervisor + bounded I/O drain;
+- rolling Jest/open-handle detection;
+- adaptive role-aware context budgets;
+- runtime context + dependency-graph cache theo workspace fingerprint;
+- bounded micro-skill compiler thay vì load toàn bộ skill catalog;
+- affected-test hints;
+- verification receipt reuse chỉ khi fingerprint còn nguyên;
+- high-risk verifier không dùng receipt reuse optimization;
+- child test/lint/typecheck/build có timeout theo profile;
+- full shell output được recover từ Pi `fullOutputPath` khi có;
+- command-aware reversible compaction ngay ở child tool-result boundary;
+- JSON evidence selector để lấy đúng subtree;
+- personalized dependency graph ranking;
+- task-specific Browser MCP subset;
+- confidence-bound weak-model routing;
+- DEEP task auto-promote sang `.ues-work` durable workflow;
+- paired benchmark có turbo promotion gate: **quality non-regression + efficiency gain + zero controller false-PASS**.
+
+Các optimization quan trọng có thể rollback riêng:
+
+~~~text
+UES_CHILD_RUNTIME=cli
+UES_ADAPTIVE_CONTEXT=0
+UES_MICRO_SKILLS=0
+UES_AFFECTED_TEST_HINTS=0
+UES_CHILD_TOOL_COMPACTION=0
+~~~
+
+Chi tiết: `docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md`.
+
+---
+
 # Verified Persistent Memory
 
 Memory của UES không phải “chat memory tự do”. Retrieval chỉ dùng memory đủ điều kiện.
@@ -1334,7 +1399,7 @@ npm pack
 Package version hiện tại trong <code>package.json</code> là:
 
 ~~~text
-14.0.0-beta.1
+14.2.0-beta.1
 ~~~
 
 V14.1 hiện là incremental work trên package version đó.
@@ -1342,7 +1407,7 @@ V14.1 hiện là incremental work trên package version đó.
 Test file packed với Pi:
 
 ~~~cmd
-pi install .\opencode-agent-skill-14.0.0-beta.1.tgz
+pi install .\opencode-agent-skill-14.2.0-beta.1.tgz
 pi list
 ~~~
 
