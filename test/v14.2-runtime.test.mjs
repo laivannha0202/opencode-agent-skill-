@@ -392,6 +392,7 @@ test("simple verification commands canonicalize to executable plus args", () => 
       raw: 'npm test -- "test/payment refund.spec.ts"',
     },
   )
+  assert.equal(canonicalVerificationCommand("pnpm test && npm run typecheck"), null)
   assert.equal(canonicalVerificationCommand("pnpm test || true"), null)
   assert.equal(canonicalVerificationCommand("pnpm test | tee test.log"), null)
   assert.equal(canonicalVerificationCommand("powershell -Command pnpm test"), null)
