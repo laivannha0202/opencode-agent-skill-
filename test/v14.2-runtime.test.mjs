@@ -448,3 +448,24 @@ test("semantic index includes legitimate bin source while graph skips UES sandbo
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("runtime fingerprint changes when untracked file content changes", async () => {
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+
+    await writeFile(path.join(root, "draft.ts"), "export const value = 'one'\n")
+    const first = runtimeWorkspaceSnapshot(root)
+    assert.equal(first.cacheable, true)
+    assert.ok(first.changedFiles.includes("draft.ts"))
+
+    await writeFile(path.join(root, "draft.ts"), "export const value = 'two'\n")
+    const second = runtimeWorkspaceSnapshot(root)
+    assert.equal(second.cacheable, true)
+    assert.notEqual(second.fingerprint, first.fingerprint)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
