@@ -89,13 +89,13 @@ const CONTRACTS = [
     file: "lib/pi-rpc-pool.mjs",
     minBytes: 8_000,
     startsWith: "import ",
-    required: ["class RpcWorker", "steerActive", "abortActive", "stopAll"],
+    required: ["class RpcWorker", "steerActive", "abortActive", "abortTransport", "activeAbort", "uesRpcPhase", "stopAll"],
   },
   {
     file: "lib/workspace-fingerprint.mjs",
     minBytes: 3_000,
     startsWith: "import ",
-    required: ["runtimeWorkspaceFingerprint", "runtimeWorkspaceSnapshot", "changedFiles", "cacheable"],
+    required: ["runtimeWorkspaceFingerprint", "runtimeWorkspaceSnapshot", "changedFiles", "cacheable", "untrackedContentDigest", "untracked-total-too-large"],
   },
   {
     file: "lib/skill-compiler.mjs",
