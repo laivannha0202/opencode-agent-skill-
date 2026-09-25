@@ -14,6 +14,7 @@ import { runSupervisedProcess } from "../lib/process-supervisor.mjs"
 import { selectBrowserToolsForTask } from "../lib/browser-mcp-routing.mjs"
 import { rankContextGraph } from "../lib/context-graph-rank.mjs"
 import { destructiveShellAnalysis, shellCommandSegments } from "../lib/safety.mjs"
+import { getEvidenceSelected, putEvidence } from "../lib/evidence-store.mjs"
 
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" })
@@ -180,4 +181,20 @@ test("shell safety inspects compound command segments without splitting quoted o
   assert.equal(analysis.risky, true)
   assert.equal(analysis.id, "publish")
   assert.equal(analysis.findings[0].segment, "npm publish")
+})
+
+test("selective evidence retrieval returns only the requested JSON subtree", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v142-evidence-"))
+  try {
+    const stored = await putEvidence(root, {
+      errors: [{ code: "E_ONE", message: "first" }, { code: "E_TWO", message: "second" }],
+      meta: { ok: true },
+    }, { kind: "test-json" })
+    const selected = await getEvidenceSelected(root, stored.ref + "#/errors/1", { maxBytes: 4096 })
+    assert.match(selected.content, /E_TWO/)
+    assert.doesNotMatch(selected.content, /E_ONE/)
+    assert.equal(selected.selector, "/errors/1")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
