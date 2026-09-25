@@ -31,6 +31,46 @@ The project follows Semantic Versioning.
 - Added durable-context parity coverage for verified memory, provider hints, finalization memory, explicit memory file scope, and non-Git memory fingerprint isolation.
 - Added focused coverage proving backend tasks do not receive browser tools while E2E/visual tasks selectively receive detected Playwright MCP tools.
 
+## [14.2.0-beta.1] - 2026-09-25
+
+### Added
+- Added a persistent Pi RPC worker pool with fresh sessions between specialist runs, CLI fallback, bounded worker count, interactive steer forwarding and active-child abort support.
+- Added a unified process-tree supervisor with hard/idle timeout, output caps, Windows/POSIX tree termination and bounded I/O drain.
+- Added rolling streamed-output hang detection so split Jest open-handle warnings cannot evade the detector.
+- Added role-aware adaptive context budgets, runtime context caching, workspace-fingerprint invalidation and cached dependency graphs.
+- Added bounded micro-skill compilation so child agents receive selected domain/role rules without loading the full skill catalog.
+- Added changed-file affected-test hints and fresh verification-receipt reuse at unchanged workspace fingerprints.
+- Added a minimal child runtime extension for shell safety, verification-command timeout, tool-boundary receipts, full-output recovery and reversible compaction.
+- Added selective JSON evidence retrieval with `#/json/pointer` and dotted selectors.
+- Added personalized dependency-graph ranking to context selection.
+- Added task-specific Playwright/Browser MCP subsets.
+- Added confidence-bound empirical model routing and a larger default minimum sample threshold.
+- Added automatic DEEP/long-horizon promotion to durable `.ues-work` state with plan, task and integration receipts.
+- Added bounded operational trajectory events for controller/agent execution.
+- Added shell segment analysis for compound destructive-command detection.
+- Added baseline-contamination detection and a turbo benchmark promotion gate for quality non-regression plus efficiency improvement.
+
+### Changed
+- Test/lint/typecheck/build commands executed by child agents now receive policy-bounded default timeouts when no timeout was specified.
+- Low/medium-risk verifiers can consume fresh executable-check receipts captured at the tool boundary; high-risk verification keeps independent fresh checking.
+- Child output compaction runs before the result returns to the model and preserves recoverable Evidence Store references.
+- Pi shell `fullOutputPath` is used when available so raw evidence is not limited to the already-truncated model-visible result.
+- Browser MCP exposure is reduced from the discovered provider set to the subset relevant to the current browser/visual task.
+- Model-performance reranking now uses a Wilson lower confidence bound instead of letting very small samples move weak-model selection.
+
+### Safety
+- Thinking level is not lowered by V14.2.
+- Verifier, integration-verifier and visual-verifier gates remain in place.
+- High-risk tasks disable child output compaction and receipt-reuse optimization by default.
+- Child runtime independently blocks destructive shell commands even if the parent UES extension is not rediscovered inside the child.
+- Non-Git runtime caches fail closed instead of reusing a root-only fingerprint.
+- DEEP tasks refuse to report durable PASS when durable initialization or finalization cannot produce fresh receipts.
+
+### Regression coverage
+- Added V14.2 tests for adaptive context, micro-skills, affected tests, receipt freshness, process supervision, browser tool minimization, non-Git cache isolation, graph ranking, shell segment safety and selective evidence retrieval.
+- Added benchmark tests for quality-parity efficiency promotion and controller false-PASS rejection.
+- Extended Pi/package smoke contracts for the minimal child runtime, steering, process supervision, safety and full-output recovery.
+
 ## [14.0.0-beta.1] - 2026-09-24
 
 ### Added
