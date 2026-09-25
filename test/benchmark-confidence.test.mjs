@@ -106,6 +106,7 @@ test("V14.2 turbo gate accepts quality parity only when efficiency improves and 
         passed: index < 20, durationMs: 120,
         graderExit: index < 20 ? 0 : 1,
         telemetry: {
+          controllerUsed: true,
           controllerPass: index < 20,
           firstUsage: { input: 900 },
           tokens: { total: 1900 },
@@ -134,6 +135,7 @@ test("V14.2 turbo gate rejects controller false PASS even when faster", () => {
         suite: "live", task: "false-pass-" + index, trial: 1, mode: "ues",
         passed: index !== 0, durationMs: 100, graderExit: index === 0 ? 1 : 0,
         telemetry: {
+          controllerUsed: true,
           controllerPass: true,
           firstUsage: { input: 800 },
           tokens: { total: 1500 },
@@ -144,5 +146,58 @@ test("V14.2 turbo gate rejects controller false PASS even when faster", () => {
   const report = pairedBenchmarkConfidence(results, { qualityRegressionTolerance: 0.1 })
   assert.equal(report.turbo.uesFalsePasses, 1)
   assert.equal(report.turbo.checks.noControllerFalsePass, false)
+  assert.equal(report.turbo.promotionEligible, false)
+})
+
+test("V14.2 turbo gate rejects missing baseline isolation evidence", () => {
+  const results = []
+  for (let index = 0; index < 20; index += 1) {
+    results.push(
+      {
+        suite: "live", task: "isolation-" + index, trial: 1, mode: "baseline",
+        passed: true, durationMs: 200, graderExit: 0,
+        telemetry: { firstUsage: { input: 1200 }, tokens: { total: 2500 } },
+      },
+      {
+        suite: "live", task: "isolation-" + index, trial: 1, mode: "ues",
+        passed: true, durationMs: 100, graderExit: 0,
+        telemetry: {
+          controllerUsed: true,
+          controllerPass: true,
+          firstUsage: { input: 800 },
+          tokens: { total: 1500 },
+        },
+      },
+    )
+  }
+  const report = pairedBenchmarkConfidence(results)
+  assert.equal(report.turbo.baselineIsolationUnknown, 20)
+  assert.equal(report.turbo.checks.baselineIsolated, false)
+  assert.equal(report.turbo.promotionEligible, false)
+})
+
+test("V14.2 turbo gate rejects runs without explicit UES controller telemetry", () => {
+  const results = []
+  for (let index = 0; index < 20; index += 1) {
+    results.push(
+      {
+        suite: "live", task: "controller-" + index, trial: 1, mode: "baseline",
+        passed: true, baselineIsolated: true, durationMs: 200, graderExit: 0,
+        telemetry: { firstUsage: { input: 1200 }, tokens: { total: 2500 } },
+      },
+      {
+        suite: "live", task: "controller-" + index, trial: 1, mode: "ues",
+        passed: true, durationMs: 100, graderExit: 0,
+        telemetry: {
+          controllerPass: true,
+          firstUsage: { input: 800 },
+          tokens: { total: 1500 },
+        },
+      },
+    )
+  }
+  const report = pairedBenchmarkConfidence(results)
+  assert.equal(report.turbo.uesControllerUnproven, 20)
+  assert.equal(report.turbo.checks.uesControllerUsed, false)
   assert.equal(report.turbo.promotionEligible, false)
 })
