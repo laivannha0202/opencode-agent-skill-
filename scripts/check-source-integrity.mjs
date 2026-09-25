@@ -28,6 +28,7 @@ const CONTRACTS = [
       'pi.on("tool_result"',
       'name: "ues_evidence_get"',
       "recordVerification",
+      "canonicalVerificationCommand",
       "destructiveShellRisk",
     ],
   },
@@ -101,6 +102,16 @@ const CONTRACTS = [
     minBytes: 4_000,
     startsWith: "import ",
     required: ["compileSkillContext", "clearSkillCompilerCache", "COMPILED_SKILL_CACHE.set", "return result"],
+  },
+  {
+    file: "lib/verification-command.mjs",
+    minBytes: 2_000,
+    startsWith: "export const VERIFICATION_COMMAND_RE",
+    required: [
+      "looksLikeVerificationCommand",
+      "canRecordReusableVerification",
+      "canonicalVerificationCommand",
+    ],
   },
   {
     file: "lib/affected-tests.mjs",
