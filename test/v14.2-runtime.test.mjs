@@ -151,6 +151,43 @@ test("verification broker reuses PASS only for unchanged workspace", async () =>
   }
 })
 
+test("verification broker exact executable+args keys do not cross-reuse", async () => {
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "a.txt"), "one\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    const fp = runtimeWorkspaceFingerprint(root)
+
+    await recordVerification(root, {
+      command: "pnpm",
+      args: ["test", "--", "refund.spec.ts"],
+      exitCode: 0,
+      stdout: "PASS refund.spec.ts",
+      stderr: "",
+      workspaceBefore: fp,
+      workspaceAfter: fp,
+      durationMs: 1,
+    })
+
+    const exact = await findReusableVerification(
+      root,
+      "pnpm",
+      ["test", "--", "refund.spec.ts"],
+    )
+    assert.equal(exact?.receipt?.passed, true)
+
+    const different = await findReusableVerification(
+      root,
+      "pnpm",
+      ["test", "--", "payment.spec.ts"],
+    )
+    assert.equal(different, null)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("process supervisor caps output and times out process trees", async () => {
   const output = await runSupervisedProcess(process.execPath, ["-e", "process.stdout.write('x'.repeat(10000))"], {
     stdoutLimit: 2048,
