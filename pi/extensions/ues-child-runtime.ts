@@ -4,13 +4,18 @@ import { readFile, stat } from "node:fs/promises";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
+import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
 import {
   canRecordReusableVerification,
   looksLikeVerificationCommand,
 } from "../../lib/verification-command.mjs";
 
-const toolStartedAt = new Map<string, number>();
+const toolExecutionState = new Map<string, {
+  startedAt: number;
+  workspaceBefore?: string;
+  reusableCandidate: boolean;
+}>();
 
 function configuredLimit() {
   const raw = Number(process.env.UES_CHILD_TOOL_OUTPUT_LIMIT || 24 * 1024);
@@ -73,7 +78,7 @@ export default function (pi: ExtensionAPI) {
     const command = String((event.input as any)?.command || "");
     const risk = destructiveShellRisk(command);
     if (risk.risky) {
-      toolStartedAt.delete(String(event.toolCallId || ""));
+      toolExecutionState.delete(String(event.toolCallId || ""));
       return {
         block: true,
         reason:
@@ -82,7 +87,17 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    toolStartedAt.set(String(event.toolCallId || ""), Date.now());
+    const reusableCandidate = canRecordReusableVerification(command);
+    const workspaceBefore = reusableCandidate
+      ? (() => {
+          try { return runtimeWorkspaceFingerprint(process.cwd()); } catch { return undefined; }
+        })()
+      : undefined;
+    toolExecutionState.set(String(event.toolCallId || ""), {
+      startedAt: Date.now(),
+      workspaceBefore,
+      reusableCandidate,
+    });
     if (looksLikeVerificationCommand(command) && (event.input as any)?.timeout == null) {
       (event.input as any).timeout = configuredVerificationTimeout();
     }
@@ -106,24 +121,32 @@ export default function (pi: ExtensionAPI) {
       "tool",
     );
 
+    const executionState = toolExecutionState.get(String(event.toolCallId || ""));
     if (
       ["bash", "powershell"].includes(toolName) &&
-      canRecordReusableVerification(commandHint)
+      executionState?.reusableCandidate === true &&
+      executionState.workspaceBefore &&
+      !event.isError
     ) {
       const finishedAtMs = Date.now();
-      const startedAtMs = toolStartedAt.get(String(event.toolCallId || "")) || finishedAtMs;
-      await recordVerification(ctx.cwd, {
-        command: "shell",
-        args: [commandHint],
-        exitCode: shellExitCode(event, shownText || rawText),
-        stdout: rawText,
-        stderr: event.isError ? rawText : "",
-        startedAt: new Date(startedAtMs).toISOString(),
-        finishedAt: new Date(finishedAtMs).toISOString(),
-        durationMs: Math.max(0, finishedAtMs - startedAtMs),
-      }).catch(() => null);
+      let workspaceAfter: string | undefined;
+      try { workspaceAfter = runtimeWorkspaceFingerprint(ctx.cwd); } catch {}
+      if (workspaceAfter && workspaceAfter === executionState.workspaceBefore) {
+        await recordVerification(ctx.cwd, {
+          command: "shell",
+          args: [commandHint],
+          exitCode: shellExitCode(event, shownText || rawText),
+          stdout: rawText,
+          stderr: "",
+          startedAt: new Date(executionState.startedAt).toISOString(),
+          finishedAt: new Date(finishedAtMs).toISOString(),
+          durationMs: Math.max(0, finishedAtMs - executionState.startedAt),
+          workspaceBefore: executionState.workspaceBefore,
+          workspaceAfter,
+        }).catch(() => null);
+      }
     }
-    toolStartedAt.delete(String(event.toolCallId || ""));
+    toolExecutionState.delete(String(event.toolCallId || ""));
 
     if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
     const maxChars = configuredLimit();
