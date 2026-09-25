@@ -106,7 +106,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     const readmeVersion = versionMatches[0]?.[1] || null
     if (!readmeVersion) errors.push("README.md: could not find current package version")
     else if (readmeVersion !== version) errors.push(`README.md: current version says ${readmeVersion}, expected ${version}`)
-    for (const marker of ["**Pi Agent**", "`ues_execute`", "`ues_dispatch`", "`ues_cli`", "V14.2 Turbo Weak-Model Runtime"]) {
+    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime"]) {
       if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
     }
   }
