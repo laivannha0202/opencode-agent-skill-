@@ -1275,7 +1275,8 @@ async function runRoutedAgent(
       budgetDecision.budget,
       workspaceFingerprint,
     );
-    let pack = CONTEXT_PACK_CACHE.get(cacheKey);
+    const cacheableContext = workspaceFingerprint !== "unknown";
+    let pack = cacheableContext ? CONTEXT_PACK_CACHE.get(cacheKey) : null;
     const contextCacheHit = Boolean(pack);
     if (!pack) {
       pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
@@ -1287,7 +1288,7 @@ async function runRoutedAgent(
           vision: visualEvidenceNeeded(task),
         },
       });
-      rememberContextPack(cacheKey, pack);
+      if (cacheableContext) rememberContextPack(cacheKey, pack);
     }
 
     if (MICRO_SKILLS_ENABLED) {
@@ -1303,7 +1304,7 @@ async function runRoutedAgent(
     ) {
       affectedTests = await resolveAffectedTests(cwd, {
         limit: 10,
-        workspaceFingerprint,
+        ...(workspaceFingerprint !== "unknown" ? { workspaceFingerprint } : {}),
       }).catch(() => null);
     }
 
@@ -1315,7 +1316,7 @@ async function runRoutedAgent(
         limit: 8,
         maxAgeMs: 30 * 60_000,
         previewBytes: 2200,
-        workspaceFingerprint,
+        ...(workspaceFingerprint !== "unknown" ? { workspaceFingerprint } : {}),
       }).catch(() => null);
     }
 
