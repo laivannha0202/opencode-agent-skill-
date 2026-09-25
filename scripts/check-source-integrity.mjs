@@ -117,6 +117,31 @@ const CONTRACTS = [
     ],
   },
   {
+    file: "lib/verification-broker.mjs",
+    minBytes: 8_000,
+    startsWith: "import ",
+    required: [
+      "recordVerification",
+      "findReusableVerification",
+      "listReusableVerification",
+      "withCrossProcessCacheLock",
+      "entryMatchesKey",
+      "freshEnough",
+    ],
+  },
+  {
+    file: "test/v14.2-runtime.test.mjs",
+    minBytes: 30_000,
+    startsWith: 'import assert from "node:assert/strict"',
+    required: [
+      'test("V14.2 hot-path helper exports are live"',
+      'test("external RPC abort rejects the active run instead of settling normally"',
+      'test("verification broker preserves concurrent receipts in one workspace"',
+      'test("RPC pool never evicts an active worker when an idle-capacity limit is exceeded"',
+    ],
+  },
+
+  {
     file: "lib/affected-tests.mjs",
     minBytes: 7_500,
     startsWith: "import ",
