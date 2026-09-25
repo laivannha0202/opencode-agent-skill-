@@ -1078,6 +1078,11 @@ function verdictFromOutput(output: string) {
   return match ? match[1].toUpperCase() : null;
 }
 
+function runtimeFailureNeedsDiagnosis(value: string) {
+  return /(hung-tool|jest-open-handle|hard timeout|idle timeout|tool-error-stall|post-tool-error|did not recover after a failed\/aborted tool|timed out|timeout after)/i
+    .test(String(value || ""));
+}
+
 function parseStructuredReport(output: string) {
   const sections: Record<string, string> = {};
   let current: string | null = null;
@@ -1851,9 +1856,45 @@ async function executeStructuredPlan(input: {
               };
             }
 
+            let focusedFailure = lastWaveFailure;
+            if (attempt > 1 && runtimeFailureNeedsDiagnosis(lastWaveFailure)) {
+              const diagnosis = await runRoutedAgent(
+                "ues-debugger",
+                [
+                  "Diagnose this structured task after a runtime/test-process failure before another edit attempt.",
+                  "Use fresh repository evidence. Identify the leaked handle, timeout cause, failed command, or process-lifecycle defect; do not hide it with force-exit unless the task explicitly requires that behavior.",
+                  "",
+                  JSON.stringify(item.task, null, 2),
+                  "",
+                  "Previous runtime failure:",
+                  cap(lastWaveFailure, 7000),
+                ].join("\n"),
+                item.cwd,
+                input.inheritedModel,
+                input.inheritedThinking,
+                attempt,
+                lastWaveFailure,
+                input.signal,
+                undefined,
+                input.traceID,
+              );
+              results.push({
+                wave: waveIndex,
+                attempt,
+                task: item.task.id,
+                phase: "diagnose",
+                ...diagnosis,
+              });
+              if (diagnosis.exitCode === 0 && diagnosis.stopReason !== "error") {
+                focusedFailure = diagnosis.output;
+              }
+            }
+
             const implementation = await runRoutedAgent(
               "ues-executor",
-              taskText,
+              taskText + (focusedFailure && focusedFailure !== lastWaveFailure
+                ? "\n\nFocused diagnosis before retry:\n" + cap(focusedFailure, 7000)
+                : ""),
               item.cwd,
               input.inheritedModel,
               input.inheritedThinking,
@@ -2116,7 +2157,10 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("input", async (event, ctx) => {
     if (process.env.UES_CHILD_PROCESS === "1") return { action: "continue" };
-    if (event.source !== "interactive" || event.streamingBehavior !== "steer") {
+    if (
+      event.source !== "interactive" ||
+      !["steer", "followUp"].includes(String(event.streamingBehavior || ""))
+    ) {
       return { action: "continue" };
     }
 
@@ -2612,7 +2656,13 @@ export default function (pi: ExtensionAPI) {
       }
 
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (attempt > 1 && shouldRunDedicatedDiagnosis(policy, attempt)) {
+        if (
+          attempt > 1 &&
+          (
+            shouldRunDedicatedDiagnosis(policy, attempt) ||
+            runtimeFailureNeedsDiagnosis(recentFailure)
+          )
+        ) {
           const diagnosis = await run(
             "ues-debugger",
             [
