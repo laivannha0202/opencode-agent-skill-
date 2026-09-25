@@ -35,6 +35,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.ok(fs.existsSync(extensionPath))
 
   const source = fs.readFileSync(extensionPath, "utf8")
+  assert.ok(source.length > 80_000, "UES controller appears truncated")
+  assert.ok(source.split(/\r?\n/).length > 2_000, "UES controller lost most of its source lines")
   assert.match(source, /name:\s*"ues_cli"/)
   assert.match(source, /name:\s*"ues_dispatch"/)
   assert.match(source, /name:\s*"ues_execute"/)
