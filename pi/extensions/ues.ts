@@ -889,6 +889,7 @@ async function runAgentRpc(
     invocation.args,
     Boolean(runtimeOptions.compactToolOutput),
     Number(runtimeOptions.toolOutputLimit || 0),
+    Number(runtimeOptions.verificationTimeoutSec || 0),
   ]);
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
