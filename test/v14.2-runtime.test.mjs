@@ -9,7 +9,7 @@ import { adaptiveContextBudget } from "../lib/adaptive-context-budget.mjs"
 import { compileSkillContext, selectSkillNames } from "../lib/skill-compiler.mjs"
 import { resolveAffectedTests } from "../lib/affected-tests.mjs"
 import { findReusableVerification, recordVerification } from "../lib/verification-broker.mjs"
-import { runtimeWorkspaceFingerprint } from "../lib/workspace-fingerprint.mjs"
+import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../lib/workspace-fingerprint.mjs"
 import { runSupervisedProcess } from "../lib/process-supervisor.mjs"
 import { selectBrowserToolsForTask } from "../lib/browser-mcp-routing.mjs"
 import { rankContextGraph } from "../lib/context-graph-rank.mjs"
@@ -255,4 +255,62 @@ test("verification receipt eligibility rejects masked shell exits", () => {
   assert.equal(canRecordReusableVerification("pnpm test | tee test.log"), false)
   assert.equal(canRecordReusableVerification("pnpm test\necho done"), false)
   assert.equal(canRecordReusableVerification("pnpm test & echo background"), false)
+})
+
+test("workspace snapshot shares fingerprint and changed-file evidence", async () => {
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "one\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    await writeFile(path.join(root, "tracked.txt"), "two\n")
+
+    const snapshot = runtimeWorkspaceSnapshot(root)
+    assert.equal(snapshot.git, true)
+    assert.equal(snapshot.cacheable, true)
+    assert.ok(snapshot.changedFiles.includes("tracked.txt"))
+    assert.equal(snapshot.fingerprint, runtimeWorkspaceFingerprint(root))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("affected-test cache reuses only an identical workspace snapshot", async () => {
+  const root = await gitRepo()
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await mkdir(path.join(root, "test"), { recursive: true })
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ scripts: { test: "jest" } }))
+    await writeFile(path.join(root, "src", "thing.ts"), "export const thing = 1\n")
+    await writeFile(path.join(root, "test", "thing.spec.ts"), "import { thing } from '../src/thing'\ntest('thing',()=>thing)\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    await writeFile(path.join(root, "src", "thing.ts"), "export const thing = 2\n")
+    const snapshot = runtimeWorkspaceSnapshot(root)
+
+    const first = await resolveAffectedTests(root, {
+      limit: 5,
+      changedFiles: snapshot.changedFiles,
+      workspaceFingerprint: snapshot.fingerprint,
+    })
+    const second = await resolveAffectedTests(root, {
+      limit: 5,
+      changedFiles: snapshot.changedFiles,
+      workspaceFingerprint: snapshot.fingerprint,
+    })
+    assert.equal(first.cacheHit, false)
+    assert.equal(second.cacheHit, true)
+    assert.equal(second.tests[0]?.path, "test/thing.spec.ts")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("micro-skill compiler reuses bounded compiled excerpts", async () => {
+  const policy = { maxSkills: 2, domains: ["payment"] }
+  const first = await compileSkillContext(policy, "executor", { totalChars: 1600 })
+  const second = await compileSkillContext(policy, "executor", { totalChars: 1600 })
+  assert.equal(first.cacheHit, false)
+  assert.equal(second.cacheHit, true)
+  assert.equal(second.text, first.text)
 })
