@@ -138,8 +138,7 @@ function abortActiveCliChildren() {
   for (const [pid, proc] of [...ACTIVE_CLI_CHILDREN.entries()]) {
     ACTIVE_CLI_CHILDREN.delete(pid);
     try {
-      stopChildTree(proc);
-      aborted += 1;
+      if (stopChildTree(proc)) aborted += 1;
     } catch {}
   }
   return aborted;
@@ -168,7 +167,7 @@ function refreshHostBrowserToolNames(pi: ExtensionAPI) {
 }
 
 function stopChildTree(proc: any) {
-  terminateProcessTree(proc, { graceMs: 1500 });
+  return terminateProcessTree(proc, { graceMs: 1500 });
 }
 
 const READ_TOOLS = ["read", "grep", "find", "ls", "bash", "powershell"] as const;
