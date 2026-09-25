@@ -1585,6 +1585,10 @@ async function executeStructuredPlan(input: {
   const dynamic = planDynamicWorkflow(input.plan.tasks, {
     maxConcurrent: MAX_CONCURRENCY,
     maxLLMConcurrent: MAX_CONCURRENCY,
+    // Structured execution currently has a real deterministic fast path, but
+    // semantic code edits still require a model worker. Do not report phantom
+    // inline savings until the controller owns a true inline edit path.
+    allowInline: false,
   });
   const taskByID = new Map(input.plan.tasks.map((task: any) => [task.id, task]));
   const dynamicTaskByID = new Map(
