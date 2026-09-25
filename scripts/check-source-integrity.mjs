@@ -41,7 +41,7 @@ const CONTRACTS = [
     file: "lib/task-engine.mjs",
     minBytes: 45_000,
     startsWith: "import ",
-    required: ["workspaceFingerprint", "initializeWork", "finalizeWork"],
+    required: ["workspaceFingerprint", "initWork", "finalizeWork"],
   },
   {
     file: "lib/model-performance.mjs",
