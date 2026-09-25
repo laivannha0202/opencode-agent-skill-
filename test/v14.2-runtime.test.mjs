@@ -6,8 +6,8 @@ import { spawnSync } from "node:child_process"
 import test from "node:test"
 
 import { adaptiveContextBudget } from "../lib/adaptive-context-budget.mjs"
-import { compileSkillContext, selectSkillNames } from "../lib/skill-compiler.mjs"
-import { resolveAffectedTests } from "../lib/affected-tests.mjs"
+import { clearSkillCompilerCache, compileSkillContext, selectSkillNames } from "../lib/skill-compiler.mjs"
+import { clearAffectedTestCache, resolveAffectedTests } from "../lib/affected-tests.mjs"
 import { findReusableVerification, recordVerification } from "../lib/verification-broker.mjs"
 import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../lib/workspace-fingerprint.mjs"
 import { runSupervisedProcess } from "../lib/process-supervisor.mjs"
@@ -33,6 +33,26 @@ async function gitRepo() {
   git(root, ["config", "user.name", "UES Test"])
   return root
 }
+
+test("V14.2 hot-path helper exports are live", async () => {
+  assert.equal(typeof clearSkillCompilerCache, "function")
+  assert.equal(typeof clearAffectedTestCache, "function")
+  assert.equal(typeof runtimeWorkspaceSnapshot, "function")
+
+  const root = await gitRepo()
+  try {
+    await writeFile(path.join(root, "a.txt"), "one\n")
+    git(root, ["add", "."])
+    git(root, ["commit", "-m", "base"])
+    const snapshot = runtimeWorkspaceSnapshot(root)
+    assert.equal(snapshot.cacheable, true)
+    assert.equal(snapshot.git, true)
+    assert.equal(typeof snapshot.fingerprint, "string")
+    assert.deepEqual(snapshot.changedFiles, [])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 test("adaptive context shrinks low-risk roles and expands after failure", () => {
   const policy = {
