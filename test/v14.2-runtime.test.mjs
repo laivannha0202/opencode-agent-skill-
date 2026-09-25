@@ -15,6 +15,11 @@ import { selectBrowserToolsForTask } from "../lib/browser-mcp-routing.mjs"
 import { rankContextGraph } from "../lib/context-graph-rank.mjs"
 import { destructiveShellAnalysis, shellCommandSegments } from "../lib/safety.mjs"
 import { getEvidenceSelected, putEvidence } from "../lib/evidence-store.mjs"
+import {
+  canRecordReusableVerification,
+  hasMaskedShellExitRisk,
+  looksLikeVerificationCommand,
+} from "../lib/verification-command.mjs"
 
 function git(cwd, args) {
   const result = spawnSync("git", args, { cwd, encoding: "utf8" })
@@ -237,4 +242,17 @@ test("process supervisor reports user abort with shell-style exit code 130", asy
   const result = await promise
   assert.equal(result.stopReason, "aborted")
   assert.equal(result.exitCode, 130)
+})
+
+test("verification receipt eligibility rejects masked shell exits", () => {
+  assert.equal(looksLikeVerificationCommand("pnpm test"), true)
+  assert.equal(canRecordReusableVerification("pnpm test"), true)
+  assert.equal(canRecordReusableVerification("pnpm test && npm run typecheck"), true)
+
+  assert.equal(hasMaskedShellExitRisk("pnpm test || true"), true)
+  assert.equal(canRecordReusableVerification("pnpm test || true"), false)
+  assert.equal(canRecordReusableVerification("pnpm test ; echo done"), false)
+  assert.equal(canRecordReusableVerification("pnpm test | tee test.log"), false)
+  assert.equal(canRecordReusableVerification("pnpm test\necho done"), false)
+  assert.equal(canRecordReusableVerification("pnpm test & echo background"), false)
 })
