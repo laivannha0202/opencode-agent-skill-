@@ -74,10 +74,12 @@ test("release checker fails on README current version mismatch", () => {
   try {
     fillFixture(tmp)
     const readmePath = path.join(tmp, "README.md")
-    const readme = readFileSync(readmePath, "utf8").replace(
-      /(Phiên bản hiện tại:\s*\n```text\n)\S+/,
-      (_match, prefix) => prefix + "9.0.0",
+    const original = readFileSync(readmePath, "utf8")
+    const readme = original.replace(
+      /(Phiên bản package hiện tại:\*\*\s*<code>)[^<]+(<\/code>)/i,
+      (_match, prefix, suffix) => prefix + "9.0.0" + suffix,
     )
+    assert.notEqual(readme, original, "README version fixture mutation did not match current format")
     writeFileSync(readmePath, readme)
     const result = checkReleaseConsistency(tmp)
     assert.equal(result.pass, false)
