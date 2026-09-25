@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "14.0.0-beta.1",
+  "version": "14.2.0-beta.1",
   "description": "Pi Agent engineering runtime with hierarchical context, verified persistent memory, learned capability failover, durable evidence, and evidence-gated verification",
   "type": "module",
   "bin": {
@@ -20,6 +20,7 @@
     "evals/",
     "docs/V14-CONTEXT-MEMORY-FABRIC.md",
     "docs/V14.1-QUALITY-PERFORMANCE-FABRIC.md",
+    "docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md",
     "docs/PI-COMPAT.md",
     "docs/OPENCODE-COMPAT.md",
     "README.md",
