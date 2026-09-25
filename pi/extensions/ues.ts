@@ -201,6 +201,9 @@ type RunResult = {
   report?: any;
   browserRequested?: boolean;
   browserTools?: string[];
+  childRuntime?: "rpc" | "cli";
+  workerReused?: boolean;
+  optimizations?: any;
 };
 
 function cap(text: string, limit = OUTPUT_LIMIT) {
@@ -806,6 +809,8 @@ async function runAgentCli(
     toolCalls,
     toolNames: [...toolNames],
     browserTools: [...extraTools],
+    childRuntime: "cli",
+    workerReused: false,
   };
 }
 
@@ -975,6 +980,8 @@ async function runAgentRpc(
       toolCalls: rpc.toolCalls ?? toolCalls,
       toolNames: rpc.toolNames?.length ? rpc.toolNames : [...toolNames],
       browserTools: [...extraTools],
+      childRuntime: "rpc",
+      workerReused: rpc.workerReused === true,
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -997,6 +1004,8 @@ async function runAgentRpc(
         toolCalls,
         toolNames: [...toolNames],
         browserTools: [...extraTools],
+        childRuntime: "rpc",
+        workerReused: false,
       };
     }
     if (signal?.aborted || /UES RPC aborted/i.test(message)) {
@@ -1436,6 +1445,20 @@ async function runRoutedAgent(
     contextError,
     browserRequested,
     browserTools,
+    optimizations: {
+      workspaceSnapshotCacheable: workspaceState.cacheable === true,
+      contextCacheHit,
+      microSkillCacheHit: microSkills?.cacheHit === true,
+      affectedTestCacheHit: affectedTests?.cacheHit === true,
+      reusableVerificationReceipts: Number(reusableVerification?.count || 0),
+      childRuntime: result.childRuntime || null,
+      warmWorkerReused: result.workerReused === true,
+      compactToolOutput:
+        CHILD_TOOL_COMPACTION_ENABLED &&
+        !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase()),
+      runtimeContextBudget: budgetDecision.budget,
+      baseContextBudget: budgetDecision.baseBudget,
+    },
     verdict: verdictFromOutput(result.output),
     report: parseStructuredReport(result.output),
     durationMs: Date.now() - startedAt,
