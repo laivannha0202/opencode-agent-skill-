@@ -2,6 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 
 import {
+  createToolOutputAccumulator,
   detectHungToolEvidence,
   isToolExecutionError,
   toolResultText,
@@ -57,4 +58,16 @@ test("recognizes Pi tool execution errors", () => {
     isToolExecutionError({ type: "tool_execution_end", isError: false }),
     false,
   )
+})
+
+test("detects a Jest open-handle warning split across streamed chunks", () => {
+  const accumulator = createToolOutputAccumulator({ maxChars: 2000 })
+  const first = accumulator.append("call-1", "Jest did not exit one second after the test ")
+  assert.equal(detectHungToolEvidence({ toolName: "bash", text: first }), null)
+  const second = accumulator.append(
+    "call-1",
+    "run has completed.\nConsider running Jest with --detectOpenHandles to troubleshoot this issue.",
+  )
+  const detected = detectHungToolEvidence({ toolName: "bash", text: second })
+  assert.equal(detected?.kind, "jest-open-handle")
 })
