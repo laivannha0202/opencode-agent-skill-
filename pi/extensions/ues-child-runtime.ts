@@ -8,6 +8,7 @@ import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs
 import { destructiveShellRisk } from "../../lib/safety.mjs";
 import {
   canRecordReusableVerification,
+  canonicalVerificationCommand,
   looksLikeVerificationCommand,
 } from "../../lib/verification-command.mjs";
 
@@ -15,6 +16,7 @@ const toolExecutionState = new Map<string, {
   startedAt: number;
   workspaceBefore?: string;
   reusableCandidate: boolean;
+  canonicalVerification?: { command: string; args: string[]; raw: string } | null;
 }>();
 
 function configuredLimit() {
@@ -91,7 +93,8 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
-    const reusableCandidate = canRecordReusableVerification(command);
+    const canonicalVerification = canonicalVerificationCommand(command);
+    const reusableCandidate = Boolean(canonicalVerification);
     const workspaceBefore = reusableCandidate
       ? (() => {
           try { return runtimeWorkspaceFingerprint(ctx.cwd); } catch { return undefined; }
@@ -101,6 +104,7 @@ export default function (pi: ExtensionAPI) {
       startedAt: Date.now(),
       workspaceBefore,
       reusableCandidate,
+      canonicalVerification,
     });
     if (looksLikeVerificationCommand(command) && (event.input as any)?.timeout == null) {
       (event.input as any).timeout = configuredVerificationTimeout();
@@ -136,9 +140,11 @@ export default function (pi: ExtensionAPI) {
       let workspaceAfter: string | undefined;
       try { workspaceAfter = runtimeWorkspaceFingerprint(ctx.cwd); } catch {}
       if (workspaceAfter && workspaceAfter === executionState.workspaceBefore) {
+        const canonical = executionState.canonicalVerification;
+        if (!canonical) return undefined;
         await recordVerification(ctx.cwd, {
-          command: "shell",
-          args: [commandHint],
+          command: canonical.command,
+          args: canonical.args,
           exitCode: shellExitCode(event, shownText || rawText),
           stdout: rawText,
           stderr: "",
