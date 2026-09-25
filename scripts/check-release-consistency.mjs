@@ -99,17 +99,21 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
 
   const readme = requireText(errors, readText(root, "README.md"), "README.md")
   if (readme) {
-    const match = readme.match(/Phiên bản hiện tại:\s*\n```text\n(\S+)/)
-    if (!match) errors.push("README.md: could not find current version block")
-    else if (match[1] !== version) errors.push(`README.md: current version says ${match[1]}, expected ${version}`)
-    for (const marker of ["**Pi Agent**", "`ues_execute`", "`ues_dispatch`", "`ues_cli`"]) {
+    const versionMatches = [
+      readme.match(/Phiên bản package hiện tại:\*\*\s*<code>([^<]+)<\/code>/i),
+      readme.match(/Phiên bản hiện tại:\s*\n```text\n(\S+)/i),
+    ].filter(Boolean)
+    const readmeVersion = versionMatches[0]?.[1] || null
+    if (!readmeVersion) errors.push("README.md: could not find current package version")
+    else if (readmeVersion !== version) errors.push(`README.md: current version says ${readmeVersion}, expected ${version}`)
+    for (const marker of ["**Pi Agent**", "`ues_execute`", "`ues_dispatch`", "`ues_cli`", "V14.2 Turbo Weak-Model Runtime"]) {
       if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
     }
   }
 
   const piCompat = requireText(errors, readText(root, path.join("docs", "PI-COMPAT.md")), "docs/PI-COMPAT.md")
   if (piCompat) {
-    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only"]) {
+    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime"]) {
       if (!piCompat.includes(marker)) errors.push(`docs/PI-COMPAT.md: missing current Pi contract marker ${marker}`)
     }
   }
@@ -149,6 +153,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (!Array.isArray(pkg.pi?.skills) || !pkg.pi.skills.includes("./global-config/skills")) errors.push("package.json: Pi skills entry drift")
     if (!Array.isArray(pkg.pi?.prompts) || !pkg.pi.prompts.includes("./pi/prompts/*.md")) errors.push("package.json: Pi prompts entry drift")
     if (!Array.isArray(pkg.files) || !pkg.files.includes("global-config/AGENTS.md")) errors.push("package.json: installer runtime data global-config/AGENTS.md must be packed")
+    if (!pkg.files.includes("docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md")) errors.push("package.json: V14.2 runtime documentation must be packed")
     if (scripts["smoke:packed"] !== "node scripts/smoke-packed-install.mjs") errors.push("package.json: missing smoke:packed integration script")
   }
 
