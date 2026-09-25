@@ -61,6 +61,9 @@ for (const required of [
 const controllerStat = (packed[0].files || []).find((entry) => String(entry.path).replaceAll("\\", "/") === "pi/extensions/ues.ts")
 assert.ok(Number(controllerStat?.size || 0) > 80_000, "packed UES controller appears truncated")
 
+const childRuntimeStat = (packed[0].files || []).find((entry) => String(entry.path).replaceAll("\\", "/") === "pi/extensions/ues-child-runtime.ts")
+assert.ok(Number(childRuntimeStat?.size || 0) > 6_000, "packed UES child runtime appears truncated")
+
 const codeFiles = [...files].filter((file) => /\.(?:mjs|js|ts)$/.test(file))
 const missingRelativeImports = []
 
