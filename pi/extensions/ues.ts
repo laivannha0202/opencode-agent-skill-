@@ -570,6 +570,7 @@ async function runAgentCli(
       let settled = false;
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
       let watchdogTimer: ReturnType<typeof setInterval> | null = null;
+      let abortHandler: (() => void) | null = null;
       const activeTools = new Map<string, { name: string; args: any }>();
       const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
       const hangTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -579,6 +580,8 @@ async function runAgentCli(
       const cleanupTimers = () => {
         if (heartbeatTimer) clearInterval(heartbeatTimer);
         if (watchdogTimer) clearInterval(watchdogTimer);
+        if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
+        abortHandler = null;
         for (const timer of hangTimers.values()) clearTimeout(timer);
         hangTimers.clear();
         toolOutput.clear();
@@ -781,14 +784,14 @@ async function runAgentCli(
       proc.stdin.end(taskInput);
 
       if (signal) {
-        const kill = () => {
+        abortHandler = () => {
           stopReason = "aborted";
           errorMessage = "UES child execution aborted";
           stopChildTree(proc);
           finish(130);
         };
-        if (signal.aborted) kill();
-        else signal.addEventListener("abort", kill, { once: true });
+        if (signal.aborted) abortHandler();
+        else signal.addEventListener("abort", abortHandler, { once: true });
       }
     });
   } finally {
