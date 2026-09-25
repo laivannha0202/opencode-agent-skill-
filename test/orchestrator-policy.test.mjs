@@ -149,3 +149,48 @@ test("non-debug tasks never spawn a dedicated debugger", () => {
   assert.equal(shouldRunDedicatedDiagnosis(policy, 1), false)
   assert.equal(shouldRunDedicatedDiagnosis(policy, 2), false)
 })
+
+
+test("single-file bounded migration helper stays FAST instead of triggering database migration policy", () => {
+  const policy = classifyEngineeringTask("Fix migrateUsers(rows) in src/migration.mjs. Return new objects without mutating rows and preserve unrelated fields.")
+  assert.equal(policy.singleFileBounded, true)
+  assert.equal(policy.risk, "low")
+  assert.equal(policy.mode, "inline")
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.requirePlanCheck, false)
+  assert.equal(policy.signals.some((item) => item.name === "data-migration"), false)
+})
+
+test("single-file bounded API error helper stays FAST", () => {
+  const policy = classifyEngineeringTask("Fix toHttpError(error) in src/api-errors.mjs. Preserve the response shape and map known error codes.")
+  assert.equal(policy.singleFileBounded, true)
+  assert.equal(policy.risk, "low")
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.requireIntegrationVerification, false)
+})
+
+test("single-file bounded payment event logic can use guarded FAST lane", () => {
+  const policy = classifyEngineeringTask("Fix applyPaymentEvent(order, event) in src/payment.mjs. Duplicate ids must be idempotent, malformed ids throw TypeError, and the function must not mutate order.")
+  assert.equal(policy.singleFileBounded, true)
+  assert.equal(policy.risk, "low")
+  assert.equal(policy.executionProfile, "fast")
+  assert.ok(policy.domains.includes("payment"))
+})
+
+test("changedFiles metadata can identify a bounded local task", () => {
+  const policy = classifyEngineeringTask("Fix the local parser regression and preserve existing behavior.", { changedFiles: 1 })
+  assert.equal(policy.singleFileBounded, true)
+  assert.equal(policy.risk, "low")
+  assert.equal(policy.executionProfile, "fast")
+})
+
+test("critical single-file security or production mutations still fail closed to DEEP", () => {
+  const security = classifyEngineeringTask("Fix authorization token validation in src/auth.mjs and rotate the production credential.")
+  assert.equal(security.singleFileBounded, true)
+  assert.equal(security.risk, "high")
+  assert.equal(security.executionProfile, "deep")
+  const database = classifyEngineeringTask("Fix migrateRows in src/migration.mjs and migrate the database schema in production.")
+  assert.equal(database.singleFileBounded, true)
+  assert.equal(database.risk, "high")
+  assert.equal(database.executionProfile, "deep")
+})

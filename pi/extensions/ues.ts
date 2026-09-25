@@ -28,6 +28,7 @@ import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
+import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
@@ -1296,6 +1297,13 @@ async function runRoutedAgent(
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
     : [];
   const taskPolicy = classifyEngineeringTask(task);
+  const fastBoundedContext =
+    attempt === 1 &&
+    taskPolicy.executionProfile === "fast" &&
+    taskPolicy.singleFileBounded === true &&
+    taskPolicy.risk === "low" &&
+    ["executor", "verifier"].includes(role) &&
+    !browserRequested;
   const budgetDecision = adaptiveContextBudget(taskPolicy, role, attempt, {
     disabled: !ADAPTIVE_CONTEXT_ENABLED,
   });
@@ -1363,6 +1371,18 @@ async function runRoutedAgent(
   let reusableVerification: any = null;
   let contextCacheHit = false;
   try {
+    if (fastBoundedContext) {
+      contextQuality = { schemaVersion: 1, profile: "fast-bounded", bounded: true };
+      enrichedTask = [
+        task,
+        "",
+        "## UES FAST bounded lane",
+        "This is a low-risk single-file task. Read the named target file first and avoid broad repository scans unless direct evidence shows the task is wider than declared.",
+        role === "executor"
+          ? "Implement every explicit acceptance branch, then run the narrowest behavioral check available. When the repository has no suitable JS/TS test, prefer a temporary .ues-cache/fast-acceptance.test.mjs probe and run `node --test .ues-cache/fast-acceptance.test.mjs`; cover every enumerated edge/error/idempotency/non-mutation requirement and remove only the temporary probe afterwards."
+          : "Verify every explicit acceptance clause independently. Read the final diff/target file, then run a narrow behavioral check. Compilation or syntax alone is not proof. If any enumerated edge/error/idempotency/non-mutation case lacks fresh executable evidence, return FAIL.",
+      ].join("\n");
+    } else {
     const cacheKey = cachedContextKey(
       cwd,
       task,
@@ -1466,6 +1486,7 @@ async function runRoutedAgent(
           ].filter(Boolean).join("\n")).join("\n")
         : "",
     ].filter(Boolean).join("\n");
+    }
   } catch (error) {
     contextError = error instanceof Error ? error.message : String(error);
     if (recentFailure) {
@@ -2919,9 +2940,19 @@ export default function (pi: ExtensionAPI) {
           recentFailure = diagnosis.output;
         }
 
+        const fastBoundedLane =
+          policy.executionProfile === "fast" &&
+          policy.singleFileBounded === true &&
+          policy.risk === "low" &&
+          !visualEvidenceNeeded(params.task) &&
+          !browserEvidenceNeeded(params.task, "executor");
+        const fastAttemptStartedAt = Date.now();
         const executorTask = [
           params.task,
           recentFailure ? "\nEvidence from diagnosis/previous failed verification:\n" + cap(recentFailure, 7000) : "",
+          fastBoundedLane
+            ? "\nFAST bounded rule: stay on the named file, implement every explicit branch, and produce fresh behavioral evidence before handoff. Prefer one focused project-native test command. If no JS/TS test exists, use a temporary .ues-cache/fast-acceptance.test.mjs and run node --test .ues-cache/fast-acceptance.test.mjs so the controller can independently reuse the successful tool-boundary receipt. Cover every enumerated error, boundary, idempotency and non-mutation case; syntax/build alone is insufficient."
+            : "",
           "\nImplement the smallest coherent change. Do not push, publish, deploy, rewrite history, or broaden scope without evidence.",
         ].filter(Boolean).join("\n");
 
@@ -2938,19 +2969,39 @@ export default function (pi: ExtensionAPI) {
           continue;
         }
 
-        const verification = await run(
-          "ues-verifier",
-          [
-            "Independently verify the current working tree against this task:",
-            params.task,
-            "",
-            "Implementation handoff (not proof by itself):",
-            implementation.output,
-          ].join("\n"),
-          attempt,
-          recentFailure || undefined,
-        );
-        if (isAbortedRun(verification)) return abortedResponse(verification, "verification");
+        let verification: RunResult;
+        let fastGate: any = null;
+        if (fastBoundedLane) {
+          const snapshot = runtimeWorkspaceSnapshot(cwd);
+          const receipts = await listReusableVerification(cwd, {
+            limit: 12,
+            maxAgeMs: 10 * 60_000,
+            previewBytes: 2200,
+            ...(snapshot.cacheable === true && snapshot.fingerprint ? { workspaceFingerprint: snapshot.fingerprint } : {}),
+          }).catch(() => ({ results: [] }));
+          fastGate = evaluateFastVerificationGate({ policy, implementation, receipts: receipts?.results || [], attemptStartedAtMs: fastAttemptStartedAt, visualRequired: false });
+        }
+        if (fastGate?.passed === true) {
+          verification = {
+            agent: "ues-deterministic-verifier", task: params.task, cwd, exitCode: 0,
+            output: ["FAST bounded verification reused fresh behavioral evidence captured at the tool boundary.", ...fastGate.behavioralReceipts.map((item: any) => "- " + item.command), "", "UES_VERDICT: PASS"].join("\n"),
+            stderr: "", verdict: "PASS", durationMs: 0, toolCalls: 0, toolNames: [],
+            report: { schemaVersion: 1, valid: true, verdict: "PASS", sections: { "checks-run": fastGate.behavioralReceipts.map((item: any) => item.command).join("\n"), "acceptance-criteria-proven": "Fresh behavioral verification receipt(s) exist at the post-implementation workspace fingerprint.", "completion-evidence": "Deterministic PASS receipt captured after this implementation attempt." } },
+            optimizations: { fastDeterministicVerification: true, behavioralReceiptCount: fastGate.behavioralReceipts.length },
+          };
+          steps.push(verification);
+          onUpdate?.({ content: [{ type: "text", text: "UES FAST verifier: reused " + fastGate.behavioralReceipts.length + " fresh behavioral receipt(s); skipped an extra verifier model turn" }], details: { mode: "execute", policy, fastGate, traceID } });
+        } else {
+          verification = await run(
+            "ues-verifier",
+            [
+              fastBoundedLane ? "FAST bounded verification: independently verify the final target file and every explicit acceptance branch. Run one narrow behavioral check; compilation/syntax alone is insufficient. Return FAIL if any enumerated edge/error/idempotency/non-mutation case lacks fresh executable evidence." : "Independently verify the current working tree against this task:",
+              params.task, "", "Implementation handoff (not proof by itself):", implementation.output,
+              fastGate?.reason ? "\nFAST receipt gate did not short-circuit because: " + fastGate.reason : "",
+            ].join("\n"), attempt, recentFailure || undefined,
+          );
+          if (isAbortedRun(verification)) return abortedResponse(verification, "verification");
+        }
         const verified = verification.exitCode === 0 && verification.verdict === "PASS";
         await recordRuntimeOutcome(implementation, params.task, verified, attempt - 1);
         if (!verified) {
