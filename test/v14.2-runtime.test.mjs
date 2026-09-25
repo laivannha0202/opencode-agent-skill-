@@ -168,6 +168,47 @@ test("process supervisor caps output and times out process trees", async () => {
   assert.equal(hung.stopReason, "hard-timeout")
 })
 
+test("POSIX supervisor escalates to surviving grandchildren after direct child exits", async (t) => {
+  if (process.platform === "win32") {
+    t.skip("POSIX process-group semantics only")
+    return
+  }
+
+  const grandchildCode = [
+    "process.on('SIGTERM',()=>{});",
+    "setInterval(()=>{},1000);",
+  ].join("")
+  const parentCode = [
+    "const {spawn}=require('node:child_process');",
+    "const g=spawn(process.execPath,['-e'," + JSON.stringify(grandchildCode) + "],{stdio:['ignore','inherit','inherit']});",
+    "console.log(g.pid);",
+    "process.on('SIGTERM',()=>process.exit(0));",
+    "setInterval(()=>{},1000);",
+  ].join("")
+
+  const result = await runSupervisedProcess(process.execPath, ["-e", parentCode], {
+    stdoutLimit: 2048,
+    hardTimeoutMs: 180,
+    drainTimeoutMs: 800,
+    killGraceMs: 80,
+  })
+  assert.equal(result.stopReason, "hard-timeout")
+  const grandchildPid = Number(String(result.stdout || "").trim().split(/\s+/)[0])
+  assert.ok(Number.isInteger(grandchildPid) && grandchildPid > 1)
+
+  let alive = true
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      process.kill(grandchildPid, 0)
+    } catch {
+      alive = false
+      break
+    }
+    await new Promise((resolve) => setTimeout(resolve, 25))
+  }
+  assert.equal(alive, false, "grandchild survived process-group escalation")
+})
+
 test("browser task routing exposes a smaller task-specific subset", () => {
   const names = [
     "browser_snapshot", "browser_screenshot", "browser_console_messages",
