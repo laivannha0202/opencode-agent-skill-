@@ -14,6 +14,7 @@ The project follows Semantic Versioning.
 - Added visible interactive controller progress notifications and benchmark progress telemetry.
 
 ### Fixed
+- Removed the conflicting `pi/prompts/ues-run.md`; Pi now exposes exactly one `/ues-run`, owned by the deterministic extension command.
 - Preserved the original user-task policy across controller-generated executor/verifier prompts so UES instructions cannot accidentally reclassify a FAST single-file task as STANDARD/DEEP.
 - Pi live eval now reads direct-controller telemetry from both stdout and stderr; headless extension diagnostics emitted by Pi no longer cause false `uesControllerUsed=false`.
 - Direct benchmark telemetry is written explicitly to stderr, matching Pi headless/JSON stream boundaries.
