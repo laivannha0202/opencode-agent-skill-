@@ -23,6 +23,7 @@ const CONTRACTS = [
       'name: "ues_service"',
       "looksLikeLongRunningServiceCommand",
       "ues_controller_direct",
+      "ues_controller_progress",
       "CHILD_RUNTIME_EXTENSION",
       "isAbortedRun",
       "abortedResponse",
@@ -237,6 +238,8 @@ const CONTRACTS = [
       "V15 deterministic controller admission and service tool are wired into Pi",
       "UES_EVAL_DIRECT_TELEMETRY",
       "ues_controller_direct",
+      "controller progress",
+      "controllerValid=",
     ],
   },
 
