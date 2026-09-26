@@ -5,6 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
+import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -32,6 +33,14 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15 capability fabric exposes managed background services", () => {
+  const registry = defaultCapabilityRegistry(root)
+  const providers = registry.capabilities?.["runtime.service"] || []
+  assert.equal(providers[0]?.id, "ues-managed-service")
+  assert.equal(providers[0]?.metadata?.shellFree, true)
+  assert.equal(providers[0]?.metadata?.boundedLifetime, true)
+})
 
 test("V15 foreground-service classifier catches common blocking server commands", () => {
   for (const command of [
