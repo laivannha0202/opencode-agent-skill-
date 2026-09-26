@@ -31,6 +31,7 @@ import { findReusableVerification, listReusableVerification, recordVerification 
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
+import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
@@ -138,6 +139,10 @@ const ACTIVE_CLI_CHILDREN = new Map<number, {
   proc: any;
   abort: () => boolean;
 }>();
+const MCP_HEALTH = new McpHealthTracker({
+  failureThreshold: 2,
+  cooldownMs: configuredDuration("UES_MCP_HEALTH_COOLDOWN_MS", 15_000, 1_000, 5 * 60_000),
+});
 
 function abortActiveCliChildren() {
   let aborted = 0;
@@ -168,7 +173,8 @@ function refreshHostBrowserToolNames(pi: ExtensionAPI) {
     typeof (pi as any).getAllTools === "function"
       ? (pi as any).getAllTools()
       : [];
-  HOST_BROWSER_TOOL_NAMES = selectBrowserMcpToolNames(tools, {
+  const healthyTools = tools.filter((tool: any) => MCP_HEALTH.available(String(tool?.name || "")));
+  HOST_BROWSER_TOOL_NAMES = selectBrowserMcpToolNames(healthyTools.length ? healthyTools : tools, {
     explicitNames: configuredBrowserToolNames(),
     limit: BROWSER_MCP_TOOL_LIMIT,
   });
@@ -2379,6 +2385,7 @@ export default function (pi: ExtensionAPI) {
     clearAffectedTestCache();
     clearRepoGraphRuntimeCache();
     clearSemanticIndexRuntimeCache();
+    MCP_HEALTH.clear();
     abortActiveCliChildren();
     await RPC_POOL.stopAll().catch(() => {});
   });
@@ -2437,6 +2444,7 @@ export default function (pi: ExtensionAPI) {
         const allowed = await approveRisk(ctx, `MCP/tool call: ${toolName}`, `mcp-destructive:${toolName}`);
         if (!allowed) return { block: true, reason: `Blocked by UES MCP destructive-hint gate: ${toolName}` };
       }
+      MCP_HEALTH.begin(String((event as any).toolCallId || ""), toolName, policy);
       return undefined;
     }
 
@@ -2445,6 +2453,19 @@ export default function (pi: ExtensionAPI) {
     if (!risk.risky) return undefined;
     const allowed = await approveRisk(ctx, command, risk.id || "destructive");
     if (!allowed) return { block: true, reason: `Blocked by UES safety gate: ${risk.id}` };
+    return undefined;
+  });
+
+  pi.on("tool_result", async (event) => {
+    const toolName = String((event as any).toolName || "");
+    if (!toolName || toolName === "bash" || toolName === "powershell") return undefined;
+    MCP_HEALTH.finish(
+      String((event as any).toolCallId || ""),
+      {
+        isError: (event as any).isError === true,
+        text: toolResultText(event),
+      },
+    );
     return undefined;
   });
 
