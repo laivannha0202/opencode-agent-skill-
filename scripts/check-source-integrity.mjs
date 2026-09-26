@@ -30,6 +30,10 @@ const CONTRACTS = [
       'pi.on("tool_call"',
       'pi.on("tool_result"',
       'name: "ues_evidence_get"',
+      'name: "ues_code"',
+      'name: "ues_code_edit"',
+      "applyAnchoredFileEdits",
+      "diagnoseCode",
       "recordVerification",
       "canonicalVerificationCommand",
       "destructiveShellRisk",
@@ -139,6 +143,55 @@ const CONTRACTS = [
       'test("verification broker preserves concurrent receipts in one workspace"',
       'test("RPC pool never evicts an active worker when an idle-capacity limit is exceeded"',
     ],
+  },
+
+  {
+    file: "lib/code-intelligence/edit-anchor.mjs",
+    minBytes: 2_500,
+    startsWith: "import ",
+    required: ["anchoredLines", "applyAnchoredEdits", "UES_STALE_ANCHOR"],
+  },
+  {
+    file: "lib/code-intelligence/index.mjs",
+    minBytes: 4_000,
+    startsWith: "import ",
+    required: ["readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode"],
+  },
+  {
+    file: "lib/code-intelligence/lsp-provider.mjs",
+    minBytes: 5_000,
+    startsWith: "import ",
+    required: ["diagnoseCode", "lspProviderStatus", "publishDiagnostics"],
+  },
+  {
+    file: "lib/completion-auditor.mjs",
+    minBytes: 2_500,
+    startsWith: "function text",
+    required: ["auditCompletion", "fresh-behavioral-receipt-missing", "missing-report-section"],
+  },
+  {
+    file: "lib/document-ingestion.mjs",
+    minBytes: 3_000,
+    startsWith: "import ",
+    required: ["ingestDocument", "documentIngestionSupport", "UES_MARKITDOWN_UNAVAILABLE"],
+  },
+  {
+    file: "lib/reversible-context.mjs",
+    minBytes: 2_500,
+    startsWith: "import ",
+    required: ["compactContext", "expandContext", "searchContext"],
+  },
+  {
+    file: "lib/mcp-tool-policy.mjs",
+    minBytes: 1_000,
+    startsWith: "function firstObject",
+    required: ["normalizeMcpAnnotations", "mcpExecutionPolicy", 'trust: "hint-only"'],
+  },
+  {
+    file: "test/v14.3-intelligence.test.mjs",
+    minBytes: 5_000,
+    startsWith: 'import test from "node:test"',
+    required: ["hash anchored edits fail closed", "completion auditor rejects narrative PASS", "verified memory snapshots ignore retrieval/touch noise"],
   },
 
   {
