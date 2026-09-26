@@ -29,6 +29,8 @@ import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-co
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
+import { auditCompletion } from "../../lib/completion-auditor.mjs";
+import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
@@ -248,6 +250,8 @@ function getAgentPrompt(agent: AgentName) {
     `- If \`ues_cli\` is unavailable, invoke the bundled CLI as \`${fallbackCli} ...\`; do not assume a global \`ocskill\` binary exists.`,
     "- Do not call OpenCode-only dispatch tools such as \`ues.dispatch_task\` or \`ues.dispatch_parallel\`.",
     "- Respect the original role's edit/read-only boundary and return evidence to the parent Pi session.",
+    "- Prefer ues_code for bounded semantic/AST search, hash-anchored reads and optional LSP diagnostics. Writer roles may use ues_code_edit only after an anchored read; stale anchors must be re-read rather than fuzzily retried.",
+    "- For PDF/DOCX/PPTX/XLSX evidence, ues_code action=document may use optional MarkItDown when installed; do not install it unless that capability is needed.",
     "",
   ].join("\n");
   const verdictContract =
@@ -543,8 +547,12 @@ async function runAgentCli(
   ];
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
+  const codeIntelligenceTools = WRITE_AGENTS.has(agent)
+    ? ["ues_code", "ues_code_edit"]
+    : ["ues_code"];
   const allowedTools = [...new Set([
     ...config.tools,
+    ...codeIntelligenceTools,
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
@@ -2420,11 +2428,21 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_call", async (event, ctx) => {
-    if (event.toolName !== "bash" && event.toolName !== "powershell") return undefined;
+    const toolName = String(event.toolName || "");
+    if (toolName !== "bash" && toolName !== "powershell") {
+      const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
+      const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
+      const policy = mcpExecutionPolicy(descriptor || { name: toolName });
+      if (policy.confirmationRequired) {
+        const allowed = await approveRisk(ctx, `MCP/tool call: ${toolName}`, `mcp-destructive:${toolName}`);
+        if (!allowed) return { block: true, reason: `Blocked by UES MCP destructive-hint gate: ${toolName}` };
+      }
+      return undefined;
+    }
+
     const command = String((event.input as any)?.command || "");
     const risk = destructiveShellRisk(command);
     if (!risk.risky) return undefined;
-
     const allowed = await approveRisk(ctx, command, risk.id || "destructive");
     if (!allowed) return { block: true, reason: `Blocked by UES safety gate: ${risk.id}` };
     return undefined;
@@ -3003,9 +3021,9 @@ export default function (pi: ExtensionAPI) {
           if (isAbortedRun(verification)) return abortedResponse(verification, "verification");
         }
         const verified = verification.exitCode === 0 && verification.verdict === "PASS";
-        await recordRuntimeOutcome(implementation, params.task, verified, attempt - 1);
         if (!verified) {
           recentFailure = verification.output;
+          await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
           continue;
         }
 
@@ -3024,6 +3042,7 @@ export default function (pi: ExtensionAPI) {
           if (isAbortedRun(integrationResult)) return abortedResponse(integrationResult, "integration-verification");
           if (integrationResult.exitCode !== 0 || integrationResult.verdict !== "PASS") {
             recentFailure = integrationResult.output;
+            await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
             if (attempt < maxAttempts) continue;
             return {
               content: [{ type: "text", text: `Integration verification did not pass:\n\n${integrationResult.output}` }],
@@ -3051,6 +3070,7 @@ export default function (pi: ExtensionAPI) {
           if (isAbortedRun(visualResult)) return abortedResponse(visualResult, "visual-verification");
           if (visualResult.exitCode !== 0 || visualResult.verdict !== "PASS") {
             recentFailure = visualResult.output;
+            await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
             if (attempt < maxAttempts) continue;
             return {
               content: [{
@@ -3063,6 +3083,41 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
+        const completionSnapshot = runtimeWorkspaceSnapshot(cwd);
+        const completionReceipts = await listReusableVerification(cwd, {
+          limit: 24,
+          maxAgeMs: 10 * 60_000,
+          previewBytes: 1200,
+          ...(completionSnapshot.cacheable === true && completionSnapshot.fingerprint
+            ? { workspaceFingerprint: completionSnapshot.fingerprint }
+            : {}),
+        }).catch(() => ({ results: [] }));
+        const freshReceipts = (completionReceipts?.results || []).filter((row: any) => {
+          const finished = Date.parse(row?.finishedAt || row?.receipt?.finishedAt || "");
+          return Number.isFinite(finished) && finished >= fastAttemptStartedAt;
+        });
+        const completionAudit = auditCompletion({
+          verification,
+          integration: integrationResult,
+          visual: visualResult,
+          requireIntegration: policy.requireIntegrationVerification === true,
+          requireVisual: visualEvidenceNeeded(params.task),
+          workspaceSnapshot: completionSnapshot,
+          behavioralReceipts: freshReceipts,
+          requireBehavioralReceipt: true,
+        });
+        if (!completionAudit.passed) {
+          recentFailure = "Completion auditor rejected PASS: " + completionAudit.failures.join(", ");
+          await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
+          if (attempt < maxAttempts) continue;
+          return {
+            content: [{ type: "text", text: recentFailure }],
+            details: { mode: "execute", policy, steps, attempts: attempt, completionAudit, traceID },
+            isError: true,
+          };
+        }
+
+        await recordRuntimeOutcome(implementation, params.task, true, attempt - 1);
         const memory = await rememberVerifiedTask(cwd, params.task, verification, integrationResult);
         const final = steps.at(-1);
         return {
@@ -3075,7 +3130,7 @@ export default function (pi: ExtensionAPI) {
               final?.output || verification.output,
             ].join("\n"),
           }],
-          details: { mode: "execute", policy, steps, attempts: attempt, memory, traceID },
+          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, traceID },
         };
       }
 
