@@ -219,6 +219,30 @@ const CONTRACTS = [
   },
 
   {
+    file: "lib/task-graph.mjs",
+    minBytes: 7_000,
+    startsWith: "import ",
+    required: [
+      "normalizePlanForValidation",
+      "acceptanceCriteria",
+      "verificationChecks",
+      "riskNotes",
+      "Unknown prose in a risk field is never downgraded",
+    ],
+  },
+  {
+    file: "global-config/agents/architect.md",
+    minBytes: 2_000,
+    startsWith: "---",
+    required: [
+      "UES_PLAN_JSON:",
+      "\"acceptance\"",
+      "\"verification\"",
+      "\"riskNotes\"",
+      "low`, `medium`, `high`, `critical",
+    ],
+  },
+  {
     file: "lib/turbo-fast-path.mjs",
     minBytes: 1_000,
     startsWith: "const FAST_ROLES",
@@ -255,6 +279,8 @@ const CONTRACTS = [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
+      "normalizePlanForValidation",
+      "STRICT JSON CONTRACT",
       "UES_EVAL_DIRECT_TELEMETRY",
       "ues_controller_direct",
       "controller progress",
