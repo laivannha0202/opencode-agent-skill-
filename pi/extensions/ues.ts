@@ -2775,6 +2775,7 @@ export default function (pi: ExtensionAPI) {
             });
           },
           traceID,
+          policy,
         );
         steps.push(result);
         onUpdate?.({
@@ -3127,18 +3128,19 @@ export default function (pi: ExtensionAPI) {
           recentFailure = diagnosis.output;
         }
 
-        const fastBoundedLane =
-          policy.executionProfile === "fast" &&
-          policy.singleFileBounded === true &&
-          policy.risk === "low" &&
-          !visualEvidenceNeeded(params.task) &&
-          !browserEvidenceNeeded(params.task, "executor");
+        const fastDecision = turboFastPathDecision(policy, {
+          role: "executor",
+          attempt,
+          browserRequested: browserEvidenceNeeded(params.task, "executor"),
+          visualRequired: visualEvidenceNeeded(params.task),
+        });
+        const fastBoundedLane = fastDecision.eligible;
         const fastAttemptStartedAt = Date.now();
         const executorTask = [
           params.task,
           recentFailure ? "\nEvidence from diagnosis/previous failed verification:\n" + cap(recentFailure, 7000) : "",
           fastBoundedLane
-            ? "\nFAST bounded rule: stay on the named file, implement every explicit branch, and produce fresh behavioral evidence before handoff. Prefer one focused project-native test command. If no JS/TS test exists, use a temporary .ues-cache/fast-acceptance.test.mjs and run node --test .ues-cache/fast-acceptance.test.mjs so the controller can independently reuse the successful tool-boundary receipt. Cover every enumerated error, boundary, idempotency and non-mutation case; syntax/build alone is insufficient."
+            ? "\nFAST bounded rule: stay on the named target file. Read that file first; do not inventory the repository or run broad searches unless the target is missing or direct evidence proves wider scope. Make the smallest edit, then run one focused behavioral check and stop once a fresh PASS receipt covers every explicit branch. If no project-native JS/TS test exists, use one temporary .ues-cache/fast-acceptance.test.mjs probe, run node --test .ues-cache/fast-acceptance.test.mjs, and remove only that probe afterwards. Syntax/build alone is insufficient."
             : "",
           "\nImplement the smallest coherent change. Do not push, publish, deploy, rewrite history, or broaden scope without evidence.",
         ].filter(Boolean).join("\n");
@@ -3177,7 +3179,10 @@ export default function (pi: ExtensionAPI) {
             optimizations: { fastDeterministicVerification: true, behavioralReceiptCount: fastGate.behavioralReceipts.length },
           };
           steps.push(verification);
-          onUpdate?.({ content: [{ type: "text", text: "UES FAST verifier: reused " + fastGate.behavioralReceipts.length + " fresh behavioral receipt(s); skipped an extra verifier model turn" }], details: { mode: "execute", policy, fastGate, traceID } });
+          onUpdate?.({
+            content: [{ type: "text", text: "UES Turbo Fast Path: reused " + fastGate.behavioralReceipts.length + " fresh behavioral receipt(s); skipped verifier model turn" }],
+            details: { mode: "execute", phase: "turbo-fast-verified", policy, fastGate, fastDecision, traceID },
+          });
         } else {
           verification = await run(
             "ues-verifier",
