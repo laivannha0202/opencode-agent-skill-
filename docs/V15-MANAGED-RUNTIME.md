@@ -34,6 +34,13 @@ Readiness may be proven by:
 
 Logs are bounded and may be stored as Evidence Store snapshots.
 
+Lifecycle is bounded as well:
+
+- default maximum service lifetime: 30 minutes;
+- configurable `lifetimeMs`: 10 seconds to 2 hours;
+- optional `idleTimeoutMs`: stop a service after 5 seconds to 1 hour without stdout/stderr activity;
+- session shutdown stops every service owned by that Pi runtime.
+
 ## Foreground-service guard
 
 Common long-running foreground commands are blocked in ordinary bash/powershell execution and redirected to `ues_service`. Examples include:
