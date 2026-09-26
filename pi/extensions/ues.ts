@@ -29,6 +29,7 @@ import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-co
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
+import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -103,6 +104,12 @@ const POST_TOOL_ERROR_IDLE_TIMEOUT_MS = configuredDuration(
   5_000,
   5 * 60_000,
 );
+const TURBO_FAST_TIMEOUTS = turboFastTimeoutBudget({
+  hardTimeoutMs: configuredDuration("UES_FAST_CHILD_HARD_TIMEOUT_MS", 180_000, 30_000, 10 * 60_000),
+  idleTimeoutMs: configuredDuration("UES_FAST_CHILD_IDLE_TIMEOUT_MS", 60_000, 20_000, 5 * 60_000),
+  postToolErrorIdleTimeoutMs: configuredDuration("UES_FAST_POST_TOOL_ERROR_IDLE_TIMEOUT_MS", 30_000, 5_000, 2 * 60_000),
+  verificationTimeoutSec: configuredDuration("UES_FAST_VERIFICATION_TIMEOUT_SEC", 90, 30, 300),
+});
 const MODEL_VISIBLE_OUTPUT_LIMIT = configuredDuration(
   "UES_MODEL_VISIBLE_OUTPUT_LIMIT",
   64 * 1024,
@@ -551,9 +558,15 @@ async function runAgentCli(
     compactToolOutput?: boolean;
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
+    hardTimeoutMs?: number;
+    idleTimeoutMs?: number;
+    postToolErrorIdleTimeoutMs?: number;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
+  const hardTimeoutMs = Number(runtimeOptions.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS);
+  const idleTimeoutMs = Number(runtimeOptions.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS);
+  const postToolErrorIdleTimeoutMs = Number(runtimeOptions.postToolErrorIdleTimeoutMs || POST_TOOL_ERROR_IDLE_TIMEOUT_MS);
   const args: string[] = [
     "--mode", "json", "-p", "--no-session",
     // Keep extension discovery enabled so custom model providers (for example
@@ -735,19 +748,19 @@ async function runAgentCli(
       heartbeatTimer.unref?.();
       watchdogTimer = setInterval(() => {
         const now = Date.now();
-        if (now - childStartedAt >= CHILD_HARD_TIMEOUT_MS) {
+        if (now - childStartedAt >= hardTimeoutMs) {
           terminateForTimeout("hard");
           return;
         }
         if (
           lastToolErrorAt > 0 &&
-          now - lastToolErrorAt >= POST_TOOL_ERROR_IDLE_TIMEOUT_MS &&
-          now - lastActivityAt >= POST_TOOL_ERROR_IDLE_TIMEOUT_MS
+          now - lastToolErrorAt >= postToolErrorIdleTimeoutMs &&
+          now - lastActivityAt >= postToolErrorIdleTimeoutMs
         ) {
           terminateForTimeout("post-tool-error");
           return;
         }
-        if (now - lastActivityAt >= CHILD_IDLE_TIMEOUT_MS) {
+        if (now - lastActivityAt >= idleTimeoutMs) {
           terminateForTimeout("idle");
         }
       }, 1000);
@@ -910,9 +923,15 @@ async function runAgentRpc(
     compactToolOutput?: boolean;
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
+    hardTimeoutMs?: number;
+    idleTimeoutMs?: number;
+    postToolErrorIdleTimeoutMs?: number;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
+  const hardTimeoutMs = Number(runtimeOptions.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS);
+  const idleTimeoutMs = Number(runtimeOptions.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS);
+  const postToolErrorIdleTimeoutMs = Number(runtimeOptions.postToolErrorIdleTimeoutMs || POST_TOOL_ERROR_IDLE_TIMEOUT_MS);
   const args: string[] = [
     "--mode", "rpc", "--no-session",
     "--no-skills", "--no-prompt-templates", "--no-context-files",
@@ -987,9 +1006,9 @@ async function runAgentRpc(
       taskInput,
       {
         signal,
-        hardTimeoutMs: CHILD_HARD_TIMEOUT_MS,
-        idleTimeoutMs: CHILD_IDLE_TIMEOUT_MS,
-        postToolErrorIdleTimeoutMs: POST_TOOL_ERROR_IDLE_TIMEOUT_MS,
+        hardTimeoutMs,
+        idleTimeoutMs,
+        postToolErrorIdleTimeoutMs,
         onEvent: (event: any) => {
           lastActivityAt = Date.now();
           if (event.type === "tool_execution_start") {
@@ -1128,6 +1147,9 @@ async function runAgent(
     compactToolOutput?: boolean;
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
+    hardTimeoutMs?: number;
+    idleTimeoutMs?: number;
+    postToolErrorIdleTimeoutMs?: number;
   } = {},
 ): Promise<RunResult> {
   if (CHILD_RUNTIME !== "cli") {
@@ -1323,20 +1345,21 @@ async function runRoutedAgent(
   signal?: AbortSignal,
   onProgress?: Parameters<typeof runAgent>[6],
   traceID?: string,
+  taskPolicyOverride?: any,
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
   const browserRequested = browserEvidenceNeeded(task, role);
   const browserTools = browserRequested
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
     : [];
-  const taskPolicy = classifyEngineeringTask(task);
-  const fastBoundedContext =
-    attempt === 1 &&
-    taskPolicy.executionProfile === "fast" &&
-    taskPolicy.singleFileBounded === true &&
-    taskPolicy.risk === "low" &&
-    ["executor", "verifier"].includes(role) &&
-    !browserRequested;
+  const taskPolicy = taskPolicyOverride || classifyEngineeringTask(task);
+  const turboFast = turboFastPathDecision(taskPolicy, {
+    role,
+    attempt,
+    browserRequested,
+    visualRequired: visualEvidenceNeeded(task),
+  });
+  const fastBoundedContext = turboFast.eligible;
   const budgetDecision = adaptiveContextBudget(taskPolicy, role, attempt, {
     disabled: !ADAPTIVE_CONTEXT_ENABLED,
   });
@@ -1565,13 +1588,19 @@ async function runRoutedAgent(
             ? 24 * 1024
             : 48 * 1024,
       verificationTimeoutSec:
-        taskPolicy.risk === "high"
-          ? 900
-          : taskPolicy.executionProfile === "fast"
-            ? 120
-            : taskPolicy.executionProfile === "standard"
-              ? 300
-              : 600,
+        turboFast.eligible
+          ? TURBO_FAST_TIMEOUTS.verificationTimeoutSec
+          : taskPolicy.risk === "high"
+            ? 900
+            : taskPolicy.executionProfile === "fast"
+              ? 120
+              : taskPolicy.executionProfile === "standard"
+                ? 300
+                : 600,
+      hardTimeoutMs: turboFast.eligible ? TURBO_FAST_TIMEOUTS.hardTimeoutMs : CHILD_HARD_TIMEOUT_MS,
+      idleTimeoutMs: turboFast.eligible ? TURBO_FAST_TIMEOUTS.idleTimeoutMs : CHILD_IDLE_TIMEOUT_MS,
+      postToolErrorIdleTimeoutMs:
+        turboFast.eligible ? TURBO_FAST_TIMEOUTS.postToolErrorIdleTimeoutMs : POST_TOOL_ERROR_IDLE_TIMEOUT_MS,
     },
   );
   const enrichedResult: RunResult = {
@@ -1600,6 +1629,9 @@ async function runRoutedAgent(
         !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase()),
       runtimeContextBudget: budgetDecision.budget,
       baseContextBudget: budgetDecision.baseBudget,
+      turboFastPath: turboFast.eligible,
+      turboFastStrategy: turboFast.strategy,
+      turboFastTimeouts: turboFast.eligible ? TURBO_FAST_TIMEOUTS : null,
     },
     verdict: verdictFromOutput(result.output),
     report: parseStructuredReport(result.output),
