@@ -112,6 +112,7 @@ test("V15 service runtime state is excluded from source-facing scans", async () 
     "lib/semantic-index.mjs",
     "lib/repo-graph.mjs",
     "lib/affected-tests.mjs",
+    "lib/repo-inspect.mjs",
   ]) {
     const source = await readFile(path.join(root, file), "utf8")
     assert.match(source, /\.ues-services/)
