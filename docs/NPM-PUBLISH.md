@@ -1,116 +1,128 @@
 # Publishing to npm
 
-The package is published as:
+The public package name is:
 
 ```text
 opencode-agent-skill
 ```
 
+Current stable release target:
+
+```text
+14.4.0
+```
+
 ## Release prerequisites
 
-1. The npm account must have publish rights to the unscoped `opencode-agent-skill` package name.
+1. The npm account must have publish rights to the unscoped `opencode-agent-skill` package.
 2. `package.json` and `package-lock.json` versions must match.
 3. `CHANGELOG.md` must contain the release.
-4. Run the complete local validation:
+4. Local validation must pass from the exact release commit:
 
 ```cmd
 npm run ci
 ```
 
-CI includes syntax validation, resource validation, static skill routing, the 129-case V2 router matrix, 13 V11 contract tasks, standard/long/polyglot hidden-grader integrity checks, unit/integration tests, package dry-run, packed global-install smoke, and a plain one-command install/resource sync smoke.
+The release gate includes source-integrity validation, runtime import/export validation, syntax checks, the full Node test suite, release consistency, package dry-run, Pi smoke tests, package-closure validation and packed-install smoke.
 
-## Manual release-like test
+## Stable 14.4.0 local release
 
-Do not use `npm install -g .` as a release simulation because npm may create a symlink/junction back to the checkout.
+This repository does not require GitHub Actions for a manual release.
 
-Use:
-
-```cmd
-npm pack
-npm install -g .\opencode-agent-skill-13.0.0-beta.3.tgz --allow-scripts=opencode-agent-skill
-ocskill install
-ocskill status
-ocskill doctor
-```
-
-For the current V13 beta, also open a fresh OpenCode V2 session, check `/plugins`, and call `ues.capabilities`. Native parallel should only be exercised when `freshDispatch` is `true`.
-
-For routine development, the automated `smoke:pack` test uses an isolated npm prefix/OpenCode config so it does not replace the developer's currently installed UES.
-
-## Manual publish
-
-Before publishing, verify the exact prerelease version is not already present:
-
-```cmd
-npm view opencode-agent-skill@13.0.0-beta.3 version --registry=https://registry.npmjs.org/
-```
-
-If it is not present, a manual prerelease publish uses `next`, not `latest`:
+Authenticate interactively on the release machine:
 
 ```cmd
 npm login
 npm whoami
-npm run ci
-npm publish --access public --provenance --tag next
 ```
 
-After publication verify:
+Confirm the stable version is not already published:
 
 ```cmd
-npm view opencode-agent-skill versions --json
-npm view opencode-agent-skill@13.0.0-beta.3 version
-npm dist-tag ls opencode-agent-skill
+npm view opencode-agent-skill@14.4.0 version --registry=https://registry.npmjs.org/
 ```
 
-For V13 beta the expected dist-tags are:
+Run the complete gate and inspect the package:
+
+```cmd
+npm run ci
+npm pack
+```
+
+Test the exact tarball with Pi:
+
+```cmd
+pi install .\opencode-agent-skill-14.4.0.tgz
+pi list
+```
+
+Publish stable to the default `latest` dist-tag:
+
+```cmd
+npm publish --access public
+```
+
+For manual/local publishing, do not add `--provenance`. npm provenance is intended for supported cloud CI/OIDC publishing. If trusted publishing is configured later, provenance can be generated automatically by the supported CI provider.
+
+Verify the registry after publication:
+
+```cmd
+npm view opencode-agent-skill@14.4.0 version
+npm view opencode-agent-skill dist-tags
+npm view opencode-agent-skill@latest version
+```
+
+Expected stable result:
 
 ```text
-latest: 11.0.0
-next: 13.0.0-beta.3
+latest: 14.4.0
 ```
 
-Do not move `latest` to V13 until the prerelease is intentionally promoted stable.
+## Git tag
 
-## GitHub Actions publishing
+After the npm publication succeeds, create the matching immutable release tag from the same tested commit:
 
-The repository's publish workflow is OIDC/provenance-ready and runs the same package validation before `npm publish`.
-
-For stronger long-term supply-chain security, configure npm Trusted Publishing for:
-
-```text
-GitHub owner: laivannha0202
-Repository: opencode-agent-skill-
-Workflow: publish.yml
+```cmd
+npm run release:check-tag -- v14.4.0
+git tag -a v14.4.0 -m "UES 14.4.0"
+git push origin v14.4.0
 ```
 
-Then the GitHub-hosted workflow can authenticate through OIDC instead of a long-lived npm publish token. npm Trusted Publishing requires the corresponding publisher relationship to be configured on npm; repository code alone cannot create that account-side trust relationship.
+Never move an existing release tag and never use force push for a release.
 
-The current `publish.yml` is tag-only. A matching prerelease tag such as `v13.0.0-beta.3` runs the full package gate and publishes with npm dist-tag `next`; a stable version publishes to `latest`. The workflow first checks whether that exact version already exists and skips duplicate publication.
+## Public install
+
+Pi package install:
+
+```cmd
+npm install -g @earendil-works/pi-coding-agent
+pi install npm:opencode-agent-skill
+pi
+```
+
+Optional global CLI:
+
+```cmd
+npm install -g opencode-agent-skill@latest
+ues version
+```
+
+Update an existing npm-based Pi install:
+
+```cmd
+pi update
+```
 
 ## Release checklist
 
-1. Confirm version/changelog/package-lock consistency.
-2. Run `npm run ci` locally on Windows and at least one Unix-like environment when practical.
-3. Run `npm pack` and inspect the tarball contents.
-4. Verify packed install/state/resource counts.
-5. When installer compatibility changed, exercise both forced V1 and V2 paths through tests.
-6. When updater behavior changed, test explicit latest-tag resolution, equal-version behavior, and downgrade refusal.
-7. Commit and push the release branch.
-8. Merge only after review/local validation is clean.
-9. Create/push the matching `vX.Y.Z` tag or run the publish workflow.
-10. Verify registry version and dist-tags (`next` for prerelease, `latest` for stable).
-11. Install the published package on a clean environment before announcing it.
-
-## One-command user install
-
-After publication:
-
-```cmd
-npm install -g opencode-agent-skill
-```
-
-If lifecycle execution is blocked by local npm policy:
-
-```cmd
-ocskill install
-```
+1. `git status` is clean.
+2. `git pull --ff-only origin main`.
+3. `npm run ci` passes.
+4. `npm pack` succeeds and the tarball contains the required Pi/runtime files.
+5. Exact packed install works.
+6. `npm whoami` resolves the authorized publisher.
+7. Exact target version is not already present.
+8. `npm publish --access public` succeeds.
+9. Registry reports `latest: 14.4.0`.
+10. Create and push `v14.4.0` from the same commit.
+11. Test `pi install npm:opencode-agent-skill` in a clean environment before announcing the release.
