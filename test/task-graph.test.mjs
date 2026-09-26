@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { analyzePlan, validatePlan } from "../lib/task-graph.mjs"
+import { analyzePlan, normalizePlanForValidation, validatePlan } from "../lib/task-graph.mjs"
 
 function plan() {
   return {
@@ -58,4 +58,53 @@ test("task graph rejects cycles and missing verification", () => {
   assert.equal(result.valid, false)
   assert.ok(result.errors.some((item) => item.includes("verification")))
   assert.ok(result.errors.some((item) => item.includes("dependency cycle")))
+})
+
+
+test("task graph normalizes common weak-model plan aliases without inventing evidence", () => {
+  const raw = {
+    schemaVersion: 1,
+    goal: "Clean demo data safely",
+    tasks: [
+      {
+        id: "task-01",
+        title: "Cleanup",
+        summary: "Remove fixture rows",
+        dependsOn: [],
+        files: { modify: ["apps/api/src/seed.ts"], read: ["apps/api/prisma/schema.prisma"] },
+        acceptanceCriteria: [{ criterion: "Fixture rows are absent while canonical rows remain" }],
+        verificationChecks: [{ check: "Run targeted cleanup test and inspect resulting catalog" }],
+        risk: "Cascade FK constraints if child entities are not unlinked first.",
+      },
+    ],
+  }
+
+  const normalized = normalizePlanForValidation(raw)
+  assert.deepEqual(normalized.tasks[0].acceptance, ["Fixture rows are absent while canonical rows remain"])
+  assert.deepEqual(normalized.tasks[0].verification, ["Run targeted cleanup test and inspect resulting catalog"])
+  assert.equal(normalized.tasks[0].risk, "high")
+  assert.match(normalized.tasks[0].riskNotes, /Cascade FK constraints/)
+  assert.equal(validatePlan(normalized).valid, true)
+})
+
+test("task graph normalizer stays fail-closed when acceptance and verification are genuinely absent", () => {
+  const raw = {
+    schemaVersion: 1,
+    goal: "Do work",
+    tasks: [
+      {
+        id: "task-01",
+        title: "Work",
+        summary: "No evidence fields",
+        dependsOn: [],
+        files: { modify: ["src/a.js"] },
+        risk: "low",
+      },
+    ],
+  }
+  const normalized = normalizePlanForValidation(raw)
+  const result = validatePlan(normalized)
+  assert.equal(result.valid, false)
+  assert.ok(result.errors.some((item) => item.includes("acceptance")))
+  assert.ok(result.errors.some((item) => item.includes("verification")))
 })
