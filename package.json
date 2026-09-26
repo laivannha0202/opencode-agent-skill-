@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
-  "version": "14.4.0",
-  "description": "Pi Agent engineering runtime with code intelligence, hash-anchored editing, verified persistent memory, health-aware capability routing, reversible context, and evidence-gated completion",
+  "version": "15.0.0-beta.1",
+  "description": "Pi Agent engineering runtime with deterministic controller admission, managed background services, code intelligence, verified memory, reversible context, and evidence-gated completion",
   "type": "module",
   "bin": {
     "ues": "bin/ocskill.mjs",
@@ -21,6 +21,7 @@
     "docs/V14-CONTEXT-MEMORY-FABRIC.md",
     "docs/V14.1-QUALITY-PERFORMANCE-FABRIC.md",
     "docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md",
+    "docs/V15-MANAGED-RUNTIME.md",
     "docs/PI-COMPAT.md",
     "docs/OPENCODE-COMPAT.md",
     "README.md",
@@ -40,7 +41,8 @@
     "smoke:packed": "node scripts/smoke-packed-install.mjs",
     "eval:v14": "node --test test/capability-fabric-v14.test.mjs test/hierarchical-context-v14.test.mjs test/memory-engine-v14.test.mjs test/context-engine-v14.test.mjs test/task-engine-v14-context.test.mjs test/cli-v14.test.mjs test/v14-contract.test.mjs test/performance-fabric-v14.test.mjs test/browser-mcp-routing-v14.test.mjs test/process-hang-detector-v14.test.mjs test/v14.2-runtime.test.mjs test/benchmark-confidence.test.mjs test/v14.3-intelligence.test.mjs",
     "integrity": "node scripts/check-source-integrity.mjs",
-    "runtime:exports": "node scripts/check-runtime-exports.mjs"
+    "runtime:exports": "node scripts/check-runtime-exports.mjs",
+    "eval:v15": "node --test test/v15-runtime.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs"
   },
   "keywords": [
     "pi-package",
