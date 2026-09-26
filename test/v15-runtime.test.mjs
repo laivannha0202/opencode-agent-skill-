@@ -83,6 +83,8 @@ test("V15 managed service starts, proves readiness, captures evidence and stops"
 
     assert.equal(started.ready, true, JSON.stringify(started))
     assert.equal(started.alive, true)
+    assert.equal(started.lifetimeMs, 30 * 60_000)
+    assert.equal(started.idleTimeoutMs, 0)
     assert.ok(Number(started.pid) > 0)
     assert.match(String(started.evidenceRef || ""), /^evidence:sha256:/)
 
@@ -128,8 +130,12 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /const uesExecuteTool: any = \{/)
   assert.match(parent, /ues_controller_direct/)
   assert.match(parent, /"ues_service"/)
+  assert.match(parent, /lifetimeMs:\s*Type\.Optional/)
+  assert.match(parent, /idleTimeoutMs:\s*Type\.Optional/)
   assert.match(parent, /Never launch a persistent dev server\/watcher in foreground/)
   assert.match(child, /name:\s*"ues_service"/)
+  assert.match(child, /lifetimeMs:\s*Type\.Optional/)
+  assert.match(child, /idleTimeoutMs:\s*Type\.Optional/)
   assert.match(child, /looksLikeLongRunningServiceCommand/)
   assert.match(child, /Use the ues_service tool/)
   assert.match(child, /stopAllServices\(ctx\.cwd\)/)
