@@ -164,7 +164,6 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(smokeSource, /cwd:\s*tempDir/)
 
   const requiredPrompts = [
-    "ues-run.md",
     "ues-plan.md",
     "ues-resume.md",
     "ues-verify.md",
@@ -184,6 +183,13 @@ test("Pi adapter and prompt resources are packaged", () => {
     assert.match(content, /^---\n/)
     assert.match(content, /description:/)
   }
+
+  assert.equal(
+    fs.existsSync(path.join(root, "pi", "prompts", "ues-run.md")),
+    false,
+    "Pi must not package a ues-run prompt template because ues.ts owns the deterministic /ues-run command",
+  )
+  assert.equal(requiredPrompts.length, 10)
 })
 
 test("existing UES skills remain Agent Skills compatible for Pi", async () => {
