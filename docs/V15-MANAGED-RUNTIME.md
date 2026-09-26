@@ -84,3 +84,36 @@ npm run eval:pi -- --model kilo/stepfun/step-3.7-flash:free --thinking low --sui
 ```
 
 For the UES arm, `controllerUsed` must now be true because admission is deterministic.
+
+
+## V15.2 Turbo Fast Path
+
+V15.2 addresses latency observed in weak-model live evaluation without weakening completion gates.
+
+For a first-attempt task to enter Turbo Fast Path it must be:
+
+- FAST profile;
+- low risk;
+- single-file bounded;
+- executor/verifier role;
+- no required integration verification;
+- no browser/visual evidence requirement.
+
+The original user-task policy is propagated into controller-generated specialist prompts. UES therefore does not reclassify its own orchestration text as if it were new user scope.
+
+Default first-attempt budgets:
+
+- hard child timeout: 180 seconds;
+- child idle timeout: 60 seconds;
+- post-tool-error idle timeout: 30 seconds;
+- behavioral verification command timeout: 90 seconds.
+
+A timeout is not a PASS. The attempt fails closed and the existing recovery policy can widen context, diagnose, and escalate the model on a later attempt.
+
+Fresh behavioral verification receipts remain the preferred FAST completion proof. A separate verifier model turn is skipped only when the deterministic FAST gate proves the required acceptance criteria at the current workspace fingerprint.
+
+### Pi benchmark telemetry
+
+Pi headless/JSON mode keeps protocol stdout clean and extension/application diagnostics may appear on stderr. V15.2 therefore writes direct-controller eval telemetry to stderr and the eval harness parses both stdout and stderr.
+
+This prevents a successful UES implementation from being mislabeled as `controllerUsed=false` merely because telemetry was read from the wrong stream.
