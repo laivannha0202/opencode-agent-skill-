@@ -4,7 +4,7 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.0.0-beta.2</code>  
+**Phiên bản package hiện tại:** <code>15.0.0-beta.3</code>  
 **Nhánh phát triển hiện tại:** V15.2 Turbo Fast Path + Managed Services  
 **Stable npm hiện tại:** <code>14.4.0</code>  
 **Runtime:** Node.js 22.19+  
@@ -1415,7 +1415,7 @@ npm pack
 Package version hiện tại trên nhánh <code>main</code> là:
 
 ~~~text
-15.0.0-beta.2
+15.0.0-beta.3
 ~~~
 
 Stable npm public hiện vẫn là <code>14.4.0</code>. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
