@@ -36,3 +36,49 @@ Compatibility, rollout, rollback, or migration concerns.
 Evidence needed to prove the chosen design works.
 
 The parent agent owns implementation and final decisions.
+
+When the parent explicitly asks for `UES_PLAN_JSON:`, append exactly one JSON object after that marker. Do not put prose inside scalar enum fields.
+
+Required shape:
+
+```json
+{
+  "schemaVersion": 1,
+  "goal": "observable repository goal",
+  "tasks": [
+    {
+      "id": "task-01",
+      "title": "short title",
+      "summary": "what changes and why",
+      "dependsOn": [],
+      "files": {
+        "create": [],
+        "modify": ["path/inside/repo"],
+        "test": [],
+        "delete": [],
+        "read": []
+      },
+      "acceptance": [
+        "observable behavior or repository state that must be true"
+      ],
+      "verification": [
+        "concrete executable or inspectable check that proves the criterion"
+      ],
+      "verificationCommands": [
+        { "command": "npm", "args": ["test", "--", "target"] }
+      ],
+      "risk": "low",
+      "riskNotes": "optional prose describing the risk"
+    }
+  ]
+}
+```
+
+Rules for `UES_PLAN_JSON`:
+- `risk` is only one of `low`, `medium`, `high`, `critical`; put descriptive prose in `riskNotes`.
+- `acceptance` is a non-empty array of observable criteria, never a paragraph field with another name.
+- `verification` is a non-empty array of concrete checks, never omitted even when `verificationCommands` is present.
+- `dependsOn` is always an array of task IDs.
+- paths are repository-relative and must not escape the repository.
+- do not invent acceptance criteria that are not supported by the assigned task/repository evidence.
+
