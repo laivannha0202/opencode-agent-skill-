@@ -38,7 +38,7 @@
     "ci": "npm run integrity && npm run runtime:exports && npm run syntax && npm test && npm run docs:check && npm pack --dry-run && npm run smoke:pi && npm run smoke:package && npm run smoke:packed",
     "prepublishOnly": "npm run ci",
     "smoke:packed": "node scripts/smoke-packed-install.mjs",
-    "eval:v14": "node --test test/capability-fabric-v14.test.mjs test/hierarchical-context-v14.test.mjs test/memory-engine-v14.test.mjs test/context-engine-v14.test.mjs test/task-engine-v14-context.test.mjs test/cli-v14.test.mjs test/v14-contract.test.mjs test/performance-fabric-v14.test.mjs test/browser-mcp-routing-v14.test.mjs test/process-hang-detector-v14.test.mjs test/v14.2-runtime.test.mjs test/benchmark-confidence.test.mjs",
+    "eval:v14": "node --test test/capability-fabric-v14.test.mjs test/hierarchical-context-v14.test.mjs test/memory-engine-v14.test.mjs test/context-engine-v14.test.mjs test/task-engine-v14-context.test.mjs test/cli-v14.test.mjs test/v14-contract.test.mjs test/performance-fabric-v14.test.mjs test/browser-mcp-routing-v14.test.mjs test/process-hang-detector-v14.test.mjs test/v14.2-runtime.test.mjs test/benchmark-confidence.test.mjs test/v14.3-intelligence.test.mjs",
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs"
   },
