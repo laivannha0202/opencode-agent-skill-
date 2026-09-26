@@ -284,12 +284,23 @@ const CONTRACTS = [
       "UES_EVAL_DIRECT_TELEMETRY",
       "ues_controller_direct",
       "controller progress",
-      "agentRun.stdout, agentRun.stderr",
-      "onStderr: (chunk) => consumeControllerProgress",
       "controllerValid=",
     ],
   },
 
+  {
+    file: "scripts/eval-pi.mjs",
+    minBytes: 15_000,
+    startsWith: "import ",
+    required: [
+      "ues_controller_progress",
+      "ues_controller_direct",
+      "agentRun.stdout, agentRun.stderr",
+      "onStderr: (chunk) => consumeControllerProgress",
+      "controllerValid=",
+      "UES_EVAL_DIRECT_TELEMETRY",
+    ],
+  },
   {
     file: "lib/affected-tests.mjs",
     minBytes: 7_500,
