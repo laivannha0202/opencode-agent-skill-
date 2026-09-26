@@ -24,6 +24,10 @@ const CONTRACTS = [
       "looksLikeLongRunningServiceCommand",
       "ues_controller_direct",
       "ues_controller_progress",
+      "taskPolicyOverride || classifyEngineeringTask",
+      "turboFastPathDecision",
+      "TURBO_FAST_TIMEOUTS",
+      "process.stderr.write",
       "CHILD_RUNTIME_EXTENSION",
       "isAbortedRun",
       "abortedResponse",
@@ -248,6 +252,7 @@ const CONTRACTS = [
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
+      "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
       "UES_EVAL_DIRECT_TELEMETRY",
       "ues_controller_direct",
       "controller progress",
