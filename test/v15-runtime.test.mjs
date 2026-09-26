@@ -7,6 +7,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
+import { classifyEngineeringTask } from "../lib/task-policy.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -34,6 +35,24 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15.2 quick discount benchmark remains FAST and Turbo-eligible", () => {
+  const prompt =
+    "Fix calculateDiscount(price, percent) in src/discount.mjs. Percent is 0..100, so 20 means a 20% discount. Reject non-finite/non-number price or percent with TypeError and percent outside 0..100 with RangeError. Preserve the export and do not weaken the requested semantics."
+  const policy = classifyEngineeringTask(prompt)
+  assert.equal(policy.executionProfile, "fast")
+  assert.equal(policy.singleFileBounded, true)
+  assert.equal(policy.risk, "low")
+  assert.equal(policy.requireIntegrationVerification, false)
+
+  const decision = turboFastPathDecision(policy, {
+    role: "executor",
+    attempt: 1,
+    browserRequested: false,
+    visualRequired: false,
+  })
+  assert.equal(decision.eligible, true)
+})
 
 test("V15.2 Turbo Fast Path is fail-closed and bounded", () => {
   const fastPolicy = {
@@ -173,6 +192,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /ues_controller_progress/)
   assert.match(parent, /process\.stderr\.write/)
   assert.match(parent, /taskPolicyOverride \|\| classifyEngineeringTask/)
+  assert.match(parent, /traceID,\s*policy,\s*\);/)
   assert.match(parent, /turboFastPathDecision/)
   assert.match(parent, /TURBO_FAST_TIMEOUTS/)
   assert.match(parent, /"ues_service"/)
