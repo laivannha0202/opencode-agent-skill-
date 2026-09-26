@@ -132,7 +132,7 @@ try {
     0,
     promptResult.diagnostics.map((entry) => `${entry.path || entry.filePath || "prompt"}: ${entry.message || entry.error || JSON.stringify(entry)}`).join("\n"),
   )
-  assert.ok(promptResult.prompts.length >= 11, "Pi did not load the bundled UES prompts")
+  assert.equal(promptResult.prompts.length, 10, "Pi must load exactly 10 prompt templates; /ues-run is an extension command")
 
   console.log(
     `Pi package smoke passed via ${loaded.source}: ${result.extensions.length} extension(s), ${skillResult.skills.length} skill(s), ${promptResult.prompts.length} prompt(s) loaded`,
