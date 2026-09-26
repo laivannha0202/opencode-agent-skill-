@@ -4,8 +4,8 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.0.0-beta.1</code>  
-**Nhánh phát triển hiện tại:** V15.1 Deterministic Admission + Managed Services  
+**Phiên bản package hiện tại:** <code>15.0.0-beta.2</code>  
+**Nhánh phát triển hiện tại:** V15.2 Turbo Fast Path + Managed Services  
 **Stable npm hiện tại:** <code>14.4.0</code>  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
