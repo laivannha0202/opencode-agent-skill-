@@ -3315,7 +3315,7 @@ export default function (pi: ExtensionAPI) {
               .join("\n")
               .trim();
             if (text) {
-              try { (pi as any).setStatus?.("ues-run", cap(text, 180)); } catch {}
+              try { ctx.ui.setStatus("ues-run", cap(text, 180)); } catch {}
             }
           },
           ctx,
@@ -3328,7 +3328,7 @@ export default function (pi: ExtensionAPI) {
         };
       } finally {
         if (directControllerAbort === abort) directControllerAbort = null;
-        try { (pi as any).setStatus?.("ues-run", undefined); } catch {}
+        try { ctx.ui.setStatus("ues-run", undefined); } catch {}
       }
 
       const content = (result?.content || [])
