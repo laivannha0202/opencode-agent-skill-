@@ -3307,7 +3307,7 @@ export default function (pi: ExtensionAPI) {
               .join("\n")
               .trim();
             if (text) {
-              try { ctx.ui.setStatus?.("ues-run", cap(text, 180)); } catch {}
+              try { (pi as any).setStatus?.("ues-run", cap(text, 180)); } catch {}
             }
           },
           ctx,
@@ -3320,7 +3320,7 @@ export default function (pi: ExtensionAPI) {
         };
       } finally {
         if (directControllerAbort === abort) directControllerAbort = null;
-        try { ctx.ui.setStatus?.("ues-run", undefined); } catch {}
+        try { (pi as any).setStatus?.("ues-run", undefined); } catch {}
       }
 
       const content = (result?.content || [])
@@ -3331,11 +3331,35 @@ export default function (pi: ExtensionAPI) {
       const controllerPass = result?.isError !== true;
 
       if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
+        const details = result?.details || null;
+        const telemetryDetails = details
+          ? {
+              mode: details.mode,
+              attempts: details.attempts,
+              policy: details.policy
+                ? {
+                    mode: details.policy.mode,
+                    executionProfile: details.policy.executionProfile,
+                    risk: details.policy.risk,
+                  }
+                : null,
+              steps: Array.isArray(details.steps)
+                ? details.steps.map((step: any) => ({
+                    agent: step?.agent,
+                    exitCode: step?.exitCode,
+                    optimizations: step?.optimizations || null,
+                    usage: step?.usage || null,
+                    toolCalls: Number(step?.toolCalls || 0),
+                    toolNames: Array.isArray(step?.toolNames) ? step.toolNames : [],
+                  }))
+                : [],
+            }
+          : null;
         console.log(JSON.stringify({
           type: "ues_controller_direct",
           controllerUsed: true,
           controllerPass,
-          details: result?.details || null,
+          details: telemetryDetails,
         }));
       }
 
