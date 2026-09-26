@@ -6,6 +6,15 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.3] - 2026-09-27
+
+### Fixed
+- Fixed long-horizon architect plans being rejected when weak models used common aliases such as `acceptanceCriteria` or `verificationChecks`.
+- Added conservative task-graph normalization: descriptive prose mistakenly placed in `risk` is preserved as `riskNotes` and mapped to a safe enum instead of silently weakening verification.
+- Strengthened the architect contract with an explicit `UES_PLAN_JSON` schema and repair guidance.
+- Normalization remains fail-closed: missing acceptance or verification evidence is never invented.
+
+
 ## [15.0.0-beta.2] - 2026-09-27
 
 ### Added
