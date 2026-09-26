@@ -4,8 +4,9 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>14.4.0</code>  
-**Release hiện tại:** V14.4 Stable Weak-Model Intelligence Runtime  
+**Phiên bản package hiện tại:** <code>15.0.0-beta.1</code>  
+**Nhánh phát triển hiện tại:** V15.1 Deterministic Admission + Managed Services  
+**Stable npm hiện tại:** <code>14.4.0</code>  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
 
@@ -1411,13 +1412,13 @@ npm pack --dry-run
 npm pack
 ~~~
 
-Package stable hiện tại trong <code>package.json</code> là:
+Package version hiện tại trên nhánh <code>main</code> là:
 
 ~~~text
-14.4.0
+15.0.0-beta.1
 ~~~
 
-V14.4 gom V14/V14.1/V14.2 cùng code intelligence, hash-anchored editing, completion auditor, stable memory snapshots, reversible context/document ingestion và MCP health-aware routing thành release stable.
+Stable npm public hiện vẫn là <code>14.4.0</code>. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
 
 Test file packed với Pi:
 
@@ -1802,6 +1803,7 @@ ues memory status .
 - <code>docs/V13-PARALLEL-WEAK-MODEL-RUNTIME.md</code> — parallel runtime.
 - <code>docs/V14-CONTEXT-MEMORY-FABRIC.md</code> — context, memory, capability fabric.
 - <code>docs/V14.1-QUALITY-PERFORMANCE-FABRIC.md</code> — quality-preserving performance.
+- <code>docs/V15-MANAGED-RUNTIME.md</code> — deterministic controller admission và managed background services.
 - <code>docs/EVALS.md</code> — evaluation.
 - <code>docs/PI-COMPAT.md</code> — Pi compatibility.
 - <code>docs/NPM-PUBLISH.md</code> — npm publishing.
