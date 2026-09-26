@@ -6,6 +6,7 @@ import path from "node:path"
 import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
+import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -33,6 +34,37 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15.2 Turbo Fast Path is fail-closed and bounded", () => {
+  const fastPolicy = {
+    executionProfile: "fast",
+    singleFileBounded: true,
+    risk: "low",
+    requireIntegrationVerification: false,
+  }
+  const eligible = turboFastPathDecision(fastPolicy, {
+    role: "executor",
+    attempt: 1,
+    browserRequested: false,
+    visualRequired: false,
+  })
+  assert.equal(eligible.eligible, true)
+  assert.equal(eligible.deterministicFirst, true)
+  assert.equal(eligible.verifierOnDemand, true)
+  assert.equal(eligible.failClosed, true)
+  assert.equal(eligible.maxModelLanes, 1)
+
+  assert.equal(turboFastPathDecision(fastPolicy, { role: "executor", attempt: 2 }).eligible, false)
+  assert.equal(turboFastPathDecision({ ...fastPolicy, risk: "high" }, { role: "executor", attempt: 1 }).eligible, false)
+  assert.equal(turboFastPathDecision({ ...fastPolicy, requireIntegrationVerification: true }, { role: "executor", attempt: 1 }).eligible, false)
+  assert.equal(turboFastPathDecision(fastPolicy, { role: "executor", attempt: 1, browserRequested: true }).eligible, false)
+
+  const budget = turboFastTimeoutBudget()
+  assert.equal(budget.hardTimeoutMs, 180_000)
+  assert.equal(budget.idleTimeoutMs, 60_000)
+  assert.equal(budget.postToolErrorIdleTimeoutMs, 30_000)
+  assert.equal(budget.verificationTimeoutSec, 90)
+})
 
 test("V15 capability fabric exposes managed background services", () => {
   const registry = defaultCapabilityRegistry(root)
@@ -139,6 +171,10 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /const uesExecuteTool: any = \{/)
   assert.match(parent, /ues_controller_direct/)
   assert.match(parent, /ues_controller_progress/)
+  assert.match(parent, /process\.stderr\.write/)
+  assert.match(parent, /taskPolicyOverride \|\| classifyEngineeringTask/)
+  assert.match(parent, /turboFastPathDecision/)
+  assert.match(parent, /TURBO_FAST_TIMEOUTS/)
   assert.match(parent, /"ues_service"/)
   assert.match(parent, /lifetimeMs:\s*Type\.Optional/)
   assert.match(parent, /idleTimeoutMs:\s*Type\.Optional/)
@@ -153,5 +189,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(evalPi, /UES_EVAL_DIRECT_TELEMETRY/)
   assert.match(evalPi, /event\.type === "ues_controller_direct"/)
   assert.match(evalPi, /controller progress/)
+  assert.match(evalPi, /agentRun\.stdout, agentRun\.stderr/)
+  assert.match(evalPi, /onStderr: \(chunk\) => consumeControllerProgress/)
   assert.match(evalPi, /controllerValid=/)
 })
