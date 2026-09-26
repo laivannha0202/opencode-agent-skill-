@@ -155,6 +155,35 @@ function parsePiTelemetry(stdout) {
     baseContextChars: 0,
   }
 
+  const consumeControllerDetails = (details) => {
+    const steps = Array.isArray(details?.steps) ? details.steps : []
+    for (const step of steps) {
+      const optimization = step?.optimizations
+      if (optimization && typeof optimization === "object") {
+        turbo.routedAgentSteps += 1
+        if (optimization.childRuntime === "rpc") turbo.rpcRuns += 1
+        if (optimization.childRuntime === "cli") turbo.cliRuns += 1
+        if (optimization.warmWorkerReused === true) turbo.warmWorkerReuses += 1
+        if (optimization.contextCacheHit === true) turbo.contextCacheHits += 1
+        if (optimization.microSkillCacheHit === true) turbo.microSkillCacheHits += 1
+        if (optimization.affectedTestCacheHit === true) turbo.affectedTestCacheHits += 1
+        turbo.reusableVerificationReceipts += Number(optimization.reusableVerificationReceipts || 0)
+        if (optimization.compactToolOutput === true) turbo.compactedToolOutputSteps += 1
+        turbo.adaptiveContextChars += Number(optimization.runtimeContextBudget || 0)
+        turbo.baseContextChars += Number(optimization.baseContextBudget || 0)
+      }
+      if (step?.usage) {
+        addUsage(childUsage, step.usage)
+        childUsageSamples += 1
+      }
+      childToolCalls += Number(step?.toolCalls || 0)
+      for (const name of step?.toolNames || []) {
+        const key = "child:" + String(name)
+        toolNames[key] = Number(toolNames[key] || 0) + 1
+      }
+    }
+  }
+
   for (const line of String(stdout || "").split(/\r?\n/)) {
     if (!line.trim()) continue
     let event
@@ -188,33 +217,14 @@ function parsePiTelemetry(stdout) {
 
     if (event.type === "tool_execution_end" && event.toolName === "ues_execute") {
       const details = event.result?.details
-      const steps = Array.isArray(details?.steps) ? details.steps : []
-      for (const step of steps) {
-        const optimization = step?.optimizations
-        if (optimization && typeof optimization === "object") {
-          turbo.routedAgentSteps += 1
-          if (optimization.childRuntime === "rpc") turbo.rpcRuns += 1
-          if (optimization.childRuntime === "cli") turbo.cliRuns += 1
-          if (optimization.warmWorkerReused === true) turbo.warmWorkerReuses += 1
-          if (optimization.contextCacheHit === true) turbo.contextCacheHits += 1
-          if (optimization.microSkillCacheHit === true) turbo.microSkillCacheHits += 1
-          if (optimization.affectedTestCacheHit === true) turbo.affectedTestCacheHits += 1
-          turbo.reusableVerificationReceipts += Number(optimization.reusableVerificationReceipts || 0)
-          if (optimization.compactToolOutput === true) turbo.compactedToolOutputSteps += 1
-          turbo.adaptiveContextChars += Number(optimization.runtimeContextBudget || 0)
-          turbo.baseContextChars += Number(optimization.baseContextBudget || 0)
-        }
-        if (step?.usage) {
-          addUsage(childUsage, step.usage)
-          childUsageSamples += 1
-        }
-        childToolCalls += Number(step?.toolCalls || 0)
-        for (const name of step?.toolNames || []) {
-          const key = "child:" + String(name)
-          toolNames[key] = Number(toolNames[key] || 0) + 1
-        }
-      }
+      consumeControllerDetails(details)
       if (event.isError !== true && details?.mode === "execute") controllerPass = true
+    }
+
+    if (event.type === "ues_controller_direct") {
+      controllerUsed = event.controllerUsed === true
+      controllerPass = event.controllerPass === true
+      consumeControllerDetails(event.details)
     }
   }
 
@@ -334,6 +344,7 @@ try {
         const childEnv = {
           ...process.env,
           UES_CONFIG_DIR: uesConfigDir,
+          UES_EVAL_DIRECT_TELEMETRY: mode === "ues" ? "1" : "0",
           PI_SKIP_VERSION_CHECK: "true",
           NO_COLOR: "1",
         }
@@ -356,14 +367,10 @@ try {
         let prompt = task.prompt
         if (mode === "ues") {
           piArgs.push("--extension", path.join(root, "pi", "extensions", "ues.ts"))
-          prompt = [
-            "Use the UES runtime controller for this benchmark task.",
-            "You MUST call the ues_execute tool exactly once with the complete engineering task below and the current working directory.",
-            "Do not edit project files directly before that tool call. After the tool returns, report its verified result concisely.",
-            "",
-            "Engineering task:",
-            task.prompt,
-          ].join("\n")
+          // /ues-run is an extension command, resolved before prompt templates.
+          // The benchmark therefore exercises the controller deterministically
+          // instead of measuring whether a weak parent model remembers to call a tool.
+          prompt = "/ues-run " + task.prompt
         }
         piArgs.push(prompt)
 
