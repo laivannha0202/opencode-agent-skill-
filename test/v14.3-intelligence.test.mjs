@@ -9,6 +9,7 @@ import { auditCompletion } from "../lib/completion-auditor.mjs"
 import { ingestDocument } from "../lib/document-ingestion.mjs"
 import { compactContext, expandContext, searchContext } from "../lib/reversible-context.mjs"
 import { mcpExecutionPolicy } from "../lib/mcp-tool-policy.mjs"
+import { McpHealthTracker, mcpReconnectAdvice } from "../lib/mcp-health.mjs"
 import { buildPromptEnvelope, comparePromptEnvelopes } from "../lib/prompt-cache.mjs"
 import { buildMemorySnapshot } from "../lib/memory-engine.mjs"
 
@@ -131,6 +132,23 @@ test("verified memory snapshots ignore retrieval/touch noise but change with dur
 
   const changed = [{ ...base[0], content: "Use a different durable rule." }]
   assert.notEqual(buildMemorySnapshot(base).generation, buildMemorySnapshot(changed).generation)
+})
+
+test("MCP health only recommends reconnect for transient idempotent tools", () => {
+  const safePolicy = mcpExecutionPolicy({ name: "search_remote", annotations: { idempotentHint: true, readOnlyHint: true } })
+  assert.equal(mcpReconnectAdvice({ policy: safePolicy, error: "ECONNRESET", attempt: 1 }).reconnectRecommended, true)
+
+  const destructive = mcpExecutionPolicy({ name: "delete_remote", annotations: { destructiveHint: true, idempotentHint: true } })
+  assert.equal(mcpReconnectAdvice({ policy: destructive, error: "timeout", attempt: 1 }).reconnectRecommended, false)
+
+  const health = new McpHealthTracker({ failureThreshold: 2, cooldownMs: 5000 })
+  health.begin("a", "search_remote", safePolicy, 1000)
+  health.finish("a", { isError: true, text: "transport connection reset" }, 1100)
+  assert.equal(health.status("search_remote", 1200).available, true)
+  health.begin("b", "search_remote", safePolicy, 1300)
+  health.finish("b", { isError: true, text: "transport connection reset" }, 1400)
+  assert.equal(health.status("search_remote", 1500).status, "degraded")
+  assert.equal(health.status("search_remote", 7000).available, true)
 })
 
 test("MCP annotations only tighten execution policy", () => {
