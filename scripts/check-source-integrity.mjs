@@ -234,7 +234,8 @@ const CONTRACTS = [
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
-      "prompt = \"/ues-run \" + task.prompt",
+      "UES_EVAL_DIRECT_TELEMETRY",
+      "ues_controller_direct",
     ],
   },
 
