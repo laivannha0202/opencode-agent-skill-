@@ -186,7 +186,9 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   const child = await readFile(path.join(root, "pi", "extensions", "ues-child-runtime.ts"), "utf8")
   const evalPi = await readFile(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
 
+  assert.match(parent, /pi\.registerCommand\("ues-status"/)
   assert.match(parent, /pi\.registerCommand\("ues-run"/)
+  assert.match(parent, /PACKAGE_VERSION/)
   assert.match(parent, /const uesExecuteTool: any = \{/)
   assert.match(parent, /ues_controller_direct/)
   assert.match(parent, /ues_controller_progress/)
