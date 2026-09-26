@@ -4,8 +4,8 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>14.2.0-beta.1</code>  
-**Nhánh phát triển hiện tại:** V14.2 Turbo Weak-Model Runtime  
+**Phiên bản package hiện tại:** <code>14.4.0</code>  
+**Release hiện tại:** V14.4 Stable Weak-Model Intelligence Runtime  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
 
@@ -1352,7 +1352,22 @@ npm install -g @earendil-works/pi-coding-agent
 pi --version
 ~~~
 
-Cài UES trực tiếp từ GitHub:
+Cài UES stable từ npm (khuyến nghị):
+
+~~~cmd
+pi install npm:opencode-agent-skill
+pi list
+pi
+~~~
+
+Hoặc cài CLI toàn cục:
+
+~~~cmd
+npm install -g opencode-agent-skill@latest
+ues version
+~~~
+
+Cài trực tiếp từ GitHub main nếu muốn dùng source mới nhất:
 
 ~~~cmd
 pi install git:github.com/laivannha0202/opencode-agent-skill-
@@ -1396,18 +1411,18 @@ npm pack --dry-run
 npm pack
 ~~~
 
-Package version hiện tại trong <code>package.json</code> là:
+Package stable hiện tại trong <code>package.json</code> là:
 
 ~~~text
-14.2.0-beta.1
+14.4.0
 ~~~
 
-V14.2 Turbo Weak-Model Runtime hiện là incremental work trên package version đó.
+V14.4 gom V14/V14.1/V14.2 cùng code intelligence, hash-anchored editing, completion auditor, stable memory snapshots, reversible context/document ingestion và MCP health-aware routing thành release stable.
 
 Test file packed với Pi:
 
 ~~~cmd
-pi install .\opencode-agent-skill-14.2.0-beta.1.tgz
+pi install .\opencode-agent-skill-14.4.0.tgz
 pi list
 ~~~
 
@@ -1757,7 +1772,7 @@ UES cố ý **không**:
 
 ~~~cmd
 npm install -g @earendil-works/pi-coding-agent
-pi install git:github.com/laivannha0202/opencode-agent-skill-
+pi install npm:opencode-agent-skill
 pi
 ~~~
 
