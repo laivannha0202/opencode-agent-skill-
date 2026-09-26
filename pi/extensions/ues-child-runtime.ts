@@ -371,7 +371,7 @@ export default function (pi: ExtensionAPI) {
     name: "ues_service",
     label: "UES Managed Service",
     description:
-      "Manage long-running development servers/watchers without blocking the agent. Use start, wait-ready, status, logs, stop, or restart. Services are bounded to the current workspace/runtime and are cleaned up on session shutdown.",
+      "Manage long-running development servers/watchers without blocking the agent. Use start, wait-ready, status, logs, stop, or restart. For start/restart, command is the executable only (for example node or npm); put every argument in args. Services are bounded to the current workspace/runtime and are cleaned up on session shutdown.",
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("start"),
