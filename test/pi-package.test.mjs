@@ -117,6 +117,7 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(childRuntimeSource, /name:\s*"ues_code"/)
   assert.match(childRuntimeSource, /name:\s*"ues_code_edit"/)
   assert.match(childRuntimeSource, /name:\s*"ues_service"/)
+  assert.match(childRuntimeSource, /process\.env\.UES_CHILD_PROCESS !== "1"/)
   assert.match(childRuntimeSource, /looksLikeLongRunningServiceCommand/)
   assert.match(childRuntimeSource, /stopAllServices/)
   assert.match(childRuntimeSource, /applyAnchoredFileEdits/)
