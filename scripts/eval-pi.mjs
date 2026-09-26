@@ -378,6 +378,7 @@ try {
           "[" + mode + "] " + task.id + " trial " + trial + ": starting Pi " + piVersion +
           (providerExtensions.length ? " with provider extension isolation" : ""),
         )
+        let progressLineBuffer = ""
         const agentRun = await runAsync(piCommand, piArgs, {
           cwd: workspace,
           env: childEnv,
@@ -386,6 +387,30 @@ try {
           timeoutMs,
           idleTimeoutMs,
           signal: abortController.signal,
+          onStdout: (chunk) => {
+            if (mode !== "ues") return
+            progressLineBuffer += String(chunk || "")
+            const lines = progressLineBuffer.split(/\r?\n/)
+            progressLineBuffer = lines.pop() || ""
+            for (const line of lines) {
+              if (!line.trim()) continue
+              try {
+                const event = JSON.parse(line)
+                if (event?.type !== "ues_controller_progress") continue
+                console.log(
+                  "[" + mode + "] " + task.id + " trial " + trial +
+                  ": controller progress" +
+                  (event.agent ? " agent=" + event.agent : "") +
+                  (event.phase ? " phase=" + event.phase : "") +
+                  " elapsed=" + Math.round(Number(event.elapsedMs || 0) / 1000) + "s" +
+                  " idle=" + Math.round(Number(event.idleMs || 0) / 1000) + "s" +
+                  " tools=" + Number(event.toolCalls || 0) +
+                  (event.activeTool ? " activeTool=" + event.activeTool : "") +
+                  (event.note ? " note=" + String(event.note).slice(0, 180) : ""),
+                )
+              } catch {}
+            }
+          },
           onHeartbeat: ({ elapsedMs, idleMs }) => {
             console.log(
               "[" + mode + "] " + task.id + " trial " + trial +
@@ -444,7 +469,7 @@ try {
           "[" + mode + "] " + task.id + " trial " + trial + ": " +
           (passed ? "PASS" : "FAIL") +
           " (agent=" + agentRun.status + ", grader=" + graderRun.status +
-          ", controller=" + controllerValid +
+          ", controllerValid=" + controllerValid +
           (mode === "baseline" ? ", isolated=" + baselineIsolated : "") + ")",
         )
       }
