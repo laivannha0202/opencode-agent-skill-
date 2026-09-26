@@ -91,6 +91,11 @@ async function capturedText(event: any, fallback: string) {
 }
 
 export default function (pi: ExtensionAPI) {
+  // Internal-only extension: the package host may discover this file alongside
+  // ues.ts, but only specialist child Pi processes should register its tools.
+  // Parent launch paths set UES_CHILD_PROCESS=1 for both CLI and RPC workers.
+  if (process.env.UES_CHILD_PROCESS !== "1") return;
+
   const clearExecutionState = () => toolExecutionState.clear();
   pi.on("session_start", clearExecutionState);
   pi.on("session_shutdown", async (_event, ctx) => {
