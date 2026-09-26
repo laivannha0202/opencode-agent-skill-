@@ -3317,6 +3317,21 @@ export default function (pi: ExtensionAPI) {
             if (text) {
               try { ctx.ui.setStatus("ues-run", cap(text, 180)); } catch {}
             }
+            if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
+              const progress = update?.details?.progress;
+              console.log(JSON.stringify({
+                type: "ues_controller_progress",
+                phase: update?.details?.phase || null,
+                task: update?.details?.task || null,
+                agent: progress?.agent || null,
+                elapsedMs: Number(progress?.elapsedMs || 0),
+                idleMs: Number(progress?.idleMs || 0),
+                toolCalls: Number(progress?.toolCalls || 0),
+                activeTool: progress?.activeTool || null,
+                note: progress?.note || null,
+                text: text ? cap(text, 240) : null,
+              }));
+            }
           },
           ctx,
         );
