@@ -6,6 +6,26 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.1] - 2026-09-27
+
+### Added
+- Added deterministic `/ues-run` admission as a Pi extension command, so weak parent models no longer need to remember to call `ues_execute`.
+- Added `ues_service` Managed Background Services to parent and specialist runtimes with start, wait-ready, status, logs, stop and restart actions.
+- Added TCP/log readiness probes, bounded service logs, Evidence Store snapshots and cross-platform process-tree cleanup.
+- Added focused V15 regression coverage for foreground-service classification, readiness, evidence capture, shutdown and deterministic benchmark admission.
+
+### Changed
+- Pi live UES benchmarks now enter through `/ues-run` instead of asking the model to voluntarily call `ues_execute`.
+- RPC specialists now receive the same `ues_code` / `ues_code_edit` intelligence tools as CLI specialists, plus `ues_service`.
+- Common foreground dev-server commands are blocked in bash/powershell and redirected to `ues_service`.
+- `.ues-services/` runtime state is ignored by Git and excluded from fingerprints, semantic indexing, repo graphs and affected-test scans.
+
+### Safety
+- Managed services use shell-free executable + argument invocation and existing safe Windows shim resolution.
+- Destructive service commands still pass through UES destructive-command policy.
+- Session shutdown stops only processes owned by the current UES runtime; historical PID metadata is never blindly killed.
+
+
 ## [14.4.0] - 2026-09-26
 
 ### Added
