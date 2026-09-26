@@ -48,6 +48,16 @@ import {
   removeTaskSandbox,
   rollbackTaskSandbox,
 } from "../../lib/worktree-sandbox.mjs";
+import {
+  looksLikeLongRunningServiceCommand,
+  restartService,
+  serviceLogs,
+  serviceStatus,
+  startService,
+  stopAllServices,
+  stopService,
+  waitForService,
+} from "../../lib/service-manager.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const OCSKILL_BIN = path.join(PACKAGE_ROOT, "bin", "ocskill.mjs");
@@ -2400,6 +2410,7 @@ export default function (pi: ExtensionAPI) {
     clearSemanticIndexRuntimeCache();
     MCP_HEALTH.clear();
     abortActiveCliChildren();
+    await stopAllServices().catch(() => []);
     await RPC_POOL.stopAll().catch(() => {});
   });
 
@@ -2466,6 +2477,14 @@ export default function (pi: ExtensionAPI) {
     }
 
     const command = String((event.input as any)?.command || "");
+    if (looksLikeLongRunningServiceCommand(command)) {
+      return {
+        block: true,
+        reason:
+          "UES detected a likely long-running foreground service command. " +
+          "Use ues_service start/wait-ready/logs/stop so Pi can continue without blocking on the server process.",
+      };
+    }
     const risk = destructiveShellRisk(command);
     if (!risk.risky) return undefined;
     const allowed = await approveRisk(ctx, command, risk.id || "destructive");
@@ -2551,6 +2570,78 @@ export default function (pi: ExtensionAPI) {
         },
         isError: result.exitCode !== 0,
       };
+    },
+  });
+
+  pi.registerTool({
+    name: "ues_service",
+    label: "UES Managed Service",
+    description:
+      "Start and manage long-running dev servers/watchers without blocking Pi. Uses shell-free execution, bounded logs, readiness probes, evidence snapshots, and session cleanup.",
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal("start"),
+        Type.Literal("wait-ready"),
+        Type.Literal("status"),
+        Type.Literal("logs"),
+        Type.Literal("stop"),
+        Type.Literal("restart"),
+      ]),
+      name: Type.String({ minLength: 1, maxLength: 64 }),
+      command: Type.Optional(Type.String({ minLength: 1 })),
+      args: Type.Optional(Type.Array(Type.String(), { maxItems: 128 })),
+      cwd: Type.Optional(Type.String()),
+      readyPort: Type.Optional(Type.Number({ minimum: 1, maximum: 65535 })),
+      readyHost: Type.Optional(Type.String({ maxLength: 255 })),
+      readyLog: Type.Optional(Type.String({ maxLength: 512 })),
+      timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 600000 })),
+      maxChars: Type.Optional(Type.Number({ minimum: 256, maximum: 128000 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        let result: any;
+        if (params.action === "start") {
+          if (!params.command) throw new Error("ues_service start requires command");
+          const riskText = [params.command, ...(params.args || [])].join(" ");
+          const risk = destructiveShellRisk(riskText);
+          if (risk.risky) throw new Error(`UES service safety blocked ${risk.id || "destructive"} command`);
+          result = await startService(ctx.cwd, {
+            name: params.name,
+            command: params.command,
+            args: params.args || [],
+            cwd: params.cwd,
+            readyPort: params.readyPort,
+            readyHost: params.readyHost,
+            readyLog: params.readyLog,
+            timeoutMs: params.timeoutMs,
+          });
+        } else if (params.action === "wait-ready") {
+          result = await waitForService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+        } else if (params.action === "status") {
+          result = await serviceStatus(ctx.cwd, params.name);
+        } else if (params.action === "logs") {
+          result = await serviceLogs(ctx.cwd, params.name, { maxChars: params.maxChars, evidence: true });
+        } else if (params.action === "stop") {
+          result = await stopService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+        } else if (params.action === "restart") {
+          result = await restartService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+        } else {
+          throw new Error("Unknown ues_service action");
+        }
+        const failed =
+          (params.action === "start" || params.action === "wait-ready") && result?.ready !== true;
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+          isError: failed,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          details: { action: params.action, name: params.name },
+          isError: true,
+        };
+      }
     },
   });
 
@@ -3257,7 +3348,7 @@ export default function (pi: ExtensionAPI) {
           controllerPass,
           ...(result?.details || {}),
         },
-      }, { deliverAs: "nextTurn" });
+      });
 
       try {
         ctx.ui.notify(
