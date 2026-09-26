@@ -13,7 +13,7 @@ import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
-import { computeSafeWaves, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
+import { computeSafeWaves, normalizePlanForValidation, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import {
@@ -2815,6 +2815,7 @@ export default function (pi: ExtensionAPI) {
           "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
           "For deterministic scheduling, end with UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks.",
           "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
+          "STRICT JSON CONTRACT: acceptance and verification are non-empty arrays of strings. risk is exactly one of low|medium|high|critical. Put descriptive risk prose in riskNotes. verificationCommands is optional and does not replace verification.",
           "Declare every file a task may write. Do not invent files: inspect the repository first.",
         ].join("\n");
 
@@ -2834,6 +2835,7 @@ export default function (pi: ExtensionAPI) {
         }
 
         structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
+        if (structuredPlan) structuredPlan = normalizePlanForValidation(structuredPlan);
         let structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
 
         if (
@@ -2844,10 +2846,12 @@ export default function (pi: ExtensionAPI) {
             "The first architecture pass did not produce a valid UES_PLAN_JSON plan.",
             structuredValidation ? JSON.stringify(structuredValidation, null, 2) : "UES_PLAN_JSON marker or JSON object was missing.",
             "Return a corrected repository-grounded plan with the required marker and schema.",
+            "Repair only schema/grounding defects. acceptance must be a non-empty string array, verification must be a non-empty string array, and risk must be low|medium|high|critical with prose moved to riskNotes.",
           ].join("\n");
           architect = await run("ues-architect", planInstruction, 2, repairEvidence);
           if (isAbortedRun(architect)) return abortedResponse(architect, "plan-repair");
           structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
+          if (structuredPlan) structuredPlan = normalizePlanForValidation(structuredPlan);
           structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
           if (
             architect.exitCode !== 0 ||
