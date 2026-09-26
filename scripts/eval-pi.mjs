@@ -221,6 +221,10 @@ function parsePiTelemetry(stdout) {
       if (event.isError !== true && details?.mode === "execute") controllerPass = true
     }
 
+    if (event.type === "ues_controller_progress") {
+      controllerUsed = true
+    }
+
     if (event.type === "ues_controller_direct") {
       controllerUsed = event.controllerUsed === true
       controllerPass = event.controllerPass === true
@@ -378,7 +382,31 @@ try {
           "[" + mode + "] " + task.id + " trial " + trial + ": starting Pi " + piVersion +
           (providerExtensions.length ? " with provider extension isolation" : ""),
         )
-        let progressLineBuffer = ""
+        const progressBuffers = { stdout: "", stderr: "" }
+        const consumeControllerProgress = (chunk, stream) => {
+          if (mode !== "ues") return
+          progressBuffers[stream] += String(chunk || "")
+          const lines = progressBuffers[stream].split(/\r?\n/)
+          progressBuffers[stream] = lines.pop() || ""
+          for (const line of lines) {
+            if (!line.trim()) continue
+            try {
+              const event = JSON.parse(line)
+              if (event?.type !== "ues_controller_progress") continue
+              console.log(
+                "[" + mode + "] " + task.id + " trial " + trial +
+                ": controller progress" +
+                (event.agent ? " agent=" + event.agent : "") +
+                (event.phase ? " phase=" + event.phase : "") +
+                " elapsed=" + Math.round(Number(event.elapsedMs || 0) / 1000) + "s" +
+                " idle=" + Math.round(Number(event.idleMs || 0) / 1000) + "s" +
+                " tools=" + Number(event.toolCalls || 0) +
+                (event.activeTool ? " activeTool=" + event.activeTool : "") +
+                (event.note ? " note=" + String(event.note).slice(0, 180) : ""),
+              )
+            } catch {}
+          }
+        }
         const agentRun = await runAsync(piCommand, piArgs, {
           cwd: workspace,
           env: childEnv,
@@ -387,30 +415,8 @@ try {
           timeoutMs,
           idleTimeoutMs,
           signal: abortController.signal,
-          onStdout: (chunk) => {
-            if (mode !== "ues") return
-            progressLineBuffer += String(chunk || "")
-            const lines = progressLineBuffer.split(/\r?\n/)
-            progressLineBuffer = lines.pop() || ""
-            for (const line of lines) {
-              if (!line.trim()) continue
-              try {
-                const event = JSON.parse(line)
-                if (event?.type !== "ues_controller_progress") continue
-                console.log(
-                  "[" + mode + "] " + task.id + " trial " + trial +
-                  ": controller progress" +
-                  (event.agent ? " agent=" + event.agent : "") +
-                  (event.phase ? " phase=" + event.phase : "") +
-                  " elapsed=" + Math.round(Number(event.elapsedMs || 0) / 1000) + "s" +
-                  " idle=" + Math.round(Number(event.idleMs || 0) / 1000) + "s" +
-                  " tools=" + Number(event.toolCalls || 0) +
-                  (event.activeTool ? " activeTool=" + event.activeTool : "") +
-                  (event.note ? " note=" + String(event.note).slice(0, 180) : ""),
-                )
-              } catch {}
-            }
-          },
+          onStdout: (chunk) => consumeControllerProgress(chunk, "stdout"),
+          onStderr: (chunk) => consumeControllerProgress(chunk, "stderr"),
           onHeartbeat: ({ elapsedMs, idleMs }) => {
             console.log(
               "[" + mode + "] " + task.id + " trial " + trial +
@@ -430,7 +436,9 @@ try {
 
         const afterSnapshot = await snapshotWorkspace(workspace)
         const changedFiles = diffWorkspaceSnapshots(beforeSnapshot, afterSnapshot)
-        const telemetry = parsePiTelemetry(agentRun.stdout)
+        const telemetry = parsePiTelemetry(
+          [agentRun.stdout, agentRun.stderr].filter(Boolean).join("\n"),
+        )
         const baselineIsolated = mode !== "baseline" || telemetry.controllerUsed === false
         const controllerValid =
           mode === "baseline"
