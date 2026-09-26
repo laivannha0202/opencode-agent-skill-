@@ -50,7 +50,7 @@ pi install .
 
 - extension: `./pi/extensions/ues.ts`
 - skills: `./global-config/skills`
-- prompts: `./pi/prompts/*.md`
+- prompts: `./pi/prompts/*.md` (10 prompt templates; `/ues-run` is owned by the extension command)
 
 The packaged runtime also contains `global-config/agents/`, `bin/ocskill.mjs`, and `lib/` because the Pi extension uses them for specialist child-agent execution and deterministic UES operations.
 
@@ -142,10 +142,17 @@ UES_CHILD_TOOL_COMPACTION=1
 
 See `docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md`.
 
-## Prompts
+## Commands and prompt templates
+
+Deterministic extension command:
 
 ```text
 /ues-run
+```
+
+Prompt templates:
+
+```text
 /ues-plan
 /ues-feature
 /ues-fix
@@ -157,6 +164,8 @@ See `docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md`.
 /ues-critique
 /ues-resume
 ```
+
+There is intentionally no `pi/prompts/ues-run.md`; keeping that file would create two visible `/ues-run` entries in Pi.
 
 ## Safety
 
