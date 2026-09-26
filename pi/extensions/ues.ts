@@ -61,6 +61,13 @@ import {
 } from "../../lib/service-manager.mjs";
 
 const PACKAGE_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
+const PACKAGE_VERSION = (() => {
+  try {
+    return String(JSON.parse(fs.readFileSync(path.join(PACKAGE_ROOT, "package.json"), "utf8"))?.version || "unknown");
+  } catch {
+    return "unknown";
+  }
+})();
 const OCSKILL_BIN = path.join(PACKAGE_ROOT, "bin", "ocskill.mjs");
 const CHILD_RUNTIME_EXTENSION = path.join(PACKAGE_ROOT, "pi", "extensions", "ues-child-runtime.ts");
 const AGENT_DIR = path.join(PACKAGE_ROOT, "global-config", "agents");
@@ -3323,6 +3330,27 @@ export default function (pi: ExtensionAPI) {
   // Extension commands are resolved before prompt templates in Pi. Registering
   // /ues-run here makes controller admission deterministic: weak models never
   // have to remember to call ues_execute themselves.
+  pi.registerCommand("ues-status", {
+    description: "Show the loaded UES runtime version and current session policy basics",
+    handler: async (_args, ctx) => {
+      const status = [
+        "UES runtime: " + PACKAGE_VERSION,
+        "Package root: " + PACKAGE_ROOT,
+        "Child runtime: " + CHILD_RUNTIME,
+        "Adaptive context: " + (ADAPTIVE_CONTEXT_ENABLED ? "on" : "off"),
+        "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
+        "Turbo Fast Path: on",
+      ].join("\n");
+      pi.sendMessage({
+        customType: "ues-runtime-status",
+        content: status,
+        display: true,
+        details: { version: PACKAGE_VERSION, packageRoot: PACKAGE_ROOT, childRuntime: CHILD_RUNTIME },
+      }, { triggerTurn: false });
+      try { ctx.ui.notify("UES runtime " + PACKAGE_VERSION + " loaded", "info"); } catch {}
+    },
+  });
+
   pi.registerCommand("ues-run", {
     description: "Run an engineering task directly through the deterministic UES controller",
     handler: async (args, ctx) => {
@@ -3342,7 +3370,15 @@ export default function (pi: ExtensionAPI) {
       let lastProgressNoticeAt = 0;
       let lastProgressKey = "";
       try {
-        try { ctx.ui.notify("UES: deterministic controller started", "info"); } catch {}
+        const directPolicy = classifyEngineeringTask(task);
+        try {
+          ctx.ui.notify(
+            "UES " + PACKAGE_VERSION + ": controller started (" +
+              String(directPolicy.executionProfile || directPolicy.mode || "unknown") +
+              "/" + String(directPolicy.risk || "unknown") + ")",
+            "info",
+          );
+        } catch {}
         result = await uesExecuteTool.execute(
           `ues-run-${randomUUID()}`,
           { task, cwd: ctx.cwd },
@@ -3462,7 +3498,7 @@ export default function (pi: ExtensionAPI) {
 
       try {
         ctx.ui.notify(
-          controllerPass ? "UES: verified controller run completed" : "UES: controller run failed verification",
+          controllerPass ? "UES " + PACKAGE_VERSION + ": verified controller run completed" : "UES " + PACKAGE_VERSION + ": controller run failed verification",
           controllerPass ? "info" : "error",
         );
       } catch {}
