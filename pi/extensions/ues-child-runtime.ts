@@ -19,6 +19,16 @@ import {
 } from "../../lib/code-intelligence/index.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
+import {
+  looksLikeLongRunningServiceCommand,
+  restartService,
+  serviceLogs,
+  serviceStatus,
+  startService,
+  stopAllServices,
+  stopService,
+  waitForService,
+} from "../../lib/service-manager.mjs";
 
 const toolExecutionState = new Map<string, {
   startedAt: number;
@@ -83,13 +93,25 @@ async function capturedText(event: any, fallback: string) {
 export default function (pi: ExtensionAPI) {
   const clearExecutionState = () => toolExecutionState.clear();
   pi.on("session_start", clearExecutionState);
-  pi.on("session_shutdown", clearExecutionState);
+  pi.on("session_shutdown", async (_event, ctx) => {
+    clearExecutionState();
+    await stopAllServices(ctx.cwd).catch(() => []);
+  });
 
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     if (!["bash", "powershell"].includes(toolName)) return undefined;
 
     const command = String((event.input as any)?.command || "");
+    if (looksLikeLongRunningServiceCommand(command)) {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason:
+          "UES detected a likely long-running foreground service command. " +
+          "Use the ues_service tool (start -> wait-ready/logs -> stop) instead of bash/powershell so the agent does not stall.",
+      };
+    }
     const risk = destructiveShellRisk(command);
     if (risk.risky) {
       toolExecutionState.delete(String(event.toolCallId || ""));
@@ -339,6 +361,78 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
           details: { file: params.file },
+          isError: true,
+        };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "ues_service",
+    label: "UES Managed Service",
+    description:
+      "Manage long-running development servers/watchers without blocking the agent. Use start, wait-ready, status, logs, stop, or restart. Services are bounded to the current workspace/runtime and are cleaned up on session shutdown.",
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal("start"),
+        Type.Literal("wait-ready"),
+        Type.Literal("status"),
+        Type.Literal("logs"),
+        Type.Literal("stop"),
+        Type.Literal("restart"),
+      ]),
+      name: Type.String({ minLength: 1, maxLength: 64 }),
+      command: Type.Optional(Type.String({ minLength: 1 })),
+      args: Type.Optional(Type.Array(Type.String(), { maxItems: 128 })),
+      cwd: Type.Optional(Type.String()),
+      readyPort: Type.Optional(Type.Number({ minimum: 1, maximum: 65535 })),
+      readyHost: Type.Optional(Type.String({ maxLength: 255 })),
+      readyLog: Type.Optional(Type.String({ maxLength: 512 })),
+      timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 600000 })),
+      maxChars: Type.Optional(Type.Number({ minimum: 256, maximum: 128000 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        let result: any;
+        if (params.action === "start") {
+          if (!params.command) throw new Error("ues_service start requires command");
+          const riskText = [params.command, ...(params.args || [])].join(" ");
+          const risk = destructiveShellRisk(riskText);
+          if (risk.risky) throw new Error(`UES service safety blocked ${risk.id || "destructive"} command`);
+          result = await startService(ctx.cwd, {
+            name: params.name,
+            command: params.command,
+            args: params.args || [],
+            cwd: params.cwd,
+            readyPort: params.readyPort,
+            readyHost: params.readyHost,
+            readyLog: params.readyLog,
+            timeoutMs: params.timeoutMs,
+          });
+        } else if (params.action === "wait-ready") {
+          result = await waitForService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+        } else if (params.action === "status") {
+          result = await serviceStatus(ctx.cwd, params.name);
+        } else if (params.action === "logs") {
+          result = await serviceLogs(ctx.cwd, params.name, { maxChars: params.maxChars, evidence: true });
+        } else if (params.action === "stop") {
+          result = await stopService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+        } else if (params.action === "restart") {
+          result = await restartService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+        } else {
+          throw new Error("Unknown ues_service action");
+        }
+        const failed =
+          (params.action === "start" || params.action === "wait-ready") && result?.ready !== true;
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+          isError: failed,
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          details: { action: params.action, name: params.name },
           isError: true,
         };
       }
