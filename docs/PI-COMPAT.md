@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.2 Turbo Fast Path
+
+FAST low-risk single-file work now preserves the original task policy through internal executor/verifier prompts, uses bounded first-attempt latency budgets, and prefers deterministic fresh verification receipts before spending a second model turn. Timeout/recovery remains fail-closed.
+
+Pi headless eval diagnostics are collected from both stdout and stderr so direct `/ues-run` controller usage is measured correctly.
+
 ## V15.1 deterministic admission and managed services
 
 On `main`, `/ues-run` is now an extension command rather than only a prompt template. Pi resolves extension commands before templates, so the controller starts deterministically even when a weak model would otherwise ignore `ues_execute`.
