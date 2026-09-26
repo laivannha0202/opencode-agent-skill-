@@ -213,6 +213,18 @@ const CONTRACTS = [
   },
 
   {
+    file: "lib/turbo-fast-path.mjs",
+    minBytes: 1_000,
+    startsWith: "const FAST_ROLES",
+    required: [
+      "turboFastPathDecision",
+      "turboFastTimeoutBudget",
+      "single-model-deterministic-first",
+      "failClosed",
+      "verifierOnDemand",
+    ],
+  },
+  {
     file: "lib/service-manager.mjs",
     minBytes: 8_000,
     startsWith: "import ",
@@ -239,6 +251,8 @@ const CONTRACTS = [
       "UES_EVAL_DIRECT_TELEMETRY",
       "ues_controller_direct",
       "controller progress",
+      "agentRun.stdout, agentRun.stderr",
+      "onStderr: (chunk) => consumeControllerProgress",
       "controllerValid=",
     ],
   },
