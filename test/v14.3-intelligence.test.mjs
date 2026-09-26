@@ -10,6 +10,7 @@ import { ingestDocument } from "../lib/document-ingestion.mjs"
 import { compactContext, expandContext, searchContext } from "../lib/reversible-context.mjs"
 import { mcpExecutionPolicy } from "../lib/mcp-tool-policy.mjs"
 import { buildPromptEnvelope, comparePromptEnvelopes } from "../lib/prompt-cache.mjs"
+import { buildMemorySnapshot } from "../lib/memory-engine.mjs"
 
 async function tempDir() {
   return mkdtemp(path.join(os.tmpdir(), "ues-v143-"))
@@ -110,6 +111,26 @@ test("prompt cache telemetry separates stable snapshots from dynamic task state"
   const changed = comparePromptEnvelopes(b, c)
   assert.equal(changed.stableReused, false)
   assert.match(changed.prefixMutationReason, /memorySnapshot/)
+})
+
+test("verified memory snapshots ignore retrieval/touch noise but change with durable memory content", () => {
+  const base = [{
+    id: "m1",
+    type: "semantic",
+    scope: "project",
+    content: "Use the project-native verifier.",
+    confidence: 0.9,
+    files: ["src/a.ts"],
+    verifiedAt: "2026-09-26T00:00:00.000Z",
+    lastUsedAt: "2026-09-26T01:00:00.000Z",
+    useCount: 1,
+    retrieval: { score: 0.2 },
+  }]
+  const touched = [{ ...base[0], lastUsedAt: "2026-09-26T02:00:00.000Z", useCount: 99, retrieval: { score: 0.9 } }]
+  assert.equal(buildMemorySnapshot(base).generation, buildMemorySnapshot(touched).generation)
+
+  const changed = [{ ...base[0], content: "Use a different durable rule." }]
+  assert.notEqual(buildMemorySnapshot(base).generation, buildMemorySnapshot(changed).generation)
 })
 
 test("MCP annotations only tighten execution policy", () => {
