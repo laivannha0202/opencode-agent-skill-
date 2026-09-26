@@ -389,6 +389,8 @@ export default function (pi: ExtensionAPI) {
       readyHost: Type.Optional(Type.String({ maxLength: 255 })),
       readyLog: Type.Optional(Type.String({ maxLength: 512 })),
       timeoutMs: Type.Optional(Type.Number({ minimum: 100, maximum: 600000 })),
+      lifetimeMs: Type.Optional(Type.Number({ minimum: 10000, maximum: 7200000 })),
+      idleTimeoutMs: Type.Optional(Type.Number({ minimum: 5000, maximum: 3600000 })),
       maxChars: Type.Optional(Type.Number({ minimum: 256, maximum: 128000 })),
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
@@ -408,6 +410,8 @@ export default function (pi: ExtensionAPI) {
             readyHost: params.readyHost,
             readyLog: params.readyLog,
             timeoutMs: params.timeoutMs,
+            lifetimeMs: params.lifetimeMs,
+            idleTimeoutMs: params.idleTimeoutMs,
           });
         } else if (params.action === "wait-ready") {
           result = await waitForService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
@@ -418,7 +422,11 @@ export default function (pi: ExtensionAPI) {
         } else if (params.action === "stop") {
           result = await stopService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
         } else if (params.action === "restart") {
-          result = await restartService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+          result = await restartService(ctx.cwd, params.name, {
+            timeoutMs: params.timeoutMs,
+            lifetimeMs: params.lifetimeMs,
+            idleTimeoutMs: params.idleTimeoutMs,
+          });
         } else {
           throw new Error("Unknown ues_service action");
         }
