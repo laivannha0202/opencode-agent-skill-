@@ -163,7 +163,10 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)
-  if (promptCount < 10) warnings.push(`Pi prompt catalog unexpectedly small: ${promptCount}`)
+  if (promptCount !== 10) errors.push(`Pi must expose exactly 10 prompt templates; /ues-run is an extension command, found ${promptCount}`)
+  if (existsSync(path.join(root, "pi", "prompts", "ues-run.md"))) {
+    errors.push("pi/prompts/ues-run.md must not exist because it duplicates the deterministic extension /ues-run command")
+  }
 
   return {
     pass: errors.length === 0,
