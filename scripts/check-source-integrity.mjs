@@ -21,6 +21,7 @@ const CONTRACTS = [
       "auditCompletion",
       'pi.registerCommand("ues-run"',
       'name: "ues_service"',
+      'process.env.UES_CHILD_PROCESS !== "1"',
       "looksLikeLongRunningServiceCommand",
       "ues_controller_direct",
       "CHILD_RUNTIME_EXTENSION",
