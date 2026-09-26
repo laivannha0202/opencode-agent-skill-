@@ -257,6 +257,7 @@ function getAgentPrompt(agent: AgentName) {
     "- Do not call OpenCode-only dispatch tools such as \`ues.dispatch_task\` or \`ues.dispatch_parallel\`.",
     "- Respect the original role's edit/read-only boundary and return evidence to the parent Pi session.",
     "- Prefer ues_code for bounded semantic/AST search, hash-anchored reads and optional LSP diagnostics. Writer roles may use ues_code_edit only after an anchored read; stale anchors must be re-read rather than fuzzily retried.",
+    "- Never launch a persistent dev server/watcher in foreground bash/powershell. Use ues_service start, wait-ready/status/logs, then stop; the runtime blocks common foreground-service commands to prevent hangs.",
     "- For PDF/DOCX/PPTX/XLSX evidence, ues_code action=document may use optional MarkItDown when installed; do not install it unless that capability is needed.",
     "",
   ].join("\n");
@@ -559,6 +560,7 @@ async function runAgentCli(
   const allowedTools = [...new Set([
     ...config.tools,
     ...codeIntelligenceTools,
+    "ues_service",
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
@@ -588,6 +590,7 @@ async function runAgentCli(
         env: {
           ...process.env,
           UES_CHILD_PROCESS: "1",
+          UES_CHILD_AGENT: agent,
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -907,8 +910,13 @@ async function runAgentRpc(
   ];
   if (model) args.push("--model", model);
   if (thinkingLevel) args.push("--thinking", thinkingLevel);
+  const codeIntelligenceTools = WRITE_AGENTS.has(agent)
+    ? ["ues_code", "ues_code_edit"]
+    : ["ues_code"];
   const allowedTools = [...new Set([
     ...config.tools,
+    ...codeIntelligenceTools,
+    "ues_service",
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
@@ -960,6 +968,7 @@ async function runAgentRpc(
         env: {
           ...process.env,
           UES_CHILD_PROCESS: "1",
+          UES_CHILD_AGENT: agent,
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -2379,7 +2388,11 @@ export default function (pi: ExtensionAPI) {
   // controller inside specialist workers.
   if (process.env.UES_CHILD_PROCESS === "1") return;
 
+  let directControllerAbort: AbortController | null = null;
+
   pi.on("session_shutdown", async () => {
+    directControllerAbort?.abort();
+    directControllerAbort = null;
     CONTEXT_PACK_CACHE.clear();
     clearSkillCompilerCache();
     clearAffectedTestCache();
@@ -2392,30 +2405,34 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("input", async (event, ctx) => {
     if (process.env.UES_CHILD_PROCESS === "1") return { action: "continue" };
-    if (
-      event.source !== "interactive" ||
-      !["steer", "followUp"].includes(String(event.streamingBehavior || ""))
-    ) {
-      return { action: "continue" };
-    }
+    if (event.source !== "interactive") return { action: "continue" };
 
     const text = String(event.text || "").trim();
     if (!text) return { action: "continue" };
 
     if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
+      let directAborted = 0;
+      if (directControllerAbort && !directControllerAbort.signal.aborted) {
+        directControllerAbort.abort();
+        directAborted = 1;
+      }
       const result = await RPC_POOL.abortActive();
       const cliAborted = abortActiveCliChildren();
-      const total = result.aborted + cliAborted;
+      const total = directAborted + result.aborted + cliAborted;
       if (total > 0) {
         try {
           ctx.ui.notify(
-            `UES: aborted ${total} active child worker(s)` +
+            `UES: aborted ${total} active controller/child worker(s)` +
               (cliAborted ? ` (${cliAborted} CLI fallback)` : ""),
             "warning",
           );
         } catch {}
         return { action: "handled" };
       }
+      return { action: "continue" };
+    }
+
+    if (!["steer", "followUp"].includes(String(event.streamingBehavior || ""))) {
       return { action: "continue" };
     }
 
@@ -2537,7 +2554,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
+  const uesExecuteTool: any = {
     name: "ues_execute",
     label: "UES Execute",
     description:
@@ -3163,6 +3180,91 @@ export default function (pi: ExtensionAPI) {
         details: { mode: "execute", policy, steps, attempts: maxAttempts, traceID },
         isError: true,
       };
+    },
+  };
+  pi.registerTool(uesExecuteTool);
+
+  // Extension commands are resolved before prompt templates in Pi. Registering
+  // /ues-run here makes controller admission deterministic: weak models never
+  // have to remember to call ues_execute themselves.
+  pi.registerCommand("ues-run", {
+    description: "Run an engineering task directly through the deterministic UES controller",
+    handler: async (args, ctx) => {
+      const task = String(args || "").trim();
+      if (!task) {
+        try { ctx.ui.notify("Usage: /ues-run <engineering task>", "warning"); } catch {}
+        return;
+      }
+      if (directControllerAbort && !directControllerAbort.signal.aborted) {
+        try { ctx.ui.notify("UES controller is already running in this session", "warning"); } catch {}
+        return;
+      }
+
+      const abort = new AbortController();
+      directControllerAbort = abort;
+      let result: any;
+      try {
+        try { ctx.ui.notify("UES: deterministic controller started", "info"); } catch {}
+        result = await uesExecuteTool.execute(
+          `ues-run-${randomUUID()}`,
+          { task, cwd: ctx.cwd },
+          abort.signal,
+          (update: any) => {
+            const text = (update?.content || [])
+              .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+              .map((part: any) => part.text)
+              .join("\n")
+              .trim();
+            if (text) {
+              try { ctx.ui.setStatus?.("ues-run", cap(text, 180)); } catch {}
+            }
+          },
+          ctx,
+        );
+      } catch (error) {
+        result = {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          details: { mode: "execute", reason: "direct-controller-exception" },
+          isError: true,
+        };
+      } finally {
+        if (directControllerAbort === abort) directControllerAbort = null;
+        try { ctx.ui.setStatus?.("ues-run", undefined); } catch {}
+      }
+
+      const content = (result?.content || [])
+        .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+        .map((part: any) => part.text)
+        .join("\n")
+        .trim() || "(UES controller returned no text)";
+      const controllerPass = result?.isError !== true;
+
+      if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
+        console.log(JSON.stringify({
+          type: "ues_controller_direct",
+          controllerUsed: true,
+          controllerPass,
+          details: result?.details || null,
+        }));
+      }
+
+      pi.sendMessage({
+        customType: "ues-controller-result",
+        content,
+        display: true,
+        details: {
+          controllerUsed: true,
+          controllerPass,
+          ...(result?.details || {}),
+        },
+      }, { deliverAs: "nextTurn" });
+
+      try {
+        ctx.ui.notify(
+          controllerPass ? "UES: verified controller run completed" : "UES: controller run failed verification",
+          controllerPass ? "info" : "error",
+        );
+      } catch {}
     },
   });
 
