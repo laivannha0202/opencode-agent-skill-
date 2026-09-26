@@ -6,6 +6,23 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.2] - 2026-09-27
+
+### Added
+- Added a fail-closed Turbo Fast Path policy for first-attempt low-risk single-file executor/verifier work.
+- Added bounded FAST latency budgets: 180s hard timeout, 60s idle timeout, 30s post-tool-error idle timeout and 90s verification command timeout by default.
+- Added visible interactive controller progress notifications and benchmark progress telemetry.
+
+### Fixed
+- Preserved the original user-task policy across controller-generated executor/verifier prompts so UES instructions cannot accidentally reclassify a FAST single-file task as STANDARD/DEEP.
+- Pi live eval now reads direct-controller telemetry from both stdout and stderr; headless extension diagnostics emitted by Pi no longer cause false `uesControllerUsed=false`.
+- Direct benchmark telemetry is written explicitly to stderr, matching Pi headless/JSON stream boundaries.
+
+### Performance
+- FAST attempt 1 remains one bounded model lane where possible, prioritizes fresh behavioral receipts, and skips a separate verifier model turn only when the deterministic gate proves the acceptance criteria.
+- FAST timeouts fail closed into the existing recovery/escalation path rather than lowering completion requirements.
+
+
 ## [15.0.0-beta.1] - 2026-09-27
 
 ### Added
