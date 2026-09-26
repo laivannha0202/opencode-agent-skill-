@@ -113,7 +113,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
 
   const piCompat = requireText(errors, readText(root, path.join("docs", "PI-COMPAT.md")), "docs/PI-COMPAT.md")
   if (piCompat) {
-    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime"]) {
+    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime", "V15.1 deterministic admission and managed services", "ues_service"]) {
       if (!piCompat.includes(marker)) errors.push(`docs/PI-COMPAT.md: missing current Pi contract marker ${marker}`)
     }
   }
@@ -146,6 +146,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["docs:check"] !== "node scripts/check-release-consistency.mjs") errors.push("package.json: missing docs:check release-consistency script")
     if (scripts["release:check-tag"] !== "node scripts/check-release-tag.mjs") errors.push("package.json: missing release:check-tag script")
     if (scripts["eval:pi"] !== "node scripts/eval-pi.mjs") errors.push("package.json: missing Pi-native eval:pi script")
+    if (scripts["eval:v15"] !== "node --test test/v15-runtime.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs") errors.push("package.json: missing focused eval:v15 script")
     if (!String(scripts.ci || "").includes("npm run integrity")) errors.push("package.json: ci must include source-integrity gate")
     if (scripts["runtime:exports"] !== "node scripts/check-runtime-exports.mjs") errors.push("package.json: missing runtime:exports import/export gate")
     if (!String(scripts.ci || "").includes("npm run runtime:exports")) errors.push("package.json: ci must include runtime export gate")
@@ -157,6 +158,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (!Array.isArray(pkg.pi?.prompts) || !pkg.pi.prompts.includes("./pi/prompts/*.md")) errors.push("package.json: Pi prompts entry drift")
     if (!Array.isArray(pkg.files) || !pkg.files.includes("global-config/AGENTS.md")) errors.push("package.json: installer runtime data global-config/AGENTS.md must be packed")
     if (!pkg.files.includes("docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md")) errors.push("package.json: V14.2 runtime documentation must be packed")
+    if (!pkg.files.includes("docs/V15-MANAGED-RUNTIME.md")) errors.push("package.json: V15 managed-runtime documentation must be packed")
     if (scripts["smoke:packed"] !== "node scripts/smoke-packed-install.mjs") errors.push("package.json: missing smoke:packed integration script")
   }
 
