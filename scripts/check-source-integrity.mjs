@@ -16,6 +16,9 @@ const CONTRACTS = [
       'name: "ues_dispatch"',
       "runRoutedAgent",
       "PiRpcWorkerPool",
+      "McpHealthTracker",
+      "MCP_HEALTH",
+      "auditCompletion",
       "CHILD_RUNTIME_EXTENSION",
       "isAbortedRun",
       "abortedResponse",
@@ -188,10 +191,16 @@ const CONTRACTS = [
     required: ["normalizeMcpAnnotations", "mcpExecutionPolicy", 'trust: "hint-only"'],
   },
   {
+    file: "lib/mcp-health.mjs",
+    minBytes: 4_000,
+    startsWith: "const TRANSIENT_ERROR",
+    required: ["McpHealthTracker", "mcpReconnectAdvice", "transient-idempotent-failure", "cooldownUntil"],
+  },
+  {
     file: "test/v14.3-intelligence.test.mjs",
     minBytes: 5_000,
     startsWith: 'import test from "node:test"',
-    required: ["hash anchored edits fail closed", "completion auditor rejects narrative PASS", "verified memory snapshots ignore retrieval/touch noise"],
+    required: ["hash anchored edits fail closed", "completion auditor rejects narrative PASS", "verified memory snapshots ignore retrieval/touch noise", "MCP health only recommends reconnect"],
   },
 
   {
