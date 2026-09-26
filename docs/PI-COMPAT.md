@@ -96,6 +96,18 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.1 deterministic admission and managed services
+
+On `main`, `/ues-run` is now an extension command rather than only a prompt template. Pi resolves extension commands before templates, so the controller starts deterministically even when a weak model would otherwise ignore `ues_execute`.
+
+Long-running servers/watchers should use `ues_service`:
+
+```text
+start -> wait-ready/status/logs -> stop
+```
+
+The runtime blocks common foreground server commands in bash/powershell and directs the agent to `ues_service`. Services support TCP/log readiness, bounded log evidence and session cleanup. See `docs/V15-MANAGED-RUNTIME.md`.
+
 ## V14.2 Turbo Weak-Model Runtime
 
 V14.2 keeps the Pi-native controller and specialist roles but changes the hot path to reduce repeated startup, context and verification work.
