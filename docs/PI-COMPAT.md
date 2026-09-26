@@ -10,11 +10,26 @@ Repository này hiện đóng gói UES cho **Pi Agent**.
 
 ## Install
 
+Stable npm release:
+
 ```cmd
 npm install -g @earendil-works/pi-coding-agent
-pi install git:github.com/laivannha0202/opencode-agent-skill-
+pi install npm:opencode-agent-skill
 pi list
 pi
+```
+
+Optional global CLI:
+
+```cmd
+npm install -g opencode-agent-skill@latest
+ues version
+```
+
+GitHub main can still be installed when source-head testing is intended:
+
+```cmd
+pi install git:github.com/laivannha0202/opencode-agent-skill-
 ```
 
 Project-local:
