@@ -22,7 +22,7 @@
 4. [Task Policy: FAST / STANDARD / DEEP](#task-policy-fast--standard--deep)
 5. [12 specialist agents](#12-specialist-agents)
 6. [48 skills](#48-skills)
-7. [11 slash prompts](#11-slash-prompts)
+7. [Pi commands và 10 prompt templates](#pi-commands-và-10-prompt-templates)
 8. [Context Engine L0/L1/L2](#context-engine-l0l1l2)
 9. [Semantic index, repo graph và ACI](#semantic-index-repo-graph-và-aci)
 10. [Model routing và recovery](#model-routing-và-recovery)
@@ -421,13 +421,13 @@ UES hiện có 48 skill directories trong <code>global-config/skills/</code>. Sk
 
 ---
 
-# 11 slash prompts
+# Pi commands và 10 prompt templates
 
-Pi package cung cấp 11 slash prompts:
+Pi package cung cấp 1 deterministic extension command `/ues-run` và 10 prompt templates:
 
 | Command | Ý nghĩa |
 |---|---|
-| <code>/ues-run</code> | controller end-to-end |
+| <code>/ues-run</code> | **extension command deterministic**; controller end-to-end |
 | <code>/ues-plan</code> | lập kế hoạch |
 | <code>/ues-feature</code> | triển khai feature |
 | <code>/ues-fix</code> | sửa bug |
@@ -1415,7 +1415,7 @@ npm pack
 Package version hiện tại trên nhánh <code>main</code> là:
 
 ~~~text
-15.0.0-beta.1
+15.0.0-beta.2
 ~~~
 
 Stable npm public hiện vẫn là <code>14.4.0</code>. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
@@ -1626,7 +1626,7 @@ opencode-agent-skill-/
 │  ├─ extensions/
 │  │  └─ ues.ts
 │  └─ prompts/
-│     └─ 11 UES slash prompts
+│     └─ 10 UES prompt templates (`/ues-run` thuộc extension)
 │
 ├─ global-config/
 │  ├─ agents/
