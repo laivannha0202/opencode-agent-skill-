@@ -2577,7 +2577,7 @@ export default function (pi: ExtensionAPI) {
     name: "ues_service",
     label: "UES Managed Service",
     description:
-      "Start and manage long-running dev servers/watchers without blocking Pi. Uses shell-free execution, bounded logs, readiness probes, evidence snapshots, and session cleanup.",
+      "Start and manage long-running dev servers/watchers without blocking Pi. Uses shell-free execution, bounded logs, readiness probes, evidence snapshots, and session cleanup. For start/restart, command is the executable only (for example node or npm); put every argument in args.",
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("start"),
