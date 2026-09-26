@@ -10,6 +10,15 @@ import {
   canonicalVerificationCommand,
   looksLikeVerificationCommand,
 } from "../../lib/verification-command.mjs";
+import {
+  applyAnchoredFileEdits,
+  diagnoseCode,
+  probeCodeIntelligence,
+  readAnchoredCode,
+  searchCodeIntelligence,
+} from "../../lib/code-intelligence/index.mjs";
+import { ingestDocument } from "../../lib/document-ingestion.mjs";
+import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
 
 const toolExecutionState = new Map<string, {
   startedAt: number;
@@ -188,6 +197,152 @@ export default function (pi: ExtensionAPI) {
       isError: event.isError,
       usage: event.usage,
     };
+  });
+
+  const AnchoredEdit = Type.Object({
+    anchor: Type.String({ minLength: 1 }),
+    endAnchor: Type.Optional(Type.String({ minLength: 1 })),
+    replacement: Type.String(),
+  });
+
+  pi.registerTool({
+    name: "ues_code",
+    label: "UES Code Intelligence",
+    description:
+      "Bounded code/document/context intelligence for weak models: semantic/AST search, hash-anchored reads, optional LSP diagnostics, optional MarkItDown ingestion, and reversible context recovery.",
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal("status"),
+        Type.Literal("search"),
+        Type.Literal("read"),
+        Type.Literal("diagnostics"),
+        Type.Literal("document"),
+        Type.Literal("context-expand"),
+        Type.Literal("context-search"),
+      ]),
+      file: Type.Optional(Type.String()),
+      query: Type.Optional(Type.String()),
+      structuralPattern: Type.Optional(Type.String()),
+      language: Type.Optional(Type.String()),
+      startLine: Type.Optional(Type.Number({ minimum: 1 })),
+      endLine: Type.Optional(Type.Number({ minimum: 1 })),
+      ref: Type.Optional(Type.String()),
+      maxBytes: Type.Optional(Type.Number({ minimum: 1, maximum: 128000 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        let result: any;
+        if (params.action === "status") {
+          result = probeCodeIntelligence(params.file || "");
+        } else if (params.action === "search") {
+          if (!params.query) throw new Error("ues_code search requires query");
+          result = await searchCodeIntelligence(ctx.cwd, params.query, {
+            structuralPattern: params.structuralPattern,
+            language: params.language,
+            file: params.file,
+            maxResults: 12,
+          });
+        } else if (params.action === "read") {
+          if (!params.file) throw new Error("ues_code read requires file");
+          const startLine = Math.max(1, Math.trunc(Number(params.startLine || 1)));
+          const endLine = Math.max(startLine, Math.min(startLine + 399, Math.trunc(Number(params.endLine || startLine + 199))));
+          result = await readAnchoredCode(ctx.cwd, params.file, { startLine, endLine });
+          return {
+            content: [{ type: "text", text: [
+              `file: ${result.file}; lines: ${result.startLine}-${result.endLine}/${result.lineCount}; sourceHash: ${result.sourceHash}`,
+              "",
+              result.text,
+            ].join("\n") }],
+            details: { action: params.action, file: result.file, sourceHash: result.sourceHash, startLine: result.startLine, endLine: result.endLine },
+          };
+        } else if (params.action === "diagnostics") {
+          if (!params.file) throw new Error("ues_code diagnostics requires file");
+          result = await diagnoseCode(ctx.cwd, params.file, { timeoutMs: 3000, maxDiagnostics: 40 });
+        } else if (params.action === "document") {
+          if (!params.file) throw new Error("ues_code document requires file");
+          const document = await ingestDocument(ctx.cwd, params.file, { maxBytes: Math.min(Number(params.maxBytes || 4 * 1024 * 1024), 4 * 1024 * 1024) });
+          const block = await compactContext(ctx.cwd, document.markdown, {
+            kind: "document-ingestion",
+            source: document.file,
+            summary: `Normalized document from ${document.provider}`,
+          });
+          result = {
+            provider: document.provider,
+            file: document.file,
+            bytes: document.bytes,
+            optionalDependency: document.optionalDependency,
+            contextRef: block.ref,
+            originalChars: block.originalChars,
+            summary: block.levels.T1,
+          };
+        } else if (params.action === "context-expand") {
+          if (!params.ref) throw new Error("ues_code context-expand requires ref");
+          const expanded = await expandContext(ctx.cwd, params.ref, { maxBytes: params.maxBytes || 16000 });
+          return {
+            content: [{ type: "text", text: expanded.content }],
+            details: { action: params.action, ref: expanded.ref, start: expanded.start, returnedBytes: expanded.returnedBytes, truncated: expanded.truncated },
+          };
+        } else if (params.action === "context-search") {
+          if (!params.ref || !params.query) throw new Error("ues_code context-search requires ref and query");
+          result = await searchContext(ctx.cwd, params.ref, params.query, { maxBytes: params.maxBytes || 512000, maxMatches: 12 });
+        } else {
+          throw new Error("unsupported ues_code action");
+        }
+        const encoded = JSON.stringify(result, null, 2);
+        return {
+          content: [{ type: "text", text: encoded.length <= 32000 ? encoded : encoded.slice(0, 32000) + "\n...[bounded by ues_code]" }],
+          details: { action: params.action, bounded: encoded.length > 32000 },
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          details: { action: params.action },
+          isError: true,
+        };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "ues_code_edit",
+    label: "UES Anchored Edit",
+    description:
+      "Apply fail-closed hash-anchored edits. A stale or mismatched anchor is rejected; re-read with ues_code instead of fuzzy retrying.",
+    parameters: Type.Object({
+      file: Type.String({ minLength: 1 }),
+      edits: Type.Array(AnchoredEdit, { minItems: 1, maxItems: 50 }),
+      dryRun: Type.Optional(Type.Boolean()),
+      diagnostics: Type.Optional(Type.Boolean()),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        const edited = await applyAnchoredFileEdits(ctx.cwd, params.file, params.edits, { dryRun: params.dryRun === true });
+        const diagnostics = params.diagnostics === true && params.dryRun !== true
+          ? await diagnoseCode(ctx.cwd, params.file, { timeoutMs: 3000, maxDiagnostics: 40 }).catch(() => null)
+          : null;
+        const result = {
+          file: edited.file,
+          applied: edited.applied,
+          dryRun: edited.dryRun,
+          sourceHash: edited.sourceHash,
+          outputHash: edited.outputHash,
+          diagnostics: diagnostics ? {
+            available: diagnostics.available,
+            provider: diagnostics.provider,
+            reason: diagnostics.reason,
+            count: diagnostics.diagnostics?.length || 0,
+            items: (diagnostics.diagnostics || []).slice(0, 40),
+          } : null,
+        };
+        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          details: { file: params.file },
+          isError: true,
+        };
+      }
+    },
   });
 
   pi.registerTool({
