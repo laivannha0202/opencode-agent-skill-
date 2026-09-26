@@ -3339,6 +3339,8 @@ export default function (pi: ExtensionAPI) {
       const abort = new AbortController();
       directControllerAbort = abort;
       let result: any;
+      let lastProgressNoticeAt = 0;
+      let lastProgressKey = "";
       try {
         try { ctx.ui.notify("UES: deterministic controller started", "info"); } catch {}
         result = await uesExecuteTool.execute(
@@ -3354,8 +3356,32 @@ export default function (pi: ExtensionAPI) {
             if (text) {
               try { ctx.ui.setStatus("ues-run", cap(text, 180)); } catch {}
             }
+
+            const progress = update?.details?.progress;
+            if (progress) {
+              const progressKey = String(progress.agent || "") + ":" + String(update?.details?.phase || "");
+              const now = Date.now();
+              const phaseChanged = progressKey && progressKey !== lastProgressKey;
+              const heartbeatDue = now - lastProgressNoticeAt >= 60_000;
+              if (phaseChanged || heartbeatDue) {
+                const message =
+                  "UES: " + String(progress.agent || "worker") +
+                  " running " + Math.round(Number(progress.elapsedMs || 0) / 1000) + "s" +
+                  " (idle " + Math.round(Number(progress.idleMs || 0) / 1000) + "s, tools " +
+                  Number(progress.toolCalls || 0) +
+                  (progress.activeTool ? ", " + String(progress.activeTool) : "") + ")";
+                try {
+                  ctx.ui.notify(
+                    message,
+                    Number(progress.idleMs || 0) >= 45_000 ? "warning" : "info",
+                  );
+                } catch {}
+                lastProgressNoticeAt = now;
+                lastProgressKey = progressKey;
+              }
+            }
+
             if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
-              const progress = update?.details?.progress;
               process.stderr.write(JSON.stringify({
                 type: "ues_controller_progress",
                 phase: update?.details?.phase || null,
