@@ -3319,7 +3319,7 @@ export default function (pi: ExtensionAPI) {
             }
             if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
               const progress = update?.details?.progress;
-              console.log(JSON.stringify({
+              process.stderr.write(JSON.stringify({
                 type: "ues_controller_progress",
                 phase: update?.details?.phase || null,
                 task: update?.details?.task || null,
@@ -3330,7 +3330,7 @@ export default function (pi: ExtensionAPI) {
                 activeTool: progress?.activeTool || null,
                 note: progress?.note || null,
                 text: text ? cap(text, 240) : null,
-              }));
+              }) + "\n");
             }
           },
           ctx,
@@ -3378,12 +3378,12 @@ export default function (pi: ExtensionAPI) {
                 : [],
             }
           : null;
-        console.log(JSON.stringify({
+        process.stderr.write(JSON.stringify({
           type: "ues_controller_direct",
           controllerUsed: true,
           controllerPass,
           details: telemetryDetails,
-        }));
+        }) + "\n");
       }
 
       pi.sendMessage({
