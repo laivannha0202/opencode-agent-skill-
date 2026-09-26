@@ -6,6 +6,34 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [14.4.0] - 2026-09-26
+
+### Added
+- Added bounded code intelligence for weak models: semantic search, optional ast-grep structural search, hash-anchored source reads and optional LSP diagnostics.
+- Added fail-closed hash-anchored editing through the Pi child runtime; stale anchors require a fresh read instead of fuzzy patch retry.
+- Added a deterministic completion auditor that requires structured verifier evidence and fresh behavioral verification receipts before UES reports PASS.
+- Added reversible T1/T2/T3 context blocks backed by the Evidence Store with bounded search and expansion.
+- Added optional document ingestion: text formats are dependency-free and Office/PDF ingestion can use Microsoft MarkItDown only when installed.
+- Added cache-stable verified-memory snapshots so retrieval/touch telemetry does not invalidate the stable prompt prefix.
+- Added MCP annotation policy plus bounded MCP health tracking, transient-failure cooldown and conservative reconnect advice.
+
+### Changed
+- Pi child agents now receive a bounded `ues_code` intelligence tool; writer roles additionally receive `ues_code_edit`.
+- Model-performance PASS accounting now happens only after all required verification, integration/visual gates and the deterministic completion audit pass.
+- Browser/MCP routing prefers providers that are not currently in a health cooldown when healthy alternatives exist.
+- Capability Fabric now exposes code editing, code structure, diagnostics, document ingestion and reversible-context capabilities.
+- Stable npm installation is now the primary documented public installation path.
+
+### Safety
+- MCP annotations are treated only as hints that can tighten safety; they never bypass existing UES gates.
+- Destructive MCP tools still require confirmation and are never auto-retried/reconnected.
+- LSP, ast-grep and MarkItDown remain optional capabilities; their absence does not break unrelated UES execution.
+- Code/document operations reject paths or symlinks that escape the workspace root.
+
+### Validation
+- Added V14.3/V14.4 regression coverage for stale-anchor rejection, workspace-contained editing, completion false-PASS prevention, reversible context, prompt-cache telemetry, stable memory generations, MCP annotations and MCP health/reconnect behavior.
+- Windows validation confirmed source integrity, runtime exports, JavaScript syntax, the V14 evaluation suite and Pi package tests before stable release preparation.
+
 ## [14.2.0-beta.1] - 2026-09-25
 
 ### Added
