@@ -357,3 +357,29 @@ test("V15.8 cleanup removes detached physical sandbox folders with valid metadat
     await rm(base, { recursive: true, force: true })
   }
 })
+
+
+test("V15.9 sandbox integration ignores UES trace artifacts but keeps real source changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-runtime-filter-root-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-runtime-filter-base-"))
+  try {
+    await mkdir(path.join(root, "apps", "mobile"), { recursive: true })
+    await writeFile(path.join(root, "apps", "mobile", "package.json"), "{\"name\":\"mobile\",\"version\":\"1.0.0\"}\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const sandbox = await createTaskSandbox(root, "runtime-filter", "task-05", { baseDir: base })
+    await mkdir(path.join(sandbox.dir, ".ues-traces"), { recursive: true })
+    await writeFile(path.join(sandbox.dir, ".ues-traces", "ues-run.jsonl"), "{\"type\":\"trace\"}\n")
+    await writeFile(path.join(sandbox.dir, "apps", "mobile", "package.json"), "{\"name\":\"mobile\",\"version\":\"1.0.1\"}\n")
+
+    const receipt = await integrateTaskSandbox(root, sandbox.dir)
+    assert.deepEqual(receipt.changed, ["apps/mobile/package.json"])
+    assert.match(await readFile(path.join(root, "apps", "mobile", "package.json"), "utf8"), /1\.0\.1/)
+    await assert.rejects(readFile(path.join(root, ".ues-traces", "ues-run.jsonl"), "utf8"), /ENOENT/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
