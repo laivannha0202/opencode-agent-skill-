@@ -32,6 +32,7 @@ import { findReusableVerification, listReusableVerification, recordVerification 
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
+import { planningRuntimeBudget, shouldSoftSteerArchitect } from "../../lib/planning-speed-policy.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -50,6 +51,7 @@ import {
   integrateTaskSandbox,
   removeTaskSandbox,
   rollbackTaskSandbox,
+  pruneOrphanTaskSandboxes,
 } from "../../lib/worktree-sandbox.mjs";
 import {
   looksLikeLongRunningServiceCommand,
@@ -1469,11 +1471,13 @@ async function runRoutedAgent(
           : "Verify every explicit acceptance clause independently. Read the final diff/target file, then run a narrow behavioral check. Compilation or syntax alone is not proof. If any enumerated edge/error/idempotency/non-mutation case lacks fresh executable evidence, return FAIL.",
       ].join("\n");
     } else {
+    const cacheBudgetKey =
+      role === "architect" ? Number(budgetDecision.baseBudget || budgetDecision.budget) : budgetDecision.budget;
     const cacheKey = cachedContextKey(
       cwd,
       task,
       role,
-      budgetDecision.budget,
+      cacheBudgetKey,
       workspaceFingerprint,
       contextCacheNamespace || cwd,
     );
@@ -1504,7 +1508,7 @@ async function runRoutedAgent(
           cwd,
           task,
           role,
-          budgetDecision.budget,
+          cacheBudgetKey,
           workspaceFingerprint,
           contextCacheNamespace || cwd,
         );
@@ -1603,6 +1607,7 @@ async function runRoutedAgent(
         ].join("\n");
   }
 
+  const planningBudget = planningRuntimeBudget(role, attempt);
   const startedAt = Date.now();
   const result = await runAgent(
     agent,
@@ -1633,10 +1638,20 @@ async function runRoutedAgent(
               : taskPolicy.executionProfile === "standard"
                 ? 300
                 : 600,
-      hardTimeoutMs: turboFast.eligible ? TURBO_FAST_TIMEOUTS.hardTimeoutMs : CHILD_HARD_TIMEOUT_MS,
-      idleTimeoutMs: turboFast.eligible ? TURBO_FAST_TIMEOUTS.idleTimeoutMs : CHILD_IDLE_TIMEOUT_MS,
+      hardTimeoutMs:
+        turboFast.eligible
+          ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
+          : planningBudget?.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
+      idleTimeoutMs:
+        turboFast.eligible
+          ? TURBO_FAST_TIMEOUTS.idleTimeoutMs
+          : planningBudget?.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS,
       postToolErrorIdleTimeoutMs:
-        turboFast.eligible ? TURBO_FAST_TIMEOUTS.postToolErrorIdleTimeoutMs : POST_TOOL_ERROR_IDLE_TIMEOUT_MS,
+        turboFast.eligible
+          ? TURBO_FAST_TIMEOUTS.postToolErrorIdleTimeoutMs
+          : planningBudget?.idleTimeoutMs
+            ? Math.min(POST_TOOL_ERROR_IDLE_TIMEOUT_MS, planningBudget.idleTimeoutMs)
+            : POST_TOOL_ERROR_IDLE_TIMEOUT_MS,
     },
   );
   const enrichedResult: RunResult = {
@@ -1668,6 +1683,7 @@ async function runRoutedAgent(
       turboFastPath: turboFast.eligible,
       turboFastStrategy: turboFast.strategy,
       turboFastTimeouts: turboFast.eligible ? TURBO_FAST_TIMEOUTS : null,
+      planningRuntimeBudget: planningBudget,
     },
     verdict: verdictFromOutput(result.output),
     report: parseStructuredReport(result.output),
@@ -2828,6 +2844,16 @@ export default function (pi: ExtensionAPI) {
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const policy = classifyEngineeringTask(params.task);
       const traceID = createTraceID("ues-execute");
+      const orphanCleanup = await pruneOrphanTaskSandboxes(cwd, {
+        minAgeMs: 15 * 60_000,
+        legacyMinAgeMs: 6 * 60 * 60_000,
+      }).catch(() => ({ removed: [], skipped: [] }));
+      if (orphanCleanup.removed?.length) {
+        onUpdate?.({
+          content: [{ type: "text", text: `UES sandbox cleanup: removed ${orphanCleanup.removed.length} orphan worktree(s)` }],
+          details: { mode: "execute", phase: "sandbox-cleanup", orphanCleanup },
+        });
+      }
       await appendTrajectoryEvent(cwd, traceID, "controller.started", {
         profile: policy.executionProfile,
         risk: policy.risk,
@@ -2877,6 +2903,8 @@ export default function (pi: ExtensionAPI) {
       });
 
       const run = async (agent: AgentName, task: string, attempt = 1, failure?: string) => {
+        const planningBudget = planningRuntimeBudget(roleForAgent(agent), attempt);
+        let softSteerSent = false;
         const result = await runRoutedAgent(
           agent,
           task,
@@ -2887,6 +2915,23 @@ export default function (pi: ExtensionAPI) {
           failure,
           signal,
           (progress) => {
+            if (
+              agent === "ues-architect" &&
+              !softSteerSent &&
+              shouldSoftSteerArchitect(progress, planningBudget)
+            ) {
+              softSteerSent = true;
+              void RPC_POOL.steerActive(
+                "Stop repository exploration now. Use the evidence already gathered and return the required repository-grounded implementation plan immediately. End with exactly one UES_PLAN_JSON object. Do not start new broad searches.",
+              ).catch(() => ({ accepted: false }));
+              onUpdate?.({
+                content: [{
+                  type: "text",
+                  text: "UES planning fast-stop: architect evidence budget reached; requesting immediate plan emission",
+                }],
+                details: { mode: "execute", phase: "planning-soft-steer", policy, progress, planningBudget, traceID },
+              });
+            }
             onUpdate?.({
               content: [{
                 type: "text",
@@ -2936,7 +2981,7 @@ export default function (pi: ExtensionAPI) {
           "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
           "STRICT JSON CONTRACT: acceptance and verification are non-empty arrays of strings. risk is exactly one of low|medium|high|critical. Put descriptive risk prose in riskNotes. verificationCommands is optional and does not replace verification.",
           "Declare every file a task may write. Do not invent files: inspect the repository first.",
-          "DEEP efficiency rule: use the supplied runtime context/ranked references first; do not inventory the whole repository or re-read unchanged files. Stop exploration once exact task scope, dependencies, acceptance, verification, and risk/rollback are grounded.",
+          "DEEP efficiency rule: use the supplied runtime context/ranked references first; do not inventory the whole repository or re-read unchanged files. You have a bounded planning budget: prefer at most one targeted lookup per unresolved boundary, then emit the plan. Stop exploration once exact task scope, dependencies, acceptance, verification, and risk/rollback are grounded.",
         ].join("\n");
 
         let architect = await run(
@@ -2946,49 +2991,49 @@ export default function (pi: ExtensionAPI) {
           recentFailure || undefined,
         );
         if (isAbortedRun(architect)) return abortedResponse(architect, "planning");
-        if (architect.exitCode !== 0 || architect.stopReason === "error") {
-          return {
-            content: [{ type: "text", text: `Architecture pass failed:\n\n${architect.output}` }],
-            details: { mode: "execute", policy, steps },
-            isError: true,
-          };
-        }
 
         structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
         if (structuredPlan) structuredPlan = normalizePlanForValidation(structuredPlan);
         let structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
 
-        if (
-          (policy.mode === "long-horizon" || policy.profile?.durableState === true) &&
-          (!structuredPlan || structuredValidation?.valid !== true)
-        ) {
-          const repairEvidence = [
-            "The first architecture pass did not produce a valid UES_PLAN_JSON plan.",
-            structuredValidation ? JSON.stringify(structuredValidation, null, 2) : "UES_PLAN_JSON marker or JSON object was missing.",
-            "Return a corrected repository-grounded plan with the required marker and schema.",
-            "Repair only schema/grounding defects. acceptance must be a non-empty string array, verification must be a non-empty string array, and risk must be low|medium|high|critical with prose moved to riskNotes.",
-          ].join("\n");
-          architect = await run("ues-architect", planInstruction, 2, repairEvidence);
-          if (isAbortedRun(architect)) return abortedResponse(architect, "plan-repair");
+        const firstPlanValid =
+          structuredPlan &&
+          structuredValidation?.valid === true;
+
+        if (!firstPlanValid) {
+          const recoveryEvidence = failureDelta([
+            architect.exitCode !== 0 || architect.stopReason
+              ? "Previous architect pass stopped before a valid plan: " + String(architect.stopReason || architect.exitCode)
+              : "Previous architect pass returned an invalid plan.",
+            structuredValidation
+              ? JSON.stringify(structuredValidation, null, 2)
+              : "UES_PLAN_JSON marker or valid JSON object was missing.",
+            "RECOVERY RULE: do not restart repository exploration. Reuse the existing context/evidence, perform at most one targeted lookup for any blocking gap, then return the corrected plan immediately.",
+            "acceptance and verification must be non-empty string arrays; risk must be low|medium|high|critical; descriptive prose belongs in riskNotes.",
+          ].join("\n"), { maxChars: 4200 });
+
+          architect = await run("ues-architect", planInstruction, 2, recoveryEvidence);
+          if (isAbortedRun(architect)) return abortedResponse(architect, "plan-recovery");
           structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
           if (structuredPlan) structuredPlan = normalizePlanForValidation(structuredPlan);
           structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
-          if (
-            architect.exitCode !== 0 ||
-            architect.stopReason === "error" ||
-            !structuredPlan ||
-            structuredValidation?.valid !== true
-          ) {
-            return {
-              content: [{
-                type: "text",
-                text: "Long-horizon plan could not be converted into a valid deterministic task graph.\n\n" +
-                  (structuredValidation ? JSON.stringify(structuredValidation, null, 2) : architect.output),
-              }],
-              details: { mode: "execute", policy, steps, structuredPlan, structuredValidation },
-              isError: true,
-            };
-          }
+        }
+
+        if (
+          architect.exitCode !== 0 ||
+          architect.stopReason === "error" ||
+          !structuredPlan ||
+          structuredValidation?.valid !== true
+        ) {
+          return {
+            content: [{
+              type: "text",
+              text: "Long-horizon planning exhausted its bounded fast-planning recovery without a valid deterministic task graph.\n\n" +
+                (structuredValidation ? JSON.stringify(structuredValidation, null, 2) : architect.output),
+            }],
+            details: { mode: "execute", policy, steps, structuredPlan, structuredValidation },
+            isError: true,
+          };
         }
 
         const planCheck = await run(
