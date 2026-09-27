@@ -156,9 +156,11 @@ test("V15.3 long-horizon generic fix wording skips redundant pre-plan diagnosis"
 
 test("V15.3 concrete failure evidence keeps first-pass diagnosis", () => {
   const policy = classifyEngineeringTask(
-    "Fix the entire checkout flow. The failure affects multiple callers and the test currently fails with AssertionError: expected paid but actual pending.",
+    "Fix this regression across the entire project checkout flow and multiple modules, then run integration verification. " +
+    "The failure affects multiple callers and the test currently fails with AssertionError: expected paid but actual pending.",
   )
   assert.equal(policy.mode, "long-horizon")
+  assert.equal(policy.executionProfile, "deep")
   assert.equal(policy.diagnosisEvidence, true)
   assert.equal(shouldRunDedicatedDiagnosis(policy, 1), true)
 })
