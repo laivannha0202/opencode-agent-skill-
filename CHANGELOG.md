@@ -6,6 +6,21 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.6] - 2026-09-27
+
+### Performance
+- Added V15.5 Per-Leaf Turbo: low-risk single-file leaf tasks inside a DEEP/high-risk root plan can execute with the FAST profile instead of inheriting project-wide orchestration cost.
+- Added deterministic-first leaf verification. A FAST leaf may skip a verifier model turn only when fresh post-edit behavioral receipts satisfy the existing fail-closed FAST gate.
+- Added task-local failure-delta retry so a failed leaf receives only its own high-signal verifier/runtime evidence instead of replaying the whole wave failure.
+- Structured retry context keys now use the root repository namespace plus workspace fingerprint, so a fresh worktree sandbox can reuse context when its source snapshot is identical.
+- Retry failure evidence is kept outside the stable leaf task text, allowing exact context-pack reuse across attempts.
+
+### Safety
+- High-risk/database/public-contract leaves remain DEEP when their own evidence/risk requires it.
+- Final root integration verification and completion evidence remain mandatory for DEEP structured work.
+- Cache reuse remains fingerprint-bound; changed source invalidates the reusable context instead of chasing a synthetic hit-rate target.
+
+
 ## [15.0.0-beta.5] - 2026-09-27
 
 ### Fixed
