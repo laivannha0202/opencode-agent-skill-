@@ -3020,8 +3020,6 @@ export default function (pi: ExtensionAPI) {
         }
 
         if (
-          architect.exitCode !== 0 ||
-          architect.stopReason === "error" ||
           !structuredPlan ||
           structuredValidation?.valid !== true
         ) {
