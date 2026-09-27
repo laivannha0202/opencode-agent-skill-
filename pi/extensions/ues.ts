@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
-import { classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
+import { automaticUesAdmission, classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
 import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
@@ -2809,6 +2809,10 @@ export default function (pi: ExtensionAPI) {
 
   let directControllerAbort: AbortController | null = null;
   let promptUesActive = false;
+  let directControllerRunner: ((task: string, ctx: any, admission: "command" | "automatic") => Promise<void>) | null = null;
+  const AUTO_ADMISSION_ENABLED = !["0", "false", "off"].includes(
+    String(process.env.UES_AUTO_ADMIT || "1").trim().toLowerCase(),
+  );
   const UES_PARENT_TOOL_NAMES = new Set(["ues_cli", "ues_execute", "ues_service", "ues_dispatch"]);
   let normalActiveTools: string[] | null = null;
 
@@ -2904,6 +2908,24 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (!["steer", "followUp"].includes(String(event.streamingBehavior || ""))) {
+      if (
+        AUTO_ADMISSION_ENABLED &&
+        directControllerRunner &&
+        !(Array.isArray((event as any).images) && (event as any).images.length > 0)
+      ) {
+        const workspaceRoot = resolveGitWorkspaceRoot(ctx.cwd || "");
+        const admission = automaticUesAdmission(text, { inGitWorkspace: Boolean(workspaceRoot) });
+        if (workspaceRoot && admission.admit === true) {
+          try {
+            ctx.ui.notify(
+              "UES " + PACKAGE_VERSION + ": engineering task auto-admitted (" + admission.reason + ")",
+              "info",
+            );
+          } catch {}
+          await directControllerRunner(text, ctx, "automatic");
+          return { action: "handled" };
+        }
+      }
       return { action: "continue" };
     }
 
@@ -2938,7 +2960,7 @@ export default function (pi: ExtensionAPI) {
       if (toolName.startsWith("ues_")) {
         return {
           block: true,
-          reason: "UES is command-only. Start an explicit /ues-* command before using UES tools.",
+          reason: "UES parent tools are hidden outside admitted UES runs. Submit a normal engineering task or start an explicit /ues-* command.",
         };
       }
       return undefined;
@@ -4363,7 +4385,8 @@ export default function (pi: ExtensionAPI) {
         "Adaptive context: " + (ADAPTIVE_CONTEXT_ENABLED ? "on" : "off"),
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
-        "Command-only parent tools: on",
+        "Parent UES tools hidden outside UES runs: on",
+        "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
         "Local .env mutation guard: on",
