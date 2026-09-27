@@ -477,7 +477,7 @@ const CONTRACTS = [
       "AUTO_ACTIVE_CONTINUATION",
       "AUTO_INFORMATIONAL_ONLY",
       'route: "native"',
-      'route: "guarded"',
+      'policy.risk === "high" ? "guarded" : "auto"',
       "high-risk-engineering-task",
     ],
   },
