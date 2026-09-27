@@ -35,7 +35,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
-import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
+import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, detectInheritedDirtyViolations, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
@@ -4086,6 +4086,37 @@ export default function (pi: ExtensionAPI) {
           recentFailure = implementation.output;
           await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
           continue;
+        }
+
+        const inheritedDirtyCheck = detectInheritedDirtyViolations(
+          cwd,
+          executionContract.inheritedDirty,
+          executionContract.approvedInheritedDirtyPaths || [],
+        );
+        if (!inheritedDirtyCheck.safe) {
+          await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
+          return {
+            content: [{
+              type: "text",
+              text: [
+                "UES inherited dirty-work guard stopped completion.",
+                "The implementation changed pre-existing dirty source work that was not explicitly authorized by the original task.",
+                "UES will not auto-restore or overwrite these files.",
+                "",
+                ...inheritedDirtyCheck.violations.map((item: any) => "- " + item.path),
+              ].join("\n"),
+            }],
+            details: {
+              mode: "execute",
+              policy,
+              steps,
+              attempts: attempt,
+              executionContract,
+              inheritedDirtyCheck,
+              traceID,
+            },
+            isError: true,
+          };
         }
 
         let verification: RunResult;
