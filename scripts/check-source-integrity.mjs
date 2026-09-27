@@ -28,6 +28,9 @@ const CONTRACTS = [
       "ues_controller_progress",
       "taskPolicyOverride || classifyEngineeringTask",
       "turboFastPathDecision",
+      "deepExplorationContract",
+      "UES DEEP bounded exploration",
+      "DEEP efficiency rule",
       "TURBO_FAST_TIMEOUTS",
       "process.stderr.write",
       "CHILD_RUNTIME_EXTENSION",
@@ -219,6 +222,37 @@ const CONTRACTS = [
   },
 
   {
+    file: "lib/task-policy.mjs",
+    minBytes: 8_000,
+    startsWith: "const READ_ONLY",
+    required: [
+      "CONCRETE_DIAGNOSIS",
+      "diagnosisEvidence",
+      "generic word such as \"fix\"",
+      "shouldRunDedicatedDiagnosis",
+    ],
+  },
+  {
+    file: "global-config/agents/executor.md",
+    minBytes: 2_000,
+    startsWith: "---",
+    required: [
+      "Quality-preserving bounded-exploration policy",
+      "do not inventory the repository",
+      "spend the remaining effort on fresh verification",
+    ],
+  },
+  {
+    file: "global-config/agents/plan-checker.md",
+    minBytes: 1_500,
+    startsWith: "---",
+    required: [
+      "Efficiency contract",
+      "do not independently rescan the whole repository",
+      "return PASS/REVISE immediately",
+    ],
+  },
+  {
     file: "lib/task-graph.mjs",
     minBytes: 7_000,
     startsWith: "import ",
@@ -240,6 +274,8 @@ const CONTRACTS = [
       "\"verification\"",
       "\"riskNotes\"",
       "low`, `medium`, `high`, `critical",
+      "Efficiency contract for DEEP/long-horizon work",
+      "Stop repository exploration as soon as every planned task",
     ],
   },
   {
@@ -281,6 +317,8 @@ const CONTRACTS = [
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
       "normalizePlanForValidation",
       "STRICT JSON CONTRACT",
+      "deepExplorationContract",
+      "UES DEEP bounded exploration",
       "UES_EVAL_DIRECT_TELEMETRY",
       "ues_controller_direct",
       "controller progress",
