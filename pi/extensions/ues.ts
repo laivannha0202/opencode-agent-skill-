@@ -32,7 +32,7 @@ import { findReusableVerification, listReusableVerification, recordVerification 
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
-import { planningRuntimeBudget, shouldSoftSteerArchitect } from "../../lib/planning-speed-policy.mjs";
+import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -1473,7 +1473,9 @@ async function runRoutedAgent(
       ].join("\n");
     } else {
     const cacheBudgetKey =
-      role === "architect" ? Number(budgetDecision.baseBudget || budgetDecision.budget) : budgetDecision.budget;
+      ["architect", "plan-checker"].includes(role)
+        ? Number(budgetDecision.baseBudget || budgetDecision.budget)
+        : budgetDecision.budget;
     const cacheKey = cachedContextKey(
       cwd,
       task,
