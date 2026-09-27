@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
-import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
+import { classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
 import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
@@ -3197,20 +3197,126 @@ export default function (pi: ExtensionAPI) {
 
       if (policy.readOnly === true) {
         const before = runtimeWorkspaceSnapshot(cwd);
-        const inspection = await run(
-          "ues-verifier",
-          [
-            "READ-ONLY INSPECTION MODE. Do not edit, create, delete, stage, commit, install dependencies, or start persistent services.",
-            "Use only the narrowest read-only commands and source inspection needed to answer the request.",
-            "Fresh command output is valid completion evidence for an inspection task; do not require behavioral tests when the user did not request a code change.",
-            "Explicitly verify that source-facing workspace state is unchanged before returning PASS.",
+        const deterministicChecks = deterministicReadOnlyGitCommands(params.task);
+        let inspection: any;
+
+        if (deterministicChecks.length > 0) {
+          const rows: any[] = [];
+          for (const spec of deterministicChecks) {
+            const result = await runProcess(spec.command, spec.args, cwd, signal);
+            if (result.exitCode === 130 || result.stopReason === "aborted") {
+              const aborted: any = {
+                agent: "ues-deterministic-read-only",
+                task: params.task,
+                cwd,
+                exitCode: 130,
+                output: "Deterministic read-only command aborted: " + spec.label,
+                stderr: result.stderr || "",
+                verdict: null,
+                durationMs: result.durationMs || 0,
+                toolCalls: 0,
+                toolNames: [],
+                report: parseStructuredReport(""),
+                stopReason: "aborted",
+              };
+              steps.push(aborted);
+              return abortedResponse(aborted, "read-only-deterministic-check");
+            }
+            rows.push({
+              ...spec,
+              exitCode: result.exitCode,
+              stdout: cap(result.stdout || "", 8000),
+              stderr: cap(result.stderr || "", 4000),
+            });
+          }
+
+          const afterChecks = runtimeWorkspaceSnapshot(cwd);
+          const unchangedAfterChecks =
+            before.cacheable === true &&
+            afterChecks.cacheable === true &&
+            before.fingerprint === afterChecks.fingerprint;
+          const failedRows = rows.filter((row) => Number(row.exitCode) !== 0);
+          const deterministicPass = failedRows.length === 0 && unchangedAfterChecks;
+          const checksText = rows.map((row) => {
+            const payload = [row.stdout, row.stderr].filter(Boolean).join("\n").trim() || "(no output)";
+            return [
+              row.label + " — exit " + row.exitCode,
+              payload,
+            ].join("\n");
+          }).join("\n\n");
+          const failureText = [
+            ...failedRows.map((row) => row.label + " exited " + row.exitCode),
+            ...(unchangedAfterChecks ? [] : ["read-only workspace fingerprint changed"]),
+          ].join("\n") || "None.";
+
+          const output = [
+            "## Checks run",
+            checksText,
             "",
-            "Inspection request:",
-            params.task,
-          ].join("\n"),
-          1,
-        );
-        if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-inspection");
+            "## Acceptance criteria proven",
+            deterministicPass
+              ? "All explicitly requested whitelisted Git inspection commands completed successfully."
+              : "The requested deterministic inspection did not fully pass.",
+            "",
+            "## Failures",
+            failureText,
+            "",
+            "## Unresolved gaps",
+            "None.",
+            "",
+            "## Checks not run",
+            "None.",
+            "",
+            "## Completion evidence",
+            "UES executed " + rows.length + " command-only read-only Git check(s) directly and compared the source workspace fingerprint before and after.",
+            "",
+            "UES_VERDICT: " + (deterministicPass ? "PASS" : "FAIL"),
+          ].join("\n");
+
+          inspection = {
+            agent: "ues-deterministic-read-only",
+            task: params.task,
+            cwd,
+            exitCode: deterministicPass ? 0 : 1,
+            output,
+            stderr: "",
+            verdict: deterministicPass ? "PASS" : "FAIL",
+            durationMs: 0,
+            toolCalls: rows.length,
+            toolNames: rows.map((row) => row.label),
+            report: parseStructuredReport(output),
+            optimizations: {
+              deterministicReadOnlyGit: true,
+              checkCount: rows.length,
+            },
+          };
+          steps.push(inspection);
+          onUpdate?.({
+            content: [{
+              type: "text",
+              text: "UES read-only fast path: executed " + rows.length + " whitelisted Git check(s) deterministically; skipped verifier model turn",
+            }],
+            details: { mode: "execute", phase: "read-only-deterministic", policy, traceID, checks: rows.map((row) => row.label) },
+          });
+        } else {
+          inspection = await run(
+            "ues-verifier",
+            [
+              "READ-ONLY INSPECTION MODE. Do not edit, create, delete, stage, commit, install dependencies, or start persistent services.",
+              "Use only the narrowest read-only commands and source inspection needed to answer the request.",
+              "Fresh command output is valid completion evidence for an inspection task; do not require behavioral tests when the user did not request a code change.",
+              "Return exactly these H2 sections: ## Checks run, ## Acceptance criteria proven, ## Failures, ## Unresolved gaps, ## Checks not run, ## Completion evidence.",
+              "Write exactly None in Failures and Unresolved gaps when there is no real requested failure or gap.",
+              "End with exactly UES_VERDICT: PASS or UES_VERDICT: FAIL.",
+              "Explicitly verify that source-facing workspace state is unchanged before returning PASS.",
+              "",
+              "Inspection request:",
+              params.task,
+            ].join("\n"),
+            1,
+          );
+          if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-inspection");
+        }
 
         const after = runtimeWorkspaceSnapshot(cwd);
         const unchanged =
