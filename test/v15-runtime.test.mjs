@@ -395,7 +395,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /Disk hygiene: bounded \+ auto-clean/)
   assert.match(parent, /requireGitWorkspaceRoot\(params\.cwd \|\| ctx\.cwd, "ues_cli"\)/)
   assert.match(parent, /requireGitWorkspaceRoot\(hostCwd, "ues_service"\)/)
-  assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, "\/ues-run"\)/)
+  assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, admission === "automatic" \? "automatic UES admission" : "\/ues-run"\)/)
   assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, "\/ues-clean"\)/)
   assert.match(parent, /policy\.readOnly === true/)
   assert.match(parent, /deterministicReadOnlyGitCommands/)
