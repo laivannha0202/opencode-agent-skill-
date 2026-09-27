@@ -3575,13 +3575,55 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
-        const phaseGate = enforcePhaseGates(structuredPlan, executionContract);
+        let phaseGate = enforcePhaseGates(structuredPlan, executionContract);
+        if (phaseGate.valid !== true) {
+          const phaseRevisionEvidence = failureDelta([
+            "The deterministic explicit-phase gate rejected the plan.",
+            "Do not rescan the repository. Revise only phase assignment/coverage/dependencies.",
+            "Every execution task must include an integer phase. Every explicit execution PHASE must have at least one task. Constraint-only phases are invariants, not tasks.",
+            "Phase gate errors:",
+            phaseGate.errors.join("\n"),
+            "Current plan:",
+            JSON.stringify(structuredPlan, null, 2),
+          ].join("\n"), { maxChars: 6200 });
+          const phaseRevisedArchitect = await run(
+            "ues-architect",
+            planInstruction,
+            2,
+            phaseRevisionEvidence,
+          );
+          if (isAbortedRun(phaseRevisedArchitect)) {
+            return abortedResponse(phaseRevisedArchitect, "phase-plan-auto-revise");
+          }
+          const phaseRevisedCandidate = extractValidatedPlan(phaseRevisedArchitect.output);
+          if (phaseRevisedCandidate.plan && phaseRevisedCandidate.validation?.valid === true) {
+            const revisedPhaseGate = enforcePhaseGates(
+              phaseRevisedCandidate.plan,
+              executionContract,
+            );
+            if (revisedPhaseGate.valid === true) {
+              architect = phaseRevisedArchitect;
+              structuredPlan = revisedPhaseGate.plan;
+              structuredValidation = phaseRevisedCandidate.validation;
+              phaseGate = revisedPhaseGate;
+              onUpdate?.({
+                content: [{
+                  type: "text",
+                  text: "UES phase gate: auto-revised phase coverage/dependencies once and recovered a valid gated plan",
+                }],
+                details: { mode: "execute", phase: "phase-plan-auto-revise", phaseGate, traceID },
+              });
+            } else {
+              phaseGate = revisedPhaseGate;
+            }
+          }
+        }
         if (phaseGate.valid !== true) {
           return {
             content: [{
               type: "text",
               text:
-                "Explicit phase contract gate did not pass. UES will not flatten or skip user-declared phases.\n\n" +
+                "Explicit phase contract gate did not pass after bounded auto-recovery. UES will not flatten or skip user-declared phases.\n\n" +
                 phaseGate.errors.join("\n"),
             }],
             details: { mode: "execute", policy, steps, structuredPlan, phaseGate, executionContract },
