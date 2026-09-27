@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { evidenceExists, evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
@@ -49,6 +49,42 @@ test("V15.12 evidence GC enforces a byte quota", async () => {
     })
     assert.ok(result.removedCount >= 3)
     assert.ok(result.status.bytes <= 1024 * 1024)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("V15.12 evidence GC preserves blobs referenced by verified memory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-evidence-memory-"))
+  try {
+    const protectedItem = await putEvidence(root, "protected-" + "x".repeat(64 * 1024))
+    await putEvidence(root, "newer-" + "y".repeat(64 * 1024))
+    const memoryDir = path.join(root, ".ues-memory")
+    await mkdir(memoryDir, { recursive: true })
+    await writeFile(
+      path.join(memoryDir, "MEMORY.json"),
+      JSON.stringify({
+        schemaVersion: 1,
+        memories: [{
+          id: "memory-1",
+          status: "verified",
+          supersededBy: null,
+          expiresAt: null,
+          evidenceRefs: [protectedItem.ref],
+        }],
+      }),
+      "utf8",
+    )
+
+    const result = await gcEvidenceStore(root, {
+      maxEntries: 1,
+      maxBytes: 1024 * 1024,
+      maxAgeDays: 999,
+    })
+    assert.equal(await evidenceExists(root, protectedItem.ref), true)
+    assert.equal(result.protectedEntries, 1)
+    assert.ok(result.protectedBytes > 0)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
