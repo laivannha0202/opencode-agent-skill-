@@ -8,6 +8,7 @@ import {
   createTaskSandbox,
   integrateTaskSandbox,
   listTaskSandboxes,
+  pruneOrphanTaskSandboxes,
   rollbackTaskSandbox,
 } from "../lib/worktree-sandbox.mjs"
 
@@ -209,6 +210,46 @@ test("parallel downstream sandbox can safely modify a file inherited from a pred
       (await readFile(path.join(root, "shared.txt"), "utf8")).replaceAll("\r\n", "\n"),
       "from-task-a\n",
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+
+test("V15.6 orphan sandbox cleanup removes dead-owner worktrees but preserves live ownership", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-orphan-root-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-orphan-base-"))
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const live = await createTaskSandbox(root, "lease", "live", { baseDir: base })
+    const liveMetaPath = path.resolve(live.dir) + ".ues-meta.json"
+    const liveMeta = JSON.parse(await readFile(liveMetaPath, "utf8"))
+    assert.equal(liveMeta.ownerPid, process.pid)
+
+    const dead = await createTaskSandbox(root, "lease", "dead", { baseDir: base })
+    const deadMetaPath = path.resolve(dead.dir) + ".ues-meta.json"
+    const deadMeta = JSON.parse(await readFile(deadMetaPath, "utf8"))
+    deadMeta.ownerPid = 2147483647
+    deadMeta.createdAt = new Date(Date.now() - 60 * 60_000).toISOString()
+    await writeFile(deadMetaPath, JSON.stringify(deadMeta, null, 2) + "\n")
+
+    const cleanup = await pruneOrphanTaskSandboxes(root, {
+      baseDir: base,
+      minAgeMs: 60_000,
+      legacyMinAgeMs: 60_000,
+    })
+    assert.equal(cleanup.removed.some((item) => path.resolve(item.dir) === path.resolve(dead.dir)), true)
+    assert.equal(listTaskSandboxes(root).some((item) => path.resolve(item.path) === path.resolve(dead.dir)), false)
+    assert.equal(listTaskSandboxes(root).some((item) => path.resolve(item.path) === path.resolve(live.dir)), true)
+
+    await rm(live.dir, { recursive: true, force: true })
+    spawnSync("git", ["worktree", "prune"], { cwd: root, encoding: "utf8" })
+    spawnSync("git", ["branch", "-D", live.branch], { cwd: root, encoding: "utf8" })
   } finally {
     await rm(root, { recursive: true, force: true })
     await rm(base, { recursive: true, force: true })
