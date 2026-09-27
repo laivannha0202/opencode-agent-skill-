@@ -98,7 +98,7 @@ Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-m
 
 ## V15.15 Execution Contracts + Phase Gates
 
-Long-horizon `/ues-run` now derives a deterministic execution contract before planning. The controller snapshots source-facing pre-existing dirty paths, blocks destructive Git discard commands such as `git restore`, `git checkout --`, and `git stash` in UES children, and injects the inherited-work boundary into every specialist role. Existing dirty work may only be changed when it is explicitly inside the approved task write scope; generated/U​​ES runtime artifacts are excluded from this baseline.
+Long-horizon `/ues-run` now derives a deterministic execution contract before planning. The controller snapshots source-facing pre-existing dirty paths, blocks destructive Git discard commands such as `git restore`, `git checkout --`, and `git stash` in UES children, and injects the inherited-work boundary into every specialist role. Existing dirty work may only be changed when it is explicitly inside the approved task write scope; generated/UES runtime artifacts are excluded from this baseline.
 
 Local `.env` files are treated as runtime inputs, not repository implementation targets. UES child edit/write/code-edit and common shell-write paths are blocked for `.env`, `.env.local`, `.env.development`, and similar files unless the original task explicitly requests that local mutation. Templates such as `.env.example`, `.env.sample`, and `.env.template` remain writable. When local environment setup is missing but not authorized, agents should report `NEEDS_USER_ENV` instead of silently editing secrets/configuration.
 
