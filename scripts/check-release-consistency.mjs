@@ -113,7 +113,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
 
   const piCompat = requireText(errors, readText(root, path.join("docs", "PI-COMPAT.md")), "docs/PI-COMPAT.md")
   if (piCompat) {
-    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime", "V15.1 deterministic admission and managed services", "V15.2 Turbo Fast Path", "ues_service"]) {
+    for (const marker of ["# Pi Agent runtime", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime", "V15.1 deterministic admission and managed services", "V15.2 Turbo Fast Path", "V15.3 DEEP Speed", "ues_service"]) {
       if (!piCompat.includes(marker)) errors.push(`docs/PI-COMPAT.md: missing current Pi contract marker ${marker}`)
     }
   }
@@ -137,6 +137,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
   if (canonicalPolicy) {
     if (!/export function classifyEngineeringTask/.test(canonicalPolicy)) errors.push("lib/task-policy.mjs: missing classifyEngineeringTask")
     if (!/export function recoveryPolicyForAttempt/.test(canonicalPolicy)) errors.push("lib/task-policy.mjs: missing recoveryPolicyForAttempt")
+    if (!/CONCRETE_DIAGNOSIS/.test(canonicalPolicy) || !/diagnosisEvidence/.test(canonicalPolicy)) errors.push("lib/task-policy.mjs: missing V15.3 diagnosis deduplication contract")
   }
 
   if (pkg) {
