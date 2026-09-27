@@ -15,7 +15,7 @@ The project follows Semantic Versioning.
 - Read-only inspections use a dedicated no-write lane, skip writer worktrees and behavioral-receipt gates, and fail if the source workspace fingerprint changes.
 - Structured tasks with no declared write files no longer allocate duplicate Git worktrees.
 - Active owned sandboxes are reclaimed during Pi session shutdown; normal completion/failure cleanup remains in place.
-- `/ues-clean` now removes transient cache, trace, service and dashboard state after sandbox cleanup while preserving durable work, memory, learning and eval state.
+- `/ues-clean` now removes transient trace/service/dashboard state and rebuildable cache entries, quota-prunes evidence, and protects evidence referenced by live verified memory while preserving durable work, memory, learning and eval state.
 - Trace storage now has bounded per-file, total-size, file-count and age retention.
 - Evidence storage now has byte, entry-count and age quotas with automatic garbage collection.
 - Durable runtime event journals compact before unbounded growth, and parallel writer concurrency is separately capped (default 2 on Windows) to reduce peak worktree/build disk pressure without reducing read-only parallelism.
