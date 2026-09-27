@@ -1871,7 +1871,7 @@ async function sandboxIntentToAddSourceFiles(dir: string, signal?: AbortSignal) 
   const candidates = sourceFacingPaths(
     untracked.stdout
       .split("\0")
-      .map((value) => value.trim().replaceAll("\\", "/"))
+      .map((value) => value.replaceAll("\\", "/"))
       .filter(Boolean),
   );
   for (const batch of sandboxSourceIntentBatches(candidates)) {
