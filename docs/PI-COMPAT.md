@@ -96,6 +96,14 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.10 Adaptive Stability Runtime
+
+Planning children use activity-aware bounded deadlines. The initial hard deadline remains short for responsiveness, but recent real activity may extend it in bounded increments; an absolute deadline and the independent idle watchdog still terminate hung work. RPC timeout paths preserve partial assistant output before worker teardown, and CLI fallback uses the same deadline model.
+
+Structured architect work is machine-first: when `UES_PLAN_JSON` is requested, the graph is emitted before optional prose. If transport ends after a complete graph has already been emitted, UES may salvage it only when normalization and deterministic plan validation succeed; the independent plan-checker is still mandatory before execution.
+
+High-risk DEEP tasks keep full evidence budgets for executor/verifier/integration roles. Only read-only architect and plan-checker context is role-bounded, using targeted repository tools to fill concrete evidence gaps.
+
 ## V15.9 Runtime Artifact Isolation
 
 UES runtime state is not task source state. Structured sandbox delta, declared write-scope checks, same-wave conflict detection, dirty-root inheritance, and sandbox integration now exclude UES-owned runtime directories such as `.ues-traces/**`, `.ues-cache/**`, `.ues-services/**`, `.ues-work/**`, and the other runtime-state directories covered by the shared runtime-artifact contract.
