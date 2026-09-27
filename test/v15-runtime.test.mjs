@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
 import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
+import { looksLikePiCliEntrypoint, resolvePiChildInvocation } from "../lib/pi-child-invocation.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -35,6 +36,41 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15.4 ACP host never reuses an ACP entrypoint as the Pi child", () => {
+  assert.equal(looksLikePiCliEntrypoint("C:/tools/pi-acp/dist/index.js"), false)
+  assert.equal(
+    looksLikePiCliEntrypoint("C:/Users/Admin/.pi/agent/install/releases/0.87.1/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"),
+    true,
+  )
+
+  const args = ["--mode", "rpc"]
+  const acp = resolvePiChildInvocation(args, {
+    currentScript: "C:/tools/pi-acp/dist/index.js",
+    execPath: "C:/Program Files/nodejs/node.exe",
+    platform: "win32",
+    existsSync: () => true,
+    managedPi: {
+      executable: "C:/Program Files/nodejs/node.exe",
+      argsPrefix: ["C:/Users/Admin/.pi/agent/install/releases/0.87.1/node_modules/@earendil-works/pi-coding-agent/dist/cli.js"],
+    },
+    pathPi: null,
+  })
+  assert.equal(acp.source, "managed-pi")
+  assert.match(acp.args[0], /pi-coding-agent/)
+  assert.deepEqual(acp.args.slice(-2), ["--mode", "rpc"])
+
+  const terminal = resolvePiChildInvocation(args, {
+    currentScript: "C:/Users/Admin/.pi/agent/install/releases/0.87.1/node_modules/@earendil-works/pi-coding-agent/dist/cli.js",
+    execPath: "C:/Program Files/nodejs/node.exe",
+    platform: "win32",
+    existsSync: () => true,
+    managedPi: null,
+    pathPi: null,
+  })
+  assert.equal(terminal.source, "host-pi-cli")
+  assert.match(terminal.args[0], /pi-coding-agent/)
+})
 
 test("V15.3 DEEP planning skips redundant diagnosis without concrete failure evidence", () => {
   const generic = classifyEngineeringTask(
@@ -214,6 +250,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /turboFastPathDecision/)
   assert.match(parent, /normalizePlanForValidation/)
   assert.match(parent, /deepExplorationContract/)
+  assert.match(parent, /resolvePiChildInvocation/)
   assert.match(parent, /UES DEEP bounded exploration/)
   assert.match(parent, /Do not inventory the repository/)
   assert.match(parent, /DEEP efficiency rule/)
