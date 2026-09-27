@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.9 Runtime Artifact Isolation
+
+UES runtime state is not task source state. Structured sandbox delta, declared write-scope checks, same-wave conflict detection, dirty-root inheritance, and sandbox integration now exclude UES-owned runtime directories such as `.ues-traces/**`, `.ues-cache/**`, `.ues-services/**`, `.ues-work/**`, and the other runtime-state directories covered by the shared runtime-artifact contract.
+
+This filtering does not weaken source safety. Real repository files such as `apps/mobile/package.json` remain source-facing mutations and must still be declared by the task before integration.
+
 ## V15.8 Plan Gate Recovery
 
 Plan-checker now uses an adaptive bounded policy instead of failing immediately at the old 45-second hard limit. The first pass is soft-steered toward an immediate verdict before its hard timeout; transport/runtime timeout without a semantic verdict receives one shorter warm-context recovery pass. A real REVISE verdict still fails closed.
