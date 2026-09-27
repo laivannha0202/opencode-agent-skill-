@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.13 Read-Only Completion Semantics
+
+Read-only verification now distinguishes real acceptance gaps from optional or explicitly out-of-scope checks. Localized no-failure wording such as `Không có lệnh git nào bị lỗi` is treated as an empty failure section, while statements such as `không có yêu cầu` / `out of scope` are warnings rather than completion failures.
+
+The verifier contract now requires `None` when no actual failures or requested unresolved gaps remain, and directs optional checks to `## Checks not run`. This fixes false-negative READ-ONLY runs that had fresh successful command evidence, an unchanged source fingerprint, and `UES_VERDICT: PASS` but were still rejected by the generic completion auditor.
+
 ## V15.12 Safe Autopilot + Disk Hygiene
 
 UES is command-only by default in the parent Pi session. Ordinary prompts and non-UES tools continue through Pi without UES shell/MCP interception, and the parent `ues_*` tools are removed from Pi's active tool set so normal models do not see or accidentally select them. Explicit `/ues-*` prompt commands activate the registered UES tools for that turn, then `agent_end` restores the non-UES tool set. Direct `/ues-run`, `/ues-clean`, and `/ues-status` commands do not need a parent-model tool turn.
