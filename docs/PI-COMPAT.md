@@ -96,6 +96,18 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.18 Three-Tier Zero-Friction Routing
+
+Automatic admission now distinguishes three user-facing lanes instead of treating every engineering-looking prompt the same:
+
+- `native`: greetings, casual discussion, explanatory/code-understanding questions, slash commands, image-bearing prompts, and non-Git workspaces stay on Pi's normal path.
+- `auto`: confident engineering actions such as inspect/fix/test/build/refactor on repository/code targets enter the UES controller automatically.
+- `high-risk`: engineering tasks classified as high risk enter the same UES controller with the stronger safety/verification profile and explicit warning UI.
+
+The router returns a confidence level and reason, reuses the same classified task policy inside `ues_execute`, and avoids reclassifying the task during direct admission. Automatic controller launch is non-blocking from the input hook so stop/steer/follow-up input can remain responsive while the supervised run continues.
+
+This keeps the no-command UX while reducing false-positive orchestration for questions such as “giải thích đoạn code này”. `/ues-run` remains an explicit force-entry fallback, not a requirement.
+
 ## V15.17 Zero-Friction Autopilot Admission
 
 Interactive text-only engineering requests inside a Git worktree can now enter the deterministic UES controller without requiring the user to type `/ues-run`. Admission is deterministic and conservative: long structured engineering prompts, read-only repository inspections, and prompts with both an engineering action and engineering target are admitted; greetings, casual discussion, slash commands, non-Git workspaces, and image-bearing prompts remain on the normal Pi path.
