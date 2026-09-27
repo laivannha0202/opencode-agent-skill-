@@ -8,7 +8,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
-import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
+import { classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
 import { looksLikePiCliEntrypoint, resolvePiChildInvocation } from "../lib/pi-child-invocation.mjs"
 import { sessionNameFromUesInput, uesSessionName } from "../lib/session-display.mjs"
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../lib/workspace-root.mjs"
@@ -73,6 +73,32 @@ test("V15.12 read-only policy avoids writer worktrees and behavioral receipts", 
   assert.equal(policy.requireIntegrationVerification, false)
   assert.equal(policy.profile.worktree, "off")
   assert.equal(policy.profile.verification, "command-evidence")
+})
+
+test("V15.14 command-only read-only Git inspection is deterministic", () => {
+  const prompt =
+    "Chỉ kiểm tra repository hiện tại ở chế độ READ-ONLY. Không sửa, không tạo, không xóa file. Chỉ chạy git status, git branch --show-current và git rev-parse HEAD rồi báo kết quả."
+  assert.deepEqual(
+    deterministicReadOnlyGitCommands(prompt).map((item) => [item.command, item.args]),
+    [
+      ["git", ["status"]],
+      ["git", ["branch", "--show-current"]],
+      ["git", ["rev-parse", "HEAD"]],
+    ],
+  )
+
+  assert.deepEqual(
+    deterministicReadOnlyGitCommands("READ-ONLY. Chỉ chạy git status --short và git rev-parse --show-toplevel."),
+    [
+      { id: "git-status-short", label: "git status --short", command: "git", args: ["status", "--short"] },
+      { id: "git-rev-parse-root", label: "git rev-parse --show-toplevel", command: "git", args: ["rev-parse", "--show-toplevel"] },
+    ],
+  )
+
+  assert.deepEqual(
+    deterministicReadOnlyGitCommands("READ-ONLY. Chỉ chạy git status và git log -1."),
+    [],
+  )
 })
 
 test("V15.12 negative file constraints do not misclassify mutating work as read-only", () => {
@@ -337,7 +363,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /requireGitWorkspaceRoot\(hostCwd, "ues_service"\)/)
   assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, "\/ues-run"\)/)
   assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, "\/ues-clean"\)/)
-  assert.match(parent, /policy\.readOnly === true/)
+  assert.match(parent, /policy\.readOnly === true/)\n  assert.match(parent, /deterministicReadOnlyGitCommands/)\n  assert.match(parent, /ues-deterministic-read-only/)\n  assert.match(parent, /read-only fast path/)
   assert.match(parent, /read-only-workspace-mutated/)
   assert.match(parent, /writeFiles\.length > 0/)
   assert.match(parent, /auto-revised the rejected plan/)
