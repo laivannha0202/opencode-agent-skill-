@@ -9,6 +9,7 @@ import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
 import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
 import { looksLikePiCliEntrypoint, resolvePiChildInvocation } from "../lib/pi-child-invocation.mjs"
+import { sessionNameFromUesInput, uesSessionName } from "../lib/session-display.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -36,6 +37,26 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15.11 UES session naming replaces stale chat titles without model calls", () => {
+  assert.equal(
+    uesSessionName(
+      "run",
+      "Tiếp tục audit/fix DELTA trên trạng thái repository hiện tại. Giữ nguyên thay đổi hợp lệ.",
+      "E:/dev/AgriMarket",
+    ),
+    "UES: Tiếp tục audit/fix DELTA trên trạng thái repository hiện tại. Giữ ng…",
+  )
+  assert.equal(
+    sessionNameFromUesInput("/ues-resume", "E:\\dev\\AgriMarket"),
+    "UES Resume: AgriMarket",
+  )
+  assert.equal(
+    sessionNameFromUesInput("/ues-review Kiểm tra API public và regression", "E:/dev/AgriMarket"),
+    "UES Review: Kiểm tra API public và regression",
+  )
+  assert.equal(sessionNameFromUesInput("xin chào", "E:/dev/AgriMarket"), null)
+})
 
 test("V15.4 ACP host never reuses an ACP entrypoint as the Pi child", () => {
   assert.equal(looksLikePiCliEntrypoint("C:/tools/pi-acp/dist/index.js"), false)
@@ -248,6 +269,10 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
 
   assert.match(parent, /pi\.registerCommand\("ues-status"/)
   assert.match(parent, /pi\.registerCommand\("ues-run"/)
+  assert.match(parent, /pi\.setSessionName/)
+  assert.match(parent, /ctx\?\.ui\?\.setTitle/)
+  assert.match(parent, /sessionNameFromUesInput/)
+  assert.match(parent, /uesSessionName\("run", task, ctx\.cwd\)/)
   assert.match(parent, /PACKAGE_VERSION/)
   assert.match(parent, /const uesExecuteTool: any = \{/)
   assert.match(parent, /ues_controller_direct/)
