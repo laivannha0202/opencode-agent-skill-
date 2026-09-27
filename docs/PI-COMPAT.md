@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.11 Session Identity Sync
+
+UES keeps Pi session metadata aligned with the active engineering command instead of leaving the session selector named after an earlier conversational message. `/ues-run` derives a bounded deterministic session name from the task without an extra model call. Prompt-style commands such as `/ues-resume`, `/ues-fix`, `/ues-review`, and related UES aliases synchronize through Pi's interactive input hook.
+
+Session display synchronization is UX-only and fail-safe: `pi.setSessionName()` updates the durable Pi session label, while `ctx.ui.setTitle()` is best-effort. Failure to update display metadata must never block controller execution, verification, resume, or cleanup.
+
 ## V15.10 Adaptive Stability Runtime
 
 Planning children use activity-aware bounded deadlines. The initial hard deadline remains short for responsiveness, but recent real activity may extend it in bounded increments; an absolute deadline and the independent idle watchdog still terminate hung work. RPC timeout paths preserve partial assistant output before worker teardown, and CLI fallback uses the same deadline model.
