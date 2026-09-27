@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.0.0-beta.10",
-  "description": "Pi Agent engineering runtime with deterministic admission, Turbo Fast Path, managed background services, code intelligence, verified memory, reversible context, and evidence-gated completion",
+  "version": "15.0.0-beta.11",
+  "description": "Pi-native UES coding-agent runtime with adaptive stability, Turbo Fast Path, durable verification, managed services, and weak-model orchestration",
   "type": "module",
   "bin": {
     "ues": "bin/ocskill.mjs",
