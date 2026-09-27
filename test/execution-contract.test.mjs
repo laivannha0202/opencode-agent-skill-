@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import { spawnSync } from "node:child_process"
 import os from "node:os"
 import path from "node:path"
@@ -8,7 +8,9 @@ import {
   buildExecutionContract,
   buildFinalVerdictMatrix,
   captureInheritedDirtyState,
+  detectInheritedDirtyViolations,
   enforcePhaseGates,
+  explicitlyAuthorizedInheritedDirtyPaths,
   extractExplicitPhases,
   isLocalEnvPath,
   localEnvWriteRisk,
@@ -52,6 +54,58 @@ test("V15.15 inherited dirty snapshot records pre-existing work", async () => {
     assert.equal(snapshot.available, true)
     assert.equal(snapshot.clean, false)
     assert.ok(snapshot.paths.includes("existing.txt"))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15.15 inherited dirty guard ignores UES/generated artifacts and detects unauthorized mutation", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-dirty-guard-"))
+  try {
+    const init = spawnSync("git", ["init"], { cwd: root, encoding: "utf8" })
+    assert.equal(init.status, 0, init.stderr || init.stdout)
+
+    await mkdir(path.join(root, ".ues-traces"), { recursive: true })
+    await mkdir(path.join(root, "apps", "mobile", ".next-desktop"), { recursive: true })
+    await writeFile(path.join(root, ".ues-traces", "trace.jsonl"), "{}\n", "utf8")
+    await writeFile(path.join(root, "apps", "mobile", ".next-desktop", "cache.bin"), "cache", "utf8")
+    await writeFile(path.join(root, "important.ts"), "const value = 1\n", "utf8")
+
+    const snapshot = captureInheritedDirtyState(root)
+    assert.deepEqual(snapshot.paths, ["important.ts"])
+    assert.equal(snapshot.entries[0]?.state?.kind, "file")
+    assert.match(String(snapshot.entries[0]?.state?.hash || ""), /^[a-f0-9]{64}$/)
+
+    const approvedNone = explicitlyAuthorizedInheritedDirtyPaths(
+      "Audit important.ts but do not modify important.ts.",
+      snapshot.paths,
+    )
+    assert.deepEqual(approvedNone, [])
+
+    await writeFile(path.join(root, "important.ts"), "const value = 2\n", "utf8")
+    const violation = detectInheritedDirtyViolations(root, snapshot, approvedNone)
+    assert.equal(violation.safe, false)
+    assert.equal(violation.reason, "inherited-dirty-work-modified")
+    assert.deepEqual(violation.violations.map((item) => item.path), ["important.ts"])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15.15 inherited dirty guard permits only explicit mutation scope", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-dirty-approved-"))
+  try {
+    const init = spawnSync("git", ["init"], { cwd: root, encoding: "utf8" })
+    assert.equal(init.status, 0, init.stderr || init.stdout)
+    await writeFile(path.join(root, "src.ts"), "export const n = 1\n", "utf8")
+    const snapshot = captureInheritedDirtyState(root)
+    const approved = explicitlyAuthorizedInheritedDirtyPaths(
+      "Fix src.ts so the exported value is correct.",
+      snapshot.paths,
+    )
+    assert.deepEqual(approved, ["src.ts"])
+    await writeFile(path.join(root, "src.ts"), "export const n = 2\n", "utf8")
+    assert.equal(detectInheritedDirtyViolations(root, snapshot, approved).safe, true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -165,6 +219,19 @@ test("V15.15 final verdict matrix separates source runtime data and device proof
   assert.equal(partial.dbClean, "DB_CLEAN_PASS")
   assert.equal(partial.device, "DEVICE_NOT_VERIFIED")
   assert.equal(partial.final, "SOURCE_RUNTIME_PASS_DEVICE_NOT_VERIFIED")
+
+  const missingDb = buildFinalVerdictMatrix(task, {
+    contract,
+    primaryPass: true,
+    integrationPass: true,
+    integrationOutput: "cleanup started but idempotency/count evidence is missing",
+    integrationChecks: "pnpm test\npnpm runtime:smoke",
+  })
+  assert.equal(missingDb.source, "SOURCE_PASS")
+  assert.equal(missingDb.runtime, "RUNTIME_PASS")
+  assert.equal(missingDb.dbClean, "DB_CLEAN_NOT_VERIFIED")
+  assert.equal(missingDb.device, "DEVICE_NOT_VERIFIED")
+  assert.equal(missingDb.final, "PARTIAL_OR_NOT_VERIFIED")
 
   const complete = buildFinalVerdictMatrix(task, {
     contract,
