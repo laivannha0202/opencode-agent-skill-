@@ -6,6 +6,16 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.13] - 2026-09-27
+
+### Fixed
+- Prevented a transient unhandled-rejection race when an active RPC specialist is externally aborted before execution reaches its internal settlement await.
+- RPC abort semantics are unchanged: the active run still rejects with `UES RPC aborted`, and the caller still receives the runtime-phase abort error.
+
+### Validation
+- The existing regression `external RPC abort rejects the active run instead of settling normally` now exercises the fixed settlement path without `PromiseRejectionHandledWarning`.
+
+
 ## [15.0.0-beta.12] - 2026-09-27
 
 ### Fixed
