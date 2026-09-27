@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.8 Plan Gate Recovery
+
+Plan-checker now uses an adaptive bounded policy instead of failing immediately at the old 45-second hard limit. The first pass is soft-steered toward an immediate verdict before its hard timeout; transport/runtime timeout without a semantic verdict receives one shorter warm-context recovery pass. A real REVISE verdict still fails closed.
+
+Sandbox cleanup also scans the repository-specific UES sandbox directory directly. This allows `/ues-clean` to remove stale physical sandbox folders whose Git worktree registration was already lost after a crash or manual prune, while protecting active/live-owner sandboxes.
+
 ## V15.7 Lightweight Sandbox Cleanup
 
 UES direct controller runs now track active task worktrees by trace and reclaim their own leftovers when the run ends, including Stop/error paths. Active worktrees remain protected. Stale same-process worktrees can be reclaimed without waiting for Pi to exit, legacy pre-lease worktrees use a 30-minute grace, orphan metadata sidecars are removed, and an empty sandbox base directory is deleted automatically.
