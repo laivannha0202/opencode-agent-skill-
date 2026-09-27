@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.0.0-beta.4",
+  "version": "15.0.0-beta.5",
   "description": "Pi Agent engineering runtime with deterministic admission, Turbo Fast Path, managed background services, code intelligence, verified memory, reversible context, and evidence-gated completion",
   "type": "module",
   "bin": {
