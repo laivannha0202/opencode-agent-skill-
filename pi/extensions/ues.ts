@@ -4516,6 +4516,185 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  directControllerRunner = async (task, ctx, admission) => {
+    if (directControllerAbort && !directControllerAbort.signal.aborted) {
+      try { ctx.ui.notify("UES controller is already running in this session", "warning"); } catch {}
+      return;
+    }
+
+    let workspaceRoot: string;
+    try {
+      workspaceRoot = requireGitWorkspaceRoot(ctx.cwd, admission === "automatic" ? "automatic UES admission" : "/ues-run");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      pi.sendMessage({
+        customType: "ues-controller-result",
+        content: message,
+        display: true,
+        details: { controllerUsed: false, controllerPass: false, reason: "unsafe-workspace-root" },
+      }, { triggerTurn: false });
+      try { ctx.ui.notify(message, "error"); } catch {}
+      return;
+    }
+
+    const abort = new AbortController();
+    directControllerAbort = abort;
+    const directTraceID = createTraceID(admission === "automatic" ? "ues-auto" : "ues-run");
+    syncSessionIdentity(uesSessionName("run", task, workspaceRoot), ctx);
+    let result: any;
+    let lastProgressNoticeAt = 0;
+    let lastProgressKey = "";
+    try {
+      const directPolicy = classifyEngineeringTask(task);
+      try {
+        ctx.ui.notify(
+          "UES " + PACKAGE_VERSION + ": " + (admission === "automatic" ? "auto-admitted controller started (" : "controller started (") +
+            String(directPolicy.executionProfile || directPolicy.mode || "unknown") +
+            "/" + String(directPolicy.risk || "unknown") + ")",
+          "info",
+        );
+      } catch {}
+      result = await uesExecuteTool.execute(
+        `ues-run-${randomUUID()}`,
+        { task, cwd: workspaceRoot, __traceID: directTraceID },
+        abort.signal,
+        (update: any) => {
+          const text = (update?.content || [])
+            .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+            .map((part: any) => part.text)
+            .join("\n")
+            .trim();
+          if (text) {
+            try { ctx.ui.setStatus("ues-run", cap(text, 180)); } catch {}
+          }
+
+          const progress = update?.details?.progress;
+          if (progress) {
+            const progressKey = String(progress.agent || "") + ":" + String(update?.details?.phase || "");
+            const now = Date.now();
+            const phaseChanged = progressKey && progressKey !== lastProgressKey;
+            const heartbeatDue = now - lastProgressNoticeAt >= 60_000;
+            if (phaseChanged || heartbeatDue) {
+              const message =
+                "UES: " + String(progress.agent || "worker") +
+                " running " + Math.round(Number(progress.elapsedMs || 0) / 1000) + "s" +
+                " (idle " + Math.round(Number(progress.idleMs || 0) / 1000) + "s, tools " +
+                Number(progress.toolCalls || 0) +
+                (progress.activeTool ? ", " + String(progress.activeTool) : "") + ")";
+              try {
+                ctx.ui.notify(
+                  message,
+                  Number(progress.idleMs || 0) >= 45_000 ? "warning" : "info",
+                );
+              } catch {}
+              lastProgressNoticeAt = now;
+              lastProgressKey = progressKey;
+            }
+          }
+
+          if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
+            process.stderr.write(JSON.stringify({
+              type: "ues_controller_progress",
+              phase: update?.details?.phase || null,
+              task: update?.details?.task || null,
+              agent: progress?.agent || null,
+              elapsedMs: Number(progress?.elapsedMs || 0),
+              idleMs: Number(progress?.idleMs || 0),
+              toolCalls: Number(progress?.toolCalls || 0),
+              activeTool: progress?.activeTool || null,
+              note: progress?.note || null,
+              text: text ? cap(text, 240) : null,
+            }) + "\n");
+          }
+        },
+        ctx,
+      );
+    } catch (error) {
+      result = {
+        content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+        details: { mode: "execute", reason: "direct-controller-exception" },
+        isError: true,
+      };
+    } finally {
+      const traceRemoved = await cleanupTraceSandboxes(workspaceRoot, directTraceID).catch(() => 0);
+      const staleCleanup = await pruneOrphanTaskSandboxes(workspaceRoot, {
+        minAgeMs: 5 * 60_000,
+        legacyMinAgeMs: 30 * 60_000,
+        ownedMinAgeMs: 0,
+        reclaimOwnerPid: process.pid,
+        protectedDirs: [...ACTIVE_TASK_SANDBOXES.keys()],
+      }).catch(() => ({ removed: [], skipped: [], sidecarsRemoved: [] }));
+      const cleaned =
+        Number(traceRemoved || 0) +
+        Number(staleCleanup?.removed?.length || 0) +
+        Number(staleCleanup?.sidecarsRemoved?.length || 0);
+      if (cleaned > 0) {
+        try { ctx.ui.notify("UES cleanup: removed " + cleaned + " stale sandbox artifact(s)", "info"); } catch {}
+      }
+      if (directControllerAbort === abort) directControllerAbort = null;
+      try { ctx.ui.setStatus("ues-run", undefined); } catch {}
+    }
+
+    const content = (result?.content || [])
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n")
+      .trim() || "(UES controller returned no text)";
+    const controllerPass = result?.isError !== true;
+
+    if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
+      const details = result?.details || null;
+      const telemetryDetails = details
+        ? {
+            mode: details.mode,
+            attempts: details.attempts,
+            policy: details.policy
+              ? {
+                  mode: details.policy.mode,
+                  executionProfile: details.policy.executionProfile,
+                  risk: details.policy.risk,
+                }
+              : null,
+            steps: Array.isArray(details.steps)
+              ? details.steps.map((step: any) => ({
+                  agent: step?.agent,
+                  exitCode: step?.exitCode,
+                  optimizations: step?.optimizations || null,
+                  usage: step?.usage || null,
+                  toolCalls: Number(step?.toolCalls || 0),
+                  toolNames: Array.isArray(step?.toolNames) ? step.toolNames : [],
+                }))
+              : [],
+          }
+        : null;
+      process.stderr.write(JSON.stringify({
+        type: "ues_controller_direct",
+        controllerUsed: true,
+        controllerPass,
+        details: telemetryDetails,
+      }) + "\n");
+    }
+
+    pi.sendMessage({
+      customType: "ues-controller-result",
+      content,
+      display: true,
+      details: {
+        controllerUsed: true,
+        controllerPass,
+        ...(result?.details || {}),
+      },
+    });
+
+    try {
+      ctx.ui.notify(
+        controllerPass ? "UES " + PACKAGE_VERSION + ": verified controller run completed" : "UES " + PACKAGE_VERSION + ": controller run failed verification",
+        controllerPass ? "info" : "error",
+      );
+    } catch {}
+
+  };
+
   pi.registerCommand("ues-run", {
     description: "Run an engineering task directly through the deterministic UES controller",
     handler: async (args, ctx) => {
@@ -4524,181 +4703,7 @@ export default function (pi: ExtensionAPI) {
         try { ctx.ui.notify("Usage: /ues-run <engineering task>", "warning"); } catch {}
         return;
       }
-      if (directControllerAbort && !directControllerAbort.signal.aborted) {
-        try { ctx.ui.notify("UES controller is already running in this session", "warning"); } catch {}
-        return;
-      }
-
-      let workspaceRoot: string;
-      try {
-        workspaceRoot = requireGitWorkspaceRoot(ctx.cwd, "/ues-run");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        pi.sendMessage({
-          customType: "ues-controller-result",
-          content: message,
-          display: true,
-          details: { controllerUsed: false, controllerPass: false, reason: "unsafe-workspace-root" },
-        }, { triggerTurn: false });
-        try { ctx.ui.notify(message, "error"); } catch {}
-        return;
-      }
-
-      const abort = new AbortController();
-      directControllerAbort = abort;
-      const directTraceID = createTraceID("ues-run");
-      syncSessionIdentity(uesSessionName("run", task, workspaceRoot), ctx);
-      let result: any;
-      let lastProgressNoticeAt = 0;
-      let lastProgressKey = "";
-      try {
-        const directPolicy = classifyEngineeringTask(task);
-        try {
-          ctx.ui.notify(
-            "UES " + PACKAGE_VERSION + ": controller started (" +
-              String(directPolicy.executionProfile || directPolicy.mode || "unknown") +
-              "/" + String(directPolicy.risk || "unknown") + ")",
-            "info",
-          );
-        } catch {}
-        result = await uesExecuteTool.execute(
-          `ues-run-${randomUUID()}`,
-          { task, cwd: workspaceRoot, __traceID: directTraceID },
-          abort.signal,
-          (update: any) => {
-            const text = (update?.content || [])
-              .filter((part: any) => part?.type === "text" && typeof part.text === "string")
-              .map((part: any) => part.text)
-              .join("\n")
-              .trim();
-            if (text) {
-              try { ctx.ui.setStatus("ues-run", cap(text, 180)); } catch {}
-            }
-
-            const progress = update?.details?.progress;
-            if (progress) {
-              const progressKey = String(progress.agent || "") + ":" + String(update?.details?.phase || "");
-              const now = Date.now();
-              const phaseChanged = progressKey && progressKey !== lastProgressKey;
-              const heartbeatDue = now - lastProgressNoticeAt >= 60_000;
-              if (phaseChanged || heartbeatDue) {
-                const message =
-                  "UES: " + String(progress.agent || "worker") +
-                  " running " + Math.round(Number(progress.elapsedMs || 0) / 1000) + "s" +
-                  " (idle " + Math.round(Number(progress.idleMs || 0) / 1000) + "s, tools " +
-                  Number(progress.toolCalls || 0) +
-                  (progress.activeTool ? ", " + String(progress.activeTool) : "") + ")";
-                try {
-                  ctx.ui.notify(
-                    message,
-                    Number(progress.idleMs || 0) >= 45_000 ? "warning" : "info",
-                  );
-                } catch {}
-                lastProgressNoticeAt = now;
-                lastProgressKey = progressKey;
-              }
-            }
-
-            if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
-              process.stderr.write(JSON.stringify({
-                type: "ues_controller_progress",
-                phase: update?.details?.phase || null,
-                task: update?.details?.task || null,
-                agent: progress?.agent || null,
-                elapsedMs: Number(progress?.elapsedMs || 0),
-                idleMs: Number(progress?.idleMs || 0),
-                toolCalls: Number(progress?.toolCalls || 0),
-                activeTool: progress?.activeTool || null,
-                note: progress?.note || null,
-                text: text ? cap(text, 240) : null,
-              }) + "\n");
-            }
-          },
-          ctx,
-        );
-      } catch (error) {
-        result = {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          details: { mode: "execute", reason: "direct-controller-exception" },
-          isError: true,
-        };
-      } finally {
-        const traceRemoved = await cleanupTraceSandboxes(workspaceRoot, directTraceID).catch(() => 0);
-        const staleCleanup = await pruneOrphanTaskSandboxes(workspaceRoot, {
-          minAgeMs: 5 * 60_000,
-          legacyMinAgeMs: 30 * 60_000,
-          ownedMinAgeMs: 0,
-          reclaimOwnerPid: process.pid,
-          protectedDirs: [...ACTIVE_TASK_SANDBOXES.keys()],
-        }).catch(() => ({ removed: [], skipped: [], sidecarsRemoved: [] }));
-        const cleaned =
-          Number(traceRemoved || 0) +
-          Number(staleCleanup?.removed?.length || 0) +
-          Number(staleCleanup?.sidecarsRemoved?.length || 0);
-        if (cleaned > 0) {
-          try { ctx.ui.notify("UES cleanup: removed " + cleaned + " stale sandbox artifact(s)", "info"); } catch {}
-        }
-        if (directControllerAbort === abort) directControllerAbort = null;
-        try { ctx.ui.setStatus("ues-run", undefined); } catch {}
-      }
-
-      const content = (result?.content || [])
-        .filter((part: any) => part?.type === "text" && typeof part.text === "string")
-        .map((part: any) => part.text)
-        .join("\n")
-        .trim() || "(UES controller returned no text)";
-      const controllerPass = result?.isError !== true;
-
-      if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
-        const details = result?.details || null;
-        const telemetryDetails = details
-          ? {
-              mode: details.mode,
-              attempts: details.attempts,
-              policy: details.policy
-                ? {
-                    mode: details.policy.mode,
-                    executionProfile: details.policy.executionProfile,
-                    risk: details.policy.risk,
-                  }
-                : null,
-              steps: Array.isArray(details.steps)
-                ? details.steps.map((step: any) => ({
-                    agent: step?.agent,
-                    exitCode: step?.exitCode,
-                    optimizations: step?.optimizations || null,
-                    usage: step?.usage || null,
-                    toolCalls: Number(step?.toolCalls || 0),
-                    toolNames: Array.isArray(step?.toolNames) ? step.toolNames : [],
-                  }))
-                : [],
-            }
-          : null;
-        process.stderr.write(JSON.stringify({
-          type: "ues_controller_direct",
-          controllerUsed: true,
-          controllerPass,
-          details: telemetryDetails,
-        }) + "\n");
-      }
-
-      pi.sendMessage({
-        customType: "ues-controller-result",
-        content,
-        display: true,
-        details: {
-          controllerUsed: true,
-          controllerPass,
-          ...(result?.details || {}),
-        },
-      });
-
-      try {
-        ctx.ui.notify(
-          controllerPass ? "UES " + PACKAGE_VERSION + ": verified controller run completed" : "UES " + PACKAGE_VERSION + ": controller run failed verification",
-          controllerPass ? "info" : "error",
-        );
-      } catch {}
+      await directControllerRunner?.(task, ctx, "command");
     },
   });
 
