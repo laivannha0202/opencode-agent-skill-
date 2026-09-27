@@ -359,6 +359,32 @@ test("V15.8 cleanup removes detached physical sandbox folders with valid metadat
 })
 
 
+test("V15.10 sandbox integration does not intent-add ignored UES cache directories", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-ignored-cache-root-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-ignored-cache-base-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, ".gitignore"), ".ues-cache/\n")
+    await writeFile(path.join(root, "src", "value.js"), "export const value = 1\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const sandbox = await createTaskSandbox(root, "ignored-cache", "task-06", { baseDir: base })
+    await mkdir(path.join(sandbox.dir, ".ues-cache"), { recursive: true })
+    await writeFile(path.join(sandbox.dir, ".ues-cache", "fast-acceptance.test.mjs"), "throw new Error('runtime-only')\n")
+    await writeFile(path.join(sandbox.dir, "src", "new.js"), "export const added = true\n")
+
+    const receipt = await integrateTaskSandbox(root, sandbox.dir)
+    assert.deepEqual(receipt.changed, ["src/new.js"])
+    assert.equal((await readFile(path.join(root, "src", "new.js"), "utf8")).replaceAll("\r\n", "\n"), "export const added = true\n")
+    await assert.rejects(readFile(path.join(root, ".ues-cache", "fast-acceptance.test.mjs"), "utf8"), /ENOENT/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
 test("V15.9 sandbox integration ignores UES trace artifacts but keeps real source changes", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-runtime-filter-root-"))
   const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-runtime-filter-base-"))
