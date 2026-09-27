@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.6 Fast Planning
+
+DEEP planning now has explicit latency budgets. Architect exploration is soft-steered after roughly 30 seconds or 16 tool calls and is terminated if it exceeds a 60-second hard or 25-second idle budget. A failed first pass gets one shorter cached recovery rather than a full rediscovery pass. Plan-checker has its own short budget; executor/verifier limits are unchanged.
+
+Task worktree sandboxes now carry an owner PID lease. Before a new controller run, UES may remove old UES sandboxes whose recorded owner is no longer alive. Legacy sandboxes without leases use a conservative grace period.
+
 ## V15.5 Per-Leaf Turbo
 
 Large DEEP tasks are decomposed into independently classified leaf tasks. A low-risk single-file leaf can use FAST execution and deterministic-first verification while the root plan still keeps final integration/completion gates. Retry evidence is reduced to a task-local failure delta, and context reuse is keyed by root repository namespace plus workspace fingerprint so equivalent retry worktrees can hit warm context safely. UES does not promise a universal 99% cache hit rate: first runs and changed source must miss; the target is very high warm-hit reuse for unchanged stable state without stale evidence.
