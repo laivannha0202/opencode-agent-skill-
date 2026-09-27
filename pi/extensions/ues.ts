@@ -35,6 +35,7 @@ import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.m
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
+import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
@@ -1419,6 +1420,7 @@ async function runRoutedAgent(
   contextCacheNamespace?: string,
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
+  const traceRoot = resolveGitWorkspaceRoot(cwd).root || path.resolve(cwd);
   const browserRequested = browserEvidenceNeeded(task, role);
   const browserTools = browserRequested
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
@@ -1445,7 +1447,7 @@ async function runRoutedAgent(
   const modelPolicy = await readModelPolicy(getUesConfigDir());
   const selection = resolveCapabilityModel(role, attempt, task, taskPolicy, modelPolicy);
   if (traceID) {
-    await appendTrajectoryEvent(cwd, traceID, "agent.started", {
+    await appendTrajectoryEvent(traceRoot, traceID, "agent.started", {
       agent,
       role,
       attempt,
@@ -1743,7 +1745,7 @@ async function runRoutedAgent(
     durationMs: Date.now() - startedAt,
   };
   if (traceID) {
-    await appendTrajectoryEvent(cwd, traceID, "agent.completed", {
+    await appendTrajectoryEvent(traceRoot, traceID, "agent.completed", {
       agent,
       role,
       attempt,
@@ -2029,7 +2031,7 @@ async function executeStructuredPlan(input: {
           let cwd = input.root;
           let sandbox: any = undefined;
 
-          if (gitCapable) {
+          if (gitCapable && writeFiles.length > 0) {
             const slug = "runtime-" + randomUUID().slice(0, 8) + "-w" + waveIndex + "-a" + attempt;
             sandbox = await createTaskSandbox(input.root, slug, id, {
               inheritDirtyRoot: true,
@@ -2518,9 +2520,9 @@ async function executeStructuredPlan(input: {
           };
         }
 
-        if (!gitCapable) {
-          // Without Git worktrees the safe graph is still serialized. Verification above
-          // is the evidence gate; changes already exist in the root working directory.
+        if (!gitCapable || prepared.every((item) => !item.sandbox?.dir)) {
+          // Read-only waves do not need a duplicate Git worktree. Their fresh
+          // verifier evidence is enough as long as the workspace stays unchanged.
           await completeDurableWave(waveResults);
           break;
         }
@@ -2528,6 +2530,10 @@ async function executeStructuredPlan(input: {
         const actualByTask = new Map<string, string[]>();
         let scopeFailure = "";
         for (const item of prepared) {
+          if (!item.sandbox?.dir) {
+            actualByTask.set(item.task.id, []);
+            continue;
+          }
           const changed = await sandboxChangedFiles(item.sandbox.dir, item.sandbox.integrationBase, input.signal);
           actualByTask.set(item.task.id, changed);
           const allowed = new Set(item.writeFiles);
@@ -2580,6 +2586,7 @@ async function executeStructuredPlan(input: {
         const integrated: Array<{ item: any; receipt: any }> = [];
         try {
           for (const item of prepared) {
+            if (!item.sandbox?.dir) continue;
             const receipt = await integrateTaskSandbox(input.root, item.sandbox.dir, { keep: true });
             integrated.push({ item, receipt });
             integrations.push({ wave: waveIndex, task: item.task.id, ...receipt });
@@ -2700,6 +2707,10 @@ export default function (pi: ExtensionAPI) {
   if (process.env.UES_CHILD_PROCESS === "1") return;
 
   let directControllerAbort: AbortController | null = null;
+  let promptUesActive = false;
+
+  const uesModeActive = () =>
+    promptUesActive || Boolean(directControllerAbort && !directControllerAbort.signal.aborted);
 
   const syncSessionIdentity = (name: string, ctx: any) => {
     if (!name) return;
@@ -2710,6 +2721,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_shutdown", async () => {
     directControllerAbort?.abort();
     directControllerAbort = null;
+    promptUesActive = false;
     CONTEXT_PACK_CACHE.clear();
     clearSkillCompilerCache();
     clearAffectedTestCache();
@@ -2730,8 +2742,12 @@ export default function (pi: ExtensionAPI) {
 
     const sessionName = sessionNameFromUesInput(text, ctx.cwd || "");
     if (sessionName) syncSessionIdentity(sessionName, ctx);
+    if (/^\/ues-(?:resume|fix|feature|debug|review|audit|plan|research|critique|verify)(?:\s|$)/i.test(text)) {
+      promptUesActive = true;
+    }
 
     if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
+      if (!uesModeActive()) return { action: "continue" };
       let directAborted = 0;
       if (directControllerAbort && !directControllerAbort.signal.aborted) {
         directControllerAbort.abort();
@@ -2772,8 +2788,21 @@ export default function (pi: ExtensionAPI) {
     return { action: "continue" };
   });
 
+  pi.on("agent_end", async () => {
+    promptUesActive = false;
+  });
+
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    if (!uesModeActive()) {
+      if (toolName.startsWith("ues_")) {
+        return {
+          block: true,
+          reason: "UES is command-only. Start an explicit /ues-* command before using UES tools.",
+        };
+      }
+      return undefined;
+    }
     if (toolName !== "bash" && toolName !== "powershell") {
       const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
       const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
@@ -2803,6 +2832,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("tool_result", async (event) => {
+    if (!uesModeActive()) return undefined;
     const toolName = String((event as any).toolName || "");
     if (!toolName || toolName === "bash" || toolName === "powershell") return undefined;
     MCP_HEALTH.finish(
@@ -2975,7 +3005,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const hostBrowserTools = refreshHostBrowserToolNames(pi);
-      const cwd = path.resolve(params.cwd || ctx.cwd);
+      const cwd = requireGitWorkspaceRoot(params.cwd || ctx.cwd, "ues_execute");
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const policy = classifyEngineeringTask(params.task);
@@ -3108,6 +3138,70 @@ export default function (pi: ExtensionAPI) {
         });
         return result;
       };
+
+      if (policy.readOnly === true) {
+        const before = runtimeWorkspaceSnapshot(cwd);
+        const inspection = await run(
+          "ues-verifier",
+          [
+            "READ-ONLY INSPECTION MODE. Do not edit, create, delete, stage, commit, install dependencies, or start persistent services.",
+            "Use only the narrowest read-only commands and source inspection needed to answer the request.",
+            "Fresh command output is valid completion evidence for an inspection task; do not require behavioral tests when the user did not request a code change.",
+            "Explicitly verify that source-facing workspace state is unchanged before returning PASS.",
+            "",
+            "Inspection request:",
+            params.task,
+          ].join("\n"),
+          1,
+        );
+        if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-inspection");
+
+        const after = runtimeWorkspaceSnapshot(cwd);
+        const unchanged =
+          before.cacheable === true &&
+          after.cacheable === true &&
+          before.fingerprint === after.fingerprint;
+        const completionAudit = auditCompletion({
+          verification: inspection,
+          requireIntegration: false,
+          requireVisual: false,
+          workspaceSnapshot: after,
+          behavioralReceipts: [],
+          requireBehavioralReceipt: false,
+        });
+        if (!unchanged) {
+          completionAudit.passed = false;
+          completionAudit.failures = [...new Set([
+            ...(completionAudit.failures || []),
+            "read-only-workspace-mutated",
+          ])];
+        }
+
+        if (!completionAudit.passed) {
+          return {
+            content: [{
+              type: "text",
+              text: "UES read-only inspection did not pass: " + completionAudit.failures.join(", ") +
+                "\n\n" + inspection.output,
+            }],
+            details: { mode: "execute", policy, steps, completionAudit, traceID },
+            isError: true,
+          };
+        }
+
+        return {
+          content: [{
+            type: "text",
+            text: [
+              "UES read-only inspection PASS.",
+              "Workspace source fingerprint remained unchanged.",
+              "",
+              inspection.output,
+            ].join("\n"),
+          }],
+          details: { mode: "execute", policy, steps, completionAudit, traceID },
+        };
+      }
 
       if (shouldRunDedicatedDiagnosis(policy, 1)) {
         const diagnosis = await run("ues-debugger", params.task, 1);
@@ -3659,7 +3753,7 @@ export default function (pi: ExtensionAPI) {
           requireVisual: visualEvidenceNeeded(params.task),
           workspaceSnapshot: completionSnapshot,
           behavioralReceipts: freshReceipts,
-          requireBehavioralReceipt: true,
+          requireBehavioralReceipt: policy.requireBehavioralReceipt !== false,
         });
         if (!completionAudit.passed) {
           recentFailure = "Completion auditor rejected PASS: " + completionAudit.failures.join(", ");
@@ -3728,7 +3822,21 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("ues-clean", {
     description: "Safely remove stale UES task sandboxes and orphan metadata for the current repository",
     handler: async (_args, ctx) => {
-      const cleanup = await pruneOrphanTaskSandboxes(ctx.cwd, {
+      let workspaceRoot: string;
+      try {
+        workspaceRoot = requireGitWorkspaceRoot(ctx.cwd, "/ues-clean");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        pi.sendMessage({
+          customType: "ues-cleanup-result",
+          content: "UES cleanup refused unsafe workspace.\n" + message,
+          display: true,
+          details: { error: message },
+        }, { triggerTurn: false });
+        try { ctx.ui.notify(message, "error"); } catch {}
+        return;
+      }
+      const cleanup = await pruneOrphanTaskSandboxes(workspaceRoot, {
         minAgeMs: 5 * 60_000,
         legacyMinAgeMs: 30 * 60_000,
         ownedMinAgeMs: 0,
@@ -3774,10 +3882,25 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      let workspaceRoot: string;
+      try {
+        workspaceRoot = requireGitWorkspaceRoot(ctx.cwd, "/ues-run");
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        pi.sendMessage({
+          customType: "ues-controller-result",
+          content: message,
+          display: true,
+          details: { controllerUsed: false, controllerPass: false, reason: "unsafe-workspace-root" },
+        }, { triggerTurn: false });
+        try { ctx.ui.notify(message, "error"); } catch {}
+        return;
+      }
+
       const abort = new AbortController();
       directControllerAbort = abort;
       const directTraceID = createTraceID("ues-run");
-      syncSessionIdentity(uesSessionName("run", task, ctx.cwd), ctx);
+      syncSessionIdentity(uesSessionName("run", task, workspaceRoot), ctx);
       let result: any;
       let lastProgressNoticeAt = 0;
       let lastProgressKey = "";
@@ -3793,7 +3916,7 @@ export default function (pi: ExtensionAPI) {
         } catch {}
         result = await uesExecuteTool.execute(
           `ues-run-${randomUUID()}`,
-          { task, cwd: ctx.cwd, __traceID: directTraceID },
+          { task, cwd: workspaceRoot, __traceID: directTraceID },
           abort.signal,
           (update: any) => {
             const text = (update?.content || [])
@@ -3853,8 +3976,8 @@ export default function (pi: ExtensionAPI) {
           isError: true,
         };
       } finally {
-        const traceRemoved = await cleanupTraceSandboxes(ctx.cwd, directTraceID).catch(() => 0);
-        const staleCleanup = await pruneOrphanTaskSandboxes(ctx.cwd, {
+        const traceRemoved = await cleanupTraceSandboxes(workspaceRoot, directTraceID).catch(() => 0);
+        const staleCleanup = await pruneOrphanTaskSandboxes(workspaceRoot, {
           minAgeMs: 5 * 60_000,
           legacyMinAgeMs: 30 * 60_000,
           ownedMinAgeMs: 0,
