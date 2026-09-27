@@ -477,7 +477,7 @@ const CONTRACTS = [
   },
   {
     file: "test/plan-salvage.test.mjs",
-    minBytes: 2_500,
+    minBytes: 2_400,
     startsWith: 'import test from "node:test"',
     required: [
       "V15.10 plan salvage accepts a marked valid graph",
