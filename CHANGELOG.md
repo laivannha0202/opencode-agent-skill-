@@ -6,6 +6,18 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.5] - 2026-09-27
+
+### Fixed
+- Fixed Zed/ACP runs failing with `EADDRINUSE` when a UES specialist child accidentally reused the ACP host entrypoint and tried to bind the host ACP port again.
+- Pi child invocation now reuses `process.argv[1]` only when it is a verified Pi CLI entrypoint.
+- On Windows ACP hosts, UES resolves the installed Pi CLI from the managed `~/.pi/agent/install/releases` tree or PATH instead of re-spawning the ACP adapter.
+
+### Safety
+- Terminal Pi behavior remains unchanged: a genuine Pi CLI host still reuses its current CLI entrypoint.
+- No verifier, integration, evidence, or fail-closed gates were removed.
+
+
 ## [15.0.0-beta.4] - 2026-09-27
 
 ### Performance
