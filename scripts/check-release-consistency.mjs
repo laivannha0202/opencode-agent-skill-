@@ -147,7 +147,23 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["docs:check"] !== "node scripts/check-release-consistency.mjs") errors.push("package.json: missing docs:check release-consistency script")
     if (scripts["release:check-tag"] !== "node scripts/check-release-tag.mjs") errors.push("package.json: missing release:check-tag script")
     if (scripts["eval:pi"] !== "node scripts/eval-pi.mjs") errors.push("package.json: missing Pi-native eval:pi script")
-    if (scripts["eval:v15"] !== "node --test test/v15-runtime.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs") errors.push("package.json: missing focused eval:v15 script")
+    const focusedV15 = String(scripts["eval:v15"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredFocusedV15Tests = [
+      "test/v15-runtime.test.mjs",
+      "test/trajectory.test.mjs",
+      "test/evidence-store-v11.test.mjs",
+      "test/runtime-events.test.mjs",
+      "test/v14.3-intelligence.test.mjs",
+      "test/v14.2-runtime.test.mjs",
+      "test/pi-package.test.mjs",
+    ]
+    if (
+      focusedV15[0] !== "node" ||
+      focusedV15[1] !== "--test" ||
+      !requiredFocusedV15Tests.every((file) => focusedV15.includes(file))
+    ) {
+      errors.push("package.json: focused eval:v15 must run the current V15 runtime, disk-safety, intelligence and Pi-package regression set")
+    }
     if (!String(scripts.ci || "").includes("npm run integrity")) errors.push("package.json: ci must include source-integrity gate")
     if (scripts["runtime:exports"] !== "node scripts/check-runtime-exports.mjs") errors.push("package.json: missing runtime:exports import/export gate")
     if (!String(scripts.ci || "").includes("npm run runtime:exports")) errors.push("package.json: ci must include runtime export gate")
