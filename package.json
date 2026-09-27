@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.0.0-beta.17",
+  "version": "15.0.0-beta.18",
   "description": "Pi-native UES coding-agent runtime with adaptive stability, Turbo Fast Path, durable verification, managed services, and weak-model orchestration",
   "type": "module",
   "bin": {
