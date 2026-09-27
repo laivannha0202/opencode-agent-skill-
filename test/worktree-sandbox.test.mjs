@@ -322,3 +322,38 @@ test("V15.7 cleanup removes orphan metadata sidecars for missing sandboxes", asy
     await rm(base, { recursive: true, force: true })
   }
 })
+
+
+test("V15.8 cleanup removes detached physical sandbox folders with valid metadata", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-detached-root-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-detached-base-"))
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const detachedDir = path.join(base, "runtime-detached")
+    await mkdir(detachedDir, { recursive: true })
+    await writeFile(path.join(detachedDir, "payload.txt"), "stale\n")
+    await writeFile(detachedDir + ".ues-meta.json", JSON.stringify({
+      root,
+      dir: detachedDir,
+      branch: "ues/runtime-detached",
+      createdAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+      ownerPid: 2147483647,
+    }, null, 2) + "\n")
+
+    const cleanup = await pruneOrphanTaskSandboxes(root, {
+      baseDir: base,
+      minAgeMs: 60_000,
+      legacyMinAgeMs: 60_000,
+    })
+
+    assert.equal(cleanup.removed.some((item) => path.resolve(item.dir) === path.resolve(detachedDir) && item.detached === true), true)
+    await assert.rejects(readFile(path.join(detachedDir, "payload.txt"), "utf8"), /ENOENT/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
