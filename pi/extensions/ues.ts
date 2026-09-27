@@ -2809,7 +2809,7 @@ export default function (pi: ExtensionAPI) {
 
   let directControllerAbort: AbortController | null = null;
   let promptUesActive = false;
-  let directControllerRunner: ((task: string, ctx: any, admission: "command" | "automatic") => Promise<void>) | null = null;
+  let directControllerRunner: ((task: string, ctx: any, admission: "command" | "automatic", admissionDecision?: any) => Promise<void>) | null = null;
   const AUTO_ADMISSION_ENABLED = !["0", "false", "off"].includes(
     String(process.env.UES_AUTO_ADMIT || "1").trim().toLowerCase(),
   );
@@ -2923,11 +2923,21 @@ export default function (pi: ExtensionAPI) {
         if (workspaceRoot && admission.admit === true) {
           try {
             ctx.ui.notify(
-              "UES " + PACKAGE_VERSION + ": engineering task auto-admitted (" + admission.reason + ")",
-              "info",
+              "UES " + PACKAGE_VERSION + ": " +
+                (admission.route === "guarded" ? "high-risk engineering task admitted" : "engineering task auto-admitted") +
+                " (" + admission.reason + ", confidence " + admission.confidence + ")",
+              admission.route === "guarded" ? "warning" : "info",
             );
           } catch {}
-          await directControllerRunner(text, ctx, "automatic");
+          void directControllerRunner(text, ctx, "automatic", admission).catch((error) => {
+            try {
+              ctx.ui.notify(
+                "UES automatic controller failed to start: " +
+                  (error instanceof Error ? error.message : String(error)),
+                "error",
+              );
+            } catch {}
+          });
           return { action: "handled" };
         }
       }
@@ -3183,8 +3193,13 @@ export default function (pi: ExtensionAPI) {
       const inheritedDirty = captureInheritedDirtyState(cwd);
       const executionContract = buildExecutionContract(params.task, inheritedDirty);
       const contractPrompt = executionContractPrompt(executionContract);
+      const suppliedPolicy = (params as any).__taskPolicy;
+      const basePolicy =
+        suppliedPolicy && typeof suppliedPolicy === "object"
+          ? suppliedPolicy
+          : classifyEngineeringTask(params.task);
       const policy = {
-        ...classifyEngineeringTask(params.task),
+        ...basePolicy,
         localEnvWriteExplicitlyAllowed: executionContract.localEnvWriteExplicitlyAllowed === true,
         executionContractPrompt: contractPrompt,
       };
@@ -4391,7 +4406,7 @@ export default function (pi: ExtensionAPI) {
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
         "Parent UES tools hidden outside UES runs: on",
-        "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on" : "off"),
+        "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
         "Local .env mutation guard: on",
@@ -4521,7 +4536,7 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
-  directControllerRunner = async (task, ctx, admission) => {
+  directControllerRunner = async (task, ctx, admission, admissionDecision) => {
     if (directControllerAbort && !directControllerAbort.signal.aborted) {
       try { ctx.ui.notify("UES controller is already running in this session", "warning"); } catch {}
       return;
@@ -4550,18 +4565,27 @@ export default function (pi: ExtensionAPI) {
     let lastProgressNoticeAt = 0;
     let lastProgressKey = "";
     try {
-      const directPolicy = classifyEngineeringTask(task);
+      const directPolicy =
+        admissionDecision?.policy && typeof admissionDecision.policy === "object"
+          ? admissionDecision.policy
+          : classifyEngineeringTask(task);
+      const routeLabel =
+        admission === "automatic"
+          ? admissionDecision?.route === "guarded"
+            ? "high-risk auto controller started ("
+            : "auto controller started ("
+          : "controller started (";
       try {
         ctx.ui.notify(
-          "UES " + PACKAGE_VERSION + ": " + (admission === "automatic" ? "auto-admitted controller started (" : "controller started (") +
+          "UES " + PACKAGE_VERSION + ": " + routeLabel +
             String(directPolicy.executionProfile || directPolicy.mode || "unknown") +
             "/" + String(directPolicy.risk || "unknown") + ")",
-          "info",
+          admissionDecision?.route === "guarded" ? "warning" : "info",
         );
       } catch {}
       result = await uesExecuteTool.execute(
         `ues-run-${randomUUID()}`,
-        { task, cwd: workspaceRoot, __traceID: directTraceID },
+        { task, cwd: workspaceRoot, __traceID: directTraceID, __taskPolicy: directPolicy },
         abort.signal,
         (update: any) => {
           const text = (update?.content || [])
@@ -4687,6 +4711,10 @@ export default function (pi: ExtensionAPI) {
       details: {
         controllerUsed: true,
         controllerPass,
+        admission,
+        admissionRoute: admissionDecision?.route || (admission === "command" ? "command" : "auto"),
+        admissionConfidence: admissionDecision?.confidence || null,
+        admissionReason: admissionDecision?.reason || null,
         ...(result?.details || {}),
       },
     });
