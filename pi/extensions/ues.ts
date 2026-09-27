@@ -1304,6 +1304,33 @@ function cachedContextKey(
   return [cwd, fingerprint, auxStamp, role, String(budget), task].join("\u0000");
 }
 
+function deepExplorationContract(role: string) {
+  const common = [
+    "## UES DEEP bounded exploration",
+    "Quality gates remain unchanged. Reduce latency by avoiding duplicate discovery, not by skipping evidence.",
+    "Use the supplied runtime context pack, hierarchy, ranked references and declared files before broad repository exploration.",
+    "Prefer targeted ues_code/direct reads. Do not inventory the repository or repeat unchanged reads unless a named evidence gap requires it.",
+  ];
+  if (role === "architect") {
+    common.push(
+      "Stop exploring once every planned task has exact repository-relative scope, dependency ordering, observable acceptance, concrete verification, and risk/rollback coverage.",
+    );
+  } else if (role === "plan-checker") {
+    common.push(
+      "Inspect only disputed or unproven plan properties; once each blocking property is proven or rejected, return PASS/REVISE immediately.",
+    );
+  } else if (role === "executor") {
+    common.push(
+      "Start with declared task files and direct consumers/tests only. Once the safe minimal edit is supported by evidence, implement and spend remaining effort on fresh verification rather than more discovery.",
+    );
+  } else if (role === "debugger") {
+    common.push(
+      "Investigate only the concrete failure path and nearest evidence needed to reject/confirm the active hypothesis; avoid general repository surveys.",
+    );
+  }
+  return common.join("\n");
+}
+
 function compactContextPack(pack: any, recentFailure?: string) {
   const manifest = pack?.contextManifest || {};
   const excerpts = (manifest.excerpts || []).slice(0, 8).map((item: any) => ({
@@ -1547,6 +1574,10 @@ async function runRoutedAgent(
             row.stderrRef ? `  stderr: ${row.stderrRef}` : "",
             row.stdoutPreview ? `  preview: ${cap(String(row.stdoutPreview).replace(/\s+/g, " "), 900)}` : "",
           ].filter(Boolean).join("\n")).join("\n")
+        : "",
+      taskPolicy.executionProfile === "deep" &&
+      ["architect", "plan-checker", "executor", "debugger"].includes(role)
+        ? "\n" + deepExplorationContract(role)
         : "",
     ].filter(Boolean).join("\n");
     }
@@ -1895,6 +1926,7 @@ async function executeStructuredPlan(input: {
             const taskText = [
               "Execute exactly this structured plan task.",
               "Do not broaden file scope. If the declared write file list is empty, do not edit files.",
+              "Start with the declared files/interfaces and supplied context. Do not inventory the repository. Use targeted symbol/path search only for a concrete unresolved acceptance or dependency gap; once the safe edit is understood, implement and verify instead of continuing discovery.",
               "",
               JSON.stringify(item.task, null, 2),
               "",
@@ -2817,6 +2849,7 @@ export default function (pi: ExtensionAPI) {
           "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
           "STRICT JSON CONTRACT: acceptance and verification are non-empty arrays of strings. risk is exactly one of low|medium|high|critical. Put descriptive risk prose in riskNotes. verificationCommands is optional and does not replace verification.",
           "Declare every file a task may write. Do not invent files: inspect the repository first.",
+          "DEEP efficiency rule: use the supplied runtime context/ranked references first; do not inventory the whole repository or re-read unchanged files. Stop exploration once exact task scope, dependencies, acceptance, verification, and risk/rollback are grounded.",
         ].join("\n");
 
         let architect = await run(
