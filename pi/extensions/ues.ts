@@ -3698,6 +3698,10 @@ export default function (pi: ExtensionAPI) {
               planCheck.output,
               signal,
             );
+            durableWork.executionArtifacts = await persistExecutionContractArtifacts(
+              durableWork.dir,
+              executionContract,
+            );
             onUpdate?.({
               content: [{
                 type: "text",
@@ -3838,12 +3842,81 @@ export default function (pi: ExtensionAPI) {
             }
           }
 
+          const verdictMatrix = buildFinalVerdictMatrix(params.task, {
+            contract: executionContract,
+            primaryPass: true,
+            integrationPass: true,
+            primaryOutput: (scheduled.results || [])
+              .map((row: any) => row?.verification?.output || row?.implementation?.output || "")
+              .filter(Boolean)
+              .join("\n"),
+            integrationOutput: integration.output,
+            visualOutput: visualResult?.output || "",
+            primaryChecks: (scheduled.results || [])
+              .flatMap((row: any) => Object.values(row?.verification?.report?.sections || {}))
+              .filter(Boolean)
+              .join("\n"),
+            integrationChecks: integration.report?.sections?.["checks-run"] || "",
+            visualChecks: visualResult?.report?.sections?.["checks-run"] || "",
+          });
+
+          const finalEvidenceForContract = [
+            integration.output,
+            visualResult?.output || "",
+          ].filter(Boolean).join("\n\n--- VISUAL ---\n\n");
+
+          if (verdictMatrix.final !== "PASS") {
+            if (durableWork) {
+              await durableRecordIntegration(
+                cwd,
+                durableWork.slug,
+                "PARTIAL",
+                finalEvidenceForContract,
+                signal,
+              ).catch(() => {});
+              await finalizeExecutionContractArtifacts(
+                durableWork.dir,
+                executionContract,
+                verdictMatrix,
+                finalEvidenceForContract,
+              ).catch(() => null);
+            }
+            const deviceOnlyPending =
+              verdictMatrix.final === "SOURCE_RUNTIME_PASS_DEVICE_NOT_VERIFIED";
+            return {
+              content: [{
+                type: "text",
+                text: [
+                  deviceOnlyPending
+                    ? "UES source/runtime verification passed, but requested real-device verification is still pending."
+                    : "UES deterministic final gate is not fully verified.",
+                  "",
+                  verdictMatrix.source,
+                  verdictMatrix.runtime,
+                  verdictMatrix.dbClean,
+                  verdictMatrix.device,
+                  "",
+                  integration.output,
+                ].join("\n"),
+              }],
+              details: {
+                mode: "execute",
+                policy,
+                steps,
+                structuredPlan,
+                scheduled,
+                durableWork,
+                verdictMatrix,
+                executionContract,
+                traceID,
+              },
+              isError: !deviceOnlyPending,
+            };
+          }
+
           let durableFinalization: any = null;
           if (durableWork) {
-            const finalEvidence = [
-              integration.output,
-              visualResult?.output || "",
-            ].filter(Boolean).join("\n\n--- VISUAL ---\n\n");
+            const finalEvidence = finalEvidenceForContract;
             try {
               durableFinalization = await durableRecordIntegration(
                 cwd,
@@ -3866,6 +3939,15 @@ export default function (pi: ExtensionAPI) {
             }
           }
 
+          if (durableWork) {
+            await finalizeExecutionContractArtifacts(
+              durableWork.dir,
+              executionContract,
+              verdictMatrix,
+              finalEvidenceForContract,
+            ).catch(() => null);
+          }
+
           const memoryFiles = [...new Set(structuredPlan.tasks.flatMap((task: any) => taskWriteFiles(task)))];
           const memory = durableWork
             ? durableFinalization?.finalized?.memory || null
@@ -3877,6 +3959,10 @@ export default function (pi: ExtensionAPI) {
                 `UES scheduled execution PASS across ${structuredPlan.tasks.length} task(s).`,
                 `Safe waves: ${scheduled.schedule?.safeWaves?.length || 0}; integrations: ${scheduled.integrations?.length || 0}.`,
                 durableWork ? `Durable state: .ues-work/${durableWork.slug} finalized with fresh integration receipt.` : "",
+                verdictMatrix.source,
+                verdictMatrix.runtime,
+                verdictMatrix.dbClean,
+                verdictMatrix.device,
                 "",
                 integration.output,
               ].join("\n"),
@@ -3891,6 +3977,8 @@ export default function (pi: ExtensionAPI) {
               memory,
               durableWork,
               durableFinalization,
+              verdictMatrix,
+              executionContract,
               traceID,
             },
           };
