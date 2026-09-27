@@ -8,6 +8,7 @@ import {
   buildExecutionContract,
   buildFinalVerdictMatrix,
   captureInheritedDirtyState,
+  crossToolTempPathRisk,
   detectInheritedDirtyViolations,
   enforcePhaseGates,
   explicitlyAuthorizedInheritedDirtyPaths,
@@ -17,6 +18,19 @@ import {
   taskExplicitlyAllowsLocalEnvWrite,
 } from "../lib/execution-contract.mjs"
 import { destructiveShellRisk } from "../lib/safety.mjs"
+
+test("V15.16 Windows file tools reject ambiguous POSIX temp paths", () => {
+  assert.deepEqual(
+    crossToolTempPathRisk("/tmp/head.ts", "win32"),
+    { risky: true, id: "cross-tool-posix-temp-path", path: "/tmp/head.ts" },
+  )
+  assert.deepEqual(
+    crossToolTempPathRisk("/var/tmp/detection.ts", "win32"),
+    { risky: true, id: "cross-tool-posix-temp-path", path: "/var/tmp/detection.ts" },
+  )
+  assert.equal(crossToolTempPathRisk(".ues-cache/tmp/head.ts", "win32").risky, false)
+  assert.equal(crossToolTempPathRisk("/tmp/head.ts", "linux").risky, false)
+})
 
 test("V15.15 local env guard distinguishes runtime inputs from templates", () => {
   assert.equal(isLocalEnvPath(".env"), true)
