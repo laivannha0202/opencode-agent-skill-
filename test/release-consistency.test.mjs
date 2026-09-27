@@ -37,7 +37,7 @@ test("checkReleaseConsistency() passes the current Pi-native release state", () 
   assert.equal(result.skillCount, 48)
   assert.equal(result.commandCount, 11)
   assert.equal(result.subagentCount, 12)
-  assert.equal(result.promptCount, 11)
+  assert.equal(result.promptCount, 10)
 })
 
 test("checkReleaseConsistency() CLI exits 0 on current state", () => {
