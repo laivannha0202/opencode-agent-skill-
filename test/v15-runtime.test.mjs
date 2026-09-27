@@ -75,6 +75,23 @@ test("V15.12 read-only policy avoids writer worktrees and behavioral receipts", 
   assert.equal(policy.profile.verification, "command-evidence")
 })
 
+test("V15.12 negative file constraints do not misclassify mutating work as read-only", () => {
+  const english = classifyEngineeringTask(
+    "Fix the checkout regression, but do not modify package.json. Preserve the public API.",
+  )
+  assert.equal(english.readOnly, false)
+
+  const vietnamese = classifyEngineeringTask(
+    "Sửa lỗi mobile nhưng không sửa package.json và không thay đổi API công khai.",
+  )
+  assert.equal(vietnamese.readOnly, false)
+
+  const explicit = classifyEngineeringTask(
+    "READ-ONLY: inspect the repository and do not modify package.json.",
+  )
+  assert.equal(explicit.readOnly, true)
+})
+
 test("V15.11 UES session naming replaces stale chat titles without model calls", () => {
   assert.equal(
     uesSessionName(
