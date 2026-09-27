@@ -7,22 +7,33 @@ import {
   shouldSoftSteerPlanningRole,
 } from "../lib/planning-speed-policy.mjs"
 
-test("V15.6 architect planning is hard-bounded and recovery is tighter", () => {
-  const first = planningRuntimeBudget("architect", 1)
-  const recovery = planningRuntimeBudget("ues-architect", 2)
+test("V15.10 architect planning has an activity-aware ceiling and tighter recovery", () => {
+  const first = planningRuntimeBudget("architect", 1, {
+    executionProfile: "deep",
+    taskChars: 5000,
+  })
+  const recovery = planningRuntimeBudget("ues-architect", 2, {
+    executionProfile: "deep",
+    taskChars: 5000,
+  })
 
   assert.equal(first.hardTimeoutMs, 60_000)
-  assert.equal(first.idleTimeoutMs, 25_000)
+  assert.equal(first.absoluteHardTimeoutMs, 150_000)
+  assert.equal(first.activityExtensionMs, 35_000)
+  assert.equal(first.activityWindowMs, 20_000)
+  assert.equal(first.idleTimeoutMs, 40_000)
   assert.equal(first.softSteerMs, 30_000)
   assert.equal(first.maxExplorationTools, 16)
 
-  assert.equal(recovery.hardTimeoutMs, 45_000)
-  assert.equal(recovery.idleTimeoutMs, 18_000)
-  assert.ok(recovery.hardTimeoutMs < first.hardTimeoutMs)
+  assert.equal(recovery.hardTimeoutMs, 50_000)
+  assert.equal(recovery.absoluteHardTimeoutMs, 95_000)
+  assert.equal(recovery.activityExtensionMs, 25_000)
+  assert.equal(recovery.idleTimeoutMs, 28_000)
+  assert.ok(recovery.absoluteHardTimeoutMs < first.absoluteHardTimeoutMs)
 })
 
-test("V15.6 architect soft-steers before idle watchdog or runaway exploration", () => {
-  const budget = planningRuntimeBudget("architect", 1)
+test("V15.10 architect soft-steers before idle watchdog or runaway exploration", () => {
+  const budget = planningRuntimeBudget("architect", 1, { executionProfile: "deep" })
   assert.equal(
     shouldSoftSteerArchitect({ elapsedMs: 31_000, idleMs: 1_000, toolCalls: 5 }, budget),
     true,
@@ -32,7 +43,7 @@ test("V15.6 architect soft-steers before idle watchdog or runaway exploration", 
     true,
   )
   assert.equal(
-    shouldSoftSteerArchitect({ elapsedMs: 10_000, idleMs: 18_000, toolCalls: 4 }, budget),
+    shouldSoftSteerArchitect({ elapsedMs: 10_000, idleMs: 27_000, toolCalls: 4 }, budget),
     true,
   )
   assert.equal(
@@ -41,17 +52,21 @@ test("V15.6 architect soft-steers before idle watchdog or runaway exploration", 
   )
 })
 
-test("V15.8 plan-checker is adaptive, soft-steered, and recovers tighter", () => {
-  const checker = planningRuntimeBudget("plan-checker", 1)
-  const recovery = planningRuntimeBudget("ues-plan-checker", 2)
+test("V15.10 plan-checker uses bounded activity extension and shorter recovery", () => {
+  const checker = planningRuntimeBudget("plan-checker", 1, { executionProfile: "deep" })
+  const recovery = planningRuntimeBudget("ues-plan-checker", 2, { executionProfile: "deep" })
 
-  assert.equal(checker.hardTimeoutMs, 75_000)
-  assert.equal(checker.idleTimeoutMs, 30_000)
+  assert.equal(checker.hardTimeoutMs, 70_000)
+  assert.equal(checker.absoluteHardTimeoutMs, 130_000)
+  assert.equal(checker.activityExtensionMs, 30_000)
+  assert.equal(checker.idleTimeoutMs, 38_000)
   assert.equal(checker.softSteerMs, 35_000)
   assert.equal(checker.maxExplorationTools, 10)
 
-  assert.equal(recovery.hardTimeoutMs, 40_000)
-  assert.equal(recovery.idleTimeoutMs, 15_000)
+  assert.equal(recovery.hardTimeoutMs, 45_000)
+  assert.equal(recovery.absoluteHardTimeoutMs, 80_000)
+  assert.equal(recovery.activityExtensionMs, 20_000)
+  assert.equal(recovery.idleTimeoutMs, 24_000)
   assert.equal(recovery.softSteerMs, 18_000)
   assert.equal(recovery.maxExplorationTools, 6)
 
