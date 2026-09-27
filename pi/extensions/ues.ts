@@ -2990,7 +2990,11 @@ export default function (pi: ExtensionAPI) {
       });
 
       const run = async (agent: AgentName, task: string, attempt = 1, failure?: string) => {
-        const planningBudget = planningRuntimeBudget(roleForAgent(agent), attempt);
+        const planningBudget = planningRuntimeBudget(roleForAgent(agent), attempt, {
+          executionProfile: policy.executionProfile,
+          risk: policy.risk,
+          taskChars: task.length,
+        });
         let softSteerSent = false;
         const result = await runRoutedAgent(
           agent,
@@ -3012,7 +3016,7 @@ export default function (pi: ExtensionAPI) {
               softSteerSent = true;
               const steerText =
                 agent === "ues-architect"
-                  ? "Stop repository exploration now. Use the evidence already gathered and return the required repository-grounded implementation plan immediately. End with exactly one UES_PLAN_JSON object. Do not start new broad searches."
+                  ? "Stop repository exploration now. Use the evidence already gathered and emit the required UES_PLAN_JSON object immediately as the next substantive output. Do not start new broad searches or delay the JSON behind prose."
                   : "Stop broad validation now. Check only unresolved declared paths and dependencies, then return the verdict immediately. End with exactly UES_VERDICT: PASS or UES_VERDICT: REVISE.";
               void RPC_POOL.steerActive(steerText).catch(() => ({ accepted: false }));
               onUpdate?.({
@@ -3071,7 +3075,7 @@ export default function (pi: ExtensionAPI) {
           params.task,
           "",
           "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
-          "For deterministic scheduling, end with UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks.",
+          "For deterministic scheduling, emit UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks as the first substantive output. Do not delay the JSON behind long prose.",
           "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
           "STRICT JSON CONTRACT: acceptance and verification are non-empty arrays of strings. risk is exactly one of low|medium|high|critical. Put descriptive risk prose in riskNotes. verificationCommands is optional and does not replace verification.",
           "Declare every file a task may write. Do not invent files: inspect the repository first.",
