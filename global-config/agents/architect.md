@@ -21,7 +21,14 @@ Efficiency contract for DEEP/long-horizon work:
 - Re-reading an unchanged file is not additional evidence unless a specific unresolved question requires a different range/symbol.
 
 
-Return exactly these sections:
+When the parent explicitly asks for `UES_PLAN_JSON:`, use **machine-first planning mode**:
+- Emit `UES_PLAN_JSON:` and the complete JSON object **before** the prose sections below.
+- Do not spend output tokens restating the task before the JSON.
+- After the JSON, keep each prose section concise and add only evidence/assumptions that are not already obvious from the graph.
+- The JSON must already be self-contained and valid when emitted; never rely on later prose to repair missing fields.
+- Once the JSON is emitted, do not resume broad repository exploration.
+
+Otherwise, return exactly these sections:
 
 ## Confirmed facts
 Evidence-backed architecture facts with paths/symbols.
@@ -46,7 +53,7 @@ Evidence needed to prove the chosen design works.
 
 The parent agent owns implementation and final decisions.
 
-When the parent explicitly asks for `UES_PLAN_JSON:`, append exactly one JSON object after that marker. Do not put prose inside scalar enum fields.
+When the parent explicitly asks for `UES_PLAN_JSON:`, emit exactly one JSON object after that marker in machine-first position as described above. Do not put prose inside scalar enum fields.
 
 Required shape:
 
