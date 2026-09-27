@@ -2075,8 +2075,8 @@ async function executeStructuredPlan(input: {
                   "",
                   "Overall goal:",
                   String(input.plan.goal || ""),
-                  lastWaveFailure
-                    ? "\nFresh failure evidence from the previous wave attempt:\n" + cap(lastWaveFailure, 7000)
+                  taskFailure
+                    ? "\nFresh task-local failure delta from the previous attempt:\n" + cap(taskFailure, 4200)
                     : "",
                 ].filter(Boolean).join("\n"),
                 item.cwd,
@@ -2137,7 +2137,7 @@ async function executeStructuredPlan(input: {
                   JSON.stringify(item.task, null, 2),
                   "",
                   "Previous runtime failure:",
-                  cap(lastWaveFailure, 7000),
+                  cap(taskFailure, 4200),
                 ].join("\n"),
                 item.cwd,
                 input.inheritedModel,
