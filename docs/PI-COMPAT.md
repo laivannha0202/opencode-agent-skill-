@@ -96,6 +96,14 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.16 Portable Cross-Tool Temp Paths
+
+On Windows, POSIX-style temporary paths such as `/tmp/foo` and `/var/tmp/foo` are not safe to pass between Pi file tools and bash/MSYS because each tool may resolve that path in a different filesystem namespace. This can make a file created or addressed by one tool invisible to another and wastes weak-model retries.
+
+UES child file tools now fail closed on those ambiguous POSIX temp paths when running on Windows. The agent receives deterministic recovery guidance: keep transient transforms inside one shell pipeline, or use a repository-local ignored UES scratch path such as `.ues-cache/tmp` for cross-tool scratch. Linux/macOS behavior is unchanged.
+
+The Pi specialist bridge carries the same rule into child prompts, and `/ues-status` exposes `Portable temp-path guard: on` so the active runtime can be verified without guessing.
+
 ## V15.15 Execution Contracts + Phase Gates
 
 Long-horizon `/ues-run` now derives a deterministic execution contract before planning. The controller snapshots source-facing pre-existing dirty paths, blocks destructive Git discard commands such as `git restore`, `git checkout --`, and `git stash` in UES children, and injects the inherited-work boundary into every specialist role. Existing dirty work may only be changed when it is explicitly inside the approved task write scope; generated/UES runtime artifacts are excluded from this baseline.
