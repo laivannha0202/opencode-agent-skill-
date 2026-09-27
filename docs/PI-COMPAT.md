@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.7 Lightweight Sandbox Cleanup
+
+UES direct controller runs now track active task worktrees by trace and reclaim their own leftovers when the run ends, including Stop/error paths. Active worktrees remain protected. Stale same-process worktrees can be reclaimed without waiting for Pi to exit, legacy pre-lease worktrees use a 30-minute grace, orphan metadata sidecars are removed, and an empty sandbox base directory is deleted automatically.
+
+The `/ues-clean` command performs the same safe stale-artifact cleanup on demand for the current repository.
+
 ## V15.6 Fast Planning
 
 DEEP planning now has explicit latency budgets. Architect exploration is soft-steered after roughly 30 seconds or 16 tool calls and is terminated if it exceeds a 60-second hard or 25-second idle budget. A failed first pass gets one shorter cached recovery rather than a full rediscovery pass. Plan-checker has its own short budget; executor/verifier limits are unchanged.
