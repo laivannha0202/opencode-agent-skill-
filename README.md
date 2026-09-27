@@ -18,7 +18,7 @@
 
 1. [UES giải quyết vấn đề gì?](#ues-giải-quyết-vấn-đề-gì)
 2. [Kiến trúc tổng thể](#kiến-trúc-tổng-thể)
-3. [Luồng /ues-run end-to-end](#luồng-ues-run-end-to-end)
+3. [Luồng Auto Router và /ues-run fallback](#luồng-auto-router-và-ues-run-fallback)
 4. [Task Policy: FAST / STANDARD / DEEP](#task-policy-fast--standard--deep)
 5. [12 specialist agents](#12-specialist-agents)
 6. [48 skills](#48-skills)
@@ -176,9 +176,9 @@ Hoàn thành không đồng nghĩa model nói “done”. UES cố gắng ràng 
 
 ---
 
-# Luồng /ues-run end-to-end
+# Luồng Auto Router và /ues-run fallback
 
-<code>/ues-run</code> là entry point khuyến nghị cho engineering task.
+Prompt engineering dạng text trong Git worktree là entry point mặc định: Auto Router tự chọn Pi native, UES auto hoặc UES high-risk. <code>/ues-run</code> chỉ còn là force-entry/debug fallback.
 
 ~~~mermaid
 sequenceDiagram
@@ -191,8 +191,8 @@ sequenceDiagram
     participant IV as Integration Verifier
     participant VV as Visual Verifier
 
-    U->>P: /ues-run task
-    P->>UES: ues_execute(task)
+    U->>P: natural engineering prompt
+    P->>UES: Auto Router -> ues_execute(task)
     UES->>UES: classify task/risk/profile
     UES->>CTX: build bounded context
     CTX-->>UES: hierarchy + evidence + memory + capability hints
