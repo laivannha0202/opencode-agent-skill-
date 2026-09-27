@@ -2160,6 +2160,7 @@ async function executeStructuredPlan(input: {
               "",
               "Parent goal (context only; never broaden this leaf task):",
               cap(String(input.plan.goal || ""), 700),
+              input.rootPolicy?.executionContractPrompt || "",
             ].filter(Boolean).join("\n");
             const leafPolicy = leafTaskPolicy(item.task, input.rootPolicy || {});
             const taskFailure = failureByTask.get(String(item.task.id)) || "";
@@ -3144,7 +3145,13 @@ export default function (pi: ExtensionAPI) {
       const cwd = requireGitWorkspaceRoot(params.cwd || ctx.cwd, "ues_execute");
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
-      const policy = classifyEngineeringTask(params.task);
+      const inheritedDirty = captureInheritedDirtyState(cwd);
+      const executionContract = buildExecutionContract(params.task, inheritedDirty);
+      const contractPrompt = executionContractPrompt(executionContract);
+      const policy = {
+        ...classifyEngineeringTask(params.task),
+        localEnvWriteExplicitlyAllowed: executionContract.localEnvWriteExplicitlyAllowed === true,
+      };
       const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
       const orphanCleanup = await pruneOrphanTaskSandboxes(cwd, {
         minAgeMs: 5 * 60_000,
@@ -3163,7 +3170,21 @@ export default function (pi: ExtensionAPI) {
         profile: policy.executionProfile,
         risk: policy.risk,
         mode: policy.mode,
+        inheritedDirtyCount: executionContract.inheritedDirty?.paths?.length || 0,
+        explicitPhaseCount: executionContract.phases?.length || 0,
+        localEnvWriteExplicitlyAllowed: executionContract.localEnvWriteExplicitlyAllowed === true,
       }).catch(() => {});
+      if ((executionContract.inheritedDirty?.paths?.length || 0) > 0 || (executionContract.phases?.length || 0) > 0) {
+        onUpdate?.({
+          content: [{
+            type: "text",
+            text:
+              `UES contract: inherited dirty ${executionContract.inheritedDirty?.paths?.length || 0}; ` +
+              `explicit phases ${executionContract.phases?.length || 0}; local .env write ${executionContract.localEnvWriteExplicitlyAllowed ? "authorized" : "blocked"}`,
+          }],
+          details: { mode: "execute", phase: "execution-contract", executionContract, traceID },
+        });
+      }
       const browserLaneRequested =
         browserEvidenceNeeded(params.task, "executor") || visualEvidenceNeeded(params.task);
       if (browserLaneRequested) {
@@ -3214,9 +3235,10 @@ export default function (pi: ExtensionAPI) {
           taskChars: task.length,
         });
         let softSteerSent = false;
+        const governedTask = [task, "", contractPrompt].filter(Boolean).join("\n");
         const result = await runRoutedAgent(
           agent,
-          task,
+          governedTask,
           cwd,
           inheritedModel,
           inheritedThinking,
