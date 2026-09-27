@@ -654,6 +654,7 @@ async function runAgentCli(
     activityWindowMs?: number;
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
+    allowLocalEnvWrite?: boolean;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -713,6 +714,7 @@ async function runAgentCli(
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
+          UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
         },
         shell: false,
         detached: process.platform !== "win32",
@@ -1788,6 +1790,9 @@ async function runRoutedAgent(
           : planningBudget?.idleTimeoutMs
             ? Math.min(POST_TOOL_ERROR_IDLE_TIMEOUT_MS, planningBudget.idleTimeoutMs)
             : POST_TOOL_ERROR_IDLE_TIMEOUT_MS,
+      allowLocalEnvWrite:
+        taskPolicy.localEnvWriteExplicitlyAllowed === true ||
+        taskExplicitlyAllowsLocalEnvWrite(task),
     },
   );
   const enrichedResult: RunResult = {
