@@ -45,7 +45,7 @@ test("V15.11 UES session naming replaces stale chat titles without model calls",
       "Tiếp tục audit/fix DELTA trên trạng thái repository hiện tại. Giữ nguyên thay đổi hợp lệ.",
       "E:/dev/AgriMarket",
     ),
-    "UES: Tiếp tục audit/fix DELTA trên trạng thái repository hiện tại. Giữ ng…",
+    "UES: Tiếp tục audit/fix DELTA trên trạng thái repository hiện tại. Giữ …",
   )
   assert.equal(
     sessionNameFromUesInput("/ues-resume", "E:\\dev\\AgriMarket"),
