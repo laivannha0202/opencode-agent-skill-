@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
-import { mkdtemp, readFile, rm } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm } from "node:fs/promises"
+import { spawnSync } from "node:child_process"
 import net from "node:net"
 import os from "node:os"
 import path from "node:path"
@@ -10,6 +11,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast
 import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
 import { looksLikePiCliEntrypoint, resolvePiChildInvocation } from "../lib/pi-child-invocation.mjs"
 import { sessionNameFromUesInput, uesSessionName } from "../lib/session-display.mjs"
+import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../lib/workspace-root.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -37,6 +39,41 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15.12 workspace root guard refuses parent-directory artifact spill", async () => {
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-root-guard-"))
+  const repo = path.join(base, "repo")
+  try {
+    await mkdir(repo, { recursive: true })
+    const init = spawnSync("git", ["init"], { cwd: repo, encoding: "utf8" })
+    assert.equal(init.status, 0, init.stderr || init.stdout)
+
+    const resolved = resolveGitWorkspaceRoot(repo)
+    assert.equal(resolved.ok, true)
+    assert.equal(resolved.root, path.resolve(repo))
+
+    const parent = resolveGitWorkspaceRoot(base)
+    assert.equal(parent.ok, false)
+    assert.throws(
+      () => requireGitWorkspaceRoot(base, "/ues-run"),
+      /requires Pi to be opened inside a Git repository/,
+    )
+  } finally {
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test("V15.12 read-only policy avoids writer worktrees and behavioral receipts", () => {
+  const policy = classifyEngineeringTask(
+    "Chỉ kiểm tra repository hiện tại ở chế độ READ-ONLY. Không sửa file, không tạo hoặc xóa file. Chỉ chạy git status và báo kết quả.",
+  )
+  assert.equal(policy.readOnly, true)
+  assert.equal(policy.requireBehavioralReceipt, false)
+  assert.equal(policy.requirePlanCheck, false)
+  assert.equal(policy.requireIntegrationVerification, false)
+  assert.equal(policy.profile.worktree, "off")
+  assert.equal(policy.profile.verification, "command-evidence")
+})
 
 test("V15.11 UES session naming replaces stale chat titles without model calls", () => {
   assert.equal(
@@ -269,6 +306,14 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
 
   assert.match(parent, /pi\.registerCommand\("ues-status"/)
   assert.match(parent, /pi\.registerCommand\("ues-run"/)
+  assert.match(parent, /UES is command-only/)
+  assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, "\/ues-run"\)/)
+  assert.match(parent, /requireGitWorkspaceRoot\(ctx\.cwd, "\/ues-clean"\)/)
+  assert.match(parent, /policy\.readOnly === true/)
+  assert.match(parent, /read-only-workspace-mutated/)
+  assert.match(parent, /writeFiles\.length > 0/)
+  assert.match(parent, /auto-revised the rejected plan/)
+  assert.match(parent, /Removed transient runtime dirs/)
   assert.match(parent, /pi\.setSessionName/)
   assert.match(parent, /ctx\?\.ui\?\.setTitle/)
   assert.match(parent, /sessionNameFromUesInput/)
