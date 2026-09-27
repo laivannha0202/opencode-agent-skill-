@@ -16,6 +16,7 @@ import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
 import { computeSafeWaves, normalizePlanForValidation, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
+import { gcEvidenceStore } from "../../lib/evidence-store.mjs";
 import {
   createToolOutputAccumulator,
   detectHungToolEvidence,
@@ -3953,7 +3954,7 @@ export default function (pi: ExtensionAPI) {
       const sidecars = Number(cleanup?.sidecarsRemoved?.length || 0);
       const skipped = Number(cleanup?.skipped?.length || 0);
       await stopAllServices(workspaceRoot).catch(() => []);
-      const transientDirs = [".ues-cache", ".ues-traces", ".ues-services", ".ues-dashboard"];
+      const transientDirs = [".ues-traces", ".ues-services", ".ues-dashboard"];
       const removedRuntimeDirs: string[] = [];
       for (const name of transientDirs) {
         const target = path.join(workspaceRoot, name);
@@ -3961,13 +3962,51 @@ export default function (pi: ExtensionAPI) {
         await fs.promises.rm(target, { recursive: true, force: true }).catch(() => {});
         if (!fs.existsSync(target)) removedRuntimeDirs.push(name);
       }
+
+      const cacheDir = path.join(workspaceRoot, ".ues-cache");
+      const removedCacheEntries: string[] = [];
+      if (fs.existsSync(cacheDir)) {
+        const entries = await fs.promises.readdir(cacheDir, { withFileTypes: true }).catch(() => []);
+        for (const entry of entries) {
+          if (entry.name === "evidence-v1") continue;
+          if (
+            entry.name === "semantic-index-v1.json" ||
+            entry.name.startsWith("semantic-index-v1.json.") ||
+            entry.name === "verification-broker-v1.json" ||
+            entry.name.startsWith("verification-broker-v1.json.")
+          ) {
+            await fs.promises.rm(path.join(cacheDir, entry.name), { recursive: true, force: true }).catch(() => {});
+            removedCacheEntries.push(entry.name);
+          }
+        }
+      }
+      const evidenceGc = await gcEvidenceStore(workspaceRoot, {
+        maxBytes: 96 * 1024 * 1024,
+        maxEntries: 600,
+        maxAgeDays: 14,
+      }).catch((error) => ({
+        removed: [],
+        removedCount: 0,
+        protectedEntries: 0,
+        protectedBytes: 0,
+        error: error instanceof Error ? error.message : String(error),
+      }));
+
+      if (fs.existsSync(cacheDir)) {
+        const remaining = await fs.promises.readdir(cacheDir).catch(() => ["unknown"]);
+        if (remaining.length === 0) await fs.promises.rm(cacheDir, { recursive: true, force: true }).catch(() => {});
+      }
+
       const text = [
         "UES cleanup complete.",
         "Removed sandboxes: " + removed,
         "Removed orphan metadata: " + sidecars,
         "Removed transient runtime dirs: " + (removedRuntimeDirs.join(", ") || "none"),
+        "Removed rebuildable cache entries: " + (removedCacheEntries.length || 0),
+        "Pruned evidence blobs: " + Number(evidenceGc?.removedCount || 0),
+        "Protected verified-memory evidence: " + Number(evidenceGc?.protectedEntries || 0),
         "Protected/recent entries kept: " + skipped,
-        "Preserved durable state: .ues-work, .ues-memory, .ues-learning, .ues-evals",
+        "Preserved durable state: .ues-work, .ues-memory, .ues-learning, .ues-evals and verified-memory evidence",
         cleanup?.baseRemoved ? "Sandbox base directory removed because it is empty." : "",
         cleanup?.error ? "Error: " + cleanup.error : "",
       ].filter(Boolean).join("\n");
@@ -3975,11 +4014,13 @@ export default function (pi: ExtensionAPI) {
         customType: "ues-cleanup-result",
         content: text,
         display: true,
-        details: { ...cleanup, removedRuntimeDirs },
+        details: { ...cleanup, removedRuntimeDirs, removedCacheEntries, evidenceGc },
       }, { triggerTurn: false });
       try {
         ctx.ui.notify(
-          "UES cleanup removed " + (removed + sidecars + removedRuntimeDirs.length) + " stale/transient artifact group(s)",
+          "UES cleanup removed/pruned " +
+            (removed + sidecars + removedRuntimeDirs.length + removedCacheEntries.length + Number(evidenceGc?.removedCount || 0)) +
+            " stale/transient artifact(s)",
           "info",
         );
       } catch {}
