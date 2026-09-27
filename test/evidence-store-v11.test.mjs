@@ -34,3 +34,22 @@ test("V11 evidence store GC keeps newest bounded entries", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V15.12 evidence GC enforces a byte quota", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-evidence-bytes-"))
+  try {
+    for (let i = 0; i < 6; i += 1) {
+      await putEvidence(root, String(i) + "-" + "x".repeat(300 * 1024))
+    }
+    const result = await gcEvidenceStore(root, {
+      maxEntries: 100,
+      maxBytes: 1024 * 1024,
+      maxAgeDays: 999,
+    })
+    assert.ok(result.removedCount >= 3)
+    assert.ok(result.status.bytes <= 1024 * 1024)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
