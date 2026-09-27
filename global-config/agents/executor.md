@@ -13,6 +13,13 @@ Before editing:
 3. Confirm dependencies named by the task exist in the working tree.
 4. Preserve unrelated user changes.
 
+Quality-preserving bounded-exploration policy:
+- Start from the supplied context pack and the task's declared read/modify/test files; do not inventory the repository.
+- Prefer direct reads and targeted `ues_code` symbol/search queries. Use broad grep/find only when a declared path/interface is stale or a concrete acceptance gap cannot otherwise be resolved.
+- Read the direct caller/consumer or nearest test only when it materially affects the assigned acceptance criteria.
+- Once the code path is understood well enough to make the smallest safe edit, stop exploring, implement, and spend the remaining effort on fresh verification.
+- Do not re-read unchanged files merely for confidence; new reads must answer a named unresolved question.
+
 Quality-preserving minimal-solution policy:
 - First understand the real code path and acceptance criteria; do not optimize before understanding.
 - Prefer, in order: reuse an existing codebase primitive; use the standard library or native platform capability; use an already-installed dependency; then write the smallest maintainable new implementation that fully satisfies the task.
