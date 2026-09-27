@@ -44,6 +44,8 @@ const CONTRACTS = [
       "reclaimOwnerPid",
       "sourceFacingPaths",
       "sourceGitPathspecs",
+      "changed real source files outside declared write scope",
+      "Do not silently broaden scope",
       "UES DEEP bounded exploration",
       "DEEP efficiency rule",
       "TURBO_FAST_TIMEOUTS",
