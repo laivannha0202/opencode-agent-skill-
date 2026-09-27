@@ -4,6 +4,7 @@ import assert from "node:assert/strict"
 import {
   planningRuntimeBudget,
   shouldSoftSteerArchitect,
+  shouldSoftSteerPlanningRole,
 } from "../lib/planning-speed-policy.mjs"
 
 test("V15.6 architect planning is hard-bounded and recovery is tighter", () => {
@@ -40,10 +41,24 @@ test("V15.6 architect soft-steers before idle watchdog or runaway exploration", 
   )
 })
 
-test("V15.6 plan-checker is bounded without changing executor budgets", () => {
+test("V15.8 plan-checker is adaptive, soft-steered, and recovers tighter", () => {
   const checker = planningRuntimeBudget("plan-checker", 1)
-  assert.equal(checker.hardTimeoutMs, 45_000)
-  assert.equal(checker.idleTimeoutMs, 20_000)
+  const recovery = planningRuntimeBudget("ues-plan-checker", 2)
+
+  assert.equal(checker.hardTimeoutMs, 75_000)
+  assert.equal(checker.idleTimeoutMs, 30_000)
+  assert.equal(checker.softSteerMs, 35_000)
+  assert.equal(checker.maxExplorationTools, 10)
+
+  assert.equal(recovery.hardTimeoutMs, 40_000)
+  assert.equal(recovery.idleTimeoutMs, 15_000)
+  assert.equal(recovery.softSteerMs, 18_000)
+  assert.equal(recovery.maxExplorationTools, 6)
+
+  assert.equal(
+    shouldSoftSteerPlanningRole({ elapsedMs: 36_000, idleMs: 1_000, toolCalls: 5 }, checker),
+    true,
+  )
   assert.equal(planningRuntimeBudget("executor", 1), null)
   assert.equal(planningRuntimeBudget("verifier", 1), null)
 })
