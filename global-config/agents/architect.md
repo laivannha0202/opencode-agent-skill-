@@ -22,7 +22,7 @@ Efficiency contract for DEEP/long-horizon work:
 
 
 When the parent explicitly asks for `UES_PLAN_JSON:`, use **machine-first planning mode**:
-- Emit `UES_PLAN_JSON:` and the complete JSON object **before** the prose sections below.
+- Emit `UES_PLAN_JSON:` and the complete JSON object before the prose sections below.
 - Do not spend output tokens restating the task before the JSON.
 - After the JSON, keep each prose section concise and add only evidence/assumptions that are not already obvious from the graph.
 - The JSON must already be self-contained and valid when emitted; never rely on later prose to repair missing fields.
