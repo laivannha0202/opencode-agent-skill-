@@ -35,7 +35,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
-import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
+import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
@@ -3151,6 +3151,7 @@ export default function (pi: ExtensionAPI) {
       const policy = {
         ...classifyEngineeringTask(params.task),
         localEnvWriteExplicitlyAllowed: executionContract.localEnvWriteExplicitlyAllowed === true,
+        executionContractPrompt: contractPrompt,
       };
       const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
       const orphanCleanup = await pruneOrphanTaskSandboxes(cwd, {
@@ -3487,6 +3488,9 @@ export default function (pi: ExtensionAPI) {
           "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
           "For deterministic scheduling, emit UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks as the first substantive output. Do not delay the JSON behind long prose.",
           "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
+          executionContract.phases?.length
+            ? "PHASE CONTRACT: every task must also include an integer phase matching one explicit PHASE number from the user request. Do not omit, merge away, or invent phases. UES will add deterministic previous-phase barriers after validation."
+            : "",
           "STRICT JSON CONTRACT: acceptance and verification are non-empty arrays of strings. risk is exactly one of low|medium|high|critical. Put descriptive risk prose in riskNotes. verificationCommands is optional and does not replace verification.",
           "Declare every file a task may write. Do not invent files: inspect the repository first.",
           "DEEP efficiency rule: use the supplied runtime context/ranked references first; do not inventory the whole repository or re-read unchanged files. You have a bounded planning budget: prefer at most one targeted lookup per unresolved boundary, then emit the plan. Stop exploration once exact task scope, dependencies, acceptance, verification, and risk/rollback are grounded.",
@@ -3570,6 +3574,21 @@ export default function (pi: ExtensionAPI) {
             isError: true,
           };
         }
+
+        const phaseGate = enforcePhaseGates(structuredPlan, executionContract);
+        if (phaseGate.valid !== true) {
+          return {
+            content: [{
+              type: "text",
+              text:
+                "Explicit phase contract gate did not pass. UES will not flatten or skip user-declared phases.\n\n" +
+                phaseGate.errors.join("\n"),
+            }],
+            details: { mode: "execute", policy, steps, structuredPlan, phaseGate, executionContract },
+            isError: true,
+          };
+        }
+        structuredPlan = phaseGate.plan;
 
         const buildPlanCheckTask = () => [
           "Validate the following inline plan against the current repository. If persistent SPEC/PLAN files do not exist yet, evaluate this inline plan directly instead of failing only because those files are absent.",
