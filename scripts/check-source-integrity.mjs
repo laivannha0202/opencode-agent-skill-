@@ -183,6 +183,9 @@ const CONTRACTS = [
       "reclaimOwnerPid",
       "protected-active",
       "sidecarsRemoved",
+      "detached-owner-alive",
+      "detached-remove-failed",
+      "detached: true",
       "processAlive",
     ],
   },
@@ -381,7 +384,7 @@ const CONTRACTS = [
     required: [
       "V15.6 architect planning is hard-bounded and recovery is tighter",
       "V15.6 architect soft-steers before idle watchdog or runaway exploration",
-      "V15.6 plan-checker is bounded without changing executor budgets",
+      "V15.8 plan-checker is adaptive, soft-steered, and recovers tighter",
     ],
   },
   {
@@ -392,6 +395,7 @@ const CONTRACTS = [
       "V15.6 orphan sandbox cleanup removes dead-owner worktrees but preserves live ownership",
       "V15.7 cleanup reclaims ended same-process sandboxes but protects active ones",
       "V15.7 cleanup removes orphan metadata sidecars for missing sandboxes",
+      "V15.8 cleanup removes detached physical sandbox folders with valid metadata",
       "pruneOrphanTaskSandboxes",
       "ownerPid",
     ],
