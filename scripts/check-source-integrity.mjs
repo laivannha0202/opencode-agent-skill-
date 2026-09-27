@@ -32,6 +32,9 @@ const CONTRACTS = [
       "read-only-workspace-mutated",
       "auto-revised the rejected plan",
       "Removed transient runtime dirs",
+      "gcEvidenceStore",
+      'entry.name === "evidence-v1"',
+      "Protected verified-memory evidence",
       "MAX_WRITER_CONCURRENCY",
       "UES_MAX_WRITER_CONCURRENCY",
       "taskSandboxOwnerRoot",
@@ -147,7 +150,7 @@ const CONTRACTS = [
     file: "lib/evidence-store.mjs",
     minBytes: 7_500,
     startsWith: "import ",
-    required: ["putEvidence", "getEvidence", "getEvidenceSelected", "DEFAULT_MAX_STORE_BYTES", "maxBytes", "AUTO_GC_EVERY_WRITES"],
+    required: ["putEvidence", "getEvidence", "getEvidenceSelected", "DEFAULT_MAX_STORE_BYTES", "maxBytes", "AUTO_GC_EVERY_WRITES", "protectedEvidenceHashes", "protectedEntries"],
   },
   {
     file: "lib/process-supervisor.mjs",
