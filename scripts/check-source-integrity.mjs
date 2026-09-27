@@ -27,6 +27,7 @@ const CONTRACTS = [
       "pi.setActiveTools",
       "deactivateParentUesTools",
       "activateParentUesTools",
+      'pi.on("before_agent_start"',
       "requireGitWorkspaceRoot",
       "read-only-workspace-mutated",
       "auto-revised the rejected plan",
