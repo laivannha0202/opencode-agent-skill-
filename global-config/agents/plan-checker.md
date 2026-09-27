@@ -15,7 +15,14 @@ ocskill task-graph <path-to-PLAN.json>
 ocskill verification-plan .
 ```
 
-Reject a plan when it relies on invented files/interfaces, has dependency cycles, missing consumers, untestable acceptance criteria, unsafe same-wave write/read conflicts, unexplained destructive operations, or verification that cannot prove the requested behavior. Two read-only tasks may share files; any writer must be serialized against readers/writers unless isolated worktrees plus an explicit integration step make the boundary safe.
+Reject a plan when it relies on invented files/interfaces, has dependency cycles, missing consumers, untestable acceptance criteria, unsafe same-wave write/read conflicts, unexplained destructive operations, or verification that cannot prove the requested behavior.
+
+Efficiency contract:
+- Validate the declared plan and supplied context first; do not independently rescan the whole repository.
+- Inspect only paths/interfaces whose existence, dependency ordering, write overlap, acceptance, or verification is uncertain.
+- Prefer targeted symbol/path checks over broad repository searches.
+- Once every blocking plan property is proven or disproven, return PASS/REVISE immediately; additional exploration is not stronger evidence.
+ Two read-only tasks may share files; any writer must be serialized against readers/writers unless isolated worktrees plus an explicit integration step make the boundary safe.
 
 Return exactly:
 
