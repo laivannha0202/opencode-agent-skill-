@@ -3719,6 +3719,21 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
+        const finalPhaseGate = enforcePhaseGates(structuredPlan, executionContract);
+        if (finalPhaseGate.valid !== true) {
+          return {
+            content: [{
+              type: "text",
+              text:
+                "Plan revision lost the deterministic explicit-phase contract. UES will not execute it.\n\n" +
+                finalPhaseGate.errors.join("\n"),
+            }],
+            details: { mode: "execute", policy, steps, structuredPlan, finalPhaseGate, executionContract },
+            isError: true,
+          };
+        }
+        structuredPlan = finalPhaseGate.plan;
+
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
             content: [{ type: "text", text: `Plan gate did not pass after bounded auto-recovery:\n\n${planCheck.output}` }],
