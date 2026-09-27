@@ -382,7 +382,7 @@ const CONTRACTS = [
     file: "lib/completion-auditor.mjs",
     minBytes: 2_500,
     startsWith: "function text",
-    required: ["auditCompletion", "fresh-behavioral-receipt-missing", "missing-report-section"],
+    required: ["auditCompletion", "fresh-behavioral-receipt-missing", "missing-report-section", "benignFailureSection", "outOfScopeGapOnly", "verification-reports-out-of-scope-gap"],
   },
   {
     file: "lib/document-ingestion.mjs",
