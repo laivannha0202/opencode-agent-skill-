@@ -6,6 +6,18 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.9] - 2026-09-27
+
+### Fixed
+- Plan-checker no longer fails immediately on a bounded RPC hard/idle timeout. It is soft-steered before timeout and gets one shorter warm-context recovery pass on transport/runtime failure.
+- Plan-checker first-pass budget is 75s hard / 30s idle with a 35s soft-steer; recovery is 40s hard / 15s idle with an 18s soft-steer.
+- /ues-clean now scans repository-specific sandbox directories directly and removes stale detached physical worktrees even when Git has already forgotten their worktree registration.
+
+### Safety
+- A semantic REVISE verdict is never converted into PASS by timeout recovery.
+- Detached cleanup only removes directories with valid UES metadata bound to the exact repository root and never removes protected active directories or live-owner sandboxes.
+
+
 ## [15.0.0-beta.8] - 2026-09-27
 
 ### Performance
