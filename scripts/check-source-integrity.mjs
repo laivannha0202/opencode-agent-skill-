@@ -428,6 +428,7 @@ const CONTRACTS = [
       "diagnosisEvidence",
       "word such as \"fix\" must not force",
       "shouldRunDedicatedDiagnosis",
+      "deterministicReadOnlyGitCommands",
     ],
   },
   {
