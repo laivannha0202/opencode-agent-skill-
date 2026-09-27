@@ -84,7 +84,9 @@ const CONTRACTS = [
       'reason: "aborted"',
       "buildExecutionContract",
       "captureInheritedDirtyState",
+      "detectInheritedDirtyViolations",
       "enforcePhaseGates",
+      "inherited dirty-work guard stopped completion",
       "FINAL_VERDICTS.json",
       "UES_CHILD_ALLOW_LOCAL_ENV_WRITE",
       "Independent final verdict matrix: on",
@@ -394,6 +396,8 @@ const CONTRACTS = [
     startsWith: "import ",
     required: [
       "captureInheritedDirtyState",
+      "detectInheritedDirtyViolations",
+      "explicitlyAuthorizedInheritedDirtyPaths",
       "taskExplicitlyAllowsLocalEnvWrite",
       "enforcePhaseGates",
       "executionContractPrompt",
