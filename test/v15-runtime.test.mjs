@@ -328,7 +328,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /pi\.setSessionName/)
   assert.match(parent, /ctx\?\.ui\?\.setTitle/)
   assert.match(parent, /sessionNameFromUesInput/)
-  assert.match(parent, /uesSessionName\("run", task, ctx\.cwd\)/)
+  assert.match(parent, /uesSessionName\("run", task, workspaceRoot\)/)
   assert.match(parent, /PACKAGE_VERSION/)
   assert.match(parent, /const uesExecuteTool: any = \{/)
   assert.match(parent, /ues_controller_direct/)
