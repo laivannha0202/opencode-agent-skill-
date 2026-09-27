@@ -1039,6 +1039,7 @@ async function runAgentRpc(
     activityWindowMs?: number;
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
+    allowLocalEnvWrite?: boolean;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1077,6 +1078,7 @@ async function runAgentRpc(
     Boolean(runtimeOptions.compactToolOutput),
     Number(runtimeOptions.toolOutputLimit || 0),
     Number(runtimeOptions.verificationTimeoutSec || 0),
+    Boolean(runtimeOptions.allowLocalEnvWrite),
   ]);
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
@@ -1117,6 +1119,7 @@ async function runAgentRpc(
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
+          UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
         },
       },
       taskInput,
@@ -1276,6 +1279,7 @@ async function runAgent(
     activityWindowMs?: number;
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
+    allowLocalEnvWrite?: boolean;
   } = {},
 ): Promise<RunResult> {
   if (CHILD_RUNTIME !== "cli") {
