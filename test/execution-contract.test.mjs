@@ -153,8 +153,8 @@ test("V15.15 final verdict matrix separates source runtime data and device proof
     contract,
     primaryPass: true,
     integrationPass: true,
-    integrationOutput: "DB_CLEAN_PASS",
-    integrationChecks: "pnpm test\npnpm runtime:smoke",
+    integrationOutput: "DB_CLEAN_PASS\ncleanup dry-run removed count=12; second cleanup run idempotent count=0",
+    integrationChecks: "pnpm test\npnpm runtime:smoke\npnpm cleanup --dry-run",
   })
   assert.equal(partial.source, "SOURCE_PASS")
   assert.equal(partial.runtime, "RUNTIME_PASS")
@@ -166,9 +166,9 @@ test("V15.15 final verdict matrix separates source runtime data and device proof
     contract,
     primaryPass: true,
     integrationPass: true,
-    integrationOutput: "DB_CLEAN_PASS\nRUNTIME_PASS",
-    visualOutput: "DEVICE_PASS",
-    integrationChecks: "pnpm test",
+    integrationOutput: "DB_CLEAN_PASS\nRUNTIME_PASS\ncleanup dry-run removed count=12; second cleanup run idempotent count=0",
+    visualOutput: "DEVICE_PASS — Expo Go real device verified",
+    integrationChecks: "pnpm test\npnpm cleanup --dry-run",
   })
   assert.equal(complete.final, "PASS")
 })
