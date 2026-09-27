@@ -98,7 +98,7 @@ Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-m
 
 ## V15.12 Safe Autopilot + Disk Hygiene
 
-UES is command-only by default in the parent Pi session. Ordinary prompts and non-UES tools continue through Pi without UES shell/MCP interception. Explicit `/ues-*` commands activate UES for that turn/run, and prompt-style UES turns deactivate again at `agent_end`.
+UES is command-only by default in the parent Pi session. Ordinary prompts and non-UES tools continue through Pi without UES shell/MCP interception, and the parent `ues_*` tools are removed from Pi's active tool set so normal models do not see or accidentally select them. Explicit `/ues-*` prompt commands activate the registered UES tools for that turn, then `agent_end` restores the non-UES tool set. Direct `/ues-run`, `/ues-clean`, and `/ues-status` commands do not need a parent-model tool turn.
 
 `/ues-run`, `ues_execute`, and `/ues-clean` fail closed unless their working directory resolves inside a Git worktree. The runtime canonicalizes to the Git top-level before creating cache, trace, sandbox, or durable state, preventing accidental artifact spill into parent folders such as `E:\\dev`.
 
