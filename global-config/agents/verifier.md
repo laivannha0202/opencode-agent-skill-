@@ -19,13 +19,13 @@ Command/check, exit/result, and what claim it proves.
 Criterion-by-criterion evidence.
 
 ## Failures
-Actual failed checks or unmet criteria.
+Actual failed checks or unmet criteria. If none, write exactly `None`.
 
 ## Unresolved gaps
-Important behavior not proven.
+Only requested acceptance criteria or requested behavior that remain unproven. If none, write exactly `None`. Do not put optional or out-of-scope checks here.
 
 ## Checks not run
-What was skipped and why.
+What was skipped and why. Put optional or out-of-scope checks here rather than treating them as unresolved acceptance gaps.
 
 ## Completion evidence
 A concise statement limited to what the fresh evidence supports.
