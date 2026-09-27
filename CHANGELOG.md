@@ -6,6 +6,23 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.16] - 2026-09-27
+
+### Fixed
+- Made the parent Pi integration command-only: ordinary prompts no longer receive UES shell/MCP interception unless an explicit `/ues-*` command activates UES.
+- `/ues-run`, `ues_execute`, and `/ues-clean` now resolve and require the real Git top-level before creating runtime state, preventing `.ues-cache` / `.ues-traces` spill into parent folders such as `E:\\dev`.
+- Read-only inspections use a dedicated no-write lane, skip writer worktrees and behavioral-receipt gates, and fail if the source workspace fingerprint changes.
+- Structured tasks with no declared write files no longer allocate duplicate Git worktrees.
+- Active owned sandboxes are reclaimed during Pi session shutdown; normal completion/failure cleanup remains in place.
+- `/ues-clean` now removes transient cache, trace, service and dashboard state after sandbox cleanup while preserving durable work, memory, learning and eval state.
+- Trace storage now has bounded per-file, total-size, file-count and age retention.
+- Evidence storage now has byte, entry-count and age quotas with automatic garbage collection.
+- A semantic plan-gate `REVISE` now receives one bounded architect revision and one re-check before being surfaced to the user.
+
+### Validation
+- Added V15.12 regression coverage for Git-root refusal, read-only policy, command-only wiring, bounded trace retention and evidence byte quotas.
+
+
 ## [15.0.0-beta.15] - 2026-09-27
 
 ### UX
