@@ -37,7 +37,7 @@ const CONTRACTS = [
       "taskSandboxOwnerRoot",
       "pi.setSessionName",
       "sessionNameFromUesInput",
-      'uesSessionName("run", task, ctx.cwd)',
+      'uesSessionName("run", task, workspaceRoot)',
       "PACKAGE_VERSION",
       'name: "ues_service"',
       "looksLikeLongRunningServiceCommand",
