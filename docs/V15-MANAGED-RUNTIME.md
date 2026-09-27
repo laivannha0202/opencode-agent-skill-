@@ -117,3 +117,12 @@ Fresh behavioral verification receipts remain the preferred FAST completion proo
 Pi headless/JSON mode keeps protocol stdout clean and extension/application diagnostics may appear on stderr. V15.2 therefore writes direct-controller eval telemetry to stderr and the eval harness parses both stdout and stderr.
 
 This prevents a successful UES implementation from being mislabeled as `controllerUsed=false` merely because telemetry was read from the wrong stream.
+
+
+## V15.10 adaptive stability
+
+The planning watchdog is progress-aware rather than a fixed wall-clock kill switch. Architect and plan-checker retain short initial deadlines, soft-steer toward early machine output, and may receive bounded deadline extensions only when recent activity is observed. Idle timeouts remain independent and an absolute deadline always wins.
+
+Architect structured planning is JSON-first. A complete graph emitted before a late transport timeout can be recovered only through deterministic normalization/validation and must still pass the independent plan-checker.
+
+High-risk execution and verification retain the original evidence ceiling. Only read-only planning context is role-bounded to reduce first-token latency and duplicate repository ingestion.
