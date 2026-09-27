@@ -6,6 +6,18 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.15] - 2026-09-27
+
+### UX
+- Keep Pi session identity aligned with the active UES task instead of leaving the sidebar named after an earlier chat message such as `xin chào`.
+- `/ues-run` now sets a deterministic, bounded session name from the engineering task without an extra model call.
+- Prompt-style UES commands such as `/ues-resume`, `/ues-fix`, `/ues-review`, and related aliases synchronize the session name through Pi's input hook.
+- UI title synchronization is best-effort and does not affect controller execution when unavailable.
+
+### Validation
+- Added V15.11 tests for deterministic bounded titles, Windows workspace paths, non-UES input isolation, and Pi extension wiring to `setSessionName`.
+
+
 ## [15.0.0-beta.14] - 2026-09-27
 
 ### Fixed
