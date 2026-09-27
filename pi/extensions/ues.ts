@@ -1421,7 +1421,7 @@ async function runRoutedAgent(
   contextCacheNamespace?: string,
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
-  const traceRoot = resolveGitWorkspaceRoot(cwd).root || path.resolve(cwd);
+  const traceRoot = requireGitWorkspaceRoot(cwd, "UES specialist");
   const browserRequested = browserEvidenceNeeded(task, role);
   const browserTools = browserRequested
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
@@ -2709,6 +2709,27 @@ export default function (pi: ExtensionAPI) {
 
   let directControllerAbort: AbortController | null = null;
   let promptUesActive = false;
+  const UES_PARENT_TOOL_NAMES = new Set(["ues_cli", "ues_execute", "ues_service", "ues_dispatch"]);
+  let normalActiveTools: string[] | null = null;
+
+  const currentNonUesTools = () =>
+    pi.getActiveTools().filter((name) => !UES_PARENT_TOOL_NAMES.has(String(name)));
+
+  const deactivateParentUesTools = () => {
+    const normal = currentNonUesTools();
+    normalActiveTools = normal;
+    try { pi.setActiveTools(normal); } catch {}
+  };
+
+  const activateParentUesTools = () => {
+    const normal = normalActiveTools || currentNonUesTools();
+    const registered = new Set(
+      (typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [])
+        .map((tool: any) => String(tool?.name || "")),
+    );
+    const uesTools = [...UES_PARENT_TOOL_NAMES].filter((name) => registered.has(name));
+    try { pi.setActiveTools([...new Set([...normal, ...uesTools])]); } catch {}
+  };
 
   const uesModeActive = () =>
     promptUesActive || Boolean(directControllerAbort && !directControllerAbort.signal.aborted);
@@ -2719,10 +2740,15 @@ export default function (pi: ExtensionAPI) {
     try { ctx?.ui?.setTitle?.(name); } catch {}
   };
 
+  pi.on("session_start", async () => {
+    deactivateParentUesTools();
+  });
+
   pi.on("session_shutdown", async () => {
     directControllerAbort?.abort();
     directControllerAbort = null;
     promptUesActive = false;
+    normalActiveTools = null;
     CONTEXT_PACK_CACHE.clear();
     clearSkillCompilerCache();
     clearAffectedTestCache();
@@ -2751,6 +2777,7 @@ export default function (pi: ExtensionAPI) {
     if (sessionName) syncSessionIdentity(sessionName, ctx);
     if (/^\/ues-(?:resume|fix|feature|debug|review|audit|plan|research|critique|verify)(?:\s|$)/i.test(text)) {
       promptUesActive = true;
+      activateParentUesTools();
     }
 
     if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
@@ -2797,6 +2824,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", async () => {
     promptUesActive = false;
+    deactivateParentUesTools();
   });
 
   pi.on("tool_call", async (event, ctx) => {
@@ -2862,7 +2890,7 @@ export default function (pi: ExtensionAPI) {
       cwd: Type.Optional(Type.String({ description: "Working directory; defaults to the current Pi cwd" })),
     }),
     async execute(_toolCallId, params, signal, _onUpdate, ctx) {
-      const cwd = path.resolve(params.cwd || ctx.cwd);
+      const cwd = requireGitWorkspaceRoot(params.cwd || ctx.cwd, "ues_cli");
       const separator = params.args.indexOf("--");
       if (separator >= 0 && separator < params.args.length - 1) {
         const command = params.args.slice(separator + 1).join(" ");
@@ -2948,17 +2976,22 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
+        const hostCwd = path.resolve(ctx.cwd);
+        const serviceRoot = requireGitWorkspaceRoot(hostCwd, "ues_service");
+        const requestedServiceCwd = params.cwd
+          ? path.relative(serviceRoot, path.resolve(hostCwd, params.cwd)) || "."
+          : path.relative(serviceRoot, hostCwd) || ".";
         let result: any;
         if (params.action === "start") {
           if (!params.command) throw new Error("ues_service start requires command");
           const riskText = [params.command, ...(params.args || [])].join(" ");
           const risk = destructiveShellRisk(riskText);
           if (risk.risky) throw new Error(`UES service safety blocked ${risk.id || "destructive"} command`);
-          result = await startService(ctx.cwd, {
+          result = await startService(serviceRoot, {
             name: params.name,
             command: params.command,
             args: params.args || [],
-            cwd: params.cwd,
+            cwd: requestedServiceCwd,
             readyPort: params.readyPort,
             readyHost: params.readyHost,
             readyLog: params.readyLog,
@@ -2967,15 +3000,15 @@ export default function (pi: ExtensionAPI) {
             idleTimeoutMs: params.idleTimeoutMs,
           });
         } else if (params.action === "wait-ready") {
-          result = await waitForService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+          result = await waitForService(serviceRoot, params.name, { timeoutMs: params.timeoutMs });
         } else if (params.action === "status") {
-          result = await serviceStatus(ctx.cwd, params.name);
+          result = await serviceStatus(serviceRoot, params.name);
         } else if (params.action === "logs") {
-          result = await serviceLogs(ctx.cwd, params.name, { maxChars: params.maxChars, evidence: true });
+          result = await serviceLogs(serviceRoot, params.name, { maxChars: params.maxChars, evidence: true });
         } else if (params.action === "stop") {
-          result = await stopService(ctx.cwd, params.name, { timeoutMs: params.timeoutMs });
+          result = await stopService(serviceRoot, params.name, { timeoutMs: params.timeoutMs });
         } else if (params.action === "restart") {
-          result = await restartService(ctx.cwd, params.name, {
+          result = await restartService(serviceRoot, params.name, {
             timeoutMs: params.timeoutMs,
             lifetimeMs: params.lifetimeMs,
             idleTimeoutMs: params.idleTimeoutMs,
@@ -3853,6 +3886,9 @@ export default function (pi: ExtensionAPI) {
         "Adaptive context: " + (ADAPTIVE_CONTEXT_ENABLED ? "on" : "off"),
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
+        "Command-only parent tools: on",
+        "Git-root artifact guard: on",
+        "Disk hygiene: bounded + auto-clean",
       ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",
