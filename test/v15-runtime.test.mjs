@@ -220,9 +220,14 @@ test("V15 managed service starts, proves readiness, captures evidence and stops"
 })
 
 test("V15 service runtime state is excluded from source-facing scans", async () => {
+  const fingerprint = await readFile(path.join(root, "lib", "workspace-fingerprint.mjs"), "utf8")
+  const artifacts = await readFile(path.join(root, "lib", "runtime-artifacts.mjs"), "utf8")
+  assert.match(fingerprint, /UES_RUNTIME_DIRS/)
+  assert.match(fingerprint, /runtime-artifacts\.mjs/)
+  assert.match(artifacts, /\.ues-services/)
+
   for (const file of [
     ".gitignore",
-    "lib/workspace-fingerprint.mjs",
     "lib/semantic-index.mjs",
     "lib/repo-graph.mjs",
     "lib/affected-tests.mjs",
@@ -237,6 +242,8 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   const parent = await readFile(path.join(root, "pi", "extensions", "ues.ts"), "utf8")
   const child = await readFile(path.join(root, "pi", "extensions", "ues-child-runtime.ts"), "utf8")
   const evalPi = await readFile(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
+  const rpcPool = await readFile(path.join(root, "lib", "pi-rpc-pool.mjs"), "utf8")
+  const architectPrompt = await readFile(path.join(root, "global-config", "agents", "architect.md"), "utf8")
 
   assert.match(parent, /pi\.registerCommand\("ues-status"/)
   assert.match(parent, /pi\.registerCommand\("ues-run"/)
@@ -280,6 +287,18 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /Do not inventory the repository/)
   assert.match(parent, /DEEP efficiency rule/)
   assert.match(parent, /STRICT JSON CONTRACT/)
+  assert.match(parent, /extractValidatedPlan/)
+  assert.match(parent, /absoluteHardTimeoutMs/)
+  assert.match(parent, /activityExtensionMs/)
+  assert.match(parent, /UES planning salvage/)
+  assert.match(parent, /first substantive output/)
+  assert.match(parent, /partialOutput/)
+  assert.match(rpcPool, /createAdaptiveDeadline/)
+  assert.match(rpcPool, /absoluteHardTimeoutMs/)
+  assert.match(rpcPool, /partialAssistantMessage/)
+  assert.match(rpcPool, /rich timeout error before transport teardown/)
+  assert.match(architectPrompt, /machine-first planning mode/)
+  assert.match(architectPrompt, /before the prose sections/)
   assert.match(parent, /riskNotes/)
   assert.match(parent, /TURBO_FAST_TIMEOUTS/)
   assert.match(parent, /"ues_service"/)
