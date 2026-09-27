@@ -83,6 +83,10 @@ const CHILD_RUNTIME_EXTENSION = path.join(PACKAGE_ROOT, "pi", "extensions", "ues
 const AGENT_DIR = path.join(PACKAGE_ROOT, "global-config", "agents");
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
+const MAX_WRITER_CONCURRENCY = Math.max(
+  1,
+  Math.min(4, Number(process.env.UES_MAX_WRITER_CONCURRENCY || (process.platform === "win32" ? 2 : 3))),
+);
 const OUTPUT_LIMIT = 512 * 1024;
 
 function configuredDuration(name: string, fallback: number, min: number, max: number) {
@@ -2056,9 +2060,15 @@ async function executeStructuredPlan(input: {
         }
 
         let completed = 0;
+        const writerCount = prepared.filter((item) => item.writeFiles.length > 0).length;
+        const waveConcurrency = !gitCapable
+          ? 1
+          : writerCount > 0
+            ? Math.min(MAX_CONCURRENCY, MAX_WRITER_CONCURRENCY)
+            : MAX_CONCURRENCY;
         const waveResults = await mapLimit(
           prepared,
-          gitCapable ? MAX_CONCURRENCY : 1,
+          waveConcurrency,
           async (item) => {
             const taskText = [
               "Execute exactly this structured plan task.",
@@ -3894,6 +3904,7 @@ export default function (pi: ExtensionAPI) {
         "Command-only parent tools: on",
         "Git-root artifact guard: on",
         "Disk hygiene: bounded + auto-clean",
+        "Writer concurrency: " + MAX_WRITER_CONCURRENCY,
       ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",
@@ -4288,7 +4299,11 @@ export default function (pi: ExtensionAPI) {
       }
 
       let completed = 0;
-      const results = await mapLimit(tasks, MAX_CONCURRENCY, async (item) => {
+      const dispatchHasWriters = tasks.some((item) => WRITE_AGENTS.has(item.agent));
+      const dispatchConcurrency = dispatchHasWriters
+        ? Math.min(MAX_CONCURRENCY, MAX_WRITER_CONCURRENCY)
+        : MAX_CONCURRENCY;
+      const results = await mapLimit(tasks, dispatchConcurrency, async (item) => {
         const result = await runRoutedAgent(
           item.agent as AgentName,
           item.task,
