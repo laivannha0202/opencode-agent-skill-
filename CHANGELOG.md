@@ -6,6 +6,26 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.11] - 2026-09-27
+
+### Reliability
+- Added V15.10 Adaptive Stability Runtime. Planning workers now start with a short deadline that may extend only when recent activity proves forward progress, while an absolute cap still prevents indefinite runs.
+- RPC timeout errors preserve partial assistant output and deadline diagnostics before transport teardown, allowing completed structured output to survive a late timeout.
+- Architect planning can salvage only repository task graphs that still pass the existing deterministic plan validator; incomplete or invalid JSON remains fail-closed.
+- Architect emits `UES_PLAN_JSON` before optional prose in structured planning mode so the machine-consumable graph is available as early as possible.
+- CLI child fallback uses the same activity-aware deadline semantics as RPC to prevent runtime drift between child modes.
+
+### Performance
+- Read-only architect/plan-checker context is role-bounded even for high-risk DEEP work. Executor/verifier/integration roles continue to keep the full high-risk evidence budget.
+- DEEP architect starts at 60s but may extend while active up to a bounded 150s ceiling; recovery is shorter. Plan-checker uses the same bounded-extension model.
+- Workspace fingerprinting now shares the central UES runtime-artifact contract instead of maintaining a duplicate runtime-directory list.
+
+### Safety
+- Activity extension never bypasses the idle watchdog or the absolute deadline.
+- A salvaged plan must pass `normalizePlanForValidation` + `validatePlan` and still pass the independent plan-checker before any structured write execution.
+- High-risk execution evidence budgets were not reduced; only read-only planning context was bounded.
+
+
 ## [15.0.0-beta.10] - 2026-09-27
 
 ### Fixed
