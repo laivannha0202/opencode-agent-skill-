@@ -21,6 +21,12 @@ const CONTRACTS = [
       "auditCompletion",
       'pi.registerCommand("ues-status"',
       'pi.registerCommand("ues-run"',
+      "UES is command-only",
+      "requireGitWorkspaceRoot",
+      "read-only-workspace-mutated",
+      "auto-revised the rejected plan",
+      "Removed transient runtime dirs",
+      "taskSandboxOwnerRoot",
       "pi.setSessionName",
       "sessionNameFromUesInput",
       'uesSessionName("run", task, ctx.cwd)',
@@ -133,7 +139,7 @@ const CONTRACTS = [
     file: "lib/evidence-store.mjs",
     minBytes: 7_500,
     startsWith: "import ",
-    required: ["putEvidence", "getEvidence", "getEvidenceSelected"],
+    required: ["putEvidence", "getEvidence", "getEvidenceSelected", "DEFAULT_MAX_STORE_BYTES", "maxBytes", "AUTO_GC_EVERY_WRITES"],
   },
   {
     file: "lib/process-supervisor.mjs",
@@ -179,6 +185,17 @@ const CONTRACTS = [
       ".ues-cache",
       ".ues-services",
       ".ues-work",
+    ],
+  },
+  {
+    file: "lib/workspace-root.mjs",
+    minBytes: 900,
+    startsWith: 'import { spawnSync }',
+    required: [
+      "resolveGitWorkspaceRoot",
+      "requireGitWorkspaceRoot",
+      "--show-toplevel",
+      "Refusing to create UES runtime artifacts",
     ],
   },
   {
@@ -246,6 +263,7 @@ const CONTRACTS = [
     startsWith: "import ",
     required: [
       "pruneOrphanTaskSandboxes",
+      "taskSandboxOwnerRoot",
       "ownerPid",
       "owner-alive",
       "legacyMinAgeMs",
