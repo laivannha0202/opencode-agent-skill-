@@ -10,6 +10,7 @@ The project follows Semantic Versioning.
 
 ### Fixed
 - Made the parent Pi integration command-only: ordinary prompts no longer receive UES shell/MCP interception unless an explicit `/ues-*` command activates UES.
+- Parent `ues_*` tools are inactive and hidden from normal model turns by default; prompt-style `/ues-*` commands activate them only for that UES turn and restore the normal Pi tool set afterward.
 - `/ues-run`, `ues_execute`, and `/ues-clean` now resolve and require the real Git top-level before creating runtime state, preventing `.ues-cache` / `.ues-traces` spill into parent folders such as `E:\\dev`.
 - Read-only inspections use a dedicated no-write lane, skip writer worktrees and behavioral-receipt gates, and fail if the source workspace fingerprint changes.
 - Structured tasks with no declared write files no longer allocate duplicate Git worktrees.
