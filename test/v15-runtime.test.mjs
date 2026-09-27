@@ -243,6 +243,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   const child = await readFile(path.join(root, "pi", "extensions", "ues-child-runtime.ts"), "utf8")
   const evalPi = await readFile(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
   const rpcPool = await readFile(path.join(root, "lib", "pi-rpc-pool.mjs"), "utf8")
+  const worktreeSandbox = await readFile(path.join(root, "lib", "worktree-sandbox.mjs"), "utf8")
   const architectPrompt = await readFile(path.join(root, "global-config", "agents", "architect.md"), "utf8")
 
   assert.match(parent, /pi\.registerCommand\("ues-status"/)
@@ -279,6 +280,10 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /plan-checker budget reached/)
   assert.match(parent, /sourceFacingPaths/)
   assert.match(parent, /sourceGitPathspecs/)
+  assert.match(parent, /sandboxIntentToAddSourceFiles/)
+  assert.match(parent, /"ls-files", "--others", "--exclude-standard", "-z"/)
+  assert.match(worktreeSandbox, /intentToAddSourceFiles/)
+  assert.match(worktreeSandbox, /"ls-files",\s*"--others",\s*"--exclude-standard",\s*"-z"/)
   assert.match(parent, /changed real source files outside declared write scope/)
   assert.match(parent, /Do not silently broaden scope/)
   assert.match(parent, /failureByTask\.set\(String\(item\.task\.id\)/)
