@@ -57,6 +57,7 @@ import {
   removeTaskSandbox,
   rollbackTaskSandbox,
   pruneOrphanTaskSandboxes,
+  taskSandboxOwnerRoot,
 } from "../../lib/worktree-sandbox.mjs";
 import {
   looksLikeLongRunningServiceCommand,
@@ -2731,6 +2732,12 @@ export default function (pi: ExtensionAPI) {
     abortActiveCliChildren();
     await stopAllServices().catch(() => []);
     await RPC_POOL.stopAll().catch(() => {});
+    for (const dir of [...ACTIVE_TASK_SANDBOXES.keys()]) {
+      const ownerRoot = await taskSandboxOwnerRoot(dir).catch(() => null);
+      if (!ownerRoot) continue;
+      await removeTaskSandbox(ownerRoot, dir, { force: true, deleteBranch: true }).catch(() => {});
+      ACTIVE_TASK_SANDBOXES.delete(dir);
+    }
   });
 
   pi.on("input", async (event, ctx) => {
@@ -3860,6 +3867,10 @@ export default function (pi: ExtensionAPI) {
   pi.registerCommand("ues-clean", {
     description: "Safely remove stale UES task sandboxes and orphan metadata for the current repository",
     handler: async (_args, ctx) => {
+      if (uesModeActive()) {
+        try { ctx.ui.notify("UES cleanup refused while a UES task is active", "warning"); } catch {}
+        return;
+      }
       let workspaceRoot: string;
       try {
         workspaceRoot = requireGitWorkspaceRoot(ctx.cwd, "/ues-clean");
@@ -3889,11 +3900,22 @@ export default function (pi: ExtensionAPI) {
       const removed = Number(cleanup?.removed?.length || 0);
       const sidecars = Number(cleanup?.sidecarsRemoved?.length || 0);
       const skipped = Number(cleanup?.skipped?.length || 0);
+      await stopAllServices(workspaceRoot).catch(() => []);
+      const transientDirs = [".ues-cache", ".ues-traces", ".ues-services", ".ues-dashboard"];
+      const removedRuntimeDirs: string[] = [];
+      for (const name of transientDirs) {
+        const target = path.join(workspaceRoot, name);
+        if (!fs.existsSync(target)) continue;
+        await fs.promises.rm(target, { recursive: true, force: true }).catch(() => {});
+        if (!fs.existsSync(target)) removedRuntimeDirs.push(name);
+      }
       const text = [
         "UES cleanup complete.",
         "Removed sandboxes: " + removed,
         "Removed orphan metadata: " + sidecars,
+        "Removed transient runtime dirs: " + (removedRuntimeDirs.join(", ") || "none"),
         "Protected/recent entries kept: " + skipped,
+        "Preserved durable state: .ues-work, .ues-memory, .ues-learning, .ues-evals",
         cleanup?.baseRemoved ? "Sandbox base directory removed because it is empty." : "",
         cleanup?.error ? "Error: " + cleanup.error : "",
       ].filter(Boolean).join("\n");
@@ -3901,9 +3923,14 @@ export default function (pi: ExtensionAPI) {
         customType: "ues-cleanup-result",
         content: text,
         display: true,
-        details: cleanup,
+        details: { ...cleanup, removedRuntimeDirs },
       }, { triggerTurn: false });
-      try { ctx.ui.notify("UES cleanup removed " + (removed + sidecars) + " stale artifact(s)", "info"); } catch {}
+      try {
+        ctx.ui.notify(
+          "UES cleanup removed " + (removed + sidecars + removedRuntimeDirs.length) + " stale/transient artifact group(s)",
+          "info",
+        );
+      } catch {}
     },
   });
 
