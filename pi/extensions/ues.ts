@@ -24,6 +24,7 @@ import {
 } from "../../lib/process-hang-detector.mjs";
 import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
 import { PiRpcWorkerPool } from "../../lib/pi-rpc-pool.mjs";
+import { resolvePiChildInvocation } from "../../lib/pi-child-invocation.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-compiler.mjs";
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
@@ -297,16 +298,8 @@ function getAgentPrompt(agent: AgentName) {
 }
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
-  const currentScript = process.argv[1];
-  const isBunVirtualScript = currentScript?.startsWith("/$bunfs/root/");
-  if (currentScript && !isBunVirtualScript && fs.existsSync(currentScript)) {
-    return { command: process.execPath, args: [currentScript, ...args] };
-  }
-
-  const execName = path.basename(process.execPath).toLowerCase();
-  const isGenericRuntime = /^(node|bun)(\.exe)?$/.test(execName);
-  if (!isGenericRuntime) return { command: process.execPath, args };
-  return { command: "pi", args };
+  const invocation = resolvePiChildInvocation(args);
+  return { command: invocation.command, args: invocation.args };
 }
 
 function extractAssistantText(message: any): string {
