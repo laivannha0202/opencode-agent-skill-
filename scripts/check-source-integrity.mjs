@@ -379,6 +379,19 @@ const CONTRACTS = [
     required: ["diagnoseCode", "lspProviderStatus", "publishDiagnostics"],
   },
   {
+    file: "lib/execution-contract.mjs",
+    minBytes: 8_000,
+    startsWith: "import ",
+    required: [
+      "captureInheritedDirtyState",
+      "taskExplicitlyAllowsLocalEnvWrite",
+      "enforcePhaseGates",
+      "executionContractPrompt",
+      "buildFinalVerdictMatrix",
+      "phaseArtifactPayloads",
+    ],
+  },
+  {
     file: "lib/completion-auditor.mjs",
     minBytes: 2_500,
     startsWith: "function text",
