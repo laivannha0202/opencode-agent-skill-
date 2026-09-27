@@ -144,6 +144,25 @@ test("non-FAST debugging can diagnose before the first patch", () => {
   assert.equal(shouldRunDedicatedDiagnosis(policy, 1), true)
 })
 
+test("V15.3 long-horizon generic fix wording skips redundant pre-plan diagnosis", () => {
+  const policy = classifyEngineeringTask(
+    "Fix all remaining issues across the entire project, preserve existing behavior, run integration verification, and ensure there are no regressions.",
+  )
+  assert.equal(policy.mode, "long-horizon")
+  assert.equal(policy.requirePlanCheck, true)
+  assert.equal(policy.diagnosisEvidence, false)
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 1), false)
+})
+
+test("V15.3 concrete failure evidence keeps first-pass diagnosis", () => {
+  const policy = classifyEngineeringTask(
+    "Fix the entire checkout flow. The failure affects multiple callers and the test currently fails with AssertionError: expected paid but actual pending.",
+  )
+  assert.equal(policy.mode, "long-horizon")
+  assert.equal(policy.diagnosisEvidence, true)
+  assert.equal(shouldRunDedicatedDiagnosis(policy, 1), true)
+})
+
 test("non-debug tasks never spawn a dedicated debugger", () => {
   const policy = classifyEngineeringTask("Rename a local helper.")
   assert.equal(shouldRunDedicatedDiagnosis(policy, 1), false)
