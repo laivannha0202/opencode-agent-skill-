@@ -3543,6 +3543,42 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand("ues-clean", {
+    description: "Safely remove stale UES task sandboxes and orphan metadata for the current repository",
+    handler: async (_args, ctx) => {
+      const cleanup = await pruneOrphanTaskSandboxes(ctx.cwd, {
+        minAgeMs: 5 * 60_000,
+        legacyMinAgeMs: 30 * 60_000,
+        ownedMinAgeMs: 0,
+        reclaimOwnerPid: process.pid,
+        protectedDirs: [...ACTIVE_TASK_SANDBOXES.keys()],
+      }).catch((error) => ({
+        removed: [],
+        skipped: [],
+        sidecarsRemoved: [],
+        error: error instanceof Error ? error.message : String(error),
+      }));
+      const removed = Number(cleanup?.removed?.length || 0);
+      const sidecars = Number(cleanup?.sidecarsRemoved?.length || 0);
+      const skipped = Number(cleanup?.skipped?.length || 0);
+      const text = [
+        "UES cleanup complete.",
+        "Removed sandboxes: " + removed,
+        "Removed orphan metadata: " + sidecars,
+        "Protected/recent entries kept: " + skipped,
+        cleanup?.baseRemoved ? "Sandbox base directory removed because it is empty." : "",
+        cleanup?.error ? "Error: " + cleanup.error : "",
+      ].filter(Boolean).join("\n");
+      pi.sendMessage({
+        customType: "ues-cleanup-result",
+        content: text,
+        display: true,
+        details: cleanup,
+      }, { triggerTurn: false });
+      try { ctx.ui.notify("UES cleanup removed " + (removed + sidecars) + " stale artifact(s)", "info"); } catch {}
+    },
+  });
+
   pi.registerCommand("ues-run", {
     description: "Run an engineering task directly through the deterministic UES controller",
     handler: async (args, ctx) => {
