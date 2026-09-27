@@ -6,6 +6,24 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.7] - 2026-09-27
+
+### Performance
+- Added V15.6 Fast Planning: architect first-pass planning is bounded to a 60s hard timeout and 25s idle timeout, with a 30s soft-steer / 16-tool exploration cap that asks the worker to stop scanning and emit UES_PLAN_JSON immediately.
+- Plan-checker is bounded independently (45s hard / 20s idle) without changing executor/verifier budgets.
+- Invalid or timed-out architecture passes get one bounded recovery attempt using the same stable task/context cache namespace instead of restarting repository discovery.
+- Architect cache keys use the base planning budget across recovery attempts so warm context survives escalation.
+
+### Reliability
+- New task sandboxes record an owner PID lease. Before a controller run, UES prunes sufficiently old UES worktrees whose recorded owner process is dead.
+- Legacy sandboxes without an owner lease are conservatively retained for a longer grace period to avoid deleting another live session.
+- A valid structured plan emitted before transport timeout is accepted into the independent plan-checker gate instead of being discarded solely because the child exited non-zero after emission.
+
+### Safety
+- Fast planning remains fail-closed: if the bounded recovery still cannot produce a valid deterministic graph, execution stops rather than fabricating a plan.
+- Executor, verifier, integration verification, scope/conflict checks, and final completion gates retain their existing budgets and semantics.
+
+
 ## [15.0.0-beta.6] - 2026-09-27
 
 ### Performance
