@@ -35,6 +35,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
+import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
@@ -376,6 +377,80 @@ async function runOcskillJson(args: string[], cwd: string, signal?: AbortSignal)
       cap(text, 6000),
     );
   }
+}
+
+async function persistExecutionContractArtifacts(dir: string, contract: any) {
+  if (!contract || !dir) return null;
+  const phasesDir = path.join(dir, "phases");
+  await fs.promises.mkdir(phasesDir, { recursive: true });
+  await fs.promises.writeFile(
+    path.join(dir, "EXECUTION_CONTRACT.json"),
+    JSON.stringify(contract, null, 2) + "\n",
+    "utf8",
+  );
+  await fs.promises.writeFile(
+    path.join(phasesDir, "MANIFEST.json"),
+    JSON.stringify({
+      schemaVersion: 1,
+      taskHash: contract.taskHash,
+      phaseCount: contract.phases?.length || 0,
+      artifacts: phaseArtifactPayloads(contract).map((item: any) => item.file),
+    }, null, 2) + "\n",
+    "utf8",
+  );
+  for (const item of phaseArtifactPayloads(contract)) {
+    const target = path.join(dir, item.file);
+    await fs.promises.mkdir(path.dirname(target), { recursive: true });
+    await fs.promises.writeFile(target, JSON.stringify(item.value, null, 2) + "\n", "utf8");
+  }
+  return {
+    contract: path.join(dir, "EXECUTION_CONTRACT.json"),
+    manifest: path.join(phasesDir, "MANIFEST.json"),
+    phaseCount: contract.phases?.length || 0,
+  };
+}
+
+async function finalizeExecutionContractArtifacts(
+  dir: string,
+  contract: any,
+  verdictMatrix: any,
+  evidence: string,
+) {
+  if (!dir || !contract) return null;
+  const payload = {
+    schemaVersion: 1,
+    verdictMatrix,
+    evidence: cap(evidence || "", 12000),
+    finalizedAt: new Date().toISOString(),
+  };
+  await fs.promises.writeFile(
+    path.join(dir, "FINAL_VERDICTS.json"),
+    JSON.stringify(payload, null, 2) + "\n",
+    "utf8",
+  );
+
+  for (const item of phaseArtifactPayloads(contract)) {
+    const phaseText = String(item.value.title || "") + "\n" + String(item.value.sourceBody || "");
+    let status = verdictMatrix?.source === "SOURCE_PASS" ? "VERIFIED" : "NOT_VERIFIED";
+    if (/device|expo go|thiết bị/i.test(phaseText) && verdictMatrix?.device !== "DEVICE_PASS") {
+      status = "NOT_VERIFIED";
+    }
+    if (/(?:cleanup|fixture|database|db|dữ liệu)/i.test(phaseText) && contract.gates?.dbClean === true && verdictMatrix?.dbClean !== "DB_CLEAN_PASS") {
+      status = "NOT_VERIFIED";
+    }
+    const target = path.join(dir, item.file);
+    await fs.promises.writeFile(
+      target,
+      JSON.stringify({
+        ...item.value,
+        status,
+        finalVerdicts: verdictMatrix,
+        evidence: [cap(evidence || "", 6000)],
+      }, null, 2) + "\n",
+      "utf8",
+    );
+  }
+  return payload;
 }
 
 async function initializeDurableControllerWork(
