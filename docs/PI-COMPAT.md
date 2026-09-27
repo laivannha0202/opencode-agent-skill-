@@ -96,6 +96,18 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.12 Safe Autopilot + Disk Hygiene
+
+UES is command-only by default in the parent Pi session. Ordinary prompts and non-UES tools continue through Pi without UES shell/MCP interception. Explicit `/ues-*` commands activate UES for that turn/run, and prompt-style UES turns deactivate again at `agent_end`.
+
+`/ues-run`, `ues_execute`, and `/ues-clean` fail closed unless their working directory resolves inside a Git worktree. The runtime canonicalizes to the Git top-level before creating cache, trace, sandbox, or durable state, preventing accidental artifact spill into parent folders such as `E:\\dev`.
+
+Read-only tasks use a dedicated inspection policy: no writer worktree, no behavioral-receipt requirement, no integration gate, and a before/after source fingerprint check. Structured read-only leaves run in the root workspace and never allocate duplicate Git worktrees.
+
+Runtime storage is bounded. Trace files are rotated/pruned by file count, total bytes, per-file size, and age. Evidence cache uses entry, age, and byte quotas with automatic garbage collection. Active task sandboxes are reclaimed on session shutdown, and `/ues-clean` removes transient `.ues-cache`, `.ues-traces`, `.ues-services`, and `.ues-dashboard` directories while preserving durable `.ues-work`, memory, learning, and eval state.
+
+A semantic `REVISE` from the plan checker now receives one bounded architect revision and one re-check before UES surfaces the failure to the user. This keeps fail-closed verification while avoiding needless manual prompt retries.
+
 ## V15.11 Session Identity Sync
 
 UES keeps Pi session metadata aligned with the active engineering command instead of leaving the session selector named after an earlier conversational message. `/ues-run` derives a bounded deterministic session name from the task without an extra model call. Prompt-style commands such as `/ues-resume`, `/ues-fix`, `/ues-review`, and related UES aliases synchronize through Pi's interactive input hook.
