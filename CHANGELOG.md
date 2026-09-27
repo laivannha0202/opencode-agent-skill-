@@ -6,6 +6,13 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.12] - 2026-09-27
+
+### Fixed
+- Corrected the shared runtime-artifact import in `lib/workspace-fingerprint.mjs` from the accidental `UES_UES_RUNTIME_DIRS` name to the exported `UES_RUNTIME_DIRS`.
+- This hotfix restores CLI/module startup for the V15.10 Adaptive Stability Runtime without changing its planning, verification, or safety behavior.
+
+
 ## [15.0.0-beta.11] - 2026-09-27
 
 ### Reliability
