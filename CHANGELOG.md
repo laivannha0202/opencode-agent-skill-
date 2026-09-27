@@ -6,6 +6,17 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.18] - 2026-09-27
+
+### Fixed
+- Added a deterministic fast path for command-only READ-ONLY Git inspections so weak verifier models cannot fail a valid run merely by omitting the report template or final verdict.
+- Whitelisted commands are executed directly through the supervised process runner and are accepted only when every command exits 0 and the source-facing workspace fingerprint is unchanged.
+- Unknown Git commands fail closed to the existing model-backed verifier path instead of being guessed or executed.
+- Strengthened the model-backed read-only prompt with the exact required report sections and final UES verdict format.
+
+### Validation
+- Added regression coverage for the exact Vietnamese read-only request using git status, git branch --show-current, and git rev-parse HEAD, plus fail-closed coverage for an unrecognized git log command.
+
 ## [15.0.0-beta.16] - 2026-09-27
 
 ### Fixed
