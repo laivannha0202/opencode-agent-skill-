@@ -75,34 +75,54 @@ test("V15.12 read-only policy avoids writer worktrees and behavioral receipts", 
   assert.equal(policy.profile.verification, "command-evidence")
 })
 
-test("V15.17 auto-admits engineering tasks without requiring /ues-run", () => {
-  assert.equal(
-    automaticUesAdmission(
-      "Hãy sửa lỗi API trong repository này, chạy test và kiểm tra git diff.",
-      { inGitWorkspace: true },
-    ).admit,
-    true,
+test("V15.18 auto routing is conservative across native, auto and high-risk lanes", () => {
+  const normal = automaticUesAdmission(
+    "Hãy sửa lỗi API trong repository này, chạy test và kiểm tra git diff.",
+    { inGitWorkspace: true },
   )
-  assert.equal(
-    automaticUesAdmission(
-      "Bạn đang làm việc trên project AgriMarket.\nPHASE 0 — AUDIT SOURCE\nKiểm tra repository rồi sửa triệt để dữ liệu test bị lọt ra public.\n" +
-        "Yêu cầu này có nhiều phase, database, mobile, API, test và final report.".repeat(8),
-      { inGitWorkspace: true },
-    ).admit,
-    true,
+  assert.equal(normal.admit, true)
+  assert.equal(normal.route, "auto")
+  assert.equal(normal.confidence, "medium")
+
+  const health = automaticUesAdmission(
+    "Xem project này có lỗi gì không, kiểm tra build và test giúp tôi.",
+    { inGitWorkspace: true },
   )
-  assert.equal(automaticUesAdmission("xin chào", { inGitWorkspace: true }).admit, false)
+  assert.equal(health.admit, true)
+  assert.equal(health.route, "auto")
+
+  const long = automaticUesAdmission(
+    "Bạn đang làm việc trên project AgriMarket.\nPHASE 0 — AUDIT SOURCE\nKiểm tra repository rồi sửa triệt để dữ liệu test bị lọt ra public.\n" +
+      "Yêu cầu này có nhiều phase, database, mobile, API, test và final report.".repeat(8),
+    { inGitWorkspace: true },
+  )
+  assert.equal(long.admit, true)
+  assert.equal(long.confidence, "high")
+
+  const guarded = automaticUesAdmission(
+    "Sửa database migration production này và chạy integration test đầy đủ.",
+    { inGitWorkspace: true },
+  )
+  assert.equal(guarded.admit, true)
+  assert.equal(guarded.route, "guarded")
+  assert.equal(guarded.reason, "high-risk-engineering-task")
+
+  assert.equal(automaticUesAdmission("xin chào", { inGitWorkspace: true }).route, "native")
+  assert.equal(
+    automaticUesAdmission("giải thích đoạn code React này hoạt động thế nào", { inGitWorkspace: true }).route,
+    "native",
+  )
   assert.equal(
     automaticUesAdmission("theo bạn hệ thống này ổn không", { inGitWorkspace: true }).admit,
     false,
   )
   assert.equal(
-    automaticUesAdmission("Hãy sửa lỗi API", { inGitWorkspace: false }).admit,
-    false,
+    automaticUesAdmission("Hãy sửa lỗi API", { inGitWorkspace: false }).reason,
+    "not-git-workspace",
   )
   assert.equal(
-    automaticUesAdmission("/ues-run Hãy sửa lỗi API", { inGitWorkspace: true }).admit,
-    false,
+    automaticUesAdmission("/ues-run Hãy sửa lỗi API", { inGitWorkspace: true }).reason,
+    "explicit-command",
   )
 })
 
@@ -390,6 +410,10 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /automaticUesAdmission/)
   assert.match(parent, /directControllerRunner/)
   assert.match(parent, /Zero-friction engineering admission/)
+  assert.match(parent, /native \/ auto \/ high-risk/)
+  assert.match(parent, /admissionDecision/)
+  assert.match(parent, /__taskPolicy/)
+  assert.match(parent, /void directControllerRunner/)
   assert.match(parent, /UES_AUTO_ADMIT/)
   assert.match(parent, /Git-root artifact guard: on/)
   assert.match(parent, /Disk hygiene: bounded \+ auto-clean/)
