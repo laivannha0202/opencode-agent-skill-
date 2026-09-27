@@ -30,6 +30,10 @@ const CONTRACTS = [
       "turboFastPathDecision",
       "deepExplorationContract",
       "resolvePiChildInvocation",
+      "leafTaskPolicy",
+      "failureDelta",
+      "UES Per-Leaf Turbo",
+      "contextCacheNamespace",
       "UES DEEP bounded exploration",
       "DEEP efficiency rule",
       "TURBO_FAST_TIMEOUTS",
@@ -113,6 +117,18 @@ const CONTRACTS = [
     minBytes: 4_500,
     startsWith: "import ",
     required: ["terminateProcessTree", "runSupervisedProcess", "drainTimeoutMs"],
+  },
+  {
+    file: "lib/leaf-runtime-optimizer.mjs",
+    minBytes: 2_000,
+    startsWith: "import ",
+    required: [
+      "leafTaskPolicy",
+      "failureDelta",
+      "rootExecutionProfile",
+      "FAILURE_SIGNAL",
+      "Declared write files",
+    ],
   },
   {
     file: "lib/pi-child-invocation.mjs",
@@ -329,6 +345,7 @@ const CONTRACTS = [
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
+      "V15.5 low-risk single-file leaf becomes FAST inside a DEEP root",
       "V15.4 ACP host never reuses an ACP entrypoint as the Pi child",
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
       "normalizePlanForValidation",
