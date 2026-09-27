@@ -29,6 +29,7 @@ const CONTRACTS = [
       "taskPolicyOverride || classifyEngineeringTask",
       "turboFastPathDecision",
       "deepExplorationContract",
+      "resolvePiChildInvocation",
       "UES DEEP bounded exploration",
       "DEEP efficiency rule",
       "TURBO_FAST_TIMEOUTS",
@@ -112,6 +113,20 @@ const CONTRACTS = [
     minBytes: 4_500,
     startsWith: "import ",
     required: ["terminateProcessTree", "runSupervisedProcess", "drainTimeoutMs"],
+  },
+  {
+    file: "lib/pi-child-invocation.mjs",
+    minBytes: 1_500,
+    startsWith: "import ",
+    required: [
+      "looksLikePiCliEntrypoint",
+      "resolvePiChildInvocation",
+      "@earendil-works/pi-coding-agent",
+      "resolveManagedPiCommand",
+      "resolveWindowsCommand",
+      "host-pi-cli",
+      "managed-pi",
+    ],
   },
   {
     file: "lib/pi-rpc-pool.mjs",
@@ -314,6 +329,7 @@ const CONTRACTS = [
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
+      "V15.4 ACP host never reuses an ACP entrypoint as the Pi child",
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
       "normalizePlanForValidation",
       "STRICT JSON CONTRACT",
