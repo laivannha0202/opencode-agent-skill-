@@ -71,6 +71,57 @@ test("completion auditor rejects narrative PASS without structured proof", () =>
   assert.equal(accepted.passed, true)
 })
 
+test("V15.13 completion audit accepts Vietnamese no-failure and out-of-scope wording", () => {
+  const result = auditCompletion({
+    verification: {
+      exitCode: 0,
+      verdict: "PASS",
+      output: "UES_VERDICT: PASS",
+      report: {
+        valid: true,
+        verdict: "PASS",
+        sections: {
+          "checks-run": "git status; git branch --show-current; git rev-parse HEAD: exit 0",
+          "acceptance-criteria-proven": "Đã chạy đúng 3 lệnh git yêu cầu.",
+          "completion-evidence": "3 lệnh git đã thực thi thành công.",
+          failures: "Không có lệnh git nào bị lỗi.",
+          "unresolved-gaps": "Không kiểm tra nội dung diff cụ thể (không có yêu cầu).",
+          "checks-not-run": "Không kiểm tra diff vì ngoài phạm vi yêu cầu.",
+        },
+      },
+    },
+    workspaceSnapshot: { cacheable: true, fingerprint: "abc", changedFiles: ["dirty.js"] },
+    requireBehavioralReceipt: false,
+  })
+  assert.equal(result.passed, true)
+  assert.ok(result.warnings.includes("verification-reports-out-of-scope-gap"))
+})
+
+test("V15.13 completion audit still rejects a real requested gap", () => {
+  const result = auditCompletion({
+    verification: {
+      exitCode: 0,
+      verdict: "PASS",
+      output: "UES_VERDICT: PASS",
+      report: {
+        valid: true,
+        verdict: "PASS",
+        sections: {
+          "checks-run": "git status: exit 0",
+          "acceptance-criteria-proven": "Only status was checked.",
+          "completion-evidence": "Partial command evidence.",
+          failures: "None.",
+          "unresolved-gaps": "Requested HEAD verification was not run.",
+        },
+      },
+    },
+    workspaceSnapshot: { cacheable: true, fingerprint: "abc", changedFiles: [] },
+    requireBehavioralReceipt: false,
+  })
+  assert.equal(result.passed, false)
+  assert.ok(result.failures.includes("verification-reports-unresolved-gaps"))
+})
+
 test("document ingestion is dependency-free for text and bounded to workspace", async () => {
   const root = await tempDir()
   try {
