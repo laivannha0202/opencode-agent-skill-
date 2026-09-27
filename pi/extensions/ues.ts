@@ -2822,6 +2822,11 @@ export default function (pi: ExtensionAPI) {
     return { action: "continue" };
   });
 
+  pi.on("before_agent_start", async () => {
+    if (uesModeActive()) activateParentUesTools();
+    else deactivateParentUesTools();
+  });
+
   pi.on("agent_end", async () => {
     promptUesActive = false;
     deactivateParentUesTools();
