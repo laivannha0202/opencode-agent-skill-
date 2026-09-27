@@ -34,6 +34,10 @@ const CONTRACTS = [
       "failureDelta",
       "UES Per-Leaf Turbo",
       "contextCacheNamespace",
+      "planningRuntimeBudget",
+      "shouldSoftSteerArchitect",
+      "pruneOrphanTaskSandboxes",
+      "planning fast-stop",
       "UES DEEP bounded exploration",
       "DEEP efficiency rule",
       "TURBO_FAST_TIMEOUTS",
@@ -117,6 +121,18 @@ const CONTRACTS = [
     minBytes: 4_500,
     startsWith: "import ",
     required: ["terminateProcessTree", "runSupervisedProcess", "drainTimeoutMs"],
+  },
+  {
+    file: "lib/planning-speed-policy.mjs",
+    minBytes: 1_500,
+    startsWith: "function bounded",
+    required: [
+      "planningRuntimeBudget",
+      "shouldSoftSteerArchitect",
+      "60_000",
+      "25_000",
+      "maxExplorationTools",
+    ],
   },
   {
     file: "lib/leaf-runtime-optimizer.mjs",
@@ -345,6 +361,8 @@ const CONTRACTS = [
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
+      "V15.6 architect planning is hard-bounded and recovery is tighter",
+      "V15.6 orphan sandbox cleanup removes dead-owner worktrees but preserves live ownership",
       "V15.5 low-risk single-file leaf becomes FAST inside a DEEP root",
       "V15.4 ACP host never reuses an ACP entrypoint as the Pi child",
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
