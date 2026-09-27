@@ -6,6 +6,19 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.10] - 2026-09-27
+
+### Fixed
+- UES runtime artifacts such as `.ues-traces/**`, `.ues-cache/**`, `.ues-services/**`, and `.ues-work/**` no longer count as task source mutations.
+- Structured write-scope checks and same-wave conflict detection now operate on source-facing changes only, preventing trace files from causing false scope/conflict failures.
+- Sandbox integration excludes UES runtime artifacts from generated patches, so controller telemetry/state never leaks back into the target repository through task integration.
+- Dirty-root inheritance also skips UES runtime artifacts to avoid unnecessary worktree churn.
+
+### Safety
+- Real source/config changes are still enforced. For example, `apps/mobile/package.json` remains a real task mutation and still fails write-scope validation unless the task declares it.
+- Runtime artifact filtering is centralized in one contract shared by scope checking and sandbox integration to reduce drift between code paths.
+
+
 ## [15.0.0-beta.9] - 2026-09-27
 
 ### Fixed
