@@ -138,7 +138,7 @@ The verifier contract now requires `None` when no actual failures or requested u
 
 ## V15.12 Safe Autopilot + Disk Hygiene
 
-UES is command-only by default in the parent Pi session. Ordinary prompts and non-UES tools continue through Pi without UES shell/MCP interception, and the parent `ues_*` tools are removed from Pi's active tool set so normal models do not see or accidentally select them. Explicit `/ues-*` prompt commands activate the registered UES tools for that turn, then `agent_end` restores the non-UES tool set. Direct `/ues-run`, `/ues-clean`, and `/ues-status` commands do not need a parent-model tool turn.
+At V15.12, UES became command-only in the parent Pi session: ordinary prompts kept the parent `ues_*` tools hidden, while explicit `/ues-*` commands activated UES for that turn. V15.17 supersedes only the admission UX: confident text engineering tasks can now enter the same controller automatically, while ordinary chat still keeps UES tools hidden. Direct `/ues-run`, `/ues-clean`, and `/ues-status` remain supported.
 
 `/ues-run`, `ues_execute`, `ues_cli`, `ues_service`, specialist dispatch, and `/ues-clean` fail closed unless their working directory resolves inside a Git worktree. The runtime canonicalizes to the Git top-level before creating cache, trace, sandbox, or durable state, preventing accidental artifact spill into parent folders such as `E:\\dev`.
 
