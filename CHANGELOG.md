@@ -6,6 +6,22 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.21] - 2026-09-27
+
+### Added
+- Added deterministic zero-friction admission for normal interactive text engineering prompts inside Git worktrees. Users no longer need to type `/ues-run` for ordinary engineering tasks.
+- Automatic admission routes through the same direct UES controller as `/ues-run`, preserving process supervision, timeout/abort recovery, phase gates, durable state, verification, and cleanup.
+- Added conservative admission rules: greetings, casual discussion, slash commands, non-Git workspaces, and image-bearing prompts stay on the normal Pi path.
+- Added `UES_AUTO_ADMIT=0` / `false` / `off` as an opt-out and surfaced admission state through `/ues-status`.
+
+### Changed
+- Parent UES tools remain hidden during ordinary chat; zero-friction admission invokes the controller directly instead of exposing orchestration tools to the parent model.
+- `/ues-run` remains available as an explicit force-entry/compatibility command but is no longer required for normal text engineering work.
+
+### Validation
+- Added regression coverage for long structured prompts, action+target engineering prompts, read-only engineering prompts, greetings, non-Git workspaces, and explicit slash-command bypass.
+
+
 ## [15.0.0-beta.20] - 2026-09-27
 
 ### Fixed
