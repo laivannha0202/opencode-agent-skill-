@@ -34,6 +34,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
+import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
@@ -2700,6 +2701,19 @@ export default function (pi: ExtensionAPI) {
 
   let directControllerAbort: AbortController | null = null;
 
+  const syncSessionIdentity = (name: string, ctx: any) => {
+    if (!name) return;
+    try { pi.setSessionName(name); } catch {}
+    try { ctx?.ui?.setTitle?.(name); } catch {}
+  };
+
+  pi.on("input", async (event: any, ctx: any) => {
+    if (event?.source === "extension") return;
+    const name = sessionNameFromUesInput(event?.text, ctx?.cwd || "");
+    if (!name) return;
+    syncSessionIdentity(name, ctx);
+  });
+
   pi.on("session_shutdown", async () => {
     directControllerAbort?.abort();
     directControllerAbort = null;
@@ -3767,6 +3781,7 @@ export default function (pi: ExtensionAPI) {
       const abort = new AbortController();
       directControllerAbort = abort;
       const directTraceID = createTraceID("ues-run");
+      syncSessionIdentity(uesSessionName("run", task, ctx.cwd), ctx);
       let result: any;
       let lastProgressNoticeAt = 0;
       let lastProgressKey = "";
