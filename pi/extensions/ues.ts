@@ -2442,8 +2442,12 @@ async function executeStructuredPlan(input: {
           const allowed = new Set(item.writeFiles);
           const unexpected = changed.filter((file) => !allowed.has(file));
           if (unexpected.length) {
-            scopeFailure +=
-              `${item.task.id}: changed files outside declared write scope: ${unexpected.join(", ")}\n`;
+            const scopeMessage =
+              `${item.task.id}: changed real source files outside declared write scope: ${unexpected.join(", ")}. ` +
+              "On retry, revert or avoid these files and satisfy the task strictly within its declared write scope. " +
+              "Do not silently broaden scope.";
+            failureByTask.set(String(item.task.id), failureDelta(scopeMessage, { maxChars: 2200 }));
+            scopeFailure += scopeMessage + "\n";
           }
         }
 
@@ -2452,7 +2456,12 @@ async function executeStructuredPlan(input: {
           for (const file of changed) {
             const previous = changedOwners.get(file);
             if (previous && previous !== taskID) {
-              scopeFailure += `wave conflict: ${previous} and ${taskID} both changed ${file}\n`;
+              const conflictMessage = `wave conflict: ${previous} and ${taskID} both changed real source file ${file}`;
+              const previousFailure = failureByTask.get(previous) || "";
+              const currentFailure = failureByTask.get(taskID) || "";
+              failureByTask.set(previous, failureDelta([previousFailure, conflictMessage].filter(Boolean).join("\n"), { maxChars: 2200 }));
+              failureByTask.set(taskID, failureDelta([currentFailure, conflictMessage].filter(Boolean).join("\n"), { maxChars: 2200 }));
+              scopeFailure += conflictMessage + "\n";
             } else {
               changedOwners.set(file, taskID);
             }
