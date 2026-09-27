@@ -96,6 +96,10 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.4 ACP-safe child runtime
+
+When UES is hosted by an ACP adapter such as Zed, specialist children must not reuse the ACP adapter's Node entrypoint. UES now verifies that a reusable host script belongs to `@earendil-works/pi-coding-agent`; otherwise Windows resolves the real managed Pi CLI or PATH Pi command. This prevents child specialists from rebinding the ACP host port and failing with `EADDRINUSE`.
+
 ## V15.3 DEEP Speed
 
 DEEP/high-risk work keeps its full evidence and verification gates, but avoids redundant exploration. Generic long-horizon "fix" wording no longer forces a debugger before architecture unless concrete failure evidence exists. Architect, plan-checker and executor roles must consume the supplied UES context pack and declared task scope before broad repository searches, and stop discovery when the required evidence is already sufficient.
