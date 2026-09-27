@@ -421,6 +421,10 @@ const CONTRACTS = [
     startsWith: "const SENSITIVE_DOMAIN",
     required: [
       "CONCRETE_DIAGNOSIS",
+      "readOnlyTask",
+      "READ_ONLY_MODE",
+      "MUTATION_INTENT",
+      "requireBehavioralReceipt",
       "diagnosisEvidence",
       "word such as \"fix\" must not force",
       "shouldRunDedicatedDiagnosis",
