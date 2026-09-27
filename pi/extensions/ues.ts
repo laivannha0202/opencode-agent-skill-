@@ -35,6 +35,7 @@ import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.m
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
+import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -3085,9 +3086,24 @@ export default function (pi: ExtensionAPI) {
         );
         if (isAbortedRun(architect)) return abortedResponse(architect, "planning");
 
-        structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
-        if (structuredPlan) structuredPlan = normalizePlanForValidation(structuredPlan);
-        let structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
+        let planCandidate = extractValidatedPlan(architect.output);
+        structuredPlan = planCandidate.plan;
+        let structuredValidation = planCandidate.validation;
+
+        if (planCandidate.salvaged && structuredValidation?.valid === true) {
+          onUpdate?.({
+            content: [{
+              type: "text",
+              text: `UES planning salvage: recovered a valid plan from ${planCandidate.source} architect output`,
+            }],
+            details: {
+              mode: "execute",
+              phase: "planning-salvage",
+              source: planCandidate.source,
+              traceID,
+            },
+          });
+        }
 
         const firstPlanValid =
           structuredPlan &&
@@ -3107,9 +3123,23 @@ export default function (pi: ExtensionAPI) {
 
           architect = await run("ues-architect", planInstruction, 2, recoveryEvidence);
           if (isAbortedRun(architect)) return abortedResponse(architect, "plan-recovery");
-          structuredPlan = extractMarkedJson(architect.output, "UES_PLAN_JSON:");
-          if (structuredPlan) structuredPlan = normalizePlanForValidation(structuredPlan);
-          structuredValidation = structuredPlan ? validatePlan(structuredPlan) : null;
+          planCandidate = extractValidatedPlan(architect.output);
+          structuredPlan = planCandidate.plan;
+          structuredValidation = planCandidate.validation;
+          if (planCandidate.salvaged && structuredValidation?.valid === true) {
+            onUpdate?.({
+              content: [{
+                type: "text",
+                text: `UES planning salvage: recovery produced a valid ${planCandidate.source} plan`,
+              }],
+              details: {
+                mode: "execute",
+                phase: "planning-salvage",
+                source: planCandidate.source,
+                traceID,
+              },
+            });
+          }
         }
 
         if (
