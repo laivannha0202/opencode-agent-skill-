@@ -401,13 +401,24 @@ const CONTRACTS = [
     ],
   },
   {
+    file: "test/leaf-runtime-optimizer.test.mjs",
+    minBytes: 2_000,
+    startsWith: 'import test from "node:test"',
+    required: [
+      "V15.5 low-risk single-file leaf becomes FAST inside a DEEP root",
+      "V15.5 high-risk database leaf never downshifts from DEEP",
+      "V15.5 failure delta keeps error evidence and drops unrelated chatter",
+      "leafTaskPolicy",
+      "failureDelta",
+    ],
+  },
+  {
     file: "test/v15-runtime.test.mjs",
     minBytes: 3_000,
     startsWith: 'import assert from "node:assert/strict"',
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
-      "V15.5 low-risk single-file leaf becomes FAST inside a DEEP root",
       "V15.4 ACP host never reuses an ACP entrypoint as the Pi child",
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
       "normalizePlanForValidation",
