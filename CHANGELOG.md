@@ -6,6 +6,17 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.14] - 2026-09-27
+
+### Fixed
+- Stopped sandbox diff/integration from running root-wide `git add -N -- .` when UES runtime directories such as `.ues-cache/` are ignored by the target repository.
+- Intent-to-add now enumerates only non-ignored untracked source files with `git ls-files --others --exclude-standard -z`, filters UES runtime artifacts again, and batches explicit source paths for Windows-safe command sizing.
+- Applied the same source-only intent behavior to both the Pi controller sandbox change detector and the worktree integration path.
+
+### Validation
+- Added a regression that creates an ignored `.ues-cache/fast-acceptance.test.mjs` beside a real new source file and proves sandbox integration keeps the source change while never staging or integrating the runtime cache artifact.
+
+
 ## [15.0.0-beta.13] - 2026-09-27
 
 ### Fixed
