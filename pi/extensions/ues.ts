@@ -4219,6 +4219,10 @@ export default function (pi: ExtensionAPI) {
         "Turbo Fast Path: on",
         "Command-only parent tools: on",
         "Git-root artifact guard: on",
+        "Inherited dirty-work guard: on",
+        "Local .env mutation guard: on",
+        "Explicit phase barriers: on",
+        "Independent final verdict matrix: on",
         "Disk hygiene: bounded + auto-clean",
         "Writer concurrency: " + MAX_WRITER_CONCURRENCY,
       ].join("\n");
