@@ -438,6 +438,9 @@ async function finalizeExecutionContractArtifacts(
     if (/(?:cleanup|fixture|database|db|dữ liệu)/i.test(phaseText) && contract.gates?.dbClean === true && verdictMatrix?.dbClean !== "DB_CLEAN_PASS") {
       status = "NOT_VERIFIED";
     }
+    if (/(?:runtime|smoke|e2e|integration|typecheck|lint|test|verify|xác minh|kiểm tra)/i.test(phaseText) && contract.gates?.runtime === true && verdictMatrix?.runtime !== "RUNTIME_PASS") {
+      status = "NOT_VERIFIED";
+    }
     const target = path.join(dir, item.file);
     await fs.promises.writeFile(
       target,
@@ -4252,6 +4255,52 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
+        const verdictMatrix = buildFinalVerdictMatrix(params.task, {
+          contract: executionContract,
+          primaryPass: true,
+          integrationPass: integrationResult ? true : undefined,
+          primaryOutput: verification.output,
+          integrationOutput: integrationResult?.output || "",
+          visualOutput: visualResult?.output || "",
+          primaryChecks: verification.report?.sections?.["checks-run"] || "",
+          integrationChecks: integrationResult?.report?.sections?.["checks-run"] || "",
+          visualChecks: visualResult?.report?.sections?.["checks-run"] || "",
+        });
+
+        if (verdictMatrix.final !== "PASS") {
+          await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
+          const deviceOnlyPending =
+            verdictMatrix.final === "SOURCE_RUNTIME_PASS_DEVICE_NOT_VERIFIED";
+          return {
+            content: [{
+              type: "text",
+              text: [
+                deviceOnlyPending
+                  ? "UES source/runtime verification passed, but requested real-device verification is still pending."
+                  : "UES deterministic final gate is not fully verified.",
+                "",
+                verdictMatrix.source,
+                verdictMatrix.runtime,
+                verdictMatrix.dbClean,
+                verdictMatrix.device,
+                "",
+                integrationResult?.output || verification.output,
+              ].join("\n"),
+            }],
+            details: {
+              mode: "execute",
+              policy,
+              steps,
+              attempts: attempt,
+              completionAudit,
+              verdictMatrix,
+              executionContract,
+              traceID,
+            },
+            isError: !deviceOnlyPending,
+          };
+        }
+
         await recordRuntimeOutcome(implementation, params.task, true, attempt - 1);
         const memory = await rememberVerifiedTask(cwd, params.task, verification, integrationResult);
         const final = steps.at(-1);
@@ -4261,11 +4310,15 @@ export default function (pi: ExtensionAPI) {
             text: [
               `UES execution PASS after ${attempt} attempt(s).`,
               `Policy: ${policy.executionProfile}/${policy.risk}; model tier: ${implementation.modelTier || "default"}.`,
+              verdictMatrix.source,
+              verdictMatrix.runtime,
+              verdictMatrix.dbClean,
+              verdictMatrix.device,
               "",
               final?.output || verification.output,
             ].join("\n"),
           }],
-          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, traceID },
+          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, verdictMatrix, executionContract, traceID },
         };
       }
 
