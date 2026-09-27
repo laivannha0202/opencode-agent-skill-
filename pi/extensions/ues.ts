@@ -34,6 +34,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
+import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -564,12 +565,18 @@ async function runAgentCli(
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
     hardTimeoutMs?: number;
+    absoluteHardTimeoutMs?: number;
+    activityExtensionMs?: number;
+    activityWindowMs?: number;
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const hardTimeoutMs = Number(runtimeOptions.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS);
+  const absoluteHardTimeoutMs = Number(runtimeOptions.absoluteHardTimeoutMs || hardTimeoutMs);
+  const activityExtensionMs = Number(runtimeOptions.activityExtensionMs || 0);
+  const activityWindowMs = Number(runtimeOptions.activityWindowMs || Math.max(5_000, Math.min(activityExtensionMs || hardTimeoutMs, 30_000)));
   const idleTimeoutMs = Number(runtimeOptions.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS);
   const postToolErrorIdleTimeoutMs = Number(runtimeOptions.postToolErrorIdleTimeoutMs || POST_TOOL_ERROR_IDLE_TIMEOUT_MS);
   const args: string[] = [
@@ -630,6 +637,12 @@ async function runAgentCli(
       });
       const childStartedAt = Date.now();
       let lastActivityAt = childStartedAt;
+      const adaptiveDeadline = createAdaptiveDeadline({
+        hardTimeoutMs,
+        absoluteHardTimeoutMs,
+        activityExtensionMs,
+        activityWindowMs,
+      }, childStartedAt);
       let buffer = "";
       let settled = false;
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
@@ -753,7 +766,8 @@ async function runAgentCli(
       heartbeatTimer.unref?.();
       watchdogTimer = setInterval(() => {
         const now = Date.now();
-        if (now - childStartedAt >= hardTimeoutMs) {
+        const deadline = adaptiveDeadline.shouldAbort(now, lastActivityAt);
+        if (deadline.abort) {
           terminateForTimeout("hard");
           return;
         }
@@ -818,8 +832,13 @@ async function runAgentCli(
               lastToolErrorEvidence = "";
             }
           }
-          if (event.type === "message_update" && event.usage) {
-            usage = event.usage;
+          if (event.type === "message_update") {
+            if (event.usage) usage = event.usage;
+            if (event.message?.role === "assistant") {
+              const partial = extractAssistantText(event.message);
+              if (partial) output = partial;
+              seenModel = event.message.model || seenModel;
+            }
           }
           if (event.type === "message_end" && event.message) {
             const text = extractAssistantText(event.message);
@@ -929,12 +948,18 @@ async function runAgentRpc(
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
     hardTimeoutMs?: number;
+    absoluteHardTimeoutMs?: number;
+    activityExtensionMs?: number;
+    activityWindowMs?: number;
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
   const hardTimeoutMs = Number(runtimeOptions.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS);
+  const absoluteHardTimeoutMs = Number(runtimeOptions.absoluteHardTimeoutMs || hardTimeoutMs);
+  const activityExtensionMs = Number(runtimeOptions.activityExtensionMs || 0);
+  const activityWindowMs = Number(runtimeOptions.activityWindowMs || Math.max(5_000, Math.min(activityExtensionMs || hardTimeoutMs, 30_000)));
   const idleTimeoutMs = Number(runtimeOptions.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS);
   const postToolErrorIdleTimeoutMs = Number(runtimeOptions.postToolErrorIdleTimeoutMs || POST_TOOL_ERROR_IDLE_TIMEOUT_MS);
   const args: string[] = [
@@ -1012,6 +1037,9 @@ async function runAgentRpc(
       {
         signal,
         hardTimeoutMs,
+        absoluteHardTimeoutMs,
+        activityExtensionMs,
+        activityWindowMs,
         idleTimeoutMs,
         postToolErrorIdleTimeoutMs,
         onEvent: (event: any) => {
@@ -1115,12 +1143,16 @@ async function runAgentRpc(
     if ((error as any)?.uesRpcPhase === "runtime") {
       const timeout = /hard-timeout|idle-timeout/i.test(message);
       const toolStall = /post-tool-error-stall/i.test(message);
+      const partialOutput = extractAssistantText((error as any)?.partialMessage);
+      const recoveredOutput = partialOutput
+        ? partialOutput + "\n\n[UES transport note: " + message + "]"
+        : message;
       return {
         agent,
         task,
         cwd,
         exitCode: timeout ? 124 : toolStall ? 125 : 1,
-        output: message,
+        output: recoveredOutput,
         stderr: message,
         model,
         stopReason: timeout ? "timeout" : toolStall ? "tool-error-stall" : "rpc-runtime-error",
@@ -1153,6 +1185,9 @@ async function runAgent(
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
     hardTimeoutMs?: number;
+    absoluteHardTimeoutMs?: number;
+    activityExtensionMs?: number;
+    activityWindowMs?: number;
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
   } = {},
@@ -1611,7 +1646,11 @@ async function runRoutedAgent(
         ].join("\n");
   }
 
-  const planningBudget = planningRuntimeBudget(role, attempt);
+  const planningBudget = planningRuntimeBudget(role, attempt, {
+    executionProfile: taskPolicy.executionProfile,
+    risk: taskPolicy.risk,
+    taskChars: task.length,
+  });
   const startedAt = Date.now();
   const result = await runAgent(
     agent,
@@ -1646,6 +1685,14 @@ async function runRoutedAgent(
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
           : planningBudget?.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
+      absoluteHardTimeoutMs:
+        turboFast.eligible
+          ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
+          : planningBudget?.absoluteHardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
+      activityExtensionMs:
+        turboFast.eligible ? 0 : planningBudget?.activityExtensionMs || 0,
+      activityWindowMs:
+        turboFast.eligible ? 0 : planningBudget?.activityWindowMs || 0,
       idleTimeoutMs:
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.idleTimeoutMs
