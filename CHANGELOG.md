@@ -6,6 +6,22 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.22] - 2026-09-28
+
+### Added
+- Added three-tier zero-friction routing for normal Pi input: `native`, automatic UES, and high-risk UES.
+- Added conservative informational-query detection so explanation/comparison questions stay on Pi's native path instead of starting engineering orchestration.
+- Added richer admission reasons/confidence and surfaced `native / auto / high-risk` through `/ues-status`.
+
+### Changed
+- Automatic UES runs now launch non-blockingly from the input hook, keeping stop/steer/follow-up interaction responsive while the supervised controller continues.
+- Direct admission reuses the already-classified task policy inside `ues_execute`, avoiding duplicate classification and keeping the selected execution/risk profile stable.
+- Expanded natural engineering verbs for project-health workflows such as inspect, scan, check, analyze, `xem`, and `phân tích`.
+
+### Validation
+- Added regression coverage for native informational chat, project-health auto routing, long structured prompts, high-risk database work, non-Git workspaces, and explicit slash-command bypass.
+
+
 ## [15.0.0-beta.21] - 2026-09-27
 
 ### Added
