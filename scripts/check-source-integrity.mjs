@@ -232,6 +232,7 @@ const CONTRACTS = [
       "absoluteHardTimeoutMs",
       "partialAssistantMessage",
       "rich timeout error before transport teardown",
+      "settled.catch(() => {})",
     ],
   },
   {
