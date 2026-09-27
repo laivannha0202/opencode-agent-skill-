@@ -6,6 +6,24 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.19] - 2026-09-27
+
+### Added
+- Deterministic execution contracts for long-horizon UES runs, including source-facing inherited-dirty snapshots, local-env authorization, explicit phase manifests, database-cleanup safety gates, and independent final verdict dimensions.
+- Explicit `PHASE N` sections now become machine-enforced previous-phase barriers. Constraint-only phases remain invariants rather than fake execution tasks.
+- Durable work now persists `EXECUTION_CONTRACT.json`, `phases/MANIFEST.json`, one phase artifact per explicit phase, and `FINAL_VERDICTS.json` for resume without replaying the full original prompt.
+- Final status separates `SOURCE_PASS`, `RUNTIME_PASS`, `DB_CLEAN_PASS`, and `DEVICE_PASS`; missing real-device evidence remains `DEVICE_NOT_VERIFIED` instead of becoming a false full PASS.
+
+### Safety
+- UES child safety now blocks `git restore`, `git checkout --`, and `git stash` so pre-existing user work cannot be silently discarded.
+- Local `.env*` files are no-write by default across child edit/code-edit and common shell-write paths. Explicit user authorization is required; `.env.example` / `.env.sample` / `.env.template` remain writable.
+- Fixture/database cleanup contracts require production refusal, dry-run candidate evidence, exact/pre-post counts, deterministic markers, canonical preservation, idempotent second-pass proof, and transaction/rollback protection when supported.
+
+### Validation
+- Added focused regression coverage for inherited dirty-state capture, local env protection, explicit phase barriers, cleanup/device verdict evidence, and Git discard-command blocking.
+- Focused `eval:v15` now includes `test/execution-contract.test.mjs`.
+
+
 ## [15.0.0-beta.18] - 2026-09-27
 
 ### Fixed
