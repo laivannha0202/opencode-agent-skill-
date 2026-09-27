@@ -18,6 +18,7 @@ The project follows Semantic Versioning.
 - `/ues-clean` now removes transient cache, trace, service and dashboard state after sandbox cleanup while preserving durable work, memory, learning and eval state.
 - Trace storage now has bounded per-file, total-size, file-count and age retention.
 - Evidence storage now has byte, entry-count and age quotas with automatic garbage collection.
+- Durable runtime event journals compact before unbounded growth, and parallel writer concurrency is separately capped (default 2 on Windows) to reduce peak worktree/build disk pressure without reducing read-only parallelism.
 - A semantic plan-gate `REVISE` now receives one bounded architect revision and one re-check before being surfaced to the user.
 
 ### Validation
