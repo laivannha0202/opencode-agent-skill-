@@ -167,6 +167,18 @@ const CONTRACTS = [
     required: ["class RpcWorker", "steerActive", "abortActive", "abortTransport", "activeAbort", "uesRpcPhase", "stopAll"],
   },
   {
+    file: "lib/worktree-sandbox.mjs",
+    minBytes: 8_000,
+    startsWith: "import ",
+    required: [
+      "pruneOrphanTaskSandboxes",
+      "ownerPid",
+      "owner-alive",
+      "legacyMinAgeMs",
+      "processAlive",
+    ],
+  },
+  {
     file: "lib/workspace-fingerprint.mjs",
     minBytes: 3_000,
     startsWith: "import ",
@@ -355,14 +367,32 @@ const CONTRACTS = [
     ],
   },
   {
+    file: "test/planning-speed-policy.test.mjs",
+    minBytes: 1_500,
+    startsWith: 'import test from "node:test"',
+    required: [
+      "V15.6 architect planning is hard-bounded and recovery is tighter",
+      "V15.6 architect soft-steers before idle watchdog or runaway exploration",
+      "V15.6 plan-checker is bounded without changing executor budgets",
+    ],
+  },
+  {
+    file: "test/worktree-sandbox.test.mjs",
+    minBytes: 8_000,
+    startsWith: 'import test from "node:test"',
+    required: [
+      "V15.6 orphan sandbox cleanup removes dead-owner worktrees but preserves live ownership",
+      "pruneOrphanTaskSandboxes",
+      "ownerPid",
+    ],
+  },
+  {
     file: "test/v15-runtime.test.mjs",
     minBytes: 3_000,
     startsWith: 'import assert from "node:assert/strict"',
     required: [
       "V15 managed service starts, proves readiness, captures evidence and stops",
       "V15 deterministic controller admission and service tool are wired into Pi",
-      "V15.6 architect planning is hard-bounded and recovery is tighter",
-      "V15.6 orphan sandbox cleanup removes dead-owner worktrees but preserves live ownership",
       "V15.5 low-risk single-file leaf becomes FAST inside a DEEP root",
       "V15.4 ACP host never reuses an ACP entrypoint as the Pi child",
       "V15.2 quick discount benchmark remains FAST and Turbo-eligible",
