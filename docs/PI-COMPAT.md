@@ -96,6 +96,14 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.17 Zero-Friction Autopilot Admission
+
+Interactive text-only engineering requests inside a Git worktree can now enter the deterministic UES controller without requiring the user to type `/ues-run`. Admission is deterministic and conservative: long structured engineering prompts, read-only repository inspections, and prompts with both an engineering action and engineering target are admitted; greetings, casual discussion, slash commands, non-Git workspaces, and image-bearing prompts remain on the normal Pi path.
+
+The parent model still does not see UES tools during ordinary chat. Automatic admission calls the same direct controller used by `/ues-run`, so supervised child processes, idle/hard timeouts, abort handling, phase gates, durable state, verification, and cleanup remain identical. `/ues-run` remains available as an explicit force-entry command but is no longer required for normal text engineering tasks.
+
+Automatic admission is enabled by default and can be disabled with `UES_AUTO_ADMIT=0` (also accepts `false` or `off`). `/ues-status` reports whether zero-friction engineering admission is active.
+
 ## V15.16 Portable Cross-Tool Temp Paths
 
 On Windows, POSIX-style temporary paths such as `/tmp/foo` and `/var/tmp/foo` are not safe to pass between Pi file tools and bash/MSYS because each tool may resolve that path in a different filesystem namespace. This can make a file created or addressed by one tool invisible to another and wastes weak-model retries.
