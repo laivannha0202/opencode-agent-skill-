@@ -6,6 +6,11 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0] - 2026-09-28
+
+- Stable release of V15.19 Finalization Hardening after full release verification.
+
+
 ## [15.0.0-beta.23] - 2026-09-28
 
 ### Fixed
