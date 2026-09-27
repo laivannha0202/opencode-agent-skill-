@@ -82,6 +82,12 @@ const CONTRACTS = [
       "isAbortedRun",
       "abortedResponse",
       'reason: "aborted"',
+      "buildExecutionContract",
+      "captureInheritedDirtyState",
+      "enforcePhaseGates",
+      "FINAL_VERDICTS.json",
+      "UES_CHILD_ALLOW_LOCAL_ENV_WRITE",
+      "Independent final verdict matrix: on",
     ],
   },
   {
@@ -103,6 +109,10 @@ const CONTRACTS = [
       "recordVerification",
       "canonicalVerificationCommand",
       "destructiveShellRisk",
+      "isLocalEnvPath",
+      "localEnvWriteRisk",
+      "UES_CHILD_ALLOW_LOCAL_ENV_WRITE",
+      "NEEDS_USER_ENV",
     ],
   },
   {
