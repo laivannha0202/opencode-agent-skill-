@@ -13,6 +13,11 @@ When the user explicitly chooses the long-horizon workflow (for example with `/u
   STATE.json
   EVIDENCE.json
   EVENTS.jsonl
+  EXECUTION_CONTRACT.json
+  FINAL_VERDICTS.json
+  phases/
+    MANIFEST.json
+    phase-XX-<slug>.json
   tasks/
   reports/
 ```
@@ -21,11 +26,15 @@ The directory is git-ignored execution state, not hidden reasoning. Store requir
 
 ## Machine-enforced gates
 
-The V6 engine enforces three boundaries:
+The runtime enforces seven boundaries:
 
-1. **Plan gate** — `work plan` leaves the item in `awaiting-plan-approval`. Long/high-risk plans require a structured `plan-verification` receipt bound to the current plan hash before `work approve-plan` succeeds.
-2. **Concurrent state gate** — all mutable `STATE.json` and `EVIDENCE.json` operations use a per-work-item lock plus atomic file replacement, preventing safe-wave executors from losing each other's state.
-3. **Integration gate** — long/high-risk PASS requires a structured `integration-verification` receipt bound to the current workspace fingerprint. Finalization rejects any later workspace change.
+1. **Inherited-work gate** — snapshot source-facing dirty paths before planning. UES children may not discard them with restore/checkout/stash/clean/reset, and planned writers must declare every touched file.
+2. **Local-env gate** — local `.env*` runtime inputs are no-write by default; only explicit user authorization permits local env mutation. Repository templates remain writable.
+3. **Plan gate** — `work plan` leaves the item in `awaiting-plan-approval`. Long/high-risk plans require a structured `plan-verification` receipt bound to the current plan hash before `work approve-plan` succeeds.
+4. **Phase gate** — explicit execution phases become deterministic previous-phase barriers. Constraint-only phases stay global invariants.
+5. **Concurrent state gate** — all mutable `STATE.json` and `EVIDENCE.json` operations use a per-work-item lock plus atomic file replacement, preventing safe-wave executors from losing each other's state.
+6. **Integration gate** — long/high-risk source completion requires a structured `integration-verification` receipt bound to the current workspace fingerprint. Finalization rejects any later workspace change.
+7. **Verdict matrix gate** — source, runtime, database cleanup and real-device proof remain independent. Missing required evidence is reported as not verified rather than promoted to PASS.
 
 ## Pipeline
 
@@ -33,18 +42,19 @@ The V6 engine enforces three boundaries:
 2. Write observable acceptance criteria into `SPEC.md`.
 3. Initialize state with `ocskill work init`.
 4. Create `PLAN.json` following the plan schema and import it with `ocskill work plan`.
-5. Run `ues-plan-checker`. If it returns PASS, create `work gate-receipt <slug> plan` and persist approval with `work approve-plan --receipt-file ...`.
-6. Use `ocskill task-graph` to compute dependency-safe waves.
-7. For each ready task:
+5. If the user supplied explicit `PHASE N` sections, preserve every execution phase in the plan and let UES add phase barriers; constraint-only phases remain invariants.
+6. Run `ues-plan-checker`. If it returns PASS, create `work gate-receipt <slug> plan` and persist approval with `work approve-plan --receipt-file ...`.
+7. Persist the execution contract/phase artifacts and use `ocskill task-graph` to compute dependency-safe waves.
+8. For each ready task:
    - on OpenCode V2, if two or more approved tasks are independent, prefer `ues.dispatch_parallel` so one shared model can execute them concurrently with isolated worktrees, leases, independent verifier sessions and serialized integration;
    - otherwise prefer `ues.dispatch_task`, which performs `work start`, creates a fresh `ues-executor` session, selects the configured attempt-based model tier, prompts it with a bounded context pack and waits for completion;
    - inspect the child diff and verification;
    - record at least one successful `work verify-command` receipt for long/high-risk work;
    - persist `work complete --evidence ...` or `work fail --reason ...`.
-8. On failure, re-diagnose rather than stacking patches. A later `ues.dispatch_task` attempt can escalate from standard to heavy when configured.
-9. After all tasks complete, run `ues-integration-verifier`.
-10. Persist the verifier's actual result with a structured integration receipt plus `ocskill work verify-integration --receipt-file ...`.
-11. Only a recorded PASS with an unchanged workspace can be finalized.
+9. On failure, re-diagnose rather than stacking patches. A later `ues.dispatch_task` attempt can escalate from standard to heavy when configured.
+10. After all tasks complete, run `ues-integration-verifier`.
+11. Persist the verifier's actual result with a structured integration receipt plus `ocskill work verify-integration --receipt-file ...`.
+12. Emit the independent final verdict matrix and persist `FINAL_VERDICTS.json`. Only a recorded PASS with an unchanged workspace can be finalized.
 
 ## Parallelism
 
