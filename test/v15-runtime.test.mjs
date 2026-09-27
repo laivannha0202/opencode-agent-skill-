@@ -7,7 +7,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
-import { classifyEngineeringTask } from "../lib/task-policy.mjs"
+import { classifyEngineeringTask, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
 import {
   looksLikeLongRunningServiceCommand,
   serviceLogs,
@@ -35,6 +35,22 @@ async function freePort() {
   if (!port) throw new Error("failed to allocate test port")
   return port
 }
+
+test("V15.3 DEEP planning skips redundant diagnosis without concrete failure evidence", () => {
+  const generic = classifyEngineeringTask(
+    "Fix all remaining issues across the entire project, preserve behavior, run integration verification, and ensure no regressions.",
+  )
+  assert.equal(generic.mode, "long-horizon")
+  assert.equal(generic.diagnosisEvidence, false)
+  assert.equal(shouldRunDedicatedDiagnosis(generic, 1), false)
+
+  const failing = classifyEngineeringTask(
+    "Fix the entire project checkout flow. The failure affects several callers and the failing test reports AssertionError: expected paid but actual pending.",
+  )
+  assert.equal(failing.mode, "long-horizon")
+  assert.equal(failing.diagnosisEvidence, true)
+  assert.equal(shouldRunDedicatedDiagnosis(failing, 1), true)
+})
 
 test("V15.2 quick discount benchmark remains FAST and Turbo-eligible", () => {
   const prompt =
