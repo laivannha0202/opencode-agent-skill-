@@ -6,7 +6,7 @@ import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
-import { isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
+import { crossToolTempPathRisk, isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
 import {
   canonicalVerificationCommand,
   looksLikeVerificationCommand,
@@ -109,7 +109,19 @@ export default function (pi: ExtensionAPI) {
     const input: any = event.input || {};
     const localEnvAllowed = String(process.env.UES_CHILD_ALLOW_LOCAL_ENV_WRITE || "") === "1";
     const writeTool = ["edit", "write", "write_file", "apply_patch", "ues_code_edit"].includes(toolName);
+    const fileTool = ["read", "edit", "write", "write_file", "apply_patch", "ues_code", "ues_code_edit"].includes(toolName);
     const fileCandidate = String(input.file || input.path || input.filePath || input.target || "");
+    const tempPathRisk = crossToolTempPathRisk(fileCandidate);
+    if (fileTool && tempPathRisk.risky) {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason:
+          "UES portable temp-path guard blocked " + fileCandidate +
+          ". On Windows, /tmp and /var/tmp may resolve differently between Pi file tools and bash/MSYS. " +
+          "For transient transforms, keep creation/read in one shell pipeline; for cross-tool scratch use a repository-local ignored UES path such as .ues-cache/tmp after creating it.",
+      };
+    }
     if (writeTool && isLocalEnvPath(fileCandidate) && !localEnvAllowed) {
       toolExecutionState.delete(String(event.toolCallId || ""));
       return {
