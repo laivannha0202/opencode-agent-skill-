@@ -6,6 +6,18 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.4] - 2026-09-27
+
+### Performance
+- Added V15.3 DEEP Speed: long-horizon planning no longer spawns a redundant first-pass debugger for generic `fix` wording when no concrete failure evidence exists.
+- Added bounded exploration contracts for architect, plan-checker, executor, and debugger roles so they consume the UES context pack and declared scope before repository-wide discovery.
+- Structured executors now explicitly stop discovery once the safe minimal edit is grounded and spend remaining effort on fresh verification.
+
+### Safety
+- Full DEEP/high context budgets, plan checks, task verification, integration verification, durable receipts, and fail-closed completion remain unchanged.
+- Concrete failure evidence still enables first-pass diagnosis; retries still diagnose before patching when required.
+
+
 ## [15.0.0-beta.3] - 2026-09-27
 
 ### Fixed
