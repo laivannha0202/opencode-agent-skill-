@@ -312,6 +312,7 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /pi\.setActiveTools/)
   assert.match(parent, /deactivateParentUesTools/)
   assert.match(parent, /activateParentUesTools/)
+  assert.match(parent, /pi\.on\("before_agent_start"/)
   assert.match(parent, /Command-only parent tools: on/)
   assert.match(parent, /Git-root artifact guard: on/)
   assert.match(parent, /Disk hygiene: bounded \+ auto-clean/)
