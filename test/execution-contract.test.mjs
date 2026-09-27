@@ -179,6 +179,78 @@ test("V15.15 explicit phases become deterministic previous-phase barriers", () =
   assert.equal(gated.plan.phaseGate.barrierStrategy, "previous-phase-all-tasks")
 })
 
+test("V15.15 constraint-only phases remain invariants instead of fake tasks", () => {
+  const contract = buildExecutionContract([
+    "PHASE 0 — Audit",
+    "Inspect.",
+    "PHASE 1 — TUYỆT ĐỐI KHÔNG ĐƯỢC LÀM",
+    "TUYỆT ĐỐI KHÔNG: reset hard, frontend filtering.",
+    "PHASE 2 — Fix",
+    "Implement.",
+  ].join("\n"))
+  assert.deepEqual(
+    contract.phases.map((phase) => [phase.number, phase.kind]),
+    [[0, "execution"], [1, "constraint"], [2, "execution"]],
+  )
+
+  const plan = {
+    schemaVersion: 1,
+    goal: "audit then fix",
+    tasks: [
+      {
+        id: "audit",
+        phase: 0,
+        title: "Audit",
+        summary: "Inspect",
+        dependsOn: [],
+        files: { read: ["a.ts"], create: [], modify: [], test: [], delete: [] },
+        acceptance: ["audited"],
+        verification: ["inspect"],
+        risk: "low",
+      },
+      {
+        id: "fix",
+        phase: 2,
+        title: "Fix",
+        summary: "Implement",
+        dependsOn: [],
+        files: { read: [], create: [], modify: ["a.ts"], test: [], delete: [] },
+        acceptance: ["fixed"],
+        verification: ["test"],
+        risk: "medium",
+      },
+    ],
+  }
+  const gated = enforcePhaseGates(plan, contract)
+  assert.equal(gated.valid, true, gated.errors.join("\n"))
+  assert.deepEqual(gated.plan.phaseGate.orderedPhases, [0, 2])
+  assert.deepEqual(gated.plan.tasks.find((task) => task.id === "fix").dependsOn, ["audit"])
+
+  const bad = enforcePhaseGates({
+    ...plan,
+    tasks: [...plan.tasks, {
+      id: "fake-guardrail-task",
+      phase: 1,
+      title: "Fake guardrail",
+      summary: "Should not exist",
+      dependsOn: [],
+      files: { read: ["a.ts"], create: [], modify: [], test: [], delete: [] },
+      acceptance: ["n/a"],
+      verification: ["n/a"],
+      risk: "low",
+    }],
+  }, contract)
+  assert.equal(bad.valid, false)
+  assert.ok(bad.errors.some((item) => /unknown phase 1/.test(item)))
+})
+
+test("V15.15 generic inspection wording does not force runtime proof", () => {
+  const contract = buildExecutionContract("Kiểm tra source hiện tại và báo cáo cấu trúc repository.")
+  assert.equal(contract.gates.runtime, false)
+  const testContract = buildExecutionContract("Chạy pnpm test, typecheck và runtime smoke.")
+  assert.equal(testContract.gates.runtime, true)
+})
+
 test("V15.15 phase gate fails closed when a declared phase is omitted", () => {
   const contract = buildExecutionContract("PHASE 0 — Audit\nA\nPHASE 1 — Fix\nB")
   const gated = enforcePhaseGates({
@@ -240,6 +312,7 @@ test("V15.15 final verdict matrix separates source runtime data and device proof
     integrationOutput: "DB_CLEAN_PASS\nRUNTIME_PASS\ncleanup dry-run removed count=12; second cleanup run idempotent count=0",
     visualOutput: "DEVICE_PASS — Expo Go real device verified",
     integrationChecks: "pnpm test\npnpm cleanup --dry-run",
+    visualChecks: "adb devices\nExpo Go physical device interaction verified",
   })
   assert.equal(complete.final, "PASS")
 })
