@@ -2913,8 +2913,13 @@ export default function (pi: ExtensionAPI) {
         directControllerRunner &&
         !(Array.isArray((event as any).images) && (event as any).images.length > 0)
       ) {
-        const workspaceRoot = resolveGitWorkspaceRoot(ctx.cwd || "");
-        const admission = automaticUesAdmission(text, { inGitWorkspace: Boolean(workspaceRoot) });
+        const preliminaryAdmission = automaticUesAdmission(text);
+        const workspaceRoot = preliminaryAdmission.admit === true
+          ? resolveGitWorkspaceRoot(ctx.cwd || "")
+          : null;
+        const admission = workspaceRoot
+          ? automaticUesAdmission(text, { inGitWorkspace: true })
+          : preliminaryAdmission;
         if (workspaceRoot && admission.admit === true) {
           try {
             ctx.ui.notify(
