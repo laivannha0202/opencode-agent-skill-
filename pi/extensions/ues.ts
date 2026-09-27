@@ -299,6 +299,7 @@ function getAgentPrompt(agent: AgentName) {
     "- Respect the original role's edit/read-only boundary and return evidence to the parent Pi session.",
     "- Prefer ues_code for bounded semantic/AST search, hash-anchored reads and optional LSP diagnostics. Writer roles may use ues_code_edit only after an anchored read; stale anchors must be re-read rather than fuzzily retried.",
     "- Never launch a persistent dev server/watcher in foreground bash/powershell. Use ues_service start, wait-ready/status/logs, then stop; the runtime blocks common foreground-service commands to prevent hangs.",
+    "- On Windows, never pass /tmp or /var/tmp paths between Pi file tools and bash/powershell: their path namespaces may differ. Keep temporary transforms inside one shell pipeline, or use an ignored repository-local scratch path such as .ues-cache/tmp for cross-tool scratch.",
     "- For PDF/DOCX/PPTX/XLSX evidence, ues_code action=document may use optional MarkItDown when installed; do not install it unless that capability is needed.",
     "",
   ].join("\n");
@@ -4366,6 +4367,7 @@ export default function (pi: ExtensionAPI) {
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
         "Local .env mutation guard: on",
+        "Portable temp-path guard: on",
         "Explicit phase barriers: on",
         "Independent final verdict matrix: on",
         "Disk hygiene: bounded + auto-clean",
