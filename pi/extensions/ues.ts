@@ -188,6 +188,7 @@ function abortActiveCliChildren() {
 
 let HOST_BROWSER_TOOL_NAMES: string[] = [];
 const CONTEXT_PACK_CACHE = new Map<string, any>();
+const ACTIVE_TASK_SANDBOXES = new Map<string, string>();
 
 function configuredBrowserToolNames() {
   return String(process.env.UES_BROWSER_MCP_TOOL_NAMES || "")
@@ -1807,11 +1808,30 @@ async function cleanupSandboxes(
 ) {
   for (const item of prepared) {
     if (!item.sandbox?.dir) continue;
-    await removeTaskSandbox(root, item.sandbox.dir, {
-      force: true,
-      deleteBranch: true,
-    }).catch(() => {});
+    const resolved = path.resolve(item.sandbox.dir);
+    try {
+      await removeTaskSandbox(root, resolved, {
+        force: true,
+        deleteBranch: true,
+      });
+      ACTIVE_TASK_SANDBOXES.delete(resolved);
+    } catch {}
   }
+}
+
+async function cleanupTraceSandboxes(root: string, traceID: string) {
+  const targets = [...ACTIVE_TASK_SANDBOXES.entries()]
+    .filter(([, ownerTrace]) => ownerTrace === traceID)
+    .map(([dir]) => dir);
+  let removed = 0;
+  for (const dir of targets) {
+    try {
+      await removeTaskSandbox(root, dir, { force: true, deleteBranch: true });
+      ACTIVE_TASK_SANDBOXES.delete(dir);
+      removed += 1;
+    } catch {}
+  }
+  return removed;
 }
 
 async function executeStructuredPlan(input: {
@@ -1918,6 +1938,7 @@ async function executeStructuredPlan(input: {
               inheritDirtyRoot: true,
             });
             cwd = sandbox.dir;
+            ACTIVE_TASK_SANDBOXES.set(path.resolve(sandbox.dir), String(input.traceID || "structured"));
           }
 
           prepared.push({ task, cwd, sandbox, writeFiles });
@@ -2843,11 +2864,14 @@ export default function (pi: ExtensionAPI) {
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const policy = classifyEngineeringTask(params.task);
-      const traceID = createTraceID("ues-execute");
+      const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
       const orphanCleanup = await pruneOrphanTaskSandboxes(cwd, {
-        minAgeMs: 15 * 60_000,
-        legacyMinAgeMs: 6 * 60 * 60_000,
-      }).catch(() => ({ removed: [], skipped: [] }));
+        minAgeMs: 5 * 60_000,
+        legacyMinAgeMs: 30 * 60_000,
+        ownedMinAgeMs: 60_000,
+        reclaimOwnerPid: process.pid,
+        protectedDirs: [...ACTIVE_TASK_SANDBOXES.keys()],
+      }).catch(() => ({ removed: [], skipped: [], sidecarsRemoved: [] }));
       if (orphanCleanup.removed?.length) {
         onUpdate?.({
           content: [{ type: "text", text: `UES sandbox cleanup: removed ${orphanCleanup.removed.length} orphan worktree(s)` }],
@@ -3534,6 +3558,7 @@ export default function (pi: ExtensionAPI) {
 
       const abort = new AbortController();
       directControllerAbort = abort;
+      const directTraceID = createTraceID("ues-run");
       let result: any;
       let lastProgressNoticeAt = 0;
       let lastProgressKey = "";
@@ -3549,7 +3574,7 @@ export default function (pi: ExtensionAPI) {
         } catch {}
         result = await uesExecuteTool.execute(
           `ues-run-${randomUUID()}`,
-          { task, cwd: ctx.cwd },
+          { task, cwd: ctx.cwd, __traceID: directTraceID },
           abort.signal,
           (update: any) => {
             const text = (update?.content || [])
@@ -3609,6 +3634,21 @@ export default function (pi: ExtensionAPI) {
           isError: true,
         };
       } finally {
+        const traceRemoved = await cleanupTraceSandboxes(ctx.cwd, directTraceID).catch(() => 0);
+        const staleCleanup = await pruneOrphanTaskSandboxes(ctx.cwd, {
+          minAgeMs: 5 * 60_000,
+          legacyMinAgeMs: 30 * 60_000,
+          ownedMinAgeMs: 0,
+          reclaimOwnerPid: process.pid,
+          protectedDirs: [...ACTIVE_TASK_SANDBOXES.keys()],
+        }).catch(() => ({ removed: [], skipped: [], sidecarsRemoved: [] }));
+        const cleaned =
+          Number(traceRemoved || 0) +
+          Number(staleCleanup?.removed?.length || 0) +
+          Number(staleCleanup?.sidecarsRemoved?.length || 0);
+        if (cleaned > 0) {
+          try { ctx.ui.notify("UES cleanup: removed " + cleaned + " stale sandbox artifact(s)", "info"); } catch {}
+        }
         if (directControllerAbort === abort) directControllerAbort = null;
         try { ctx.ui.setStatus("ues-run", undefined); } catch {}
       }
