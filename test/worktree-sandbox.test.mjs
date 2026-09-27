@@ -255,3 +255,70 @@ test("V15.6 orphan sandbox cleanup removes dead-owner worktrees but preserves li
     await rm(base, { recursive: true, force: true })
   }
 })
+
+
+test("V15.7 cleanup reclaims ended same-process sandboxes but protects active ones", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-owned-root-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-owned-base-"))
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const active = await createTaskSandbox(root, "owned", "active", { baseDir: base })
+    const ended = await createTaskSandbox(root, "owned", "ended", { baseDir: base })
+
+    const cleanup = await pruneOrphanTaskSandboxes(root, {
+      baseDir: base,
+      minAgeMs: 60_000,
+      legacyMinAgeMs: 60_000,
+      ownedMinAgeMs: 0,
+      reclaimOwnerPid: process.pid,
+      protectedDirs: [active.dir],
+    })
+
+    assert.equal(cleanup.removed.some((item) => path.resolve(item.dir) === path.resolve(ended.dir)), true)
+    assert.equal(cleanup.skipped.some((item) => path.resolve(item.dir) === path.resolve(active.dir) && item.reason === "protected-active"), true)
+    assert.equal(listTaskSandboxes(root).some((item) => path.resolve(item.path) === path.resolve(active.dir)), true)
+    assert.equal(listTaskSandboxes(root).some((item) => path.resolve(item.path) === path.resolve(ended.dir)), false)
+
+    await rm(active.dir, { recursive: true, force: true })
+    spawnSync("git", ["worktree", "prune"], { cwd: root, encoding: "utf8" })
+    spawnSync("git", ["branch", "-D", active.branch], { cwd: root, encoding: "utf8" })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
+
+test("V15.7 cleanup removes orphan metadata sidecars for missing sandboxes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-sidecar-root-"))
+  const base = await mkdtemp(path.join(os.tmpdir(), "ues-sandbox-sidecar-base-"))
+  try {
+    await writeFile(path.join(root, "tracked.txt"), "base\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    const ghostDir = path.join(base, "runtime-ghost")
+    const sidecar = ghostDir + ".ues-meta.json"
+    await writeFile(sidecar, JSON.stringify({
+      root,
+      dir: ghostDir,
+      branch: "ues/runtime-ghost",
+      createdAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+      ownerPid: 2147483647,
+    }, null, 2) + "\n")
+
+    const cleanup = await pruneOrphanTaskSandboxes(root, {
+      baseDir: base,
+      minAgeMs: 60_000,
+      legacyMinAgeMs: 60_000,
+    })
+    assert.equal(cleanup.sidecarsRemoved.includes(sidecar), true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(base, { recursive: true, force: true })
+  }
+})
