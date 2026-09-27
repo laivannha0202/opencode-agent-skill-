@@ -3307,7 +3307,7 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
-        const planCheckTask = [
+        const buildPlanCheckTask = () => [
           "Validate the following inline plan against the current repository. If persistent SPEC/PLAN files do not exist yet, evaluate this inline plan directly instead of failing only because those files are absent.",
           "Use declared files and dependencies first. Do not inventory the repository. Resolve only concrete grounding gaps, then return the verdict.",
           "",
@@ -3318,6 +3318,7 @@ export default function (pi: ExtensionAPI) {
           structuredPlan ? JSON.stringify(structuredPlan, null, 2) : architect.output,
         ].join("\n");
 
+        let planCheckTask = buildPlanCheckTask();
         let planCheck = await run("ues-plan-checker", planCheckTask, 1);
         if (isAbortedRun(planCheck)) return abortedResponse(planCheck, "plan-verification");
 
@@ -3349,9 +3350,46 @@ export default function (pi: ExtensionAPI) {
           if (isAbortedRun(planCheck)) return abortedResponse(planCheck, "plan-verification-recovery");
         }
 
+        if (planCheck.verdict === "REVISE") {
+          const revisionEvidence = failureDelta([
+            "The independent plan-checker requested a bounded revision.",
+            "Do not restart broad repository exploration. Change only the rejected plan claims/scope.",
+            "Plan-checker feedback:",
+            String(planCheck.output || ""),
+            "Current plan:",
+            JSON.stringify(structuredPlan, null, 2),
+          ].join("\n"), { maxChars: 5200 });
+
+          const revisedArchitect = await run(
+            "ues-architect",
+            planInstruction,
+            2,
+            revisionEvidence,
+          );
+          if (isAbortedRun(revisedArchitect)) return abortedResponse(revisedArchitect, "plan-auto-revise");
+          const revisedCandidate = extractValidatedPlan(revisedArchitect.output);
+          if (revisedCandidate.plan && revisedCandidate.validation?.valid === true) {
+            architect = revisedArchitect;
+            structuredPlan = revisedCandidate.plan;
+            structuredValidation = revisedCandidate.validation;
+            planCheckTask = buildPlanCheckTask();
+            onUpdate?.({
+              content: [{ type: "text", text: "UES plan gate: auto-revised the rejected plan; re-checking once" }],
+              details: { mode: "execute", phase: "plan-auto-revise", policy, traceID },
+            });
+            planCheck = await run(
+              "ues-plan-checker",
+              planCheckTask,
+              2,
+              failureDelta(String(planCheck.output || ""), { maxChars: 2600 }),
+            );
+            if (isAbortedRun(planCheck)) return abortedResponse(planCheck, "plan-auto-revise-check");
+          }
+        }
+
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
-            content: [{ type: "text", text: `Plan gate did not pass:\n\n${planCheck.output}` }],
+            content: [{ type: "text", text: `Plan gate did not pass after bounded auto-recovery:\n\n${planCheck.output}` }],
             details: { mode: "execute", policy, steps, structuredPlan },
             isError: true,
           };
