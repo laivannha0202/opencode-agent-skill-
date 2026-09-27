@@ -113,6 +113,8 @@ const CONTRACTS = [
       "destructiveShellRisk",
       "isLocalEnvPath",
       "localEnvWriteRisk",
+      "crossToolTempPathRisk",
+      "portable temp-path guard",
       "UES_CHILD_ALLOW_LOCAL_ENV_WRITE",
       "NEEDS_USER_ENV",
     ],
@@ -403,6 +405,8 @@ const CONTRACTS = [
       "executionContractPrompt",
       "buildFinalVerdictMatrix",
       "phaseArtifactPayloads",
+      "crossToolTempPathRisk",
+      "cross-tool-posix-temp-path",
     ],
   },
   {
