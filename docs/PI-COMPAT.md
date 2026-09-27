@@ -96,6 +96,12 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.14 Deterministic Read-Only Fast Path
+
+Command-only read-only Git inspections no longer depend on a verifier model following a report template. When the user explicitly asks to run only whitelisted Git inspection commands such as `git status`, `git branch --show-current`, `git rev-parse HEAD`, `git rev-parse --show-toplevel`, or `git status --short`, UES executes them directly through the supervised process runner, captures their exit codes and output, compares the source workspace fingerprint before and after, and synthesizes the structured verification report deterministically.
+
+This path is fail-closed: an unrecognized Git command disables the deterministic shortcut and falls back to the verifier model. Any command failure, abort, or source-facing workspace mutation prevents PASS. The model-backed read-only lane also now receives the exact required report sections and verdict format to reduce weak-model schema drift.
+
 ## V15.13 Read-Only Completion Semantics
 
 Read-only verification now distinguishes real acceptance gaps from optional or explicitly out-of-scope checks. Localized no-failure wording such as `Không có lệnh git nào bị lỗi` is treated as an empty failure section, while statements such as `không có yêu cầu` / `out of scope` are warnings rather than completion failures.
