@@ -96,6 +96,14 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.19 Finalization Hardening
+
+Zero-friction admission now protects active runs from prompt loss. While a direct UES controller is active, a second ordinary interactive prompt is never auto-admitted into another controller and then silently consumed. Explicit natural continuations such as `tiếp tục`, `làm tiếp`, and `continue` may be forwarded only when the RPC pool can deterministically target an active child; otherwise the prompt remains on Pi's normal path.
+
+Unrelated new prompts are not treated as continuations. Slash commands are never rewritten as continuations. `/ues-status` reports the safe-continuation capability alongside the native/auto/high-risk router.
+
+For release-candidate validation, `npm run release:verify` runs the complete package CI/smoke chain and then the focused V15 regression suite.
+
 ## V15.18 Three-Tier Zero-Friction Routing
 
 Automatic admission now distinguishes three user-facing lanes instead of treating every engineering-looking prompt the same:

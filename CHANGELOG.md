@@ -6,6 +6,21 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.23] - 2026-09-28
+
+### Fixed
+- Prevented a second normal engineering prompt from being silently consumed while a direct UES controller is already active.
+- Added deterministic natural-continuation forwarding for explicit `tiếp tục` / `làm tiếp` / `continue` style follow-ups when one active child can be targeted safely.
+
+### Changed
+- Unrelated prompts during an active direct run stay on Pi's normal path instead of attempting a duplicate controller admission.
+- `/ues-status` now advertises safe continuation together with the native/auto/high-risk router.
+- Added `npm run release:verify` as the final one-command release-candidate gate (full CI/package smoke + focused V15 regressions).
+
+### Validation
+- Added V15.19 regression coverage for Vietnamese/English continuations, inactive-run rejection, unrelated-prompt rejection, slash-command bypass, and host wiring that refuses to swallow prompts.
+
+
 ## [15.0.0-beta.22] - 2026-09-28
 
 ### Added

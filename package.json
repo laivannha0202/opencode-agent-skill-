@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.0.0-beta.22",
+  "version": "15.0.0-beta.23",
   "description": "Pi-native UES coding-agent runtime with adaptive stability, Turbo Fast Path, durable verification, managed services, and weak-model orchestration",
   "type": "module",
   "bin": {
@@ -42,7 +42,8 @@
     "eval:v14": "node --test test/capability-fabric-v14.test.mjs test/hierarchical-context-v14.test.mjs test/memory-engine-v14.test.mjs test/context-engine-v14.test.mjs test/task-engine-v14-context.test.mjs test/cli-v14.test.mjs test/v14-contract.test.mjs test/performance-fabric-v14.test.mjs test/browser-mcp-routing-v14.test.mjs test/process-hang-detector-v14.test.mjs test/v14.2-runtime.test.mjs test/benchmark-confidence.test.mjs test/v14.3-intelligence.test.mjs",
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
-    "eval:v15": "node --test test/v15-runtime.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs"
+    "eval:v15": "node --test test/v15-runtime.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
+    "release:verify": "npm run ci && npm run eval:v15"
   },
   "keywords": [
     "pi-package",

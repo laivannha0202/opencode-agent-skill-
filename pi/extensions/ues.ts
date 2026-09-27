@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
-import { automaticUesAdmission, classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
+import { automaticUesAdmission, automaticUesContinuation, classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../../lib/task-policy.mjs";
 import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
@@ -2908,6 +2908,28 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (!["steer", "followUp"].includes(String(event.streamingBehavior || ""))) {
+      if (directControllerAbort && !directControllerAbort.signal.aborted) {
+        const continuation = automaticUesContinuation(text, { activeRun: true });
+        if (continuation.forward) {
+          const forwarded = await RPC_POOL.steerActive(text).catch(() => ({
+            accepted: false,
+            reason: "steer-failed",
+            active: 0,
+          }));
+          if (forwarded.accepted) {
+            try { ctx.ui.notify("UES: natural continuation forwarded to the active child", "info"); } catch {}
+            return { action: "handled" };
+          }
+          try {
+            ctx.ui.notify(
+              "UES is already running; continuation could not be targeted safely, so the prompt was not swallowed.",
+              "warning",
+            );
+          } catch {}
+        }
+        return { action: "continue" };
+      }
+
       if (
         AUTO_ADMISSION_ENABLED &&
         directControllerRunner &&
@@ -4406,7 +4428,7 @@ export default function (pi: ExtensionAPI) {
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
         "Parent UES tools hidden outside UES runs: on",
-        "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk)" : "off"),
+        "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
         "Local .env mutation guard: on",

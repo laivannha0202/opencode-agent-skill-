@@ -8,7 +8,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
-import { automaticUesAdmission, classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
+import { automaticUesAdmission, automaticUesContinuation, classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
 import { looksLikePiCliEntrypoint, resolvePiChildInvocation } from "../lib/pi-child-invocation.mjs"
 import { sessionNameFromUesInput, uesSessionName } from "../lib/session-display.mjs"
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../lib/workspace-root.mjs"
@@ -124,6 +124,24 @@ test("V15.18 auto routing is conservative across native, auto and high-risk lane
     automaticUesAdmission("/ues-run Hãy sửa lỗi API", { inGitWorkspace: true }).reason,
     "explicit-command",
   )
+})
+
+test("V15.19 active-run continuation is explicit and cannot swallow unrelated prompts", () => {
+  assert.deepEqual(
+    automaticUesContinuation("tiếp tục xử lý phần còn lại", { activeRun: true }),
+    { forward: true, reason: "active-run-continuation" },
+  )
+  assert.deepEqual(
+    automaticUesContinuation("làm tiếp đi", { activeRun: true }),
+    { forward: true, reason: "active-run-continuation" },
+  )
+  assert.deepEqual(
+    automaticUesContinuation("continue with the failing tests", { activeRun: true }),
+    { forward: true, reason: "active-run-continuation" },
+  )
+  assert.equal(automaticUesContinuation("sửa API khác giúp tôi", { activeRun: true }).forward, false)
+  assert.equal(automaticUesContinuation("tiếp tục", { activeRun: false }).forward, false)
+  assert.equal(automaticUesContinuation("/ues-run tiếp tục", { activeRun: true }).forward, false)
 })
 
 test("V15.14 command-only read-only Git inspection is deterministic", () => {
@@ -414,6 +432,9 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /admissionDecision/)
   assert.match(parent, /__taskPolicy/)
   assert.match(parent, /void directControllerRunner/)
+  assert.match(parent, /automaticUesContinuation/)
+  assert.match(parent, /natural continuation forwarded to the active child/)
+  assert.match(parent, /prompt was not swallowed/)
   assert.match(parent, /UES_AUTO_ADMIT/)
   assert.match(parent, /Git-root artifact guard: on/)
   assert.match(parent, /Disk hygiene: bounded \+ auto-clean/)
