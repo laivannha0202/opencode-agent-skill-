@@ -96,6 +96,18 @@ Child Pi processes keep extension discovery enabled so custom model providers re
 Each child also has bounded runtime supervision: a 30-minute hard timeout, a 5-minute idle timeout and a 15-second heartbeat by default. These can be tuned with `UES_CHILD_HARD_TIMEOUT_MS`, `UES_CHILD_IDLE_TIMEOUT_MS` and `UES_CHILD_HEARTBEAT_MS`.
 
 
+## V15.15 Execution Contracts + Phase Gates
+
+Long-horizon `/ues-run` now derives a deterministic execution contract before planning. The controller snapshots source-facing pre-existing dirty paths, blocks destructive Git discard commands such as `git restore`, `git checkout --`, and `git stash` in UES children, and injects the inherited-work boundary into every specialist role. Existing dirty work may only be changed when it is explicitly inside the approved task write scope; generated/U​​ES runtime artifacts are excluded from this baseline.
+
+Local `.env` files are treated as runtime inputs, not repository implementation targets. UES child edit/write/code-edit and common shell-write paths are blocked for `.env`, `.env.local`, `.env.development`, and similar files unless the original task explicitly requests that local mutation. Templates such as `.env.example`, `.env.sample`, and `.env.template` remain writable. When local environment setup is missing but not authorized, agents should report `NEEDS_USER_ENV` instead of silently editing secrets/configuration.
+
+Explicit `PHASE N — ...` contracts are parsed before planning. Execution phases must be represented in the structured plan with an integer `phase`; constraint-only phases remain invariants rather than fake tasks. UES then adds deterministic previous-phase barriers so a later phase cannot begin until every task in the previous execution phase has independently verified and integrated. Durable runs persist `EXECUTION_CONTRACT.json`, `phases/MANIFEST.json`, one deterministic JSON artifact per phase, and `FINAL_VERDICTS.json`, so resume can use durable state instead of replaying a very large prompt.
+
+Database/fixture cleanup tasks receive an additional fail-closed contract: refuse production, dry-run first, record exact candidate IDs plus pre/post counts, use deterministic audited markers, preserve canonical/user data, prove a second idempotent cleanup pass, and prefer transaction/rollback protection when available. A final `DB_CLEAN_PASS` requires cleanup evidence, counts, and idempotency evidence rather than a narrative claim alone.
+
+Final completion is split into independent `SOURCE_PASS`, `RUNTIME_PASS`, `DB_CLEAN_PASS`, and `DEVICE_PASS` dimensions when relevant. Runtime PASS may be derived from fresh executable checks; database cleanup and real-device PASS require their own concrete evidence. If source/runtime/data are verified but requested Expo/physical-device testing was not performed, UES reports `SOURCE_RUNTIME_PASS_DEVICE_NOT_VERIFIED` instead of overstating full PASS.
+
 ## V15.14 Deterministic Read-Only Fast Path
 
 Command-only read-only Git inspections no longer depend on a verifier model following a report template. When the user explicitly asks to run only whitelisted Git inspection commands such as `git status`, `git branch --show-current`, `git rev-parse HEAD`, `git rev-parse --show-toplevel`, or `git status --short`, UES executes them directly through the supervised process runner, captures their exit codes and output, compares the source workspace fingerprint before and after, and synthesizes the structured verification report deterministically.
