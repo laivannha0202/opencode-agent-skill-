@@ -3489,7 +3489,7 @@ export default function (pi: ExtensionAPI) {
           "For deterministic scheduling, emit UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks as the first substantive output. Do not delay the JSON behind long prose.",
           "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
           executionContract.phases?.length
-            ? "PHASE CONTRACT: every task must also include an integer phase matching one explicit PHASE number from the user request. Do not omit, merge away, or invent phases. UES will add deterministic previous-phase barriers after validation."
+            ? "PHASE CONTRACT: every execution task must include an integer phase matching one explicit execution PHASE number from the user request. Constraint/guardrail-only phases are invariants, not fake tasks. Do not omit, merge away, or invent execution phases. UES will add deterministic previous-phase barriers after validation."
             : "",
           "STRICT JSON CONTRACT: acceptance and verification are non-empty arrays of strings. risk is exactly one of low|medium|high|critical. Put descriptive risk prose in riskNotes. verificationCommands is optional and does not replace verification.",
           "Declare every file a task may write. Do not invent files: inspect the repository first.",
