@@ -5,7 +5,7 @@ import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
-import { destructiveShellRisk } from "../../lib/safety.mjs";
+import { destructiveShellRisk } from "../../lib/safety.mjs";\nimport { isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
 import {
   canonicalVerificationCommand,
   looksLikeVerificationCommand,
@@ -105,9 +105,32 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    const input: any = event.input || {};
+    const localEnvAllowed = String(process.env.UES_CHILD_ALLOW_LOCAL_ENV_WRITE || "") === "1";
+    const writeTool = ["edit", "write", "write_file", "apply_patch", "ues_code_edit"].includes(toolName);
+    const fileCandidate = String(input.file || input.path || input.filePath || input.target || "");
+    if (writeTool && isLocalEnvPath(fileCandidate) && !localEnvAllowed) {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason:
+          "UES local-env guard blocked a write to " + fileCandidate +
+          ". .env/.env.* are local runtime inputs; update an example/template or report NEEDS_USER_ENV unless the user explicitly authorized this local env mutation.",
+      };
+    }
+
     if (!["bash", "powershell"].includes(toolName)) return undefined;
 
-    const command = String((event.input as any)?.command || "");
+    const command = String(input.command || "");
+    const envRisk = localEnvWriteRisk(command);
+    if (envRisk.risky && !localEnvAllowed) {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason:
+          "UES local-env guard blocked a shell write to .env/.env.*. Use .env.example/sample/template or report NEEDS_USER_ENV unless explicitly authorized.",
+      };
+    }
     if (looksLikeLongRunningServiceCommand(command)) {
       toolExecutionState.delete(String(event.toolCallId || ""));
       return {
