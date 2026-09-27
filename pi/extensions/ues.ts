@@ -31,6 +31,7 @@ import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
+import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -1292,9 +1293,10 @@ function cachedContextKey(
   role: string,
   budget: number,
   fingerprint = "unknown",
+  namespace = cwd,
 ) {
   const auxStamp = runtimeContextAuxStamp(cwd);
-  return [cwd, fingerprint, auxStamp, role, String(budget), task].join("\u0000");
+  return [path.resolve(namespace), fingerprint, auxStamp, role, String(budget), task].join("\u0000");
 }
 
 function deepExplorationContract(role: string) {
@@ -1373,6 +1375,7 @@ async function runRoutedAgent(
   onProgress?: Parameters<typeof runAgent>[6],
   traceID?: string,
   taskPolicyOverride?: any,
+  contextCacheNamespace?: string,
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
   const browserRequested = browserEvidenceNeeded(task, role);
@@ -1472,6 +1475,7 @@ async function runRoutedAgent(
       role,
       budgetDecision.budget,
       workspaceFingerprint,
+      contextCacheNamespace || cwd,
     );
     const cacheableContext =
       workspaceState.cacheable === true &&
@@ -1502,6 +1506,7 @@ async function runRoutedAgent(
           role,
           budgetDecision.budget,
           workspaceFingerprint,
+          contextCacheNamespace || cwd,
         );
         if (postBuildKey !== cacheKey) rememberContextPack(postBuildKey, pack);
       }
@@ -1799,6 +1804,7 @@ async function executeStructuredPlan(input: {
   inheritedModel?: string;
   inheritedThinking?: string;
   maxAttempts: number;
+  rootPolicy?: any;
   durableSlug?: string;
   traceID?: string;
   signal?: AbortSignal;
@@ -1871,6 +1877,7 @@ async function executeStructuredPlan(input: {
   for (let waveIndex = 0; waveIndex < safe.waves.length; waveIndex++) {
     const ids = safe.waves[waveIndex];
     let lastWaveFailure = "";
+    const failureByTask = new Map<string, string>();
 
     for (let attempt = 1; attempt <= input.maxAttempts; attempt++) {
       const prepared: Array<{
@@ -1923,12 +1930,19 @@ async function executeStructuredPlan(input: {
               "",
               JSON.stringify(item.task, null, 2),
               "",
-              "Overall goal:",
-              String(input.plan.goal || ""),
-              lastWaveFailure
-                ? "\nFresh failure evidence from the previous wave attempt:\n" + cap(lastWaveFailure, 7000)
-                : "",
+              "Parent goal (context only; never broaden this leaf task):",
+              cap(String(input.plan.goal || ""), 700),
             ].filter(Boolean).join("\n");
+            const leafPolicy = leafTaskPolicy(item.task, input.rootPolicy || {});
+            const taskFailure = failureByTask.get(String(item.task.id)) || "";
+            const leafVisualRequired = visualEvidenceNeeded(taskText);
+            const leafFastDecision = turboFastPathDecision(leafPolicy, {
+              role: "executor",
+              attempt,
+              browserRequested: browserEvidenceNeeded(taskText, "executor"),
+              visualRequired: leafVisualRequired,
+            });
+            const leafAttemptStartedAt = Date.now();
 
             const plannedExecution: any = dynamicTaskByID.get(item.task.id);
             const deterministicReadOnly =
@@ -2073,6 +2087,8 @@ async function executeStructuredPlan(input: {
                 input.signal,
                 undefined,
                 input.traceID,
+                leafPolicy,
+                input.root,
               );
               results.push({
                 wave: waveIndex,
@@ -2110,8 +2126,8 @@ async function executeStructuredPlan(input: {
               };
             }
 
-            let focusedFailure = lastWaveFailure;
-            if (attempt > 1 && runtimeFailureNeedsDiagnosis(lastWaveFailure)) {
+            let focusedFailure = taskFailure;
+            if (attempt > 1 && runtimeFailureNeedsDiagnosis(taskFailure)) {
               const diagnosis = await runRoutedAgent(
                 "ues-debugger",
                 [
@@ -2127,10 +2143,12 @@ async function executeStructuredPlan(input: {
                 input.inheritedModel,
                 input.inheritedThinking,
                 attempt,
-                lastWaveFailure,
+                taskFailure,
                 input.signal,
                 undefined,
                 input.traceID,
+                leafPolicy,
+                input.root,
               );
               results.push({
                 wave: waveIndex,
@@ -2153,16 +2171,15 @@ async function executeStructuredPlan(input: {
               }
             }
 
+            const retryDelta = failureDelta(focusedFailure || taskFailure);
             const implementation = await runRoutedAgent(
               "ues-executor",
-              taskText + (focusedFailure && focusedFailure !== lastWaveFailure
-                ? "\n\nFocused diagnosis before retry:\n" + cap(focusedFailure, 7000)
-                : ""),
+              taskText,
               item.cwd,
               input.inheritedModel,
               input.inheritedThinking,
               attempt,
-              lastWaveFailure || undefined,
+              retryDelta || undefined,
               input.signal,
               (progress) => {
                 input.onUpdate?.({
@@ -2176,8 +2193,10 @@ async function executeStructuredPlan(input: {
                 });
               },
               input.traceID,
+              leafPolicy,
+              input.root,
             );
-            results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", ...implementation });
+            results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", leafPolicy, ...implementation });
 
             if (implementation.exitCode !== 0 || implementation.stopReason === "error") {
               if (!isAbortedRun(implementation)) {
@@ -2197,7 +2216,75 @@ async function executeStructuredPlan(input: {
               };
             }
 
-            const verification = await runRoutedAgent(
+            let verification: RunResult;
+            let leafFastGate: any = null;
+            if (leafFastDecision.eligible) {
+              const snapshot = runtimeWorkspaceSnapshot(item.cwd);
+              const receipts = await listReusableVerification(item.cwd, {
+                limit: 12,
+                maxAgeMs: 10 * 60_000,
+                previewBytes: 2200,
+                ...(snapshot.cacheable === true && snapshot.fingerprint
+                  ? { workspaceFingerprint: snapshot.fingerprint }
+                  : {}),
+              }).catch(() => ({ results: [] }));
+              leafFastGate = evaluateFastVerificationGate({
+                policy: leafPolicy,
+                implementation,
+                receipts: receipts?.results || [],
+                attemptStartedAtMs: leafAttemptStartedAt,
+                visualRequired: leafVisualRequired,
+              });
+            }
+
+            if (leafFastGate?.passed === true) {
+              verification = {
+                agent: "ues-deterministic-verifier",
+                task: taskText,
+                cwd: item.cwd,
+                exitCode: 0,
+                output: [
+                  "Per-leaf Turbo verification reused fresh behavioral evidence captured after this leaf implementation.",
+                  ...leafFastGate.behavioralReceipts.map((entry: any) => "- " + entry.command),
+                  "",
+                  "UES_VERDICT: PASS",
+                ].join("\n"),
+                stderr: "",
+                verdict: "PASS",
+                durationMs: 0,
+                toolCalls: 0,
+                toolNames: [],
+                report: {
+                  schemaVersion: 1,
+                  valid: true,
+                  verdict: "PASS",
+                  sections: {
+                    "checks-run": leafFastGate.behavioralReceipts.map((entry: any) => entry.command).join("\n"),
+                    "acceptance-criteria-proven": "Fresh behavioral receipt(s) exist at the post-implementation workspace fingerprint.",
+                    "completion-evidence": "Deterministic per-leaf PASS after this implementation attempt.",
+                  },
+                },
+                optimizations: {
+                  perLeafTurbo: true,
+                  behavioralReceiptCount: leafFastGate.behavioralReceipts.length,
+                },
+              };
+              input.onUpdate?.({
+                content: [{
+                  type: "text",
+                  text: `UES Per-Leaf Turbo: ${item.task.id} reused ${leafFastGate.behavioralReceipts.length} fresh behavioral receipt(s); skipped verifier model turn`,
+                }],
+                details: {
+                  wave: waveIndex,
+                  attempt,
+                  task: item.task.id,
+                  phase: "leaf-turbo-verified",
+                  leafPolicy,
+                  leafFastGate,
+                },
+              });
+            } else {
+              verification = await runRoutedAgent(
               "ues-verifier",
               [
                 "Verify exactly this structured plan task in the current isolated worktree.",
@@ -2224,8 +2311,11 @@ async function executeStructuredPlan(input: {
                 });
               },
               input.traceID,
+              leafPolicy,
+              input.root,
             );
-            results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", ...verification });
+            }
+            results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", leafPolicy, leafFastGate, ...verification });
             const passed = verification.exitCode === 0 && verification.verdict === "PASS";
             if (!isAbortedRun(verification)) {
               await recordRuntimeOutcome(implementation, taskText, passed, attempt - 1);
@@ -2271,8 +2361,12 @@ async function executeStructuredPlan(input: {
 
         const failed = waveResults.filter((item) => !item.passed);
         if (failed.length) {
+          for (const row of failed) {
+            const rawFailure = row.verification?.output || row.implementation?.output || "unknown failure";
+            failureByTask.set(String(row.item?.task?.id || "unknown"), failureDelta(rawFailure));
+          }
           lastWaveFailure = failed
-            .map((item) => item.verification?.output || item.implementation?.output || "unknown failure")
+            .map((item) => failureByTask.get(String(item.item?.task?.id || "unknown")) || "unknown failure")
             .join("\n\n---\n\n");
           await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
@@ -2973,6 +3067,7 @@ export default function (pi: ExtensionAPI) {
             inheritedModel,
             inheritedThinking,
             maxAttempts,
+            rootPolicy: policy,
             durableSlug: durableWork?.slug,
             traceID,
             signal,
