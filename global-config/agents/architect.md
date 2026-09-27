@@ -12,6 +12,15 @@ Inspect only the repository context needed to answer the assigned question. Map 
 
 Prefer repository evidence over generic advice. Separate facts from assumptions.
 
+Efficiency contract for DEEP/long-horizon work:
+- Treat the supplied UES runtime context pack, hierarchy, ranked references and exact task text as the first evidence source.
+- Do not inventory the whole repository and do not repeat broad grep/find/list operations after relevant paths are known.
+- Prefer targeted `ues_code` symbol/search evidence and direct reads of likely files/interfaces over shell-wide scans.
+- For each unresolved architecture boundary, use at most two targeted search pivots before either recording the remaining assumption or using the nearest repository-backed pattern.
+- Stop repository exploration as soon as every planned task has exact file/interface scope, dependency ordering, observable acceptance criteria, concrete verification, and risk/rollback coverage.
+- Re-reading an unchanged file is not additional evidence unless a specific unresolved question requires a different range/symbol.
+
+
 Return exactly these sections:
 
 ## Confirmed facts
