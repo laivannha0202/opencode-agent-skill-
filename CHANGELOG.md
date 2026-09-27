@@ -6,6 +6,23 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.8] - 2026-09-27
+
+### Performance
+- Added V15.7 Lightweight Sandbox Cleanup. Direct `/ues-run` executions track their own worktrees and reclaim any leftovers immediately on PASS, FAIL, Stop, or controller exception.
+- Stale same-process sandboxes can be reclaimed without waiting for the Pi host process to exit, while active sandbox paths remain protected.
+- Legacy UES sandboxes without owner leases now use a 30-minute cleanup grace instead of 6 hours.
+- Orphan `.ues-meta.json` sidecars are removed automatically, and the sandbox base directory is deleted when empty.
+
+### Developer Experience
+- Added `/ues-clean` for safe on-demand cleanup of stale UES sandboxes and orphan metadata in the current repository.
+
+### Safety
+- Active worktrees are protected through the in-memory active sandbox registry.
+- Live worktrees owned by another process are not removed.
+- Cleanup still only targets UES branches/worktrees under the repository-specific UES sandbox base.
+
+
 ## [15.0.0-beta.7] - 2026-09-27
 
 ### Performance
