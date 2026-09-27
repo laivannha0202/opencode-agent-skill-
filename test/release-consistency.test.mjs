@@ -154,6 +154,23 @@ test("release checker still derives legacy eval counts without making them Pi re
 })
 
 
+test("release checker fails when focused V15 eval drops a required disk-safety regression", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+    pkg.scripts["eval:v15"] = String(pkg.scripts["eval:v15"] || "")
+      .replace(/\s+test\/runtime-events\.test\.mjs\b/, "")
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("focused eval:v15")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
 test("release checker fails when CI drops packed install smoke", () => {
   const tmp = mkdirTemp()
   try {
