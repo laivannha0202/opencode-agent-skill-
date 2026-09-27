@@ -5,7 +5,8 @@ import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
-import { destructiveShellRisk } from "../../lib/safety.mjs";\nimport { isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
+import { destructiveShellRisk } from "../../lib/safety.mjs";
+import { isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
 import {
   canonicalVerificationCommand,
   looksLikeVerificationCommand,
