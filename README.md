@@ -4,7 +4,7 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.0.0-beta.5</code>  
+**Phiên bản package hiện tại:** <code>15.0.0-beta.6</code>  
 **Nhánh phát triển hiện tại:** V15.2 Turbo Fast Path + Managed Services  
 **Stable npm hiện tại:** <code>14.4.0</code>  
 **Runtime:** Node.js 22.19+  
@@ -1415,10 +1415,10 @@ npm pack
 Package version hiện tại trên nhánh <code>main</code> là:
 
 ~~~text
-15.0.0-beta.5
+15.0.0-beta.6
 ~~~
 
-Stable npm public hiện vẫn là <code>14.4.0</code>. V15.3 DEEP Speed giảm exploration trùng lặp ở long-horizon bằng diagnosis deduplication và bounded specialist exploration, nhưng giữ nguyên plan/verifier/integration gates. V15.4 ACP-safe child runtime ngăn UES spawn lại ACP/Zed entrypoint; child specialist luôn được chạy bằng Pi CLI thật. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
+Stable npm public hiện vẫn là <code>14.4.0</code>. V15.3 DEEP Speed giảm exploration trùng lặp ở long-horizon bằng diagnosis deduplication và bounded specialist exploration, nhưng giữ nguyên plan/verifier/integration gates. V15.4 ACP-safe child runtime ngăn UES spawn lại ACP/Zed entrypoint; child specialist luôn được chạy bằng Pi CLI thật. V15.5 Per-Leaf Turbo cho phép leaf task nhỏ trong DEEP plan tự xuống FAST, giữ failure delta task-local, và tái sử dụng context theo root namespace + workspace fingerprint để giảm retry/rebuild latency. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
 
 Test file packed với Pi:
 
