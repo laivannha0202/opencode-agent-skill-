@@ -8,7 +8,7 @@ import test from "node:test"
 import { fileURLToPath } from "node:url"
 import { defaultCapabilityRegistry } from "../lib/capability-fabric.mjs"
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../lib/turbo-fast-path.mjs"
-import { classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
+import { automaticUesAdmission, classifyEngineeringTask, deterministicReadOnlyGitCommands, shouldRunDedicatedDiagnosis } from "../lib/task-policy.mjs"
 import { looksLikePiCliEntrypoint, resolvePiChildInvocation } from "../lib/pi-child-invocation.mjs"
 import { sessionNameFromUesInput, uesSessionName } from "../lib/session-display.mjs"
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../lib/workspace-root.mjs"
@@ -73,6 +73,37 @@ test("V15.12 read-only policy avoids writer worktrees and behavioral receipts", 
   assert.equal(policy.requireIntegrationVerification, false)
   assert.equal(policy.profile.worktree, "off")
   assert.equal(policy.profile.verification, "command-evidence")
+})
+
+test("V15.17 auto-admits engineering tasks without requiring /ues-run", () => {
+  assert.equal(
+    automaticUesAdmission(
+      "Hãy sửa lỗi API trong repository này, chạy test và kiểm tra git diff.",
+      { inGitWorkspace: true },
+    ).admit,
+    true,
+  )
+  assert.equal(
+    automaticUesAdmission(
+      "Bạn đang làm việc trên project AgriMarket.\nPHASE 0 — AUDIT SOURCE\nKiểm tra repository rồi sửa triệt để dữ liệu test bị lọt ra public.\n" +
+        "Yêu cầu này có nhiều phase, database, mobile, API, test và final report.".repeat(8),
+      { inGitWorkspace: true },
+    ).admit,
+    true,
+  )
+  assert.equal(automaticUesAdmission("xin chào", { inGitWorkspace: true }).admit, false)
+  assert.equal(
+    automaticUesAdmission("theo bạn hệ thống này ổn không", { inGitWorkspace: true }).admit,
+    false,
+  )
+  assert.equal(
+    automaticUesAdmission("Hãy sửa lỗi API", { inGitWorkspace: false }).admit,
+    false,
+  )
+  assert.equal(
+    automaticUesAdmission("/ues-run Hãy sửa lỗi API", { inGitWorkspace: true }).admit,
+    false,
+  )
 })
 
 test("V15.14 command-only read-only Git inspection is deterministic", () => {
