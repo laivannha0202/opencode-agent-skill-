@@ -224,11 +224,11 @@ const CONTRACTS = [
   {
     file: "lib/task-policy.mjs",
     minBytes: 8_000,
-    startsWith: "const READ_ONLY",
+    startsWith: "const SENSITIVE_DOMAIN",
     required: [
       "CONCRETE_DIAGNOSIS",
       "diagnosisEvidence",
-      "generic word such as \"fix\"",
+      "word such as \"fix\" must not force",
       "shouldRunDedicatedDiagnosis",
     ],
   },
