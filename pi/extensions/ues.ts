@@ -33,6 +33,7 @@ import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.m
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
+import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
@@ -1790,18 +1791,21 @@ function extractMarkedJson(output: string, marker: string) {
 }
 
 async function sandboxChangedFiles(dir: string, base: string, signal?: AbortSignal) {
-  const intent = await runProcess("git", ["add", "-N", "."], dir, signal);
+  const pathspecs = sourceGitPathspecs();
+  const intent = await runProcess("git", ["add", "-N", "--", ...pathspecs], dir, signal);
   if (intent.exitCode !== 0) {
     throw new Error(intent.stderr || intent.stdout || "git add -N failed");
   }
-  const diff = await runProcess("git", ["diff", "--name-only", base, "--"], dir, signal);
+  const diff = await runProcess("git", ["diff", "--name-only", base, "--", ...pathspecs], dir, signal);
   if (diff.exitCode !== 0) {
     throw new Error(diff.stderr || diff.stdout || "git diff --name-only failed");
   }
-  return diff.stdout
-    .split(/\r?\n/)
-    .map((value) => value.trim().replaceAll("\\", "/"))
-    .filter(Boolean);
+  return sourceFacingPaths(
+    diff.stdout
+      .split(/\r?\n/)
+      .map((value) => value.trim().replaceAll("\\", "/"))
+      .filter(Boolean),
+  );
 }
 
 async function cleanupSandboxes(
