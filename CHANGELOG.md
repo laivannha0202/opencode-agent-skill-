@@ -6,6 +6,17 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.0.0-beta.20] - 2026-09-27
+
+### Fixed
+- Added a Windows-specific portable temp-path guard for UES child file tools. POSIX paths such as `/tmp/foo` and `/var/tmp/foo` now fail closed instead of being passed between Pi file tools and bash/MSYS namespaces that may resolve them differently.
+- Specialist prompts now direct transient transformations to stay inside one shell pipeline, or to use ignored repository-local scratch such as `.ues-cache/tmp` when cross-tool scratch is necessary.
+- `/ues-status` now reports `Portable temp-path guard: on`.
+
+### Validation
+- Added regression coverage proving Windows rejects ambiguous POSIX temp paths while repository-local scratch and Linux POSIX temp paths remain allowed.
+
+
 ## [15.0.0-beta.19] - 2026-09-27
 
 ### Added
