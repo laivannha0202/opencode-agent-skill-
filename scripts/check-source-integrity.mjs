@@ -32,6 +32,8 @@ const CONTRACTS = [
       "read-only-workspace-mutated",
       "auto-revised the rejected plan",
       "Removed transient runtime dirs",
+      "MAX_WRITER_CONCURRENCY",
+      "UES_MAX_WRITER_CONCURRENCY",
       "taskSandboxOwnerRoot",
       "pi.setSessionName",
       "sessionNameFromUesInput",
@@ -191,6 +193,18 @@ const CONTRACTS = [
       ".ues-cache",
       ".ues-services",
       ".ues-work",
+    ],
+  },
+  {
+    file: "lib/runtime-events.mjs",
+    minBytes: 1_200,
+    startsWith: 'import { randomUUID }',
+    required: [
+      "appendRuntimeEvent",
+      "readRuntimeEvents",
+      "DEFAULT_MAX_EVENT_FILE_BYTES",
+      "runtime-events.compacted",
+      "UES_EVENT_LOG_MAX_BYTES",
     ],
   },
   {
