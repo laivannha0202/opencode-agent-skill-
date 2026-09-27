@@ -1838,12 +1838,54 @@ function extractMarkedJson(output: string, marker: string) {
   return null;
 }
 
+function sandboxSourceIntentBatches(values: string[]) {
+  const batches: string[][] = [];
+  let batch: string[] = [];
+  let chars = 0;
+  for (const value of sourceFacingPaths(values)) {
+    const cost = value.length + 3;
+    if (batch.length && (batch.length >= 64 || chars + cost > 12_000)) {
+      batches.push(batch);
+      batch = [];
+      chars = 0;
+    }
+    batch.push(value);
+    chars += cost;
+  }
+  if (batch.length) batches.push(batch);
+  return batches;
+}
+
+async function sandboxIntentToAddSourceFiles(dir: string, signal?: AbortSignal) {
+  const pathspecs = sourceGitPathspecs();
+  const untracked = await runProcess(
+    "git",
+    ["ls-files", "--others", "--exclude-standard", "-z", "--", ...pathspecs],
+    dir,
+    signal,
+  );
+  if (untracked.exitCode !== 0) {
+    throw new Error(untracked.stderr || untracked.stdout || "git ls-files for intent-to-add failed");
+  }
+
+  const candidates = sourceFacingPaths(
+    untracked.stdout
+      .split("\0")
+      .map((value) => value.trim().replaceAll("\\", "/"))
+      .filter(Boolean),
+  );
+  for (const batch of sandboxSourceIntentBatches(candidates)) {
+    const intent = await runProcess("git", ["add", "-N", "--", ...batch], dir, signal);
+    if (intent.exitCode !== 0) {
+      throw new Error(intent.stderr || intent.stdout || "git add -N failed");
+    }
+  }
+  return candidates;
+}
+
 async function sandboxChangedFiles(dir: string, base: string, signal?: AbortSignal) {
   const pathspecs = sourceGitPathspecs();
-  const intent = await runProcess("git", ["add", "-N", "--", ...pathspecs], dir, signal);
-  if (intent.exitCode !== 0) {
-    throw new Error(intent.stderr || intent.stdout || "git add -N failed");
-  }
+  await sandboxIntentToAddSourceFiles(dir, signal);
   const diff = await runProcess("git", ["diff", "--name-only", base, "--", ...pathspecs], dir, signal);
   if (diff.exitCode !== 0) {
     throw new Error(diff.stderr || diff.stdout || "git diff --name-only failed");
