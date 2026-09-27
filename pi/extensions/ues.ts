@@ -2942,18 +2942,25 @@ export default function (pi: ExtensionAPI) {
           signal,
           (progress) => {
             if (
-              agent === "ues-architect" &&
               !softSteerSent &&
-              shouldSoftSteerArchitect(progress, planningBudget)
+              (
+                (agent === "ues-architect" && shouldSoftSteerArchitect(progress, planningBudget)) ||
+                (agent === "ues-plan-checker" && shouldSoftSteerPlanningRole(progress, planningBudget))
+              )
             ) {
               softSteerSent = true;
-              void RPC_POOL.steerActive(
-                "Stop repository exploration now. Use the evidence already gathered and return the required repository-grounded implementation plan immediately. End with exactly one UES_PLAN_JSON object. Do not start new broad searches.",
-              ).catch(() => ({ accepted: false }));
+              const steerText =
+                agent === "ues-architect"
+                  ? "Stop repository exploration now. Use the evidence already gathered and return the required repository-grounded implementation plan immediately. End with exactly one UES_PLAN_JSON object. Do not start new broad searches."
+                  : "Stop broad validation now. Check only unresolved declared paths and dependencies, then return the verdict immediately. End with exactly UES_VERDICT: PASS or UES_VERDICT: REVISE.";
+              void RPC_POOL.steerActive(steerText).catch(() => ({ accepted: false }));
               onUpdate?.({
                 content: [{
                   type: "text",
-                  text: "UES planning fast-stop: architect evidence budget reached; requesting immediate plan emission",
+                  text:
+                    agent === "ues-architect"
+                      ? "UES planning fast-stop: architect evidence budget reached; requesting immediate plan emission"
+                      : "UES planning fast-stop: plan-checker budget reached; requesting immediate verdict",
                 }],
                 details: { mode: "execute", phase: "planning-soft-steer", policy, progress, planningBudget, traceID },
               });
