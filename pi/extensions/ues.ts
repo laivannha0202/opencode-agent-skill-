@@ -3067,20 +3067,48 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
-        const planCheck = await run(
-          "ues-plan-checker",
-          [
-            "Validate the following inline plan against the current repository. If persistent SPEC/PLAN files do not exist yet, evaluate this inline plan directly instead of failing only because those files are absent.",
-            "",
-            "Original task:",
-            params.task,
-            "",
-            "Inline plan:",
-            structuredPlan ? JSON.stringify(structuredPlan, null, 2) : architect.output,
-          ].join("\n"),
-          1,
-        );
+        const planCheckTask = [
+          "Validate the following inline plan against the current repository. If persistent SPEC/PLAN files do not exist yet, evaluate this inline plan directly instead of failing only because those files are absent.",
+          "Use declared files and dependencies first. Do not inventory the repository. Resolve only concrete grounding gaps, then return the verdict.",
+          "",
+          "Original task:",
+          params.task,
+          "",
+          "Inline plan:",
+          structuredPlan ? JSON.stringify(structuredPlan, null, 2) : architect.output,
+        ].join("\n");
+
+        let planCheck = await run("ues-plan-checker", planCheckTask, 1);
         if (isAbortedRun(planCheck)) return abortedResponse(planCheck, "plan-verification");
+
+        const planCheckTransportFailure =
+          planCheck.verdict !== "PASS" &&
+          planCheck.verdict !== "REVISE" &&
+          (
+            planCheck.exitCode !== 0 ||
+            /hard-timeout|idle-timeout|UES RPC hard-timeout|UES RPC idle-timeout/i.test(
+              String(planCheck.output || "") + "\n" +
+              String(planCheck.stderr || "") + "\n" +
+              String(planCheck.stopReason || ""),
+            )
+          );
+
+        if (planCheckTransportFailure) {
+          const planCheckRecoveryEvidence = failureDelta([
+            "Previous plan-checker runtime failure:",
+            String(planCheck.output || planCheck.stderr || planCheck.stopReason || "unknown"),
+            "Reuse warm context. Do not scan broadly. Check only unresolved declared paths/dependencies and return PASS or REVISE.",
+          ].join("\n"), { maxChars: 2600 });
+
+          planCheck = await run(
+            "ues-plan-checker",
+            planCheckTask,
+            2,
+            planCheckRecoveryEvidence,
+          );
+          if (isAbortedRun(planCheck)) return abortedResponse(planCheck, "plan-verification-recovery");
+        }
+
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
             content: [{ type: "text", text: `Plan gate did not pass:\n\n${planCheck.output}` }],
@@ -3088,7 +3116,6 @@ export default function (pi: ExtensionAPI) {
             isError: true,
           };
         }
-
         const durableRequested =
           policy.mode === "long-horizon" || policy.profile?.durableState === true;
         if (durableRequested) {
