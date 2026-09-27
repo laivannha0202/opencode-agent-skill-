@@ -2707,13 +2707,6 @@ export default function (pi: ExtensionAPI) {
     try { ctx?.ui?.setTitle?.(name); } catch {}
   };
 
-  pi.on("input", async (event: any, ctx: any) => {
-    if (event?.source === "extension") return;
-    const name = sessionNameFromUesInput(event?.text, ctx?.cwd || "");
-    if (!name) return;
-    syncSessionIdentity(name, ctx);
-  });
-
   pi.on("session_shutdown", async () => {
     directControllerAbort?.abort();
     directControllerAbort = null;
@@ -2734,6 +2727,9 @@ export default function (pi: ExtensionAPI) {
 
     const text = String(event.text || "").trim();
     if (!text) return { action: "continue" };
+
+    const sessionName = sessionNameFromUesInput(text, ctx.cwd || "");
+    if (sessionName) syncSessionIdentity(sessionName, ctx);
 
     if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
       let directAborted = 0;
