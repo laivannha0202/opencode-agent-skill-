@@ -33,6 +33,10 @@ test("V15.15 local env guard distinguishes runtime inputs from templates", () =>
     false,
   )
   assert.equal(
+    taskExplicitlyAllowsLocalEnvWrite("Không sửa .env; chỉ cập nhật .env.example."),
+    false,
+  )
+  assert.equal(
     taskExplicitlyAllowsLocalEnvWrite("Hãy sửa .env.local trên máy này để thêm TEST_DATABASE_URL."),
     true,
   )
