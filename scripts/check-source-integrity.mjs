@@ -460,6 +460,7 @@ const CONTRACTS = [
       "word such as \"fix\" must not force",
       "shouldRunDedicatedDiagnosis",
       "deterministicReadOnlyGitCommands",
+      "automaticUesAdmission",
     ],
   },
   {
