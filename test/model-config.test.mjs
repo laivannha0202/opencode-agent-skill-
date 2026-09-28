@@ -6,6 +6,7 @@ import path from "node:path"
 import {
   applyConfiguredModel,
   readModelPolicy,
+  recordModelPerformance,
   validateModelID,
   writeModelPolicy,
 } from "../lib/model-config.mjs"
@@ -93,4 +94,29 @@ test("V12 model config persists empirical performance observations", async () =>
     assert.equal(reread.performance["provider/mid"].debugging.samples,1)
     assert.equal(reread.performance["provider/mid"].debugging.passRate,1)
   } finally { await rm(dir,{recursive:true,force:true}) }
+})
+
+
+test("V15 concurrent model performance updates do not lose routing samples", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ues-model-performance-concurrent-"))
+  try {
+    await writeModelPolicy(dir, { enabled: true, tiers: { standard: "provider/mid" } })
+    await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        recordModelPerformance(dir, {
+          model: "provider/mid",
+          taskClass: "debugging",
+          passed: true,
+          retries: index % 2,
+          tokens: 1000 + index,
+          latencyMs: 500 + index,
+        }),
+      ),
+    )
+    const reread = await readModelPolicy(dir)
+    assert.equal(reread.performance["provider/mid"].debugging.samples, 8)
+    assert.equal(reread.performance["provider/mid"].debugging.passRate, 1)
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 })
