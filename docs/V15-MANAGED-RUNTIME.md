@@ -126,3 +126,21 @@ The planning watchdog is progress-aware rather than a fixed wall-clock kill swit
 Architect structured planning is JSON-first. A complete graph emitted before a late transport timeout can be recovered only through deterministic normalization/validation and must still pass the independent plan-checker.
 
 High-risk execution and verification retain the original evidence ceiling. Only read-only planning context is role-bounded to reduce first-token latency and duplicate repository ingestion.
+
+
+## Managed LSP V2
+
+Code Intelligence now treats language servers as a bounded accelerator rather than a mandatory dependency.
+
+- Persistent subprocesses are lazy-started and isolated by workspace, provider, and project-configuration fingerprint.
+- Warm requests reuse the initialized server; document content is hash-tracked and synchronized with full-text `didChange` versions after edits.
+- Diagnostics are fenced by document version so a delayed notification cannot silently prove an older source revision.
+- The pool is bounded by global/per-workspace limits, idle TTL, and LRU eviction. Transient transport/startup failures receive at most the configured bounded restart budget.
+- Non-transient request rejection does not destroy an otherwise healthy warm session.
+- Windows npm shims are resolved through the existing safe Windows command resolver instead of attempting to execute `.cmd` wrappers directly.
+- Pi child shutdown stops pooled language servers alongside managed services.
+- If the persistent path is disabled, saturated, or unhealthy, Code Intelligence falls back to the existing ephemeral LSP path; semantic index/search remains independent of LSP availability.
+
+Runtime tuning is optional through `UES_LSP_PERSISTENT`, `UES_LSP_IDLE_TTL_MS`, `UES_LSP_MAX_SERVERS`, `UES_LSP_MAX_PER_WORKSPACE`, `UES_LSP_REQUEST_TIMEOUT_MS`, `UES_LSP_STARTUP_TIMEOUT_MS`, and `UES_LSP_MAX_RESTARTS`.
+
+Use `npm run bench:lsp` for a deterministic cold/warm protocol benchmark. The benchmark uses a mock language server so it measures pool overhead and reuse, not the indexing cost of a particular external language server.
