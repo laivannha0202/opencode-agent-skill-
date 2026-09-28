@@ -130,3 +130,32 @@ test("learning state serializes concurrent accept mutations without losing propo
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("parallel trace ingestion preserves deterministic failure counts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-learning-ingest-"))
+  try {
+    const evalDir = path.join(root, ".ues-evals")
+    await mkdir(evalDir, { recursive: true })
+    await Promise.all(Array.from({ length: 20 }, (_, index) =>
+      writeFile(path.join(evalDir, "trace-" + String(index).padStart(2, "0") + ".json"), JSON.stringify({
+        results: [{
+          task: "task-" + index,
+          mode: "ues",
+          agentExit: index % 2 === 0 ? 1 : 0,
+          graderExit: index % 5 === 0 ? 1 : 0,
+          orchestration: { required: false, valid: true },
+          telemetry: { parseErrors: 0 },
+        }],
+      })),
+    ))
+
+    const analysis = await analyzeEvalTraces(evalDir)
+    assert.equal(analysis.files, 20)
+    assert.equal(analysis.results, 20)
+    assert.equal(analysis.proposals.find((item) => item.key === "agent-exit")?.evidence.count, 10)
+    assert.equal(analysis.proposals.find((item) => item.key === "grader-failure")?.evidence.count, 4)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
