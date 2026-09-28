@@ -1694,6 +1694,8 @@ async function runRoutedAgent(
       modelTier: selection.tier,
       profile: taskPolicy.executionProfile,
       risk: taskPolicy.risk,
+      decisionConfidence: taskPolicy.decision?.confidence ?? null,
+      decisionReason: taskPolicy.decision?.reason ?? null,
       browserRequested,
     }).catch(() => {});
   }
@@ -3658,6 +3660,8 @@ export default function (pi: ExtensionAPI) {
         profile: policy.executionProfile,
         risk: policy.risk,
         mode: policy.mode,
+        decisionConfidence: policy.decision?.confidence ?? null,
+        decisionReason: policy.decision?.reason ?? null,
         inheritedDirtyCount: executionContract.inheritedDirty?.paths?.length || 0,
         explicitPhaseCount: executionContract.phases?.length || 0,
         localEnvWriteExplicitlyAllowed: executionContract.localEnvWriteExplicitlyAllowed === true,
