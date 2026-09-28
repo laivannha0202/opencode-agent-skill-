@@ -11,6 +11,7 @@ test("command-aware reducer registry recognizes high-noise engineering commands"
     ["npm test", "npm-test", "FAIL suite"],
     ["pytest -q", "pytest", "FAILED tests/test_api.py::test_case"],
     ["git status --short", "git-status", " M src/a.js\n?? src/new.js"],
+    ["git log -5 --oneline", "git-log", "commit abcdef1234567890\n    tighten runtime"],
     ["git diff --stat", "git-diff", "diff --git a/a.js b/a.js"],
     ["rg TODO src", "ripgrep", "src/a.js:12:TODO fix"],
     ["tree src", "tree", "src\n├── a.js\n└── b.js"],
@@ -19,6 +20,9 @@ test("command-aware reducer registry recognizes high-noise engineering commands"
     ["docker compose up", "docker", "service api failed: error"],
     ["npx prisma migrate dev", "prisma", "Prisma schema loaded from prisma/schema.prisma"],
     ["npm install", "package-install", "added 14 packages, and audited 320 packages in 2s"],
+    ["go test ./...", "verification-test", "ok example/pkg 0.12s"],
+    ["cargo test", "verification-test", "test result: ok. 12 passed; 0 failed"],
+    ["ruff check .", "python-lint", "All checks passed!"],
   ]
   for (const [command, family, output] of cases) {
     assert.equal(reduceCommandOutput(output, { command }).family, family, command)
