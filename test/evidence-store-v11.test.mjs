@@ -1,6 +1,6 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { evidenceExists, evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
@@ -85,6 +85,37 @@ test("V15.12 evidence GC preserves blobs referenced by verified memory", async (
     assert.equal(await evidenceExists(root, protectedItem.ref), true)
     assert.equal(result.protectedEntries, 1)
     assert.ok(result.protectedBytes > 0)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("V15 evidence refresh and GC cannot leave metadata without its blob", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-evidence-gc-race-"))
+  try {
+    const targetValue = "race-target-" + "z".repeat(4096)
+    const target = await putEvidence(root, targetValue, { source: "initial" })
+    for (let index = 0; index < 10; index += 1) {
+      await putEvidence(root, "race-decoy-" + index + "-" + "x".repeat(1024))
+    }
+
+    const hash = target.ref.slice("evidence:sha256:".length)
+    const metaFile = path.join(root, ".ues-evidence", hash.slice(0, 2), hash + ".json")
+    const meta = JSON.parse(await readFile(metaFile, "utf8"))
+    meta.createdAt = "2000-01-01T00:00:00.000Z"
+    meta.lastSeenAt = "2000-01-01T00:00:00.000Z"
+    await writeFile(metaFile, JSON.stringify(meta, null, 2) + "\n", "utf8")
+
+    for (let round = 0; round < 12; round += 1) {
+      await Promise.all([
+        putEvidence(root, targetValue, { source: "refresh-" + round }),
+        gcEvidenceStore(root, { maxEntries: 10, maxAgeDays: 999, maxBytes: 64 * 1024 * 1024 }),
+      ])
+      assert.equal(await evidenceExists(root, target.ref), true)
+      const viewed = await getEvidence(root, target.ref, { maxBytes: 8192 })
+      assert.equal(viewed.content, targetValue)
+    }
   } finally {
     await rm(root, { recursive: true, force: true })
   }
