@@ -13,10 +13,14 @@ The project follows Semantic Versioning.
 - Memory Retrieval V2 with evidence-only recall, repository dependency-graph affinity, scoped file/module retrieval, aging and reinforcement/use ranking signals.
 - Code Intelligence V2 LSP operations for definitions, references, symbols, hover, rename preview and call hierarchy in addition to diagnostics.
 - Durable subagent artifacts and handles under `.ues-work/.subagents`, including exact task/output evidence refs and `ues_dispatch action=status|list` inspection.
+- Unicode Source Hygiene Guard for invisible/control characters and mixed-script lookalikes in changed source.
+- Post-Run File Hygiene Guard that removes proven transient artifacts and rejects unexplained debug/scratch files.
+- Pre-final Workspace Audit that rechecks the complete task delta before PASS and enforces declared write scope for structured execution.
 
 ### Changed
 
 - UES keeps the existing 12 specialist agents; the new subagent layer reduces resume/status cost instead of increasing agent count.
+- Every Pi child specialist now gets a filesystem hygiene baseline; writer roles are audited after mutation and read-only roles may not leave source mutations behind.
 
 ### Fixed
 

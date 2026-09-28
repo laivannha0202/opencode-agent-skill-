@@ -46,6 +46,7 @@ import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
+import { captureWorkspaceHygieneBaseline, postRunFileHygiene, preFinalWorkspaceAudit } from "../../lib/workspace-hygiene.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
   browserEvidenceNeeded,
@@ -1515,6 +1516,7 @@ async function runRoutedAgent(
 ): Promise<RunResult> {
   const role = roleForAgent(agent);
   const traceRoot = requireGitWorkspaceRoot(cwd, "UES specialist");
+  const agentHygieneBaseline = captureWorkspaceHygieneBaseline(cwd);
   const browserRequested = browserEvidenceNeeded(task, role);
   const browserTools = browserRequested
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
@@ -1838,6 +1840,38 @@ async function runRoutedAgent(
     }
     throw error;
   }
+  const postRunHygiene = await postRunFileHygiene(cwd, {
+    baseline: agentHygieneBaseline,
+    taskText: task,
+    allowSourceMutations: WRITE_AGENTS.has(agent),
+    autoClean: true,
+  }).catch((error) => ({
+    schemaVersion: 1,
+    safe: false,
+    changed: [],
+    created: [],
+    removed: [],
+    findings: [{
+      kind: "hygiene-audit-error",
+      file: ".",
+      message: error instanceof Error ? error.message : String(error),
+    }],
+    summary: "workspace hygiene audit failed: " + (error instanceof Error ? error.message : String(error)),
+  }));
+  if (!postRunHygiene.safe) {
+    const hygieneText = [
+      "UES post-run workspace hygiene guard rejected this child run.",
+      postRunHygiene.summary || "workspace hygiene failed",
+    ].join("\n");
+    result = {
+      ...result,
+      exitCode: result.exitCode === 0 ? 2 : result.exitCode,
+      stopReason: "error",
+      errorMessage: hygieneText,
+      output: [result.output, "", hygieneText].filter(Boolean).join("\n"),
+    };
+  }
+
   const finalizedChildArtifact = childArtifact?.handle
     ? await finalizeSubagentArtifact(artifactRoot, childArtifact.handle, {
         ...result,
@@ -3302,6 +3336,7 @@ export default function (pi: ExtensionAPI) {
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const inheritedDirty = captureInheritedDirtyState(cwd);
+      const controllerHygieneBaseline = captureWorkspaceHygieneBaseline(cwd);
       const executionContract = buildExecutionContract(params.task, inheritedDirty);
       const contractPrompt = executionContractPrompt(executionContract);
       const suppliedPolicy = (params as any).__taskPolicy;
@@ -4132,6 +4167,56 @@ export default function (pi: ExtensionAPI) {
             };
           }
 
+          const finalWriteScope = [...new Set(
+            structuredPlan.tasks.flatMap((task: any) => taskWriteFiles(task)),
+          )];
+          const preFinalAudit = await preFinalWorkspaceAudit(cwd, {
+            baseline: controllerHygieneBaseline,
+            taskText: params.task,
+            allowedPaths: finalWriteScope,
+            strictScope: true,
+            allowSourceMutations: true,
+          }).catch((error) => ({
+            safe: false,
+            summary: "pre-final workspace audit failed: " + (error instanceof Error ? error.message : String(error)),
+            findings: [],
+          }));
+          if (!preFinalAudit.safe) {
+            if (durableWork) {
+              await durableRecordIntegration(
+                cwd,
+                durableWork.slug,
+                "PARTIAL",
+                preFinalAudit.summary || "pre-final workspace hygiene failed",
+                signal,
+              ).catch(() => {});
+            }
+            return {
+              content: [{
+                type: "text",
+                text: [
+                  "UES pre-final workspace audit blocked PASS.",
+                  "The final repository contains an undeclared, transient, or Unicode-unsafe change.",
+                  "",
+                  preFinalAudit.summary || "workspace hygiene failed",
+                ].join("\n"),
+              }],
+              details: {
+                mode: "execute",
+                policy,
+                steps,
+                structuredPlan,
+                scheduled,
+                durableWork,
+                verdictMatrix,
+                executionContract,
+                preFinalAudit,
+                traceID,
+              },
+              isError: true,
+            };
+          }
+
           let durableFinalization: any = null;
           if (durableWork) {
             const finalEvidence = finalEvidenceForContract;
@@ -4470,6 +4555,37 @@ export default function (pi: ExtensionAPI) {
           };
         }
 
+        const preFinalAudit = await preFinalWorkspaceAudit(cwd, {
+          baseline: controllerHygieneBaseline,
+          taskText: params.task,
+          strictScope: false,
+          allowSourceMutations: true,
+        }).catch((error) => ({
+          safe: false,
+          summary: "pre-final workspace audit failed: " + (error instanceof Error ? error.message : String(error)),
+          findings: [],
+        }));
+        if (!preFinalAudit.safe) {
+          recentFailure = "Pre-final workspace audit rejected PASS: " + (preFinalAudit.summary || "workspace hygiene failed");
+          await recordRuntimeOutcome(implementation, params.task, false, attempt - 1);
+          if (attempt < maxAttempts) continue;
+          return {
+            content: [{ type: "text", text: recentFailure }],
+            details: {
+              mode: "execute",
+              policy,
+              steps,
+              attempts: attempt,
+              completionAudit,
+              verdictMatrix,
+              executionContract,
+              preFinalAudit,
+              traceID,
+            },
+            isError: true,
+          };
+        }
+
         await recordRuntimeOutcome(implementation, params.task, true, attempt - 1);
         const memory = await rememberVerifiedTask(cwd, params.task, verification, integrationResult);
         const final = steps.at(-1);
@@ -4524,6 +4640,9 @@ export default function (pi: ExtensionAPI) {
         "Portable temp-path guard: on",
         "Explicit phase barriers: on",
         "Independent final verdict matrix: on",
+        "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
+        "Post-run file hygiene: transient cleanup + read-only mutation guard",
+        "Pre-final workspace audit: on",
         "Disk hygiene: bounded + auto-clean",
         "Writer concurrency: " + MAX_WRITER_CONCURRENCY,
       ].join("\n");
