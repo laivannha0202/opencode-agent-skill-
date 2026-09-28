@@ -95,3 +95,38 @@ test("learning loop promotes only from an accepted benchmark artifact with measu
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("learning state serializes concurrent accept mutations without losing proposals", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-learning-concurrency-"))
+  try {
+    const proposals = Array.from({ length: 16 }, (_, index) => ({
+      id: "proposal-" + index,
+      type: "eval-pattern",
+      key: "concurrency-" + index,
+      title: "Concurrent proposal " + index,
+      evidence: { count: 1, tasks: ["task-" + index], samples: 16, confidence: 1 / 16 },
+      recommendation: "Keep deterministic mutation ordering.",
+      candidateRule: "Keep deterministic mutation ordering.",
+      shadowRequired: false,
+      status: "proposed",
+    }))
+    await saveLearningAnalysis(root, {
+      schemaVersion: 2,
+      analyzedAt: new Date().toISOString(),
+      proposals,
+    })
+
+    await Promise.all(proposals.map((item) => acceptLearning(root, item.id)))
+
+    const state = await readLearningState(root)
+    assert.equal(state.proposals.length, 0)
+    assert.equal(state.accepted.length, proposals.length)
+    assert.deepEqual(
+      state.accepted.map((item) => item.id).sort(),
+      proposals.map((item) => item.id).sort(),
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
