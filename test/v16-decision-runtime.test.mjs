@@ -53,6 +53,20 @@ test("decision fabric preserves high-confidence single-file fast work", () => {
   assert.equal(policy.decision.value.mode, "inline")
 })
 
+test("decision confidence preserves clearly bounded local debug fast lanes", () => {
+  for (const prompt of [
+    "Fix this local parser bug.",
+    "Fix this React useEffect stale closure bug.",
+  ]) {
+    const policy = classifyEngineeringTask(prompt)
+    assert.equal(policy.executionProfile, "fast")
+    assert.equal(policy.modelTier, "light")
+    assert.equal(policy.boundedDebugHint, true)
+    assert.ok(policy.decision.confidence >= 0.80)
+    assert.equal(policy.decision.crossCheckRecommended, false)
+  }
+})
+
 test("durable decisions expose typed deterministic confidence", () => {
   const safe = classifyDecisionPolicy("Use a temporary local fixture and rename the internal helper")
   assert.equal(safe.autoResolvable, true)
