@@ -133,8 +133,8 @@ test("LSP V2 invalidates warm reuse when workspace configuration changes", async
     await writeFile(path.join(root, "package.json"), JSON.stringify({ type: "module", version: 1 }))
     await writeFile(path.join(root, "demo.ts"), "export const value = 1\n")
     const p = provider(counterFile)
-    const run = () => withManagedLspSession(
-      targetFor(root, "demo.ts"),
+    const run = async () => withManagedLspSession(
+      await targetFor(root, "demo.ts"),
       p,
       { maxServers: 2, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
       async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
