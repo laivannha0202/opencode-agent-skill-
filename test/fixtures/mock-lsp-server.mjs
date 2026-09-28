@@ -4,6 +4,14 @@ if (process.env.UES_MOCK_LSP_COUNTER_FILE) {
   appendFileSync(process.env.UES_MOCK_LSP_COUNTER_FILE, "start\n", "utf8")
 }
 
+if (process.env.UES_MOCK_LSP_FAIL_ONCE_FILE) {
+  const { existsSync, writeFileSync } = await import("node:fs")
+  if (!existsSync(process.env.UES_MOCK_LSP_FAIL_ONCE_FILE)) {
+    writeFileSync(process.env.UES_MOCK_LSP_FAIL_ONCE_FILE, "failed-once\n", "utf8")
+    process.exit(17)
+  }
+}
+
 let buffer = Buffer.alloc(0)
 const documents = new Map()
 
