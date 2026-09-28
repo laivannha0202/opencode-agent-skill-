@@ -422,6 +422,7 @@ const CONTRACTS = [
       "resolveWindowsCommand",
       "managed-lsp-request-rejected",
     ],
+    forbidden: ["\\nimport { resolveWindowsCommand }"],
   },
   {
     file: "lib/execution-contract.mjs",
@@ -719,6 +720,11 @@ for (const contract of CONTRACTS) {
   for (const marker of contract.required) {
     if (!source.includes(marker)) {
       problems.push(`${contract.file}: missing integrity marker ${JSON.stringify(marker)}`)
+    }
+  }
+  for (const marker of contract.forbidden || []) {
+    if (source.includes(marker)) {
+      problems.push(`${contract.file}: forbidden integrity marker ${JSON.stringify(marker)}`)
     }
   }
 }
