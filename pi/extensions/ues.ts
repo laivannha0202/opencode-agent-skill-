@@ -44,6 +44,8 @@ import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
+import { PermissionPolicyStore, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { captureWorkspaceHygieneBaseline, postRunFileHygiene, preFinalWorkspaceAudit } from "../../lib/workspace-hygiene.mjs";
@@ -186,6 +188,9 @@ const MCP_HEALTH = new McpHealthTracker({
   failureThreshold: 2,
   cooldownMs: configuredDuration("UES_MCP_HEALTH_COOLDOWN_MS", 15_000, 1_000, 5 * 60_000),
 });
+const PERMISSION_POLICY = new PermissionPolicyStore(
+  path.join(getUesConfigDir(), ".ues", "permissions.json"),
+);
 
 function abortActiveCliChildren() {
   let aborted = 0;
@@ -723,6 +728,7 @@ async function runAgentCli(
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
           UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
+          UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
         },
         shell: false,
         detached: process.platform !== "win32",
@@ -1128,6 +1134,7 @@ async function runAgentRpc(
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
           UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
+          UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
         },
       },
       taskInput,
@@ -3149,11 +3156,49 @@ export default function (pi: ExtensionAPI) {
       }
       return undefined;
     }
+    const permissionRequest = toolPermissionRequest(toolName, (event as any).input || {});
+    const configuredPermission: any = await PERMISSION_POLICY.evaluate(permissionRequest, {
+      agent: "ues-parent",
+    }).catch((error) => ({
+      configured: true,
+      decision: null,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    if (configuredPermission.error) {
+      return {
+        block: true,
+        reason: "UES permission policy is invalid: " + configuredPermission.error,
+      };
+    }
+    const permissionEffect = configuredPermission?.decision?.effect;
+    let permissionApproved = false;
+    if (permissionEffect === "deny") {
+      return {
+        block: true,
+        reason: "Blocked by UES ordered permission policy: " +
+          permissionRequest.action + " " + permissionRequest.resources.join(", "),
+      };
+    }
+    if (permissionEffect === "ask") {
+      const allowed = await approveRisk(
+        ctx,
+        permissionRequest.resources.join("\n"),
+        "permission:" + permissionRequest.action,
+      );
+      if (!allowed) {
+        return {
+          block: true,
+          reason: "Blocked by UES ordered permission policy after approval was not granted",
+        };
+      }
+      permissionApproved = true;
+    }
+
     if (toolName !== "bash" && toolName !== "powershell") {
       const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
       const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
       const policy = mcpExecutionPolicy(descriptor || { name: toolName });
-      if (policy.confirmationRequired) {
+      if (policy.confirmationRequired && !permissionApproved) {
         const allowed = await approveRisk(ctx, `MCP/tool call: ${toolName}`, `mcp-destructive:${toolName}`);
         if (!allowed) return { block: true, reason: `Blocked by UES MCP destructive-hint gate: ${toolName}` };
       }
@@ -3172,8 +3217,10 @@ export default function (pi: ExtensionAPI) {
     }
     const risk = destructiveShellRisk(command);
     if (!risk.risky) return undefined;
-    const allowed = await approveRisk(ctx, command, risk.id || "destructive");
-    if (!allowed) return { block: true, reason: `Blocked by UES safety gate: ${risk.id}` };
+    if (!permissionApproved) {
+      const allowed = await approveRisk(ctx, command, risk.id || "destructive");
+      if (!allowed) return { block: true, reason: `Blocked by UES safety gate: ${risk.id}` };
+    }
     return undefined;
   });
 
@@ -3181,14 +3228,40 @@ export default function (pi: ExtensionAPI) {
     if (!uesModeActive()) return undefined;
     const toolName = String((event as any).toolName || "");
     if (!toolName || toolName === "bash" || toolName === "powershell") return undefined;
+    const resultText = toolResultText(event);
+    const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
+    const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
+    const policy = mcpExecutionPolicy(descriptor || { name: toolName });
     MCP_HEALTH.finish(
       String((event as any).toolCallId || ""),
       {
         isError: (event as any).isError === true,
-        text: toolResultText(event),
+        text: resultText,
       },
     );
-    return undefined;
+
+    const externalBoundary =
+      policy.externalEvidenceBoundary === true ||
+      HOST_BROWSER_TOOL_NAMES.includes(toolName);
+    if (!externalBoundary || !resultText) return undefined;
+
+    const analysis = analyzeUntrustedOutput(resultText, { source: toolName });
+    if (!analysis.flagged) return undefined;
+    const originalContent = Array.isArray((event as any).content)
+      ? (event as any).content
+      : [{ type: "text", text: resultText }];
+    return {
+      content: [
+        { type: "text", text: renderUntrustedOutputWarning(analysis, { source: toolName }) },
+        ...originalContent,
+      ],
+      details: {
+        ...((event as any).details && typeof (event as any).details === "object" ? (event as any).details : {}),
+        uesUntrustedOutputBoundary: analysis,
+      },
+      isError: (event as any).isError === true,
+      usage: (event as any).usage,
+    };
   });
 
   pi.registerTool({

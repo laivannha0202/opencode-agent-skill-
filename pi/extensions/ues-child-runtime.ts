@@ -1,11 +1,16 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { readFile, stat } from "node:fs/promises";
+import path from "node:path";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
+import { getUesConfigDir } from "../../lib/runtime-config.mjs";
+import { PermissionPolicyStore, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
+import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { crossToolTempPathRisk, isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
 import {
   canonicalVerificationCommand,
@@ -31,6 +36,16 @@ import {
   stopService,
   waitForService,
 } from "../../lib/service-manager.mjs";
+
+const PERMISSION_POLICY = new PermissionPolicyStore(
+  path.join(getUesConfigDir(), ".ues", "permissions.json"),
+);
+const EXTERNAL_TOOL_NAMES = new Set(
+  String(process.env.UES_CHILD_EXTERNAL_TOOL_NAMES || "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
 
 const toolExecutionState = new Map<string, {
   startedAt: number;
@@ -108,6 +123,37 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     const input: any = event.input || {};
+    const configuredPermission: any = await PERMISSION_POLICY.evaluate(
+      toolPermissionRequest(toolName, input),
+      { agent: String(process.env.UES_CHILD_AGENT || "ues-child") },
+    ).catch((error) => ({
+      configured: true,
+      decision: null,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+    if (configuredPermission.error) {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason: "UES permission policy is invalid: " + configuredPermission.error,
+      };
+    }
+    if (configuredPermission?.decision?.effect === "deny") {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason: "Blocked by UES ordered permission policy. Choose an allowed action or resource.",
+      };
+    }
+    if (configuredPermission?.decision?.effect === "ask") {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      return {
+        block: true,
+        reason:
+          "UES ordered permission policy requires approval for this child action. " +
+          "The isolated child cannot self-authorize it; choose a safer allowed path or let the parent handle the action.",
+      };
+    }
     const localEnvAllowed = String(process.env.UES_CHILD_ALLOW_LOCAL_ENV_WRITE || "") === "1";
     const writeTool = ["edit", "write", "write_file", "apply_patch", "ues_code_edit"].includes(toolName);
     const fileTool = ["read", "edit", "write", "write_file", "apply_patch", "ues_code", "ues_code_edit"].includes(toolName);
@@ -186,11 +232,37 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_result", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    const shownText = visibleText(event);
+    const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
+    const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
+    const externalPolicy = mcpExecutionPolicy(descriptor || { name: toolName });
+    const externalBoundary =
+      EXTERNAL_TOOL_NAMES.has(toolName) ||
+      externalPolicy.externalEvidenceBoundary === true;
+    if (externalBoundary && shownText) {
+      const analysis = analyzeUntrustedOutput(shownText, { source: toolName });
+      if (analysis.flagged) {
+        const originalContent = Array.isArray(event.content)
+          ? event.content
+          : [{ type: "text", text: shownText }];
+        return {
+          content: [
+            { type: "text", text: renderUntrustedOutputWarning(analysis, { source: toolName }) },
+            ...originalContent,
+          ],
+          details: {
+            ...(event.details && typeof event.details === "object" ? event.details : {}),
+            uesUntrustedOutputBoundary: analysis,
+          },
+          isError: event.isError,
+          usage: event.usage,
+        };
+      }
+    }
+
     if (!["bash", "powershell", "grep", "find", "ls"].includes(toolName)) {
       return undefined;
     }
-
-    const shownText = visibleText(event);
     const capture = await capturedText(event, shownText);
     const rawText = capture.text;
     const images = (event.content || []).filter((part: any) => part?.type !== "text");
