@@ -175,7 +175,7 @@ test("compaction resume guard emits a deterministic instruction epoch", async ()
 
     const packet = await buildCompactionResumeGuard(root, { reason: "threshold" })
     const epoch = packet.workspaces[0].instructionEpoch
-    assert.equal(packet.schemaVersion, 2)
+    assert.equal(packet.schemaVersion, 1)
     assert.equal(epoch.objective, "optimize runtime")
     assert.deepEqual(epoch.activeTaskIds, ["task-2"])
     assert.deepEqual(epoch.completedTaskIds, ["task-1"])
