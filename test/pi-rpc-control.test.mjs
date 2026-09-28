@@ -90,3 +90,41 @@ test("active control fails closed when a deterministic target is unavailable", a
   assert.equal(result.reason, "multiple-active-workers")
   assert.equal(result.active, 2)
 })
+
+
+test("same-session recovery fails closed without a reusable RPC worker", async () => {
+  const pool = new PiRpcWorkerPool()
+  await assert.rejects(
+    pool.run(
+      "missing",
+      { command: process.execPath, args: ["-e", ""], cwd: process.cwd(), env: process.env },
+      "continue",
+      { reuseSession: true },
+    ),
+    /same-session resume unavailable/i,
+  )
+})
+
+test("same-session recovery reuses an existing worker instead of allocating a new one", async () => {
+  const pool = new PiRpcWorkerPool()
+  const calls = []
+  const worker = fakeWorker({
+    active: false,
+    runs: 1,
+    async run(message, options) {
+      calls.push([message, options.reuseSession])
+      return { message: { role: "assistant", content: "ok" }, toolCalls: 0, toolNames: [] }
+    },
+  })
+  pool.workers.set("reuse", worker)
+
+  const result = await pool.run(
+    "reuse",
+    { command: "unused", args: [], cwd: process.cwd(), env: process.env },
+    "continue",
+    { reuseSession: true },
+  )
+
+  assert.equal(result.workerReused, true)
+  assert.deepEqual(calls, [["continue", true]])
+})
