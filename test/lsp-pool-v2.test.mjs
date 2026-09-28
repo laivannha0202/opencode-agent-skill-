@@ -185,3 +185,39 @@ test("LSP V2 performs at most one bounded restart for a transient startup failur
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("LSP V2 applies global LRU eviction instead of growing without bound", async () => {
+  const left = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-lru-left-"))
+  const right = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-lru-right-"))
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(left, "demo.ts"), "export const leftValue = 1\n")
+    await writeFile(path.join(right, "demo.ts"), "export const rightValue = 1\n")
+
+    const leftRun = await withManagedLspSession(
+      await targetFor(left, "demo.ts"),
+      provider(path.join(left, "starts.log")),
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(leftRun.ok, true)
+
+    const rightRun = await withManagedLspSession(
+      await targetFor(right, "demo.ts"),
+      provider(path.join(right, "starts.log")),
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(rightRun.ok, true)
+
+    const status = lspPoolStatus({ maxServers: 1 })
+    assert.equal(status.active, 1)
+    assert.equal(status.sessions[0].workspace, right)
+    assert.ok(status.metrics.evictions >= 1)
+  } finally {
+    await shutdownLspPool()
+    await rm(left, { recursive: true, force: true })
+    await rm(right, { recursive: true, force: true })
+  }
+})
