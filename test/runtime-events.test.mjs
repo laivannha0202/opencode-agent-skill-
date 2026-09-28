@@ -44,3 +44,21 @@ test("V15.12 runtime event journal compacts before unbounded growth", async () =
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V15 concurrent runtime event appends preserve every entry", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-events-concurrent-"))
+  const file = path.join(root, "EVENTS.jsonl")
+  try {
+    await Promise.all(
+      Array.from({ length: 24 }, (_, index) =>
+        appendRuntimeEvent(file, "task.progress", { index }),
+      ),
+    )
+    const all = await readRuntimeEvents(file, { limit: 100 })
+    assert.equal(all.length, 24)
+    assert.equal(new Set(all.map((item) => item.index)).size, 24)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
