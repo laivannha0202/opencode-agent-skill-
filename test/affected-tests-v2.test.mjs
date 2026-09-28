@@ -38,6 +38,13 @@ test("Affected-Test Index V2 uses Git inventory and reuses exact fingerprint res
     const third = await resolveAffectedTests(root)
     assert.equal(third.inventorySource, "git-index")
     assert.equal(third.tests.some((item) => item.path === "test/math.test.js"), true)
+
+    clearAffectedTestCache()
+    const serial = await resolveAffectedTests(root, { ioConcurrency: 1 })
+    clearAffectedTestCache()
+    const parallel = await resolveAffectedTests(root, { ioConcurrency: 4 })
+    assert.deepEqual(parallel.tests, serial.tests)
+    assert.deepEqual(parallel.suggestedCommands, serial.suggestedCommands)
   } finally {
     clearAffectedTestCache()
     await rm(root, { recursive: true, force: true })
