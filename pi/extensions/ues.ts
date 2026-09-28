@@ -36,6 +36,7 @@ import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.m
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
 import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, detectInheritedDirtyViolations, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
+import { buildCompactionResumeGuard, checkpointDurableWorkBeforeCompaction, renderCompactionResumeGuard } from "../../lib/compaction-resume-guard.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
@@ -2846,6 +2847,40 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async () => {
     deactivateParentUesTools();
+  });
+
+  pi.on("session_before_compact", async (event, ctx) => {
+    const root = resolveGitWorkspaceRoot(ctx.cwd || "");
+    if (!root) return undefined;
+    await checkpointDurableWorkBeforeCompaction(root, {
+      reason: event.reason,
+      maxWorkspaces: 3,
+    }).catch(() => []);
+    return undefined;
+  });
+
+  pi.on("session_compact", async (event, ctx) => {
+    const root = resolveGitWorkspaceRoot(ctx.cwd || "");
+    if (!root) return;
+    const packet = await buildCompactionResumeGuard(root, {
+      reason: event.reason,
+      maxWorkspaces: 3,
+    }).catch(() => null);
+    if (!packet?.workspaces?.length) return;
+    const content = renderCompactionResumeGuard(packet);
+    if (!content) return;
+    pi.sendMessage({
+      customType: "ues-durable-resume-guard",
+      content,
+      display: false,
+      details: {
+        schemaVersion: 1,
+        reason: event.reason,
+        willRetry: event.willRetry,
+        workspaceCount: packet.workspaceCount,
+        source: packet.source,
+      },
+    }, { triggerTurn: false });
   });
 
   pi.on("session_shutdown", async () => {
