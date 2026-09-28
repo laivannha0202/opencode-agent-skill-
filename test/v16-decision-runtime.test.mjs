@@ -97,6 +97,7 @@ test("completion auditor rejects inferred or unknown acceptance claims", () => {
     requireVisual: false,
     behavioralReceipts: [{ passed: true, exitCode: 0 }],
     requireBehavioralReceipt: true,
+    requireClaimEvidenceStatus: true,
   })
   assert.equal(inferred.passed, false)
   assert.ok(inferred.failures.includes("acceptance-criteria-inferred-not-proven"))
@@ -107,9 +108,21 @@ test("completion auditor rejects inferred or unknown acceptance claims", () => {
     requireVisual: false,
     behavioralReceipts: [{ passed: true, exitCode: 0 }],
     requireBehavioralReceipt: true,
+    requireClaimEvidenceStatus: true,
   })
   assert.equal(verified.passed, true)
   assert.equal(verified.evidence.claimEvidenceStatus.verified, 1)
+
+  const unstated = auditCompletion({
+    verification: passingVerification("refund idempotency test passed"),
+    requireIntegration: false,
+    requireVisual: false,
+    behavioralReceipts: [{ passed: true, exitCode: 0 }],
+    requireBehavioralReceipt: true,
+    requireClaimEvidenceStatus: true,
+  })
+  assert.equal(unstated.passed, false)
+  assert.ok(unstated.failures.includes("acceptance-criteria-evidence-status-missing"))
 })
 
 test("compaction resume guard emits a deterministic instruction epoch", async () => {
