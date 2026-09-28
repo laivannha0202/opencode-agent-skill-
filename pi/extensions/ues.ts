@@ -3115,7 +3115,7 @@ export default function (pi: ExtensionAPI) {
       content,
       display: false,
       details: {
-        schemaVersion: 1,
+        schemaVersion: packet.schemaVersion || 1,
         reason: event.reason,
         willRetry: event.willRetry,
         workspaceCount: packet.workspaceCount,
