@@ -169,6 +169,11 @@ const PROVIDER_RECOVERY_RETRIES = (() => {
   if (!Number.isFinite(parsed)) return 1;
   return Math.max(0, Math.min(2, Math.trunc(parsed)));
 })();
+const PROVIDER_SESSION_RESUME_RETRIES = (() => {
+  const parsed = Number(process.env.UES_PROVIDER_SESSION_RESUME_RETRIES ?? "1");
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, Math.min(2, Math.trunc(parsed)));
+})();
 const PROVIDER_RECOVERY_BASE_DELAY_MS = configuredDuration(
   "UES_PROVIDER_RECOVERY_BASE_DELAY_MS",
   250,
@@ -294,6 +299,7 @@ type RunResult = {
   workerReused?: boolean;
   providerFailure?: string;
   providerRecoveryAttempts?: number;
+  providerSessionResumeAttempts?: number;
   subagentArtifact?: any;
   optimizations?: any;
 };
@@ -682,6 +688,7 @@ async function runAgentCli(
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
+    reuseRpcSession?: boolean;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1074,6 +1081,7 @@ async function runAgentRpc(
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
+    reuseRpcSession?: boolean;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1166,6 +1174,7 @@ async function runAgentRpc(
         activityWindowMs,
         idleTimeoutMs,
         postToolErrorIdleTimeoutMs,
+        reuseSession: runtimeOptions.reuseRpcSession === true,
         onEvent: (event: any) => {
           lastActivityAt = Date.now();
           if (event.type === "tool_execution_start") {
@@ -1325,6 +1334,7 @@ async function runAgent(
     idleTimeoutMs?: number;
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
+    reuseRpcSession?: boolean;
   } = {},
 ): Promise<RunResult> {
   const runOnce = async (): Promise<RunResult> => {
@@ -1352,7 +1362,65 @@ async function runAgent(
 
   let result = await runOnce();
   let recoveryAttempts = 0;
+  let sessionResumeAttempts = 0;
   let providerDecision = classifyProviderFailure(result);
+
+  while (
+    providerDecision.transient && providerDecision.safeSessionResume &&
+    result.childRuntime === "rpc" &&
+    sessionResumeAttempts < PROVIDER_SESSION_RESUME_RETRIES && !signal?.aborted
+  ) {
+    sessionResumeAttempts += 1;
+    try {
+      onProgress?.({
+        agent, elapsedMs: 0, idleMs: 0, toolCalls: Number(result.toolCalls || 0),
+        model: result.model || model, phase: "running",
+        note: "provider returned no usable content after tool execution; resuming the same RPC session " +
+          sessionResumeAttempts + "/" + PROVIDER_SESSION_RESUME_RETRIES,
+      });
+    } catch {}
+    const delayMs = providerRecoveryBackoffMs(sessionResumeAttempts, {
+      baseMs: PROVIDER_RECOVERY_BASE_DELAY_MS, maxMs: 2_000,
+    });
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+
+    const priorToolCalls = Number(result.toolCalls || 0);
+    const priorToolNames = Array.isArray(result.toolNames) ? result.toolNames : [];
+    try {
+      const resumed = await runAgentRpc(
+        agent,
+        [
+          "Continue the current delegated task from this existing RPC session after a transient provider failure.",
+          "Do not restart the task and do not repeat tool calls that already completed.",
+          "Use the current conversation, workspace state, and tool evidence as authoritative.",
+          "Continue from the next unfinished step, then return the normal role report/verdict.",
+        ].join(" "),
+        cwd,
+        result.model || model,
+        thinkingLevel,
+        signal,
+        onProgress,
+        extraTools,
+        { ...runtimeOptions, reuseRpcSession: true },
+      );
+      result = {
+        ...resumed,
+        task,
+        toolCalls: priorToolCalls + Number(resumed.toolCalls || 0),
+        toolNames: [...new Set([...priorToolNames, ...(resumed.toolNames || [])])],
+      };
+      providerDecision = classifyProviderFailure(result);
+    } catch (error) {
+      try {
+        onProgress?.({
+          agent, elapsedMs: 0, idleMs: 0, toolCalls: priorToolCalls,
+          model: result.model || model, phase: "running",
+          note: "same-session provider recovery unavailable; preserving prior evidence without replay",
+        });
+      } catch {}
+      break;
+    }
+  }
 
   while (
     providerDecision.transient && providerDecision.safeReplay &&
@@ -1378,9 +1446,11 @@ async function runAgent(
   if (providerDecision.transient) {
     const recoveryNote = providerDecision.safeReplay
       ? "UES provider recovery exhausted after " + recoveryAttempts +
-        " bounded retry attempt(s); task remains failed instead of being reported as success."
-      : "UES provider recovery did not replay the task because " + providerDecision.toolCalls +
-        " tool call(s) already ran; this avoids duplicating side effects. Resume from current evidence/state instead.";
+        " bounded fresh-session retry attempt(s); task remains failed instead of being reported as success."
+      : providerDecision.safeSessionResume
+        ? "UES same-session provider recovery exhausted or was unavailable after " + sessionResumeAttempts +
+          " attempt(s). Completed tool side effects were preserved and were not blindly replayed."
+        : "UES provider recovery stopped safely without replaying completed side effects.";
     result = {
       ...result,
       exitCode: result.exitCode === 0 ? 1 : result.exitCode,
@@ -1389,7 +1459,11 @@ async function runAgent(
     };
   }
 
-  return { ...result, providerRecoveryAttempts: recoveryAttempts };
+  return {
+    ...result,
+    providerRecoveryAttempts: recoveryAttempts,
+    providerSessionResumeAttempts: sessionResumeAttempts,
+  };
 }
 
 function roleForAgent(agent: AgentName) {
@@ -4855,7 +4929,7 @@ export default function (pi: ExtensionAPI) {
         "Parent UES tools hidden outside UES runs: on",
         "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
         "Permission deny-and-continue recovery: on",
-      "Provider empty-response recovery: on (safe retry before tools; no blind replay after side effects)",
+      "Provider empty-response recovery: on (fresh retry before tools; same-session resume after side effects)",
         "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
