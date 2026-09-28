@@ -39,6 +39,7 @@ for (const required of [
   "pi/extensions/ues-child-runtime.ts",
   "docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md",
   "lib/process-supervisor.mjs",
+  "lib/executable-probe.mjs",
   "lib/pi-rpc-pool.mjs",
   "lib/adaptive-context-budget.mjs",
   "lib/skill-compiler.mjs",
