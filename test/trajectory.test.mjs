@@ -55,3 +55,20 @@ test("V15.12 trajectory retention prunes old trace files", async () => {
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V15 concurrent trajectory appends preserve every event", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-trace-concurrent-"))
+  try {
+    await Promise.all(
+      Array.from({ length: 24 }, (_, index) =>
+        appendTrajectoryEvent(root, "run-parallel", "agent.progress", { index }),
+      ),
+    )
+    const trace = await readTrajectory(root, "run-parallel", { limit: 100 })
+    assert.equal(trace.total, 24)
+    assert.equal(new Set(trace.events.map((item) => item.payload.index)).size, 24)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
