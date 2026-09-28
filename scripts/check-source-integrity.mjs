@@ -419,6 +419,8 @@ const CONTRACTS = [
       "textDocument/didChange",
       "UES_LSP_MAX_SERVERS",
       "UES_LSP_IDLE_TTL_MS",
+      "resolveWindowsCommand",
+      "managed-lsp-request-rejected",
     ],
   },
   {
