@@ -3,7 +3,8 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { queryContextHierarchy, selectDiverseHierarchyScopes } from "../lib/hierarchical-context.mjs"
+import { buildContextHierarchy, clearContextHierarchyRuntimeCache, queryContextHierarchy, selectDiverseHierarchyScopes } from "../lib/hierarchical-context.mjs"
+import { buildSemanticIndex } from "../lib/semantic-index.mjs"
 
 test("V14 hierarchy uses L0/L1 scope routing before L2 source excerpts", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-hierarchy-v14-"))
@@ -41,4 +42,28 @@ test("V14 hierarchy diversity fence prevents a parent-child chain from consuming
     { path: "docs", score: 16 },
   ], 3)
   assert.deepEqual(scopes.map((item) => item.path), ["apps/api/orders", "packages/payments", "docs"])
+})
+
+
+test("V15 hierarchy reuses summaries for the same semantic snapshot", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-hierarchy-cache-"))
+  try {
+    clearContextHierarchyRuntimeCache()
+    await mkdir(path.join(root, "src", "checkout"), { recursive: true })
+    await writeFile(
+      path.join(root, "src", "checkout", "reserve.mjs"),
+      "export function reserveInventory(order) { return order.items.length }\n",
+    )
+
+    const built = await buildSemanticIndex(root, { rebuild: true, maxFiles: 100 })
+    const first = await buildContextHierarchy(root, { builtIndex: built, maxFiles: 100 })
+    const second = await buildContextHierarchy(root, { builtIndex: built, maxFiles: 100 })
+
+    assert.equal(first.runtimeCacheHit, false)
+    assert.equal(second.runtimeCacheHit, true)
+    assert.deepEqual(second.nodes, first.nodes)
+  } finally {
+    clearContextHierarchyRuntimeCache()
+    await rm(root, { recursive: true, force: true })
+  }
 })
