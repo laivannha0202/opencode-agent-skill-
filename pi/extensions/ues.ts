@@ -1761,6 +1761,19 @@ async function runRoutedAgent(
     modelTier: selection.tier,
     workspaceFingerprint,
   }).catch(() => null);
+  if (childArtifact?.handle) {
+    try {
+      onProgress?.({
+        agent,
+        elapsedMs: 0,
+        idleMs: 0,
+        toolCalls: 0,
+        model: selectedModel,
+        phase: "running",
+        note: `subagent handle ${childArtifact.handle}; durable status ${childArtifact.file}`,
+      });
+    } catch {}
+  }
   let result: RunResult;
   try {
     result = await runAgent(

@@ -6,6 +6,18 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+### Added
+
+- Command-Aware Compression V2 with reducer registry for noisy test, diff, search, tree, TypeScript, ESLint, Docker and Prisma output while preserving exact raw evidence.
+- Durable Compaction Resume Guard that checkpoints before Pi compaction and rebuilds authoritative state from execution contracts, phase artifacts, task state and evidence receipts afterwards.
+- Memory Retrieval V2 with evidence-only recall, repository dependency-graph affinity, scoped file/module retrieval, aging and reinforcement/use ranking signals.
+- Code Intelligence V2 LSP operations for definitions, references, symbols, hover, rename preview and call hierarchy in addition to diagnostics.
+- Durable subagent artifacts and handles under `.ues-work/.subagents`, including exact task/output evidence refs and `ues_dispatch action=status|list` inspection.
+
+### Changed
+
+- UES keeps the existing 12 specialist agents; the new subagent layer reduces resume/status cost instead of increasing agent count.
+
 ## [15.0.0] - 2026-09-28
 
 - Stable release of V15.19 Finalization Hardening after full release verification.
