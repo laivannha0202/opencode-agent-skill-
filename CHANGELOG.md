@@ -6,6 +6,8 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.1.0] - 2026-09-28
+
 ### Added
 
 - Command-Aware Compression V2 with reducer registry for noisy test, diff, search, tree, TypeScript, ESLint, Docker and Prisma output while preserving exact raw evidence.
