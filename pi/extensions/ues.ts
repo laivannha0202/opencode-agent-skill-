@@ -44,7 +44,7 @@ import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
-import { PermissionPolicyStore, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
@@ -2933,7 +2933,7 @@ export default function (pi: ExtensionAPI) {
   const AUTO_ADMISSION_ENABLED = !["0", "false", "off"].includes(
     String(process.env.UES_AUTO_ADMIT || "1").trim().toLowerCase(),
   );
-  const UES_PARENT_TOOL_NAMES = new Set(["ues_cli", "ues_execute", "ues_service", "ues_dispatch"]);
+  const UES_PARENT_TOOL_NAMES = new Set(["ues_cli", "ues_execute", "ues_service", "ues_session", "ues_dispatch"]);
   let normalActiveTools: string[] | null = null;
 
   const currentNonUesTools = () =>
@@ -3120,13 +3120,27 @@ export default function (pi: ExtensionAPI) {
       return { action: "continue" };
     }
 
-    const steered = await RPC_POOL.steerActive(text).catch(() => ({
-      accepted: false,
-      reason: "steer-failed",
-      active: 0,
-    }));
-    if (steered.accepted) {
-      try { ctx.ui.notify("UES: steering message forwarded to the active child", "info"); } catch {}
+    const streamingBehavior = String(event.streamingBehavior || "");
+    const forwarded = streamingBehavior === "followUp"
+      ? await RPC_POOL.followUpActive(text).catch(() => ({
+          accepted: false,
+          reason: "follow-up-failed",
+          active: 0,
+        }))
+      : await RPC_POOL.steerActive(text).catch(() => ({
+          accepted: false,
+          reason: "steer-failed",
+          active: 0,
+        }));
+    if (forwarded.accepted) {
+      try {
+        ctx.ui.notify(
+          streamingBehavior === "followUp"
+            ? "UES: follow-up queued for the active child"
+            : "UES: steering message forwarded to the active child",
+          "info",
+        );
+      } catch {}
       return { action: "handled" };
     }
 
@@ -3175,8 +3189,7 @@ export default function (pi: ExtensionAPI) {
     if (permissionEffect === "deny") {
       return {
         block: true,
-        reason: "Blocked by UES ordered permission policy: " +
-          permissionRequest.action + " " + permissionRequest.resources.join(", "),
+        reason: permissionRecoveryHint(permissionRequest, configuredPermission.decision, { effect: "deny" }),
       };
     }
     if (permissionEffect === "ask") {
@@ -3188,7 +3201,7 @@ export default function (pi: ExtensionAPI) {
       if (!allowed) {
         return {
           block: true,
-          reason: "Blocked by UES ordered permission policy after approval was not granted",
+          reason: permissionRecoveryHint(permissionRequest, configuredPermission.decision, { effect: "ask" }),
         };
       }
       permissionApproved = true;
@@ -3411,6 +3424,60 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
           details: { action: params.action, name: params.name },
+          isError: true,
+        };
+      }
+    },
+  });
+
+  pi.registerTool({
+    name: "ues_session",
+    label: "UES Session Control",
+    description:
+      "Control the single active Pi RPC specialist session without shell orchestration. Supports state inspection, steer vs follow-up queueing, abort, queue clearing, model/thinking changes, compaction, and bounded wait. Fails closed when zero or multiple child sessions are active.",
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal("status"),
+        Type.Literal("get-state"),
+        Type.Literal("steer"),
+        Type.Literal("follow-up"),
+        Type.Literal("abort"),
+        Type.Literal("clear-queue"),
+        Type.Literal("set-model"),
+        Type.Literal("set-thinking"),
+        Type.Literal("compact"),
+        Type.Literal("wait"),
+      ]),
+      message: Type.Optional(Type.String({ maxLength: 12000 })),
+      provider: Type.Optional(Type.String({ maxLength: 120 })),
+      modelId: Type.Optional(Type.String({ maxLength: 240 })),
+      thinkingLevel: Type.Optional(Type.String({ maxLength: 40 })),
+      compactInstructions: Type.Optional(Type.String({ maxLength: 12000 })),
+      timeoutMs: Type.Optional(Type.Number({ minimum: 500, maximum: 1800000 })),
+    }),
+    async execute(_toolCallId, params) {
+      try {
+        const action = String(params.action || "status");
+        const result = action === "status"
+          ? { ok: true, action, ...RPC_POOL.status() }
+          : await RPC_POOL.controlActive(action, {
+              message: params.message,
+              provider: params.provider,
+              modelId: params.modelId,
+              level: params.thinkingLevel,
+              customInstructions: params.compactInstructions,
+              timeoutMs: params.timeoutMs,
+            });
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          details: result,
+          isError: result?.ok === false,
+        };
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        return {
+          content: [{ type: "text", text: message }],
+          details: { action: params.action, error: message },
           isError: true,
         };
       }
@@ -4739,6 +4806,8 @@ export default function (pi: ExtensionAPI) {
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
         "Parent UES tools hidden outside UES runs: on",
+        "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
+        "Permission deny-and-continue recovery: on",
         "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",

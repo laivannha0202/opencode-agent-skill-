@@ -7,6 +7,7 @@ import {
   evaluatePermissionRules,
   permissionPatternMatches,
   PermissionPolicyStore,
+  permissionRecoveryHint,
   toolPermissionRequest,
 } from "../lib/permission-policy.mjs"
 
@@ -54,6 +55,21 @@ test("tool request mapping uses OpenCode-style actions", () => {
     toolPermissionRequest("write", { path: "src/a.ts" }),
     { action: "edit", resources: ["src/a.ts"] },
   )
+  assert.deepEqual(
+    toolPermissionRequest("ues_session", { action: "follow-up" }),
+    { action: "session", resources: ["follow-up"] },
+  )
+})
+
+test("deny-and-continue recovery tells weak models not to loop on blocked actions", () => {
+  const request = { action: "shell", resources: ["git push origin main"] }
+  const decision = evaluatePermissionRules([
+    { action: "shell", resource: "git push *", effect: "deny" },
+  ], request)
+  const hint = permissionRecoveryHint(request, decision)
+  assert.match(hint, /Do not repeat the same blocked shell request/)
+  assert.match(hint, /narrowest allowed, reversible alternative/)
+  assert.match(hint, /report the blocker with evidence/)
 })
 
 test("agent rules append after global rules", async () => {

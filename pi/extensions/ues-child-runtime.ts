@@ -8,7 +8,7 @@ import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
-import { PermissionPolicyStore, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { crossToolTempPathRisk, isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
@@ -123,8 +123,9 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     const input: any = event.input || {};
+    const permissionRequest = toolPermissionRequest(toolName, input);
     const configuredPermission: any = await PERMISSION_POLICY.evaluate(
-      toolPermissionRequest(toolName, input),
+      permissionRequest,
       { agent: String(process.env.UES_CHILD_AGENT || "ues-child") },
     ).catch((error) => ({
       configured: true,
@@ -142,16 +143,14 @@ export default function (pi: ExtensionAPI) {
       toolExecutionState.delete(String(event.toolCallId || ""));
       return {
         block: true,
-        reason: "Blocked by UES ordered permission policy. Choose an allowed action or resource.",
+        reason: permissionRecoveryHint(permissionRequest, configuredPermission.decision, { effect: "deny" }),
       };
     }
     if (configuredPermission?.decision?.effect === "ask") {
       toolExecutionState.delete(String(event.toolCallId || ""));
       return {
         block: true,
-        reason:
-          "UES ordered permission policy requires approval for this child action. " +
-          "The isolated child cannot self-authorize it; choose a safer allowed path or let the parent handle the action.",
+        reason: permissionRecoveryHint(permissionRequest, configuredPermission.decision, { effect: "ask" }),
       };
     }
     const localEnvAllowed = String(process.env.UES_CHILD_ALLOW_LOCAL_ENV_WRITE || "") === "1";
