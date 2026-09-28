@@ -123,3 +123,65 @@ test("LSP V2 isolates workspaces instead of sharing one global server", async ()
     await rm(right, { recursive: true, force: true })
   }
 })
+
+
+test("LSP V2 invalidates warm reuse when workspace configuration changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-config-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ type: "module", version: 1 }))
+    await writeFile(path.join(root, "demo.ts"), "export const value = 1\n")
+    const p = provider(counterFile)
+    const run = () => withManagedLspSession(
+      targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 2, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+
+    const first = await run()
+    assert.equal(first.ok, true)
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ type: "module", version: 2 }))
+    const second = await run()
+    assert.equal(second.ok, true)
+    assert.equal(second.meta.poolHit, false)
+
+    const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
+    assert.equal(starts.length, 2)
+    assert.ok(lspPoolStatus().metrics.evictions >= 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("LSP V2 performs at most one bounded restart for a transient startup failure", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-restart-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  const failOnceFile = path.join(root, "failed-once.flag")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const restartValue = 1\n")
+    const p = {
+      ...provider(counterFile),
+      env: {
+        UES_MOCK_LSP_COUNTER_FILE: counterFile,
+        UES_MOCK_LSP_FAIL_ONCE_FILE: failOnceFile,
+      },
+    }
+    const result = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 2, maxPerWorkspace: 1, maxRestarts: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(result.ok, true)
+    const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
+    assert.equal(starts.length, 2)
+    assert.equal(lspPoolStatus().metrics.restarts, 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
