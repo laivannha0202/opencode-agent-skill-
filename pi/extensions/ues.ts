@@ -3845,8 +3845,8 @@ export default function (pi: ExtensionAPI) {
             "",
             "## Acceptance criteria proven",
             deterministicPass
-              ? "All explicitly requested whitelisted Git inspection commands completed successfully."
-              : "The requested deterministic inspection did not fully pass.",
+              ? "VERIFIED: All explicitly requested whitelisted Git inspection commands completed successfully."
+              : "UNKNOWN: The requested deterministic inspection did not fully pass.",
             "",
             "## Failures",
             failureText,
@@ -3920,6 +3920,7 @@ export default function (pi: ExtensionAPI) {
           workspaceSnapshot: after,
           behavioralReceipts: [],
           requireBehavioralReceipt: false,
+          requireClaimEvidenceStatus: true,
         });
         if (!unchanged) {
           completionAudit.passed = false;
@@ -4788,6 +4789,7 @@ export default function (pi: ExtensionAPI) {
           workspaceSnapshot: completionSnapshot,
           behavioralReceipts: freshReceipts,
           requireBehavioralReceipt: policy.requireBehavioralReceipt !== false,
+          requireClaimEvidenceStatus: true,
         });
         if (!completionAudit.passed) {
           recentFailure = "Completion auditor rejected PASS: " + completionAudit.failures.join(", ");
