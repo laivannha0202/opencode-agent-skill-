@@ -12,6 +12,7 @@ test("empty provider response is retryable only before tool side effects", () =>
   assert.equal(clean.transient, true)
   assert.equal(clean.reason, "empty-provider-response")
   assert.equal(clean.safeReplay, true)
+  assert.equal(clean.safeSessionResume, false)
 
   const afterTools = classifyProviderFailure({
     output: "(no assistant output)",
@@ -20,6 +21,8 @@ test("empty provider response is retryable only before tool side effects", () =>
   })
   assert.equal(afterTools.transient, true)
   assert.equal(afterTools.safeReplay, false)
+  assert.equal(afterTools.safeSessionResume, true)
+  assert.match(afterTools.message, /same live RPC session/i)
 })
 
 test("normal model errors are not misclassified as empty-provider failures", () => {
