@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { evidenceExists, evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
+import { evidenceExists, evidenceStoreRoot, evidenceStoreStatus, gcEvidenceStore, getEvidence, putEvidence } from "../lib/evidence-store.mjs"
 
 test("V11 evidence store deduplicates content by hash and returns bounded slices", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-evidence-"))
@@ -101,7 +101,7 @@ test("V15 evidence refresh and GC cannot leave metadata without its blob", async
     }
 
     const hash = target.ref.slice("evidence:sha256:".length)
-    const metaFile = path.join(root, ".ues-evidence", hash.slice(0, 2), hash + ".json")
+    const metaFile = path.join(evidenceStoreRoot(root), hash.slice(0, 2), hash + ".json")
     const meta = JSON.parse(await readFile(metaFile, "utf8"))
     meta.createdAt = "2000-01-01T00:00:00.000Z"
     meta.lastSeenAt = "2000-01-01T00:00:00.000Z"
