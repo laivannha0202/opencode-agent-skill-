@@ -144,3 +144,60 @@ test("V14 verified task memory keeps explicit declared file scope instead of abs
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("V15 memory serializes concurrent proposals without lost updates", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-memory-concurrent-propose-"))
+  try {
+    const proposals = await Promise.all(
+      Array.from({ length: 8 }, (_, index) =>
+        proposeMemory(root, {
+          type: "semantic",
+          scope: "project",
+          content: "Concurrent memory proposal " + index,
+        }),
+      ),
+    )
+    assert.equal(new Set(proposals.map((item) => item.id)).size, 8)
+    const status = await memoryStatus(root)
+    assert.equal(status.entries, 8)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15 concurrent retrieval touches merge usage accounting on latest memory state", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-memory-concurrent-touch-"))
+  try {
+    const evidence = await putEvidence(root, "concurrent touch verified", { kind: "test-receipt" })
+    const candidate = await proposeMemory(root, {
+      type: "procedural",
+      scope: "project",
+      content: "Concurrent touch accounting must merge rather than overwrite.",
+      evidenceRefs: [evidence.ref],
+    })
+    await verifyMemory(root, candidate.id, {
+      verdict: "PASS",
+      verifier: "ues-verifier",
+      evidenceRefs: [evidence.ref],
+    })
+
+    await Promise.all(
+      Array.from({ length: 4 }, () =>
+        retrieveMemories(root, "concurrent touch accounting merge overwrite", {
+          touch: true,
+          dependencyGraph: false,
+        }),
+      ),
+    )
+    const status = await memoryStatus(root)
+    assert.equal(status.used, 1)
+    const retrieved = await retrieveMemories(root, "concurrent touch accounting", {
+      touch: false,
+      dependencyGraph: false,
+    })
+    assert.equal(retrieved.results[0].useCount, 4)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
