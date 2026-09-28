@@ -38,7 +38,8 @@ test("command-aware compaction preserves exact raw evidence before reducing mode
     })
     assert.equal(result.compacted, true)
     assert.equal(result.commandFamily, "npm-test")
-    assert.match(result.strategy, /command-aware-npm-test/)
+    assert.equal(result.strategy, "reversible-head-test-tail")
+    assert.match(result.strategyV2, /command-aware-npm-test/)
     assert.ok(result.evidenceRef)
     assert.match(result.text, /Raw captured output:/)
 

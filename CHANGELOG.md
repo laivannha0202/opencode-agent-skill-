@@ -18,6 +18,12 @@ The project follows Semantic Versioning.
 
 - UES keeps the existing 12 specialist agents; the new subagent layer reduces resume/status cost instead of increasing agent count.
 
+### Fixed
+
+- Preserve V14 reversible-compaction `strategy` values while exposing Command-Aware Compression V2 through `strategyV2` and `commandFamily`.
+- Scope file/module memory identity by normalized file set so same-text memories from different files no longer collapse into one record.
+
+
 ## [15.0.0] - 2026-09-28
 
 - Stable release of V15.19 Finalization Hardening after full release verification.
