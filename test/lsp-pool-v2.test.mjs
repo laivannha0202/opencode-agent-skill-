@@ -221,3 +221,40 @@ test("LSP V2 applies global LRU eviction instead of growing without bound", asyn
     await rm(right, { recursive: true, force: true })
   }
 })
+
+
+test("LSP V2 keeps a healthy warm session after a non-transient operation rejection", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-rejection-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const stableValue = 1\n")
+    const p = provider(counterFile)
+
+    const rejected = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async () => {
+        throw new Error("semantic request rejection")
+      },
+    )
+    assert.equal(rejected.ok, false)
+    assert.equal(rejected.reason, "managed-lsp-request-rejected")
+
+    const recovered = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(recovered.ok, true)
+    assert.equal(recovered.meta.poolHit, true)
+
+    const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
+    assert.equal(starts.length, 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
