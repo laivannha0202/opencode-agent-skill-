@@ -14,6 +14,7 @@ import {
 import {
   applyAnchoredFileEdits,
   diagnoseCode,
+  lspOperation,
   probeCodeIntelligence,
   readAnchoredCode,
   searchCodeIntelligence,
@@ -272,13 +273,20 @@ export default function (pi: ExtensionAPI) {
     name: "ues_code",
     label: "UES Code Intelligence",
     description:
-      "Bounded code/document/context intelligence for weak models: semantic/AST search, hash-anchored reads, optional LSP diagnostics, optional MarkItDown ingestion, and reversible context recovery.",
+      "Bounded code/document/context intelligence for weak models: semantic/AST search, hash-anchored reads, deterministic LSP definition/references/symbols/hover/rename-preview/call hierarchy, diagnostics, optional MarkItDown ingestion, and reversible context recovery.",
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("status"),
         Type.Literal("search"),
         Type.Literal("read"),
         Type.Literal("diagnostics"),
+        Type.Literal("definition"),
+        Type.Literal("references"),
+        Type.Literal("symbols"),
+        Type.Literal("hover"),
+        Type.Literal("rename-preview"),
+        Type.Literal("incoming-calls"),
+        Type.Literal("outgoing-calls"),
         Type.Literal("document"),
         Type.Literal("context-expand"),
         Type.Literal("context-search"),
@@ -289,6 +297,10 @@ export default function (pi: ExtensionAPI) {
       language: Type.Optional(Type.String()),
       startLine: Type.Optional(Type.Number({ minimum: 1 })),
       endLine: Type.Optional(Type.Number({ minimum: 1 })),
+      line: Type.Optional(Type.Number({ minimum: 1, description: "1-based source line for LSP operations" })),
+      character: Type.Optional(Type.Number({ minimum: 1, description: "1-based source character for LSP operations" })),
+      newName: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+      includeDeclaration: Type.Optional(Type.Boolean()),
       ref: Type.Optional(Type.String()),
       maxBytes: Type.Optional(Type.Number({ minimum: 1, maximum: 128000 })),
     }),
@@ -320,7 +332,18 @@ export default function (pi: ExtensionAPI) {
           };
         } else if (params.action === "diagnostics") {
           if (!params.file) throw new Error("ues_code diagnostics requires file");
-          result = await diagnoseCode(ctx.cwd, params.file, { timeoutMs: 3000, maxDiagnostics: 40 });
+          result = await diagnoseCode(ctx.cwd, params.file, { timeoutMs: 5000, maxResults: 80 });
+        } else if (["definition", "references", "symbols", "hover", "rename-preview", "incoming-calls", "outgoing-calls"].includes(params.action)) {
+          if (!params.file) throw new Error(`ues_code ${params.action} requires file`);
+          if (params.action === "rename-preview" && !params.newName) throw new Error("ues_code rename-preview requires newName");
+          result = await lspOperation(ctx.cwd, params.file, params.action, {
+            line: params.line || 1,
+            character: params.character || 1,
+            newName: params.newName,
+            includeDeclaration: params.includeDeclaration,
+            timeoutMs: 7000,
+            maxResults: 120,
+          });
         } else if (params.action === "document") {
           if (!params.file) throw new Error("ues_code document requires file");
           const document = await ingestDocument(ctx.cwd, params.file, { maxBytes: Math.min(Number(params.maxBytes || 4 * 1024 * 1024), 4 * 1024 * 1024) });
