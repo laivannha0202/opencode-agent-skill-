@@ -35,6 +35,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
+import { createSubagentArtifact, failSubagentArtifact, finalizeSubagentArtifact, listSubagentArtifacts, readSubagentArtifact } from "../../lib/subagent-artifacts.mjs";
 import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, detectInheritedDirtyViolations, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
 import { buildCompactionResumeGuard, checkpointDurableWorkBeforeCompaction, renderCompactionResumeGuard } from "../../lib/compaction-resume-guard.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
@@ -273,6 +274,7 @@ type RunResult = {
   browserTools?: string[];
   childRuntime?: "rpc" | "cli";
   workerReused?: boolean;
+  subagentArtifact?: any;
   optimizations?: any;
 };
 
@@ -1748,7 +1750,20 @@ async function runRoutedAgent(
     taskChars: task.length,
   });
   const startedAt = Date.now();
-  const result = await runAgent(
+  const artifactRoot = await taskSandboxOwnerRoot(cwd).catch(() => null) || traceRoot;
+  const childArtifact = await createSubagentArtifact(artifactRoot, {
+    agent,
+    role,
+    attempt,
+    task,
+    traceID,
+    model: selectedModel,
+    modelTier: selection.tier,
+    workspaceFingerprint,
+  }).catch(() => null);
+  let result: RunResult;
+  try {
+    result = await runAgent(
     agent,
     enrichedTask,
     cwd,
@@ -1802,8 +1817,21 @@ async function runRoutedAgent(
       allowLocalEnvWrite:
         taskPolicy.localEnvWriteExplicitlyAllowed === true ||
         taskExplicitlyAllowsLocalEnvWrite(task),
-    },
-  );
+      },
+    );
+  } catch (error) {
+    if (childArtifact?.handle) {
+      await failSubagentArtifact(artifactRoot, childArtifact.handle, error).catch(() => null);
+    }
+    throw error;
+  }
+  const finalizedChildArtifact = childArtifact?.handle
+    ? await finalizeSubagentArtifact(artifactRoot, childArtifact.handle, {
+        ...result,
+        durationMs: Date.now() - startedAt,
+        verdict: verdictFromOutput(result.output),
+      }).catch(() => null)
+    : null;
   const enrichedResult: RunResult = {
     ...result,
     task,
@@ -1838,6 +1866,19 @@ async function runRoutedAgent(
     verdict: verdictFromOutput(result.output),
     report: parseStructuredReport(result.output),
     durationMs: Date.now() - startedAt,
+    subagentArtifact: finalizedChildArtifact ? {
+      handle: finalizedChildArtifact.handle,
+      status: finalizedChildArtifact.status,
+      file: finalizedChildArtifact.file,
+      taskRef: finalizedChildArtifact.taskRef,
+      outputRef: finalizedChildArtifact.result?.outputRef || null,
+      resume: finalizedChildArtifact.resume || null,
+    } : childArtifact ? {
+      handle: childArtifact.handle,
+      status: childArtifact.status,
+      file: childArtifact.file,
+      taskRef: childArtifact.taskRef,
+    } : null,
   };
   if (traceID) {
     await appendTrajectoryEvent(traceRoot, traceID, "agent.completed", {
@@ -4801,9 +4842,11 @@ export default function (pi: ExtensionAPI) {
     name: "ues_dispatch",
     label: "UES Dispatch",
     description:
-      "Run bundled UES specialist agents in isolated child Pi processes. Supports single, parallel, or chain mode. Parallel writer agents fail closed unless each writer has an explicit distinct cwd/worktree. Available agents: " +
+      "Run bundled UES specialist agents in isolated child Pi processes, or inspect durable child handles with action=status/list. Every child run writes a small artifact with exact task/output evidence references. Supports single, parallel, or chain mode. Parallel writer agents fail closed unless each writer has an explicit distinct cwd/worktree. Available agents: " +
       Object.keys(AGENTS).join(", "),
     parameters: Type.Object({
+      action: Type.Optional(Type.Union([Type.Literal("run"), Type.Literal("status"), Type.Literal("list")])),
+      handle: Type.Optional(Type.String({ description: "Subagent artifact handle for status action" })),
       agent: Type.Optional(Type.String({ description: "Agent name for single mode" })),
       task: Type.Optional(Type.String({ description: "Task for single mode" })),
       cwd: Type.Optional(Type.String({ description: "Working directory for single mode" })),
@@ -4812,6 +4855,39 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       refreshHostBrowserToolNames(pi);
+      const action = String(params.action || "run");
+      const baseCwd = ctx.cwd;
+      if (action === "status") {
+        if (!params.handle) {
+          return {
+            content: [{ type: "text", text: "ues_dispatch action=status requires handle." }],
+            details: { mode: "status" },
+            isError: true,
+          };
+        }
+        try {
+          const root = requireGitWorkspaceRoot(baseCwd, "ues_dispatch status");
+          const artifact = await readSubagentArtifact(root, params.handle);
+          return {
+            content: [{ type: "text", text: JSON.stringify(artifact, null, 2) }],
+            details: { mode: "status", artifact },
+          };
+        } catch (error) {
+          return {
+            content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+            details: { mode: "status", handle: params.handle },
+            isError: true,
+          };
+        }
+      }
+      if (action === "list") {
+        const root = requireGitWorkspaceRoot(baseCwd, "ues_dispatch list");
+        const artifacts = await listSubagentArtifacts(root, { limit: 20 });
+        return {
+          content: [{ type: "text", text: JSON.stringify(artifacts, null, 2) }],
+          details: { mode: "list", artifacts },
+        };
+      }
       const hasSingle = Boolean(params.agent && params.task);
       const hasParallel = Boolean(params.tasks?.length);
       const hasChain = Boolean(params.chain?.length);
@@ -4826,7 +4902,6 @@ export default function (pi: ExtensionAPI) {
       const validateAgent = (name: string): name is AgentName => name in AGENTS;
       const model = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const thinking = ctx.thinkingLevel as string | undefined;
-      const baseCwd = ctx.cwd;
 
       if (hasSingle) {
         if (!validateAgent(params.agent!)) {
