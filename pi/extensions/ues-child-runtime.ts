@@ -23,6 +23,7 @@ import {
   probeCodeIntelligence,
   readAnchoredCode,
   searchCodeIntelligence,
+  shutdownLspPool,
 } from "../../lib/code-intelligence/index.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
@@ -117,7 +118,10 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_start", clearExecutionState);
   pi.on("session_shutdown", async (_event, ctx) => {
     clearExecutionState();
-    await stopAllServices(ctx.cwd).catch(() => []);
+    await Promise.all([
+      stopAllServices(ctx.cwd).catch(() => []),
+      shutdownLspPool(ctx.cwd).catch(() => ({ stopped: 0, remaining: 0 })),
+    ]);
   });
 
   pi.on("tool_call", async (event, ctx) => {
