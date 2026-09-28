@@ -1798,6 +1798,7 @@ async function runRoutedAgent(
         ? compileSkillContext(taskPolicy, role, {
             maxSkills: taskPolicy.maxSkills,
             totalChars: taskPolicy.executionProfile === "fast" ? 1800 : 3200,
+            taskText: task,
           }).catch(() => null)
         : Promise.resolve(null),
       AFFECTED_TEST_HINTS_ENABLED &&
