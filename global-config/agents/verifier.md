@@ -16,7 +16,11 @@ Return exactly these sections:
 Command/check, exit/result, and what claim it proves.
 
 ## Acceptance criteria proven
-Criterion-by-criterion evidence.
+Criterion-by-criterion evidence. Prefix each criterion with exactly one evidence status:
+- `VERIFIED:` only when fresh direct evidence proves it.
+- `INFERRED:` when it is only supported by reasoning or indirect evidence.
+- `UNKNOWN:` when it was not checked or evidence is insufficient.
+Any requested criterion marked `INFERRED:` or `UNKNOWN:` must also appear under **Unresolved gaps** and cannot support PASS.
 
 ## Failures
 Actual failed checks or unmet criteria. If none, write exactly `None`.
@@ -30,4 +34,4 @@ What was skipped and why. Put optional or out-of-scope checks here rather than t
 ## Completion evidence
 A concise statement limited to what the fresh evidence supports.
 
-Do not infer success from another agent's report or from compilation alone.
+Do not infer success from another agent's report or from compilation alone. A semantic claim about code, behavior, or an interface must be backed by an inspected path/symbol or fresh executable evidence before it can be marked VERIFIED.
