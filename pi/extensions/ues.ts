@@ -1515,6 +1515,11 @@ function parseStructuredReport(output: string) {
   };
 }
 
+function acceptanceEvidenceStatusPresent(run: any) {
+  const value = String(run?.report?.sections?.["acceptance-criteria-proven"] || "");
+  return /(?:^|\n)\s*(?:[-*]\s*)?(?:VERIFIED|INFERRED|UNKNOWN)\s*:/im.test(value);
+}
+
 function taskRecord(task: string) {
   return {
     id: "pi-dispatch",
@@ -3910,6 +3915,27 @@ export default function (pi: ExtensionAPI) {
             1,
           );
           if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-inspection");
+          if (
+            inspection.exitCode === 0 &&
+            inspection.verdict === "PASS" &&
+            !acceptanceEvidenceStatusPresent(inspection)
+          ) {
+            inspection = await run(
+              "ues-verifier",
+              [
+                "READ-ONLY VERIFICATION FORMAT RECOVERY. The previous verifier returned PASS but omitted mandatory evidence-status prefixes.",
+                "Do not edit files. Re-check only what is needed to support the existing verdict.",
+                "In ## Acceptance criteria proven, prefix every requested criterion with exactly VERIFIED:, INFERRED:, or UNKNOWN:.",
+                "INFERRED or UNKNOWN criteria must also be listed under ## Unresolved gaps and cannot support PASS.",
+                "",
+                "Inspection request:",
+                params.task,
+              ].join("\n"),
+              1,
+              "Previous verifier PASS omitted evidence-status markers.",
+            );
+            if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-verification-format-recovery");
+          }
         }
 
         const after = runtimeWorkspaceSnapshot(cwd);
@@ -4689,7 +4715,7 @@ export default function (pi: ExtensionAPI) {
             agent: "ues-deterministic-verifier", task: params.task, cwd, exitCode: 0,
             output: ["FAST bounded verification reused fresh behavioral evidence captured at the tool boundary.", ...fastGate.behavioralReceipts.map((item: any) => "- " + item.command), "", "UES_VERDICT: PASS"].join("\n"),
             stderr: "", verdict: "PASS", durationMs: 0, toolCalls: 0, toolNames: [],
-            report: { schemaVersion: 1, valid: true, verdict: "PASS", sections: { "checks-run": fastGate.behavioralReceipts.map((item: any) => item.command).join("\n"), "acceptance-criteria-proven": "Fresh behavioral verification receipt(s) exist at the post-implementation workspace fingerprint.", "completion-evidence": "Deterministic PASS receipt captured after this implementation attempt." } },
+            report: { schemaVersion: 1, valid: true, verdict: "PASS", sections: { "checks-run": fastGate.behavioralReceipts.map((item: any) => item.command).join("\n"), "acceptance-criteria-proven": "VERIFIED: Fresh behavioral verification receipt(s) exist at the post-implementation workspace fingerprint.", "completion-evidence": "Deterministic PASS receipt captured after this implementation attempt." } },
             optimizations: { fastDeterministicVerification: true, behavioralReceiptCount: fastGate.behavioralReceipts.length },
           };
           steps.push(verification);
@@ -4707,6 +4733,30 @@ export default function (pi: ExtensionAPI) {
             ].join("\n"), attempt, recentFailure || undefined,
           );
           if (isAbortedRun(verification)) return abortedResponse(verification, "verification");
+          if (
+            verification.exitCode === 0 &&
+            verification.verdict === "PASS" &&
+            !acceptanceEvidenceStatusPresent(verification)
+          ) {
+            verification = await run(
+              "ues-verifier",
+              [
+                "VERIFICATION FORMAT RECOVERY. The previous verifier returned PASS but omitted mandatory evidence-status prefixes.",
+                "Do not edit files and do not re-run broad checks. Re-check only what is necessary to support the verdict.",
+                "In ## Acceptance criteria proven, prefix every requested criterion with exactly VERIFIED:, INFERRED:, or UNKNOWN:.",
+                "INFERRED or UNKNOWN criteria must also appear under ## Unresolved gaps and cannot support PASS.",
+                "",
+                "Original task:",
+                params.task,
+                "",
+                "Previous verifier output (not proof by itself):",
+                cap(verification.output, 5000),
+              ].join("\n"),
+              attempt,
+              "Previous verifier PASS omitted evidence-status markers.",
+            );
+            if (isAbortedRun(verification)) return abortedResponse(verification, "verification-format-recovery");
+          }
         }
         const verified = verification.exitCode === 0 && verification.verdict === "PASS";
         if (!verified) {
