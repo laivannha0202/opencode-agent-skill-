@@ -27,11 +27,14 @@ test("V14 capability fabric health-checks deterministic providers without making
       registry: {
         capabilities: {
           memory: [{ id: "memory", kind: "builtin", priority: 100 }],
+          runtime: [{ id: "node-runtime", kind: "command", command: process.execPath, priority: 100 }],
           optional: [{ id: "missing", kind: "path", path: "definitely-missing", priority: 100 }],
         },
       },
     })
     assert.equal(status.capabilities.memory.selected.id, "memory")
+    assert.equal(status.capabilities.runtime.selected.id, "node-runtime")
+    assert.equal(status.capabilities.runtime.selected.status, "healthy")
     assert.equal(status.capabilities.optional.selected, null)
     assert.equal(status.capabilities.optional.fallbackNeeded, true)
   } finally {
