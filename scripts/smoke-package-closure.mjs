@@ -53,6 +53,7 @@ for (const required of [
   "lib/runtime-config.mjs",
   "scripts/eval-pi.mjs",
   "scripts/eval-report.mjs",
+  "scripts/benchmark-lsp-pool.mjs",
   "evals/live/tasks.json",
   "global-config/AGENTS.md",
   "global-config/commands/run.md",
