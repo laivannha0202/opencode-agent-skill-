@@ -5,6 +5,7 @@ import os from "node:os"
 import path from "node:path"
 import {
   capabilityFabricStatus,
+  readCapabilityObservations,
   recordCapabilityObservation,
   selectCapabilityProvider,
 } from "../lib/capability-fabric.mjs"
@@ -76,6 +77,31 @@ test("V14.1 capability fabric keeps reversible UES compaction primary and extern
     assert.ok(candidates.has("rtk-cli"))
     assert.ok(candidates.has("caveman-cli"))
     assert.ok(candidates.has("headroom-cli"))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("V15 capability observations preserve concurrent samples", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-capability-observation-concurrency-"))
+  try {
+    const writes = Array.from({ length: 24 }, (_, index) =>
+      recordCapabilityObservation(root, "code.diagnostics", "lsp", {
+        success: index % 3 !== 0,
+        latencyMs: 100 + index,
+        error: index % 3 === 0 ? "transient" : null,
+      }),
+    )
+    await Promise.all(writes)
+
+    const state = await readCapabilityObservations(root)
+    const row = state.capabilities["code.diagnostics"].lsp
+    assert.equal(row.samples, 24)
+    assert.equal(row.successes, 16)
+    assert.equal(row.failures, 8)
+    assert.equal(row.latencySamples, 24)
+    assert.ok(row.avgLatencyMs > 0)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
