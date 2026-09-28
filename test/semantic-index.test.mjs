@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { buildSemanticIndex, querySemanticIndex, semanticIndexStatus } from "../lib/semantic-index.mjs"
+import { buildSemanticIndex, buildSemanticIndexCached, clearSemanticIndexRuntimeCache, querySemanticIndex, semanticIndexStatus } from "../lib/semantic-index.mjs"
 
 test("semantic index reuses unchanged files and refreshes changed files", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-semantic-index-"))
@@ -53,6 +53,67 @@ test("semantic index reuses unchanged files and refreshes changed files", async 
     assert.equal(status.exists, true)
     assert.equal(status.files, 2)
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("semantic index reparses unchanged files when maxFileBytes policy changes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-semantic-size-policy-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    const source = "export function visibleAfterBudgetRaise() { return 42 }\n" + "x".repeat(90 * 1024)
+    await writeFile(path.join(root, "src", "large.mjs"), source)
+
+    const low = await buildSemanticIndex(root, { rebuild: true, maxFiles: 100, maxFileBytes: 64 * 1024, ioConcurrency: 2 })
+    assert.equal(low.index.files["src/large.mjs"].skipped, "too-large")
+
+    const high = await buildSemanticIndex(root, { maxFiles: 100, maxFileBytes: 256 * 1024, ioConcurrency: 2 })
+    assert.equal(high.stats.reparsed, 1)
+    assert.equal(high.index.files["src/large.mjs"].skipped, undefined)
+    assert.ok(high.index.files["src/large.mjs"].symbols.some((item) => item.name === "visibleAfterBudgetRaise"))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("semantic runtime cache keys maxFileBytes and rebuild bypasses memory cache", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-semantic-runtime-key-"))
+  try {
+    clearSemanticIndexRuntimeCache()
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(
+      path.join(root, "src", "budgeted.mjs"),
+      "export const runtimeCacheBudgetSymbol = 1\n" + "y".repeat(90 * 1024),
+    )
+
+    const low = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: "same-workspace",
+      maxFiles: 100,
+      maxFileBytes: 64 * 1024,
+      ioConcurrency: 2,
+    })
+    assert.equal(low.index.files["src/budgeted.mjs"].skipped, "too-large")
+
+    const high = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: "same-workspace",
+      maxFiles: 100,
+      maxFileBytes: 256 * 1024,
+      ioConcurrency: 2,
+    })
+    assert.equal(high.runtimeCacheHit, false)
+    assert.ok(high.index.files["src/budgeted.mjs"].symbols.some((item) => item.name === "runtimeCacheBudgetSymbol"))
+
+    const rebuilt = await buildSemanticIndexCached(root, {
+      workspaceFingerprint: "same-workspace",
+      maxFiles: 100,
+      maxFileBytes: 256 * 1024,
+      rebuild: true,
+      ioConcurrency: 2,
+    })
+    assert.equal(rebuilt.runtimeCacheHit, false)
+  } finally {
+    clearSemanticIndexRuntimeCache()
     await rm(root, { recursive: true, force: true })
   }
 })

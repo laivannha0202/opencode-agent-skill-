@@ -10,6 +10,7 @@ test("command-aware reducer registry recognizes high-noise engineering commands"
   const cases = [
     ["npm test", "npm-test", "FAIL suite"],
     ["pytest -q", "pytest", "FAILED tests/test_api.py::test_case"],
+    ["git status --short", "git-status", " M src/a.js\n?? src/new.js"],
     ["git diff --stat", "git-diff", "diff --git a/a.js b/a.js"],
     ["rg TODO src", "ripgrep", "src/a.js:12:TODO fix"],
     ["tree src", "tree", "src\n├── a.js\n└── b.js"],
@@ -17,6 +18,7 @@ test("command-aware reducer registry recognizes high-noise engineering commands"
     ["npx eslint .", "eslint", "  2:4  error  Unexpected token"],
     ["docker compose up", "docker", "service api failed: error"],
     ["npx prisma migrate dev", "prisma", "Prisma schema loaded from prisma/schema.prisma"],
+    ["npm install", "package-install", "added 14 packages, and audited 320 packages in 2s"],
   ]
   for (const [command, family, output] of cases) {
     assert.equal(reduceCommandOutput(output, { command }).family, family, command)

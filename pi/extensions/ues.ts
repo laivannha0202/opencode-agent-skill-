@@ -33,6 +33,7 @@ import { findReusableVerification, listReusableVerification, recordVerification 
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
+import { classifyProviderFailure, providerRecoveryBackoffMs } from "../../lib/provider-recovery.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
 import { createSubagentArtifact, failSubagentArtifact, finalizeSubagentArtifact, listSubagentArtifacts, readSubagentArtifact } from "../../lib/subagent-artifacts.mjs";
@@ -163,6 +164,17 @@ const CONTEXT_CACHE_MAX = configuredCount(
   4,
   128,
 );
+const PROVIDER_RECOVERY_RETRIES = (() => {
+  const parsed = Number(process.env.UES_PROVIDER_RECOVERY_RETRIES ?? "1");
+  if (!Number.isFinite(parsed)) return 1;
+  return Math.max(0, Math.min(2, Math.trunc(parsed)));
+})();
+const PROVIDER_RECOVERY_BASE_DELAY_MS = configuredDuration(
+  "UES_PROVIDER_RECOVERY_BASE_DELAY_MS",
+  250,
+  50,
+  5_000,
+);
 
 function configuredBoolean(name: string, fallback = true) {
   const raw = String(process.env[name] ?? "").trim().toLowerCase();
@@ -280,6 +292,8 @@ type RunResult = {
   browserTools?: string[];
   childRuntime?: "rpc" | "cli";
   workerReused?: boolean;
+  providerFailure?: string;
+  providerRecoveryAttempts?: number;
   subagentArtifact?: any;
   optimizations?: any;
 };
@@ -1017,11 +1031,17 @@ async function runAgentCli(
 }
 
 
+const RPC_PROMPT_PATH_CACHE = new Map<AgentName, string>();
+
 function rpcPromptPath(agent: AgentName) {
+  const cached = RPC_PROMPT_PATH_CACHE.get(agent);
+  if (cached && fs.existsSync(cached)) return cached;
+
   const dir = path.join(os.tmpdir(), "ues-pi-rpc-prompts");
   fs.mkdirSync(dir, { recursive: true });
   const file = path.join(dir, agent + ".md");
   fs.writeFileSync(file, getAgentPrompt(agent), { encoding: "utf8", mode: 0o600 });
+  RPC_PROMPT_PATH_CACHE.set(agent, file);
   return file;
 }
 
@@ -1193,13 +1213,13 @@ async function runAgentRpc(
     );
 
     const message = rpc.message;
-    const output = extractAssistantText(message) || rpc.stderr || "(no assistant output)";
-    return {
+    const assistantText = extractAssistantText(message);
+    const baseResult: RunResult = {
       agent,
       task,
       cwd,
-      exitCode: 0,
-      output: cap(output, 100 * 1024),
+      exitCode: message?.stopReason === "error" ? 1 : 0,
+      output: cap(assistantText || rpc.stderr || "(no assistant output)", 100 * 1024),
       stderr: cap(String(rpc.stderr || ""), 64 * 1024),
       model: message?.model || model,
       stopReason: message?.stopReason,
@@ -1211,6 +1231,16 @@ async function runAgentRpc(
       childRuntime: "rpc",
       workerReused: rpc.workerReused === true,
     };
+    const providerDecision = classifyProviderFailure(baseResult);
+    if (providerDecision.transient) {
+      return {
+        ...baseResult,
+        exitCode: 1,
+        providerFailure: providerDecision.reason || "empty-provider-response",
+        errorMessage: baseResult.errorMessage || providerDecision.message || "Provider returned no usable assistant content",
+      };
+    }
+    return baseResult;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (detectedHang) {
@@ -1297,52 +1327,70 @@ async function runAgent(
     allowLocalEnvWrite?: boolean;
   } = {},
 ): Promise<RunResult> {
-  if (CHILD_RUNTIME !== "cli") {
-    try {
-      return await runAgentRpc(
-        agent,
-        task,
-        cwd,
-        model,
-        thinkingLevel,
-        signal,
-        onProgress,
-        extraTools,
-        runtimeOptions,
-      );
-    } catch (error) {
-      if (CHILD_RUNTIME === "rpc") throw error;
-      // Auto mode may fall back only when RPC failed before the delegated task
-      // started. In-task failures must not cause a blind second execution.
-      if ((error as any)?.uesRpcPhase && (error as any).uesRpcPhase !== "startup") {
-        throw error;
-      }
+  const runOnce = async (): Promise<RunResult> => {
+    if (CHILD_RUNTIME !== "cli") {
       try {
-        onProgress?.({
-          agent,
-          elapsedMs: 0,
-          idleMs: 0,
-          toolCalls: 0,
-          model,
-          phase: "running",
-          note: "RPC startup unavailable; falling back to isolated CLI child",
-        });
-      } catch {}
+        return await runAgentRpc(
+          agent, task, cwd, model, thinkingLevel, signal, onProgress, extraTools, runtimeOptions,
+        );
+      } catch (error) {
+        if (CHILD_RUNTIME === "rpc") throw error;
+        // Auto mode may fall back only when RPC failed before delegated work started.
+        if ((error as any)?.uesRpcPhase && (error as any).uesRpcPhase !== "startup") throw error;
+        try {
+          onProgress?.({
+            agent, elapsedMs: 0, idleMs: 0, toolCalls: 0, model, phase: "running",
+            note: "RPC startup unavailable; falling back to isolated CLI child",
+          });
+        } catch {}
+      }
     }
-  }
-  return runAgentCli(
-    agent,
-    task,
-    cwd,
-    model,
-    thinkingLevel,
-    signal,
-    onProgress,
-    extraTools,
-    runtimeOptions,
-  );
-}
+    return runAgentCli(
+      agent, task, cwd, model, thinkingLevel, signal, onProgress, extraTools, runtimeOptions,
+    );
+  };
 
+  let result = await runOnce();
+  let recoveryAttempts = 0;
+  let providerDecision = classifyProviderFailure(result);
+
+  while (
+    providerDecision.transient && providerDecision.safeReplay &&
+    recoveryAttempts < PROVIDER_RECOVERY_RETRIES && !signal?.aborted
+  ) {
+    recoveryAttempts += 1;
+    try {
+      onProgress?.({
+        agent, elapsedMs: 0, idleMs: 0, toolCalls: Number(result.toolCalls || 0),
+        model: result.model || model, phase: "running",
+        note: "provider returned no usable content; safe fresh-session retry " +
+          recoveryAttempts + "/" + PROVIDER_RECOVERY_RETRIES,
+      });
+    } catch {}
+    const delayMs = providerRecoveryBackoffMs(recoveryAttempts, {
+      baseMs: PROVIDER_RECOVERY_BASE_DELAY_MS, maxMs: 2_000,
+    });
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    result = await runOnce();
+    providerDecision = classifyProviderFailure(result);
+  }
+
+  if (providerDecision.transient) {
+    const recoveryNote = providerDecision.safeReplay
+      ? "UES provider recovery exhausted after " + recoveryAttempts +
+        " bounded retry attempt(s); task remains failed instead of being reported as success."
+      : "UES provider recovery did not replay the task because " + providerDecision.toolCalls +
+        " tool call(s) already ran; this avoids duplicating side effects. Resume from current evidence/state instead.";
+    result = {
+      ...result,
+      exitCode: result.exitCode === 0 ? 1 : result.exitCode,
+      output: [result.output, "", "[UES provider recovery] " + recoveryNote].filter(Boolean).join("\n"),
+      providerFailure: providerDecision.reason || result.providerFailure || "empty-provider-response",
+    };
+  }
+
+  return { ...result, providerRecoveryAttempts: recoveryAttempts };
+}
 
 function roleForAgent(agent: AgentName) {
   return agent.replace(/^ues-/, "");
@@ -1671,39 +1719,38 @@ async function runRoutedAgent(
       }
     }
 
-    if (MICRO_SKILLS_ENABLED) {
-      microSkills = await compileSkillContext(taskPolicy, role, {
-        maxSkills: taskPolicy.maxSkills,
-        totalChars: taskPolicy.executionProfile === "fast" ? 1800 : 3200,
-      }).catch(() => null);
-    }
-
-    if (
+    const [microSkillResult, affectedTestResult, reusableVerificationResult] = await Promise.all([
+      MICRO_SKILLS_ENABLED
+        ? compileSkillContext(taskPolicy, role, {
+            maxSkills: taskPolicy.maxSkills,
+            totalChars: taskPolicy.executionProfile === "fast" ? 1800 : 3200,
+          }).catch(() => null)
+        : Promise.resolve(null),
       AFFECTED_TEST_HINTS_ENABLED &&
       ["executor", "debugger", "verifier", "integration-verifier"].includes(role)
-    ) {
-      affectedTests = await resolveAffectedTests(cwd, {
-        limit: 10,
-        changedFiles: workspaceState.changedFiles || [],
-        ...(workspaceState.cacheable === true && workspaceFingerprint !== "unknown"
-          ? { workspaceFingerprint }
-          : {}),
-      }).catch(() => null);
-    }
-
-    if (
+        ? resolveAffectedTests(cwd, {
+            limit: 10,
+            changedFiles: workspaceState.changedFiles || [],
+            ...(workspaceState.cacheable === true && workspaceFingerprint !== "unknown"
+              ? { workspaceFingerprint }
+              : {}),
+          }).catch(() => null)
+        : Promise.resolve(null),
       ["verifier", "integration-verifier"].includes(role) &&
       !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase())
-    ) {
-      reusableVerification = await listReusableVerification(cwd, {
-        limit: 8,
-        maxAgeMs: 30 * 60_000,
-        previewBytes: 2200,
-        ...(workspaceState.cacheable === true && workspaceFingerprint !== "unknown"
-          ? { workspaceFingerprint }
-          : {}),
-      }).catch(() => null);
-    }
+        ? listReusableVerification(cwd, {
+            limit: 8,
+            maxAgeMs: 30 * 60_000,
+            previewBytes: 2200,
+            ...(workspaceState.cacheable === true && workspaceFingerprint !== "unknown"
+              ? { workspaceFingerprint }
+              : {}),
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ]);
+    microSkills = microSkillResult;
+    affectedTests = affectedTestResult;
+    reusableVerification = reusableVerificationResult;
 
     contextQuality = pack.contextQuality;
     contextPerformance = pack.performance || null;
@@ -4808,6 +4855,7 @@ export default function (pi: ExtensionAPI) {
         "Parent UES tools hidden outside UES runs: on",
         "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
         "Permission deny-and-continue recovery: on",
+      "Provider empty-response recovery: on (safe retry before tools; no blind replay after side effects)",
         "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
