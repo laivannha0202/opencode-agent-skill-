@@ -45,7 +45,7 @@ import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
-import { runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
+import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { captureWorkspaceHygieneBaseline, postRunFileHygiene, preFinalWorkspaceAudit } from "../../lib/workspace-hygiene.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
@@ -1514,9 +1514,24 @@ async function runRoutedAgent(
   taskPolicyOverride?: any,
   contextCacheNamespace?: string,
 ): Promise<RunResult> {
+  const routedStartedAt = Date.now();
   const role = roleForAgent(agent);
   const traceRoot = requireGitWorkspaceRoot(cwd, "UES specialist");
-  const agentHygieneBaseline = captureWorkspaceHygieneBaseline(cwd);
+  const workspaceSnapshotStartedAt = Date.now();
+  let agentWorkspaceState: any = null;
+  let workspaceState: any = {
+    cacheable: false,
+    fingerprint: "unknown",
+    changedFiles: [],
+  };
+  try {
+    agentWorkspaceState = captureWorkspaceStateV2(cwd);
+    workspaceState = runtimeWorkspaceSnapshot(cwd, { workspaceState: agentWorkspaceState });
+  } catch {}
+  const agentHygieneBaseline = captureWorkspaceHygieneBaseline(cwd, {
+    workspaceState: agentWorkspaceState,
+  });
+  const workspaceSnapshotMs = Date.now() - workspaceSnapshotStartedAt;
   const browserRequested = browserEvidenceNeeded(task, role);
   const browserTools = browserRequested
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
@@ -1578,14 +1593,6 @@ async function runRoutedAgent(
     ? undefined
     : inheritedThinking;
 
-  let workspaceState: any = {
-    cacheable: false,
-    fingerprint: "unknown",
-    changedFiles: [],
-  };
-  try {
-    workspaceState = runtimeWorkspaceSnapshot(cwd);
-  } catch {}
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
 
   let enrichedTask = task;
@@ -1595,6 +1602,8 @@ async function runRoutedAgent(
   let affectedTests: any = null;
   let reusableVerification: any = null;
   let contextCacheHit = false;
+  let contextPerformance: any = null;
+  const contextBuildStartedAt = Date.now();
   try {
     if (fastBoundedContext) {
       contextQuality = { schemaVersion: 1, profile: "fast-bounded", bounded: true };
@@ -1690,6 +1699,7 @@ async function runRoutedAgent(
     }
 
     contextQuality = pack.contextQuality;
+    contextPerformance = pack.performance || null;
     enrichedTask = [
       task,
       "",
@@ -1728,6 +1738,7 @@ async function runRoutedAgent(
       enrichedTask += "\n\n## Previous failed verification\n" + cap(recentFailure, 5000);
     }
   }
+  const contextBuildMs = Date.now() - contextBuildStartedAt;
 
   if (browserRequested) {
     enrichedTask += browserTools.length
@@ -1777,6 +1788,7 @@ async function runRoutedAgent(
     } catch {}
   }
   let result: RunResult;
+  const modelRunStartedAt = Date.now();
   try {
     result = await runAgent(
     agent,
@@ -1840,6 +1852,8 @@ async function runRoutedAgent(
     }
     throw error;
   }
+  const modelRunMs = Date.now() - modelRunStartedAt;
+  const hygieneStartedAt = Date.now();
   const postRunHygiene = await postRunFileHygiene(cwd, {
     baseline: agentHygieneBaseline,
     taskText: task,
@@ -1872,7 +1886,8 @@ async function runRoutedAgent(
     };
   }
 
-  const finalizedChildArtifact = childArtifact?.handle
+  const hygieneMs = Date.now() - hygieneStartedAt;
+    const finalizedChildArtifact = childArtifact?.handle
     ? await finalizeSubagentArtifact(artifactRoot, childArtifact.handle, {
         ...result,
         durationMs: Date.now() - startedAt,
@@ -1909,6 +1924,15 @@ async function runRoutedAgent(
       turboFastStrategy: turboFast.strategy,
       turboFastTimeouts: turboFast.eligible ? TURBO_FAST_TIMEOUTS : null,
       planningRuntimeBudget: planningBudget,
+      affectedTestInventorySource: affectedTests?.inventorySource || null,
+      contextPerformance,
+      latencyMs: {
+        workspaceSnapshot: workspaceSnapshotMs,
+        contextBuild: contextBuildMs,
+        modelRun: modelRunMs,
+        hygiene: hygieneMs,
+        total: Date.now() - routedStartedAt,
+      },
     },
     verdict: verdictFromOutput(result.output),
     report: parseStructuredReport(result.output),
@@ -3335,8 +3359,13 @@ export default function (pi: ExtensionAPI) {
       const cwd = requireGitWorkspaceRoot(params.cwd || ctx.cwd, "ues_execute");
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
-      const inheritedDirty = captureInheritedDirtyState(cwd);
-      const controllerHygieneBaseline = captureWorkspaceHygieneBaseline(cwd);
+      const controllerWorkspaceState = captureWorkspaceStateV2(cwd);
+      const inheritedDirty = captureInheritedDirtyState(cwd, {
+        workspaceState: controllerWorkspaceState,
+      });
+      const controllerHygieneBaseline = captureWorkspaceHygieneBaseline(cwd, {
+        workspaceState: controllerWorkspaceState,
+      });
       const executionContract = buildExecutionContract(params.task, inheritedDirty);
       const contractPrompt = executionContractPrompt(executionContract);
       const suppliedPolicy = (params as any).__taskPolicy;
@@ -4630,6 +4659,10 @@ export default function (pi: ExtensionAPI) {
         "Package root: " + PACKAGE_ROOT,
         "Child runtime: " + CHILD_RUNTIME,
         "Adaptive context: " + (ADAPTIVE_CONTEXT_ENABLED ? "on" : "off"),
+        "Unified workspace snapshot V2: on",
+        "Parallel context preparation: on",
+        "Git-index affected-test inventory: on",
+        "Parallel verification evidence I/O: on",
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
         "Parent UES tools hidden outside UES runs: on",

@@ -16,11 +16,16 @@ The project follows Semantic Versioning.
 - Unicode Source Hygiene Guard for invisible/control characters and mixed-script lookalikes in changed source.
 - Post-Run File Hygiene Guard that removes proven transient artifacts and rejects unexplained debug/scratch files.
 - Pre-final Workspace Audit that rechecks the complete task delta before PASS and enforces declared write scope for structured execution.
+- Unified Workspace Snapshot V2 so fingerprint, dirty-work guard and hygiene baseline can share one Git/filesystem capture instead of rescanning the same state.
+- Git-index affected-test inventory with bounded content caching to avoid repeated recursive repository walks.
+- Latency telemetry for workspace snapshot, context preparation, model execution and hygiene phases.
 
 ### Changed
 
 - UES keeps the existing 12 specialist agents; the new subagent layer reduces resume/status cost instead of increasing agent count.
 - Every Pi child specialist now gets a filesystem hygiene baseline; writer roles are audited after mutation and read-only roles may not leave source mutations behind.
+- Adaptive context preparation now overlaps memory retrieval and capability-fabric lookup with manifest construction.
+- Verification evidence stdout/stderr persistence and preview reads now run in parallel where independent.
 
 ### Fixed
 
