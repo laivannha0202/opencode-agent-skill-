@@ -45,6 +45,18 @@ test("context manifest ranks task terms, tests and changed references", async ()
     assert.ok(Array.isArray(rankedPolicy.symbolHits))
     assert.ok(manifest.excerpts.some((item) => item.role === "declared"))
     assert.ok(manifest.excerpts.some((item) => Object.hasOwn(item, "startOffset")))
+    assert.equal(manifest.semantic?.runtimeCacheHit, false)
+
+    const repeated = await buildContextManifest(root, {
+      id: "T1",
+      title: "Fix tenant auth permission ownership",
+      summary: "Prevent cross-tenant edits",
+      files: { modify: ["src/auth.js"], test: ["test/auth.test.js"] },
+      acceptance: ["Cross-tenant edit is denied"],
+      verification: ["node --test"],
+    }, { budget: 12000 })
+    assert.equal(repeated.semantic?.runtimeCacheHit, true)
+    assert.equal(repeated.hierarchy?.runtimeCacheHit, true)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
