@@ -3550,6 +3550,7 @@ export default function (pi: ExtensionAPI) {
       character: Type.Optional(Type.Number({ minimum: 1 })),
       newName: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
       includeDeclaration: Type.Optional(Type.Boolean()),
+      includeSessions: Type.Optional(Type.Boolean()),
       ref: Type.Optional(Type.String()),
       maxBytes: Type.Optional(Type.Number({ minimum: 1, maximum: 128000 })),
     }),
@@ -3566,7 +3567,7 @@ export default function (pi: ExtensionAPI) {
             lsp: {
               ...result.lsp,
               persistentPool: {
-                ...lspPoolStatus({ includeSessions: false, persistent: true }),
+                ...lspPoolStatus({ includeSessions: params.includeSessions === true, persistent: true }),
                 policy: { enabled: true, source: "parent-lite" },
               },
             },
@@ -3673,14 +3674,50 @@ export default function (pi: ExtensionAPI) {
           childSpawned: false,
         };
         const encoded = JSON.stringify(payload, null, 2);
+        const bounded = encoded.length > 32000;
+        let contextRef: string | null = null;
+        let visible = encoded;
+        if (bounded) {
+          const preserved = await compactContext(ctx.cwd, encoded, {
+            kind: "ues-code-result",
+            source: `ues_code:${params.action}`,
+            summary: `Full parent-lite result for ${params.action}; preserve exact JSON before model-visible bounding`,
+          }).catch(() => null);
+          contextRef = preserved?.ref || null;
+          const metadataFirst = {
+            schemaVersion: payload?.schemaVersion || 1,
+            action: params.action,
+            file: payload?.file || null,
+            available: payload?.available ?? null,
+            provider: payload?.provider || null,
+            operation: payload?.operation || null,
+            reason: payload?.reason || null,
+            persistent: payload?.persistent ?? null,
+            pool: payload?.pool || payload?.lsp?.persistentPool || null,
+            mode: "parent-lite",
+            controllerStarted: false,
+            childSpawned: false,
+            bounded: true,
+            originalChars: encoded.length,
+            contextRef,
+            preview: encoded.slice(0, 22000),
+          };
+          visible = JSON.stringify(metadataFirst, null, 2) +
+            "\n...[full result preserved; use ues_code context-expand with contextRef when more evidence is needed]";
+        }
         return {
-          content: [{ type: "text", text: encoded.length <= 32000 ? encoded : encoded.slice(0, 32000) + "\n...[bounded by ues_code parent-lite]" }],
+          content: [{ type: "text", text: visible }],
           details: {
             action: params.action,
             mode: "parent-lite",
             controllerStarted: false,
             childSpawned: false,
-            bounded: encoded.length > 32000,
+            bounded,
+            originalChars: encoded.length,
+            contextRef,
+            provider: payload?.provider || null,
+            persistent: payload?.persistent ?? null,
+            pool: payload?.pool || payload?.lsp?.persistentPool || null,
           },
         };
       } catch (error) {
