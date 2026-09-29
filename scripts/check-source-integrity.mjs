@@ -17,6 +17,9 @@ const CONTRACTS = [
       "ues-code-result",
       "ues-code-read",
       "PARENT_CODE_VISIBLE_OUTPUT_LIMIT",
+      "originalPayloadChars",
+      'originalCharsMeaning: "serialized-tool-payload"',
+      "diagnosticsTimeoutMs: 10000",
       "operationPool",
       "policySource: \"parent-lite\"",
       'reason: "ues-code-error"',
@@ -441,7 +444,7 @@ const CONTRACTS = [
     file: "lib/code-intelligence/lsp-provider.mjs",
     minBytes: 5_000,
     startsWith: "import ",
-    required: ["diagnoseCode", "lspProviderStatus", "lspPersistencePolicy", "short-lived-default", "pi-child-runtime", "publishDiagnostics", "diagnostics-timeout", "diagnosticsReason", "policySource", "withManagedLspSession", "fallbackFrom", "shutdownLspPool", "resolveTypeScriptTsserverFallback", "clearTypeScriptTsserverFallbackCache", "UES_LSP_PROVIDER_PROBE_TTL_MS", "UES_TYPESCRIPT_TSSERVER_PATH", "initializationOptions", "fallbackPath", "resolveWindowsCommand"],
+    required: ["diagnoseCode", "lspProviderStatus", "lspPersistencePolicy", "short-lived-default", "pi-child-runtime", "publishDiagnostics", "diagnostics-timeout", "diagnosticsReason", "transportReason", "policySource", "withManagedLspSession", "fallbackFrom", "shutdownLspPool", "resolveTypeScriptTsserverFallback", "clearTypeScriptTsserverFallbackCache", "UES_LSP_PROVIDER_PROBE_TTL_MS", "UES_TYPESCRIPT_TSSERVER_PATH", "initializationOptions", "fallbackPath", "resolveWindowsCommand"],
   },
   {
     file: "lib/code-intelligence/lsp-pool.mjs",
