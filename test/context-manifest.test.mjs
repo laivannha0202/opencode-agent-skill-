@@ -36,6 +36,8 @@ test("context manifest ranks task terms, tests and changed references", async ()
     }, { budget: 12000 })
 
     assert.equal(manifest.schemaVersion, 4)
+    assert.equal(manifest.contextQuality, "full")
+    assert.deepEqual(manifest.degradedComponents, [])
     assert.ok(manifest.queryTerms.includes("tenant"))
     assert.ok(manifest.changed.includes("src/policy.js"))
     assert.ok(manifest.tests.includes("test/auth.test.js"))
