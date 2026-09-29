@@ -5178,6 +5178,7 @@ export default function (pi: ExtensionAPI) {
         "Micro skills: " + (MICRO_SKILLS_ENABLED ? "on" : "off"),
         "Turbo Fast Path: on",
         "Parent UES tools hidden outside UES runs: on",
+        "Parent Code Intelligence Lite: on (always-on read-only ues_code; no controller/child)",
         "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
         "Permission deny-and-continue recovery: on",
       "Provider empty-response recovery: on (fresh retry before tools; same-session resume after side effects)",
