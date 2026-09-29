@@ -12,6 +12,8 @@
 
 > UES không biến một model nhỏ thành model lớn theo nghĩa năng lực nền tảng. UES cố gắng giảm phần suy luận hạ tầng mà model phải tự gánh bằng deterministic tooling, bounded context, specialist roles, durable state và evidence-gated verification.
 
+> **15.1.3 candidate:** hardening Parent Code Intelligence Lite sau live acceptance trên Pi: diagnostics notification timeout không còn teardown LSP session khỏe mạnh; bounded output giữ đúng per-operation pool metadata; search probe dùng cùng parent-lite persistence policy; telemetry tách attempts / failed operations; structural search báo trạng thái unavailable rõ ràng.
+
 ---
 
 ## Mục lục
