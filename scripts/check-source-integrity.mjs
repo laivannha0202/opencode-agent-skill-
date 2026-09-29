@@ -425,7 +425,7 @@ const CONTRACTS = [
     file: "lib/code-intelligence/index.mjs",
     minBytes: 4_000,
     startsWith: "import ",
-    required: ["readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode"],
+    required: ["runtimeCacheHit", "runtimeWorkspaceSnapshot", "buildSemanticIndexCached", "readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode"],
   },
   {
     file: "lib/code-intelligence/lsp-provider.mjs",
