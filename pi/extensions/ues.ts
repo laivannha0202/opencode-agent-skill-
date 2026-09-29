@@ -3598,12 +3598,18 @@ export default function (pi: ExtensionAPI) {
           const startLine = Math.max(1, Math.trunc(Number(params.startLine || 1)));
           const endLine = Math.max(startLine, Math.min(startLine + 399, Math.trunc(Number(params.endLine || startLine + 199))));
           const read = await readAnchoredCode(ctx.cwd, params.file, { startLine, endLine });
-          const exactRead = [
+          const rawRead = [
             `file: ${read.file}; lines: ${read.startLine}-${read.endLine}/${read.lineCount}; sourceHash: ${read.sourceHash}`,
             "",
             read.text,
           ].join("\n");
-          const bounded = exactRead.length > PARENT_CODE_VISIBLE_OUTPUT_LIMIT;
+          const originalChars = rawRead.length;
+          const bounded = originalChars > PARENT_CODE_VISIBLE_OUTPUT_LIMIT;
+          const exactRead = [
+            `file: ${read.file}; lines: ${read.startLine}-${read.endLine}/${read.lineCount}; sourceHash: ${read.sourceHash}; originalChars: ${originalChars}; bounded: ${bounded}`,
+            "",
+            read.text,
+          ].join("\n");
           let contextRef: string | null = null;
           let visibleRead = exactRead;
           if (bounded) {
@@ -3629,7 +3635,7 @@ export default function (pi: ExtensionAPI) {
               startLine: read.startLine,
               endLine: read.endLine,
               bounded,
-              originalChars: exactRead.length,
+              originalChars,
               contextRef,
             },
           };
