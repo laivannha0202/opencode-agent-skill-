@@ -28,3 +28,21 @@ test("repo graph resolves local imports and ranks incoming hotspots", async () =
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("repo graph ignores canonical UES runtime artifacts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-graph-runtime-artifacts-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "real.js"), "export const realGraphSymbol = 1\n")
+    for (const dir of [".ues-work", ".ues-learning", ".ues-dashboard", ".ues-sandboxes", ".ues-cache", ".ues-traces", ".ues-memory", ".ues-evals", ".ues-services"]) {
+      await mkdir(path.join(root, dir), { recursive: true })
+      await writeFile(path.join(root, dir, "fake.js"), "export const fakeGraphSymbol = 1\n")
+    }
+
+    const graph = await buildRepoGraph(root, { maxFiles: 100, ioConcurrency: 4 })
+    assert.deepEqual(graph.nodes.map((node) => node.path), ["src/real.js"])
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
