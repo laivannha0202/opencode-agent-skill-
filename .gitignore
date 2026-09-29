@@ -13,3 +13,6 @@ Thumbs.db
 .ues-traces/
 .ues-memory/
 .ues-services/
+
+# npm pack artifacts
+opencode-agent-skill-*.tgz
