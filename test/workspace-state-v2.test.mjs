@@ -56,3 +56,16 @@ test("Unified Workspace Snapshot V2 keeps unborn Git repositories fail-closed", 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("Unified Workspace Snapshot V2 treats bare repositories as non-worktrees", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-workspace-bare-"))
+  try {
+    git(root, ["init", "--bare"])
+    const state = captureWorkspaceStateV2(root)
+    assert.equal(state.git, false)
+    assert.equal(state.cacheable, false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
