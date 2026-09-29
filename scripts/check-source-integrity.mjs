@@ -412,7 +412,7 @@ const CONTRACTS = [
     file: "lib/code-intelligence/lsp-provider.mjs",
     minBytes: 5_000,
     startsWith: "import ",
-    required: ["diagnoseCode", "lspProviderStatus", "lspPersistencePolicy", "short-lived-default", "pi-child-runtime", "publishDiagnostics", "withManagedLspSession", "fallbackFrom", "shutdownLspPool"],
+    required: ["diagnoseCode", "lspProviderStatus", "lspPersistencePolicy", "short-lived-default", "pi-child-runtime", "publishDiagnostics", "withManagedLspSession", "fallbackFrom", "shutdownLspPool", "resolveTypeScriptTsserverFallback", "UES_TYPESCRIPT_TSSERVER_PATH", "initializationOptions", "fallbackPath", "resolveWindowsCommand"],
   },
   {
     file: "lib/code-intelligence/lsp-pool.mjs",
@@ -430,6 +430,8 @@ const CONTRACTS = [
       "UES_LSP_IDLE_TTL_MS",
       "resolveWindowsCommand",
       "managed-lsp-request-rejected",
+      "initializationOptions",
+      "JSON.stringify(provider?.initializationOptions || null)",
     ],
     forbidden: ["\\nimport { resolveWindowsCommand }"],
   },
