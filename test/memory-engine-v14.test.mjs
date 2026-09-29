@@ -146,6 +146,32 @@ test("V14 verified task memory keeps explicit declared file scope instead of abs
 })
 
 
+
+test("V15 verified task memory auto-scope excludes UES runtime artifacts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-memory-runtime-scope-"))
+  try {
+    assert.equal(spawnSync("git", ["init"], { cwd: root, stdio: "ignore" }).status, 0)
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await mkdir(path.join(root, ".ues-services"), { recursive: true })
+    await mkdir(path.join(root, ".ues-evals"), { recursive: true })
+    await writeFile(path.join(root, "src", "target.mjs"), "export const target = 2\n")
+    await writeFile(path.join(root, ".ues-services", "api.json"), "{\"status\":\"running\"}\n")
+    await writeFile(path.join(root, ".ues-evals", "trace.json"), "{\"score\":1}\n")
+
+    const memory = await recordVerifiedTaskMemory(root, {
+      task: "Verify the current target implementation",
+      verifier: "ues-verifier",
+      verifierOutput: "UES_VERDICT: PASS",
+    })
+
+    assert.equal(memory.status, "verified")
+    assert.deepEqual(memory.files, ["src/target.mjs"])
+    assert.equal(memory.files.some((file) => file.startsWith(".ues-")), false)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("V15 memory serializes concurrent proposals without lost updates", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-memory-concurrent-propose-"))
   try {
