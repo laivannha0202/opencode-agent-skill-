@@ -678,6 +678,19 @@ const CONTRACTS = [
   },
 
   {
+    file: "scripts/run-test-suite.mjs",
+    minBytes: 3_000,
+    startsWith: "import ",
+    required: [
+      "runSupervisedProcess",
+      "UES_TEST_FILE_TIMEOUT_MS",
+      "UES_TEST_CONCURRENCY",
+      "HANG/TIMEOUT",
+      "UES_LSP_PERSISTENT",
+      "Failing or leaking test files",
+    ],
+  },
+  {
     file: "scripts/eval-pi.mjs",
     minBytes: 15_000,
     startsWith: "import ",
