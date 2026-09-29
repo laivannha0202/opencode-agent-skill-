@@ -754,7 +754,7 @@ const CONTRACTS = [
     file: "lib/affected-tests.mjs",
     minBytes: 7_500,
     startsWith: "import ",
-    required: ["resolveAffectedTests", "clearAffectedTestCache", "AFFECTED_TEST_CACHE.set", "return result"],
+    required: ["UES_RUNTIME_DIRS", "runtime-artifacts.mjs", "resolveAffectedTests", "clearAffectedTestCache", "AFFECTED_TEST_CACHE.set", "return result"],
   },
 ]
 
