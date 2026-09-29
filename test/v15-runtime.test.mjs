@@ -408,6 +408,27 @@ test("V15 service runtime state is excluded from source-facing scans", async () 
   }
 })
 
+test("V15 source-facing status scans exclude UES runtime artifacts at Git pathspec level", async () => {
+  for (const file of [
+    "lib/workspace-hygiene.mjs",
+    "lib/execution-contract.mjs",
+    "lib/memory-engine.mjs",
+    "lib/worktree-sandbox.mjs",
+  ]) {
+    const source = await readFile(path.join(root, file), "utf8")
+    assert.match(source, /sourceGitPathspecs/)
+    assert.match(source, /--untracked-files=all/)
+    assert.match(source, /\.\.\.sourceGitPathspecs\(\)/)
+  }
+
+  const memory = await readFile(path.join(root, "lib", "memory-engine.mjs"), "utf8")
+  const sandbox = await readFile(path.join(root, "lib", "worktree-sandbox.mjs"), "utf8")
+  assert.match(memory, /workspaceStatusEntries/)
+  assert.match(memory, /sourceFacingPaths/)
+  assert.match(sandbox, /workspaceStatusEntries/)
+  assert.match(sandbox, /sourceFacingPaths/)
+})
+
 test("V15 deterministic controller admission and service tool are wired into Pi", async () => {
   const parent = await readFile(path.join(root, "pi", "extensions", "ues.ts"), "utf8")
   const child = await readFile(path.join(root, "pi", "extensions", "ues-child-runtime.ts"), "utf8")
