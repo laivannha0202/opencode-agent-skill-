@@ -420,6 +420,8 @@ test("V15 deterministic controller admission and service tool are wired into Pi"
   assert.match(parent, /pi\.registerCommand\("ues-run"/)
   assert.match(parent, /UES parent tools are hidden outside admitted UES runs/)
   assert.match(parent, /UES_PARENT_TOOL_NAMES/)
+  assert.match(parent, /ALWAYS_ON_PARENT_TOOLS = new Set\(\["ues_code"\]\)/)
+  assert.match(parent, /toolName\.startsWith\("ues_"\) && !ALWAYS_ON_PARENT_TOOLS\.has\(toolName\)/)
   assert.match(parent, /pi\.getActiveTools\(\)/)
   assert.match(parent, /pi\.setActiveTools/)
   assert.match(parent, /deactivateParentUesTools/)
