@@ -117,3 +117,29 @@ test("semantic runtime cache keys maxFileBytes and rebuild bypasses memory cache
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("semantic index ignores every canonical UES runtime directory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-semantic-runtime-artifacts-"))
+  try {
+    clearSemanticIndexRuntimeCache()
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "real.mjs"), "export const realSourceSymbol = 1\n")
+
+    for (const dir of [".ues-work", ".ues-learning", ".ues-dashboard", ".ues-sandboxes", ".ues-cache", ".ues-traces", ".ues-memory", ".ues-evals", ".ues-services"]) {
+      await mkdir(path.join(root, dir), { recursive: true })
+      await writeFile(path.join(root, dir, "runtime-artifact.mjs"), "export const shouldNeverBeIndexed = 1\n")
+    }
+
+    const built = await buildSemanticIndex(root, { rebuild: true, maxFiles: 100 })
+    assert.equal(built.stats.files, 1)
+    assert.ok(built.index.files["src/real.mjs"])
+    assert.equal(Object.keys(built.index.files).some((file) => file.startsWith(".ues-")), false)
+
+    const query = await querySemanticIndex(root, "shouldNeverBeIndexed", { maxFiles: 100 })
+    assert.equal(query.results.some((item) => item.path.startsWith(".ues-")), false)
+  } finally {
+    clearSemanticIndexRuntimeCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
