@@ -160,6 +160,39 @@ test("LSP V2 counts STARTING reservations toward global and workspace capacity",
   }
 })
 
+test("LSP V2 shuts down through protocol before exit", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-shutdown-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  const protocolFile = path.join(root, "protocol.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const shutdownValue = 1\n")
+    const p = {
+      ...provider(counterFile),
+      env: {
+        UES_MOCK_LSP_COUNTER_FILE: counterFile,
+        UES_MOCK_LSP_PROTOCOL_FILE: protocolFile,
+      },
+    }
+
+    const result = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(result.ok, true)
+
+    const stopped = await shutdownLspPool(root)
+    assert.equal(stopped.remaining, 0)
+    const protocol = (await readFile(protocolFile, "utf8")).trim().split(/\r?\n/)
+    assert.deepEqual(protocol, ["shutdown", "exit"])
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("LSP V2 isolates workspaces instead of sharing one global server", async () => {
   const left = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-left-"))
   const right = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-right-"))
