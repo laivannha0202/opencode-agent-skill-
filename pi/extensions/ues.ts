@@ -3074,6 +3074,7 @@ export default function (pi: ExtensionAPI) {
     String(process.env.UES_AUTO_ADMIT || "1").trim().toLowerCase(),
   );
   const UES_PARENT_TOOL_NAMES = new Set(["ues_cli", "ues_execute", "ues_service", "ues_session", "ues_dispatch"]);
+  const ALWAYS_ON_PARENT_TOOLS = new Set(["ues_code"]);
   let normalActiveTools: string[] | null = null;
 
   const currentNonUesTools = () =>
@@ -3303,7 +3304,7 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     if (!uesModeActive()) {
-      if (toolName.startsWith("ues_")) {
+      if (toolName.startsWith("ues_") && !ALWAYS_ON_PARENT_TOOLS.has(toolName)) {
         return {
           block: true,
           reason: "UES parent tools are hidden outside admitted UES runs. Submit a normal engineering task or start an explicit /ues-* command.",
