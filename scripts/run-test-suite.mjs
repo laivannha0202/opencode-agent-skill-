@@ -89,7 +89,6 @@ if (!files.length) {
           stderrLimit: 4 * 1024 * 1024,
           env: {
             ...process.env,
-            UES_LSP_PERSISTENT: "0",
             UES_BOUNDED_TEST_RUNNER: "1",
           },
         },
