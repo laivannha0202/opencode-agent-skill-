@@ -810,6 +810,72 @@ test("verification broker rejects malformed receipts and waits for an external c
   }
 })
 
+test("RPC pool reservations prevent concurrent new workers from becoming untracked", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-rpc-reservation-"))
+  const script = path.join(root, "fake-rpc.mjs")
+  const starts = path.join(root, "starts.log")
+  const source = [
+    "import fs from 'node:fs'",
+    "import readline from 'node:readline'",
+    "fs.appendFileSync(process.env.UES_RPC_STARTS, String(process.pid) + '\\n')",
+    "const rl = readline.createInterface({ input: process.stdin })",
+    "rl.on('line', (line) => {",
+    "  const msg = JSON.parse(line)",
+    "  if (msg.type === 'get_state' || msg.type === 'new_session' || msg.type === 'abort') {",
+    "    process.stdout.write(JSON.stringify({ type: 'response', id: msg.id, success: true }) + '\\n')",
+    "    return",
+    "  }",
+    "  if (msg.type === 'prompt') {",
+    "    process.stdout.write(JSON.stringify({ type: 'response', id: msg.id, success: true }) + '\\n')",
+    "    setTimeout(() => {",
+    "      process.stdout.write(JSON.stringify({ type: 'message_end', message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] } }) + '\\n')",
+    "      process.stdout.write(JSON.stringify({ type: 'agent_settled' }) + '\\n')",
+    "    }, 80)",
+    "  }",
+    "})",
+  ].join("\n")
+  await writeFile(script, source)
+
+  const pool = new PiRpcWorkerPool({ maxWorkers: 1 })
+  try {
+    const spec = {
+      command: process.execPath,
+      args: [script],
+      cwd: root,
+      env: { ...process.env, UES_RPC_STARTS: starts },
+    }
+    const [first, second] = await Promise.all([
+      pool.run("first", spec, "finish-1", { hardTimeoutMs: 5_000, idleTimeoutMs: 5_000 }),
+      pool.run("second", spec, "finish-2", { hardTimeoutMs: 5_000, idleTimeoutMs: 5_000 }),
+    ])
+    assert.equal(first.message?.role, "assistant")
+    assert.equal(second.message?.role, "assistant")
+    assert.equal(pool.status().reservedWorkers, 0)
+    assert.ok(pool.status().workers <= 1)
+
+    const pids = (await readFile(starts, "utf8"))
+      .trim()
+      .split(/\r?\n/)
+      .filter(Boolean)
+      .map(Number)
+    assert.equal(new Set(pids).size, 2)
+
+    await pool.stopAll()
+    const allClosed = await waitFor(() => pids.every((pid) => {
+      try {
+        process.kill(pid, 0)
+        return false
+      } catch {
+        return true
+      }
+    }), 4000)
+    assert.equal(allClosed, true)
+  } finally {
+    await pool.stopAll()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("RPC pool never evicts an active worker when an idle-capacity limit is exceeded", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-rpc-lru-"))
   const script = path.join(root, "fake-rpc.mjs")
