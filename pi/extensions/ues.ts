@@ -60,6 +60,17 @@ import {
 import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
 import { clearSemanticIndexRuntimeCache } from "../../lib/semantic-index.mjs";
 import {
+  diagnoseCode,
+  lspOperation,
+  lspPoolStatus,
+  probeCodeIntelligence,
+  readAnchoredCode,
+  searchCodeIntelligence,
+  shutdownLspPool,
+} from "../../lib/code-intelligence/index.mjs";
+import { ingestDocument } from "../../lib/document-ingestion.mjs";
+import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
+import {
   createTaskSandbox,
   integrateTaskSandbox,
   removeTaskSandbox,
@@ -3144,6 +3155,7 @@ export default function (pi: ExtensionAPI) {
     MCP_HEALTH.clear();
     abortActiveCliChildren();
     await stopAllServices().catch(() => []);
+    await shutdownLspPool().catch(() => ({ stopped: 0, remaining: 0 }));
     await RPC_POOL.stopAll().catch(() => {});
     for (const dir of [...ACTIVE_TASK_SANDBOXES.keys()]) {
       const ownerRoot = await taskSandboxOwnerRoot(dir).catch(() => null);
@@ -3404,6 +3416,188 @@ export default function (pi: ExtensionAPI) {
       isError: (event as any).isError === true,
       usage: (event as any).usage,
     };
+  });
+
+  // Always-on, read-only intelligence for normal Pi conversations.
+  // Keep this outside UES_PARENT_TOOL_NAMES so session_start does not hide it.
+  pi.registerTool({
+    name: "ues_code",
+    label: "UES Code Intelligence Lite",
+    description:
+      "Always-on read-only UES code intelligence for normal Pi chats. Provides bounded semantic/AST search, anchored reads, persistent LSP navigation/diagnostics, document ingestion, and reversible context access without starting the UES controller or a specialist child.",
+    parameters: Type.Object({
+      action: Type.Union([
+        Type.Literal("status"),
+        Type.Literal("search"),
+        Type.Literal("read"),
+        Type.Literal("diagnostics"),
+        Type.Literal("definition"),
+        Type.Literal("references"),
+        Type.Literal("symbols"),
+        Type.Literal("hover"),
+        Type.Literal("rename-preview"),
+        Type.Literal("incoming-calls"),
+        Type.Literal("outgoing-calls"),
+        Type.Literal("document"),
+        Type.Literal("context-expand"),
+        Type.Literal("context-search"),
+      ]),
+      file: Type.Optional(Type.String()),
+      query: Type.Optional(Type.String()),
+      structuralPattern: Type.Optional(Type.String()),
+      language: Type.Optional(Type.String()),
+      startLine: Type.Optional(Type.Number({ minimum: 1 })),
+      endLine: Type.Optional(Type.Number({ minimum: 1 })),
+      line: Type.Optional(Type.Number({ minimum: 1 })),
+      character: Type.Optional(Type.Number({ minimum: 1 })),
+      newName: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
+      includeDeclaration: Type.Optional(Type.Boolean()),
+      ref: Type.Optional(Type.String()),
+      maxBytes: Type.Optional(Type.Number({ minimum: 1, maximum: 128000 })),
+    }),
+    async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+      try {
+        let result: any;
+        if (params.action === "status") {
+          result = probeCodeIntelligence(params.file || "");
+          result = {
+            ...result,
+            mode: "parent-lite",
+            controllerStarted: false,
+            childSpawned: false,
+            lsp: {
+              ...result.lsp,
+              persistentPool: {
+                ...lspPoolStatus({ includeSessions: false, persistent: true }),
+                policy: { enabled: true, source: "parent-lite" },
+              },
+            },
+          };
+        } else if (params.action === "search") {
+          if (!params.query) throw new Error("ues_code search requires query");
+          result = await searchCodeIntelligence(ctx.cwd, params.query, {
+            structuralPattern: params.structuralPattern,
+            language: params.language,
+            file: params.file,
+            maxResults: 12,
+          });
+          result.mode = "parent-lite";
+        } else if (params.action === "read") {
+          if (!params.file) throw new Error("ues_code read requires file");
+          const startLine = Math.max(1, Math.trunc(Number(params.startLine || 1)));
+          const endLine = Math.max(startLine, Math.min(startLine + 399, Math.trunc(Number(params.endLine || startLine + 199))));
+          const read = await readAnchoredCode(ctx.cwd, params.file, { startLine, endLine });
+          return {
+            content: [{ type: "text", text: [
+              `file: ${read.file}; lines: ${read.startLine}-${read.endLine}/${read.lineCount}; sourceHash: ${read.sourceHash}`,
+              "",
+              read.text,
+            ].join("\n") }],
+            details: {
+              action: params.action,
+              mode: "parent-lite",
+              controllerStarted: false,
+              childSpawned: false,
+              file: read.file,
+              sourceHash: read.sourceHash,
+              startLine: read.startLine,
+              endLine: read.endLine,
+            },
+          };
+        } else if (params.action === "diagnostics") {
+          if (!params.file) throw new Error("ues_code diagnostics requires file");
+          result = await diagnoseCode(ctx.cwd, params.file, {
+            timeoutMs: 5000,
+            maxResults: 80,
+            persistent: true,
+          });
+        } else if (["definition", "references", "symbols", "hover", "rename-preview", "incoming-calls", "outgoing-calls"].includes(params.action)) {
+          if (!params.file) throw new Error(`ues_code ${params.action} requires file`);
+          if (params.action === "rename-preview" && !params.newName) throw new Error("ues_code rename-preview requires newName");
+          result = await lspOperation(ctx.cwd, params.file, params.action, {
+            line: params.line || 1,
+            character: params.character || 1,
+            newName: params.newName,
+            includeDeclaration: params.includeDeclaration,
+            timeoutMs: 7000,
+            maxResults: 120,
+            persistent: true,
+          });
+        } else if (params.action === "document") {
+          if (!params.file) throw new Error("ues_code document requires file");
+          const document = await ingestDocument(ctx.cwd, params.file, {
+            maxBytes: Math.min(Number(params.maxBytes || 4 * 1024 * 1024), 4 * 1024 * 1024),
+          });
+          const block = await compactContext(ctx.cwd, document.markdown, {
+            kind: "document-ingestion",
+            source: document.file,
+            summary: `Normalized document from ${document.provider}`,
+          });
+          result = {
+            provider: document.provider,
+            file: document.file,
+            bytes: document.bytes,
+            optionalDependency: document.optionalDependency,
+            contextRef: block.ref,
+            originalChars: block.originalChars,
+            summary: block.levels.T1,
+          };
+        } else if (params.action === "context-expand") {
+          if (!params.ref) throw new Error("ues_code context-expand requires ref");
+          const expanded = await expandContext(ctx.cwd, params.ref, { maxBytes: params.maxBytes || 16000 });
+          return {
+            content: [{ type: "text", text: expanded.content }],
+            details: {
+              action: params.action,
+              mode: "parent-lite",
+              controllerStarted: false,
+              childSpawned: false,
+              ref: expanded.ref,
+              start: expanded.start,
+              returnedBytes: expanded.returnedBytes,
+              truncated: expanded.truncated,
+            },
+          };
+        } else if (params.action === "context-search") {
+          if (!params.ref || !params.query) throw new Error("ues_code context-search requires ref and query");
+          result = await searchContext(ctx.cwd, params.ref, params.query, {
+            maxBytes: params.maxBytes || 512000,
+            maxMatches: 12,
+          });
+        } else {
+          throw new Error("unsupported ues_code action");
+        }
+
+        const payload = {
+          ...result,
+          mode: result?.mode || "parent-lite",
+          controllerStarted: false,
+          childSpawned: false,
+        };
+        const encoded = JSON.stringify(payload, null, 2);
+        return {
+          content: [{ type: "text", text: encoded.length <= 32000 ? encoded : encoded.slice(0, 32000) + "\n...[bounded by ues_code parent-lite]" }],
+          details: {
+            action: params.action,
+            mode: "parent-lite",
+            controllerStarted: false,
+            childSpawned: false,
+            bounded: encoded.length > 32000,
+          },
+        };
+      } catch (error) {
+        return {
+          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+          details: {
+            action: params.action,
+            mode: "parent-lite",
+            controllerStarted: false,
+            childSpawned: false,
+          },
+          isError: true,
+        };
+      }
+    },
   });
 
   pi.registerTool({
