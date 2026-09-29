@@ -50,7 +50,7 @@ const concurrency = bounded(
 )
 const timeoutMs = bounded(
   parseFlag("--timeout-ms", process.env.UES_TEST_FILE_TIMEOUT_MS),
-  90_000,
+  45_000,
   5_000,
   10 * 60_000,
 )
