@@ -399,14 +399,16 @@ test("V15 service runtime state is excluded from source-facing scans", async () 
   const gitignore = await readFile(path.join(root, ".gitignore"), "utf8")
   assert.match(gitignore, /opencode-agent-skill-\*\.tgz/)
 
+  assert.match(gitignore, /\.ues-services\//)
+
   for (const file of [
-    ".gitignore",
     "lib/semantic-index.mjs",
     "lib/repo-graph.mjs",
     "lib/affected-tests.mjs",
   ]) {
     const source = await readFile(path.join(root, file), "utf8")
-    assert.match(source, /\.ues-services/)
+    assert.match(source, /UES_RUNTIME_DIRS/)
+    assert.match(source, /runtime-artifacts\.mjs/)
   }
 
   const inspect = await readFile(path.join(root, "lib", "repo-inspect.mjs"), "utf8")
