@@ -219,6 +219,8 @@ test("LSP V2 isolates workspaces instead of sharing one global server", async ()
 
     const status = lspPoolStatus()
     assert.equal(status.active, 2)
+    assert.equal(status.sessionCount, 2)
+    assert.equal(status.sessionsIncluded, true)
     assert.equal(new Set(status.sessions.map((item) => item.workspace)).size, 2)
   } finally {
     await shutdownLspPool()
@@ -356,6 +358,31 @@ test("LSP V2 keeps a healthy warm session after a non-transient operation reject
 
     const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
     assert.equal(starts.length, 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("LSP V2 reports hidden session projection explicitly", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-hidden-status-v2-"))
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const hiddenStatus = 1\n")
+    const result = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      provider(path.join(root, "starts.log")),
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(result.ok, true)
+
+    const status = lspPoolStatus({ includeSessions: false })
+    assert.equal(status.active, 1)
+    assert.equal(status.sessionCount, 1)
+    assert.equal(status.sessionsIncluded, false)
+    assert.deepEqual(status.sessions, [])
   } finally {
     await shutdownLspPool(root)
     await rm(root, { recursive: true, force: true })
