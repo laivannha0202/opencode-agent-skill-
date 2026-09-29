@@ -3,8 +3,9 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
+import { spawnSync } from "node:child_process"
 import { clearTypeScriptTsserverFallbackCache, lspOperation, lspPersistencePolicy, lspProviderStatus, resolveTypeScriptTsserverFallback, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
-import { probeCodeIntelligence } from "../lib/code-intelligence/index.mjs"
+import { probeCodeIntelligence, searchCodeIntelligence } from "../lib/code-intelligence/index.mjs"
 
 test("Code Intelligence V2 advertises deterministic LSP operations", () => {
   for (const operation of ["definition", "references", "symbols", "hover", "rename-preview", "incoming-calls", "outgoing-calls"]) {
@@ -115,6 +116,32 @@ test("TypeScript global fallback resolution caches the Windows PATH probe", asyn
     assert.equal(probes, 2)
   } finally {
     clearTypeScriptTsserverFallbackCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("Parent code search reuses semantic runtime cache for an unchanged Git workspace", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-code-search-cache-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "orders.ts"), "export const cachedSearchNeedle = 1\n")
+    const git = (args) => spawnSync("git", args, { cwd: root, encoding: "utf8" })
+    assert.equal(git(["init"]).status, 0)
+    assert.equal(git(["add", "."]).status, 0)
+    assert.equal(git(["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"]).status, 0)
+
+    const first = await searchCodeIntelligence(root, "cachedSearchNeedle", { maxFiles: 100 })
+    const second = await searchCodeIntelligence(root, "cachedSearchNeedle", { maxFiles: 100 })
+    assert.equal(first.semantic.results[0]?.path, "src/orders.ts")
+    assert.equal(first.semantic.runtimeCacheHit, false)
+    assert.equal(second.semantic.runtimeCacheHit, true)
+
+    await writeFile(path.join(root, "src", "orders.ts"), "export const cachedSearchNeedle = 2\n")
+    const changed = await searchCodeIntelligence(root, "cachedSearchNeedle", { maxFiles: 100 })
+    assert.equal(changed.semantic.runtimeCacheHit, false)
+    assert.notEqual(changed.workspaceFingerprint, second.workspaceFingerprint)
+  } finally {
     await rm(root, { recursive: true, force: true })
   }
 })
