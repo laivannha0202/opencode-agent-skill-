@@ -317,6 +317,9 @@ const CONTRACTS = [
     startsWith: "import ",
     required: [
       "class RpcWorker",
+      "reservations",
+      "this.reserve(key)",
+      "reservedWorkers",
       "steerActive",
       "abortActive",
       "abortTransport",
