@@ -437,6 +437,8 @@ const CONTRACTS = [
     startsWith: "import ",
     required: [
       "withManagedLspSession",
+      'this.request("shutdown"',
+      "closedNaturally",
       "shutdownLspPool",
       "lspPoolStatus",
       "pool-capacity-busy",
