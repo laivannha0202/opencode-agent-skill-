@@ -64,6 +64,9 @@ function documentItem(uri) {
 
 function dispatch(message) {
   const method = String(message?.method || "")
+  if (process.env.UES_MOCK_LSP_PROTOCOL_FILE && (method === "shutdown" || method === "exit")) {
+    appendFileSync(process.env.UES_MOCK_LSP_PROTOCOL_FILE, method + "\n", "utf8")
+  }
   if (message?.id != null) {
     if (method === "initialize") {
       send({
