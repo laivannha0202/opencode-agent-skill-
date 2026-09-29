@@ -11,6 +11,12 @@ const CONTRACTS = [
     minBytes: 80_000,
     startsWith: "import { spawn }",
     required: [
+      "ues_code",
+      "UES Code Intelligence Lite",
+      "parent-lite",
+      "controllerStarted",
+      "childSpawned",
+      "shutdownLspPool",
       'name: "ues_cli"',
       'name: "ues_execute"',
       'name: "ues_dispatch"',
