@@ -401,11 +401,16 @@ test("V15 service runtime state is excluded from source-facing scans", async () 
     "lib/semantic-index.mjs",
     "lib/repo-graph.mjs",
     "lib/affected-tests.mjs",
-    "lib/repo-inspect.mjs",
   ]) {
     const source = await readFile(path.join(root, file), "utf8")
     assert.match(source, /\.ues-services/)
   }
+
+  const inspect = await readFile(path.join(root, "lib", "repo-inspect.mjs"), "utf8")
+  assert.match(inspect, /UES_RUNTIME_DIRS/)
+  assert.match(inspect, /sourceGitPathspecs/)
+  assert.match(inspect, /\.\.\.UES_RUNTIME_DIRS/)
+  assert.match(inspect, /\.\.\.sourceGitPathspecs\(\)/)
 })
 
 test("V15 source-facing status scans exclude UES runtime artifacts at Git pathspec level", async () => {
