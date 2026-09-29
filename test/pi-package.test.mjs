@@ -42,6 +42,7 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /name:\s*"ues_code"/)
   assert.match(source, /label:\s*"UES Code Intelligence Lite"/)
   assert.match(source, /mode:\s*"parent-lite"/)
+  assert.match(source, /Parent Code Intelligence Lite: on/)
   assert.match(source, /controllerStarted:\s*false/)
   assert.match(source, /childSpawned:\s*false/)
   assert.match(source, /persistent:\s*true/)
