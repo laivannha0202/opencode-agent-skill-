@@ -142,8 +142,20 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
 
   if (pkg) {
     const scripts = pkg.scripts || {}
-    if (scripts.test !== "node --test") errors.push("package.json: npm test must run portable full Node test discovery")
-    if (scripts["test:pi"] !== "node --test test/pi-package.test.mjs") errors.push("package.json: missing focused test:pi script")
+    if (scripts.test !== "node scripts/run-test-suite.mjs") {
+      errors.push("package.json: npm test must run the bounded per-file test runner")
+    }
+    const focusedPi = String(scripts["test:pi"] || "").trim().split(/\s+/).filter(Boolean)
+    if (
+      focusedPi[0] !== "node" ||
+      focusedPi[1] !== "scripts/run-test-suite.mjs" ||
+      !focusedPi.includes("test/pi-package.test.mjs")
+    ) {
+      errors.push("package.json: missing bounded focused test:pi script")
+    }
+    if (scripts["test:node"] !== "node --test") {
+      errors.push("package.json: test:node must preserve raw Node test discovery for diagnosis")
+    }
     if (scripts["docs:check"] !== "node scripts/check-release-consistency.mjs") errors.push("package.json: missing docs:check release-consistency script")
     if (scripts["release:check-tag"] !== "node scripts/check-release-tag.mjs") errors.push("package.json: missing release:check-tag script")
     if (scripts["eval:pi"] !== "node scripts/eval-pi.mjs") errors.push("package.json: missing Pi-native eval:pi script")
@@ -160,10 +172,10 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     ]
     if (
       focusedV15[0] !== "node" ||
-      focusedV15[1] !== "--test" ||
+      focusedV15[1] !== "scripts/run-test-suite.mjs" ||
       !requiredFocusedV15Tests.every((file) => focusedV15.includes(file))
     ) {
-      errors.push("package.json: focused eval:v15 must run the current V15 runtime, disk-safety, intelligence and Pi-package regression set")
+      errors.push("package.json: focused eval:v15 must use the bounded runner and include the current V15 runtime, disk-safety, intelligence and Pi-package regression set")
     }
     if (!String(scripts.ci || "").includes("npm run integrity")) errors.push("package.json: ci must include source-integrity gate")
     if (scripts["runtime:exports"] !== "node scripts/check-runtime-exports.mjs") errors.push("package.json: missing runtime:exports import/export gate")
