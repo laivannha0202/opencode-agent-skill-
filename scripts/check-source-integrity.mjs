@@ -363,6 +363,8 @@ const CONTRACTS = [
     startsWith: "import ",
     required: [
       "runtimeWorkspaceFingerprint",
+      "Fast common path",
+      '["rev-parse", "HEAD"]',
       "runtimeWorkspaceSnapshot",
       "changedFiles",
       "cacheable",
