@@ -77,3 +77,25 @@ test("Affected-Test Index V2 ignores canonical UES runtime artifacts", async () 
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("Affected-Test Index V2 ignores runtime-only changed files", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-affected-runtime-change-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "real.js"), "export const real = 1\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    await mkdir(path.join(root, ".ues-evals"), { recursive: true })
+    await writeFile(path.join(root, ".ues-evals", "runtime.ts"), "export const runtimeOnly = 1\n")
+    clearAffectedTestCache()
+    const plan = await resolveAffectedTests(root)
+    assert.deepEqual(plan.changedFiles, [])
+    assert.deepEqual(plan.tests, [])
+  } finally {
+    clearAffectedTestCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
