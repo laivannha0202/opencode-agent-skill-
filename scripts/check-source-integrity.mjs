@@ -403,7 +403,7 @@ const CONTRACTS = [
     file: "lib/code-intelligence/lsp-provider.mjs",
     minBytes: 5_000,
     startsWith: "import ",
-    required: ["diagnoseCode", "lspProviderStatus", "publishDiagnostics", "withManagedLspSession", "fallbackFrom", "shutdownLspPool"],
+    required: ["diagnoseCode", "lspProviderStatus", "lspPersistencePolicy", "short-lived-default", "pi-child-runtime", "publishDiagnostics", "withManagedLspSession", "fallbackFrom", "shutdownLspPool"],
   },
   {
     file: "lib/code-intelligence/lsp-pool.mjs",
