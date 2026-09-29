@@ -17,6 +17,8 @@ const CONTRACTS = [
       "ues-code-result",
       "full result preserved; use ues_code context-expand with contextRef",
       "includeSessions",
+      "1-based source line",
+      "1-based source character/column",
       "controllerStarted",
       "childSpawned",
       "shutdownLspPool",
@@ -729,6 +731,18 @@ const CONTRACTS = [
       "onStderr: (chunk) => consumeControllerProgress",
       "controllerValid=",
       "UES_EVAL_DIRECT_TELEMETRY",
+    ],
+  },
+  {
+    file: "lib/semantic-index.mjs",
+    minBytes: 10_000,
+    startsWith: "import ",
+    required: [
+      "UES_RUNTIME_DIRS",
+      "runtime-artifacts.mjs",
+      "...UES_RUNTIME_DIRS",
+      "buildSemanticIndexCached",
+      "RUNTIME_SEMANTIC_INFLIGHT",
     ],
   },
   {
