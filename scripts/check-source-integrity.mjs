@@ -751,6 +751,19 @@ const CONTRACTS = [
     ],
   },
   {
+    file: "lib/context-manifest.mjs",
+    minBytes: 12_000,
+    startsWith: "import ",
+    required: [
+      "contextQuality",
+      "degradedComponents",
+      "semantic-snapshot",
+      "semantic-query",
+      "repo-graph",
+      "boundedFailure",
+    ],
+  },
+  {
     file: "lib/affected-tests.mjs",
     minBytes: 7_500,
     startsWith: "import ",
