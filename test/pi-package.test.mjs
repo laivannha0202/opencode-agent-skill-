@@ -42,6 +42,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /name:\s*"ues_code"/)
   assert.match(source, /label:\s*"UES Code Intelligence Lite"/)
   assert.match(source, /includeSessions:\s*Type\.Optional/)
+  assert.match(source, /1-based source line/)
+  assert.match(source, /1-based source character\/column/)
   assert.match(source, /kind:\s*"ues-code-result"/)
   assert.match(source, /full result preserved; use ues_code context-expand with contextRef/)
   assert.match(source, /mode:\s*"parent-lite"/)
