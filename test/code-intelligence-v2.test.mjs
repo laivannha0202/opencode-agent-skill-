@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { lspOperation, lspPersistencePolicy, lspProviderStatus, resolveTypeScriptTsserverFallback, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
+import { clearTypeScriptTsserverFallbackCache, lspOperation, lspPersistencePolicy, lspProviderStatus, resolveTypeScriptTsserverFallback, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
 import { probeCodeIntelligence } from "../lib/code-intelligence/index.mjs"
 
 test("Code Intelligence V2 advertises deterministic LSP operations", () => {
@@ -81,6 +81,40 @@ test("TypeScript LSP can derive a Windows global tsserver fallback", async () =>
     })
     assert.equal(resolved, libEntry)
   } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("TypeScript global fallback resolution caches the Windows PATH probe", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-global-tsserver-cache-"))
+  try {
+    const binEntry = path.join(root, "node_modules", "typescript", "bin", "tsserver")
+    const libEntry = path.join(root, "node_modules", "typescript", "lib", "tsserver.js")
+    await mkdir(path.dirname(binEntry), { recursive: true })
+    await mkdir(path.dirname(libEntry), { recursive: true })
+    await writeFile(binEntry, "#!/usr/bin/env node\n")
+    await writeFile(libEntry, "console.log('mock tsserver')\n")
+
+    clearTypeScriptTsserverFallbackCache()
+    let probes = 0
+    const options = {
+      platform: "win32",
+      cacheTtlMs: 60_000,
+      resolveCommand() {
+        probes += 1
+        return { entry: binEntry, argsPrefix: [binEntry] }
+      },
+    }
+    assert.equal(resolveTypeScriptTsserverFallback(options), libEntry)
+    assert.equal(resolveTypeScriptTsserverFallback(options), libEntry)
+    assert.equal(probes, 1)
+
+    clearTypeScriptTsserverFallbackCache()
+    assert.equal(resolveTypeScriptTsserverFallback(options), libEntry)
+    assert.equal(probes, 2)
+  } finally {
+    clearTypeScriptTsserverFallbackCache()
     await rm(root, { recursive: true, force: true })
   }
 })
