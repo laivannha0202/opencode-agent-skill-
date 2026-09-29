@@ -3078,8 +3078,11 @@ export default function (pi: ExtensionAPI) {
   let normalActiveTools: string[] | null = null;
   let parentRunToolCalls = 0;
   let parentRunLastAssistant: any = null;
-  let parentProviderRecoveryAttempts = 0;
-  const PARENT_PROVIDER_RECOVERY_MAX = 1;
+  let parentProviderRecoveryConsecutive = 0;
+  let parentProviderRecoveryTotal = 0;
+  let parentProviderRecoveryPending = false;
+  const PARENT_PROVIDER_RECOVERY_MAX_CONSECUTIVE = 1;
+  const PARENT_PROVIDER_RECOVERY_MAX_TOTAL = 3;
 
   const currentNonUesTools = () =>
     pi.getActiveTools().filter((name) => !UES_PARENT_TOOL_NAMES.has(String(name)));
@@ -3296,21 +3299,42 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async () => {
-    parentRunToolCalls = 0;
-    parentRunLastAssistant = null;
-    parentProviderRecoveryAttempts = 0;
+    // Pi may start another provider request inside the same parent run when
+    // agent_before_settle asks to continue. Preserve recovery accounting for
+    // that continuation, but reset it for a genuinely new parent run.
+    if (parentProviderRecoveryPending) {
+      parentProviderRecoveryPending = false;
+      parentRunLastAssistant = null;
+    } else {
+      parentRunToolCalls = 0;
+      parentRunLastAssistant = null;
+      parentProviderRecoveryConsecutive = 0;
+      parentProviderRecoveryTotal = 0;
+    }
     if (uesModeActive()) activateParentUesTools();
     else deactivateParentUesTools();
   });
 
   pi.on("message_end", async (event) => {
-    if ((event as any)?.message?.role === "assistant") {
-      parentRunLastAssistant = (event as any).message;
+    if ((event as any)?.message?.role !== "assistant") return;
+    parentRunLastAssistant = (event as any).message;
+
+    // A substantive assistant response proves the previous empty-response
+    // incident recovered. Reset only the consecutive incident budget; keep the
+    // total run budget bounded so a flaky provider cannot loop forever.
+    const text = extractAssistantText(parentRunLastAssistant).trim();
+    if (text && parentRunLastAssistant?.stopReason !== "error") {
+      parentProviderRecoveryConsecutive = 0;
+      parentProviderRecoveryPending = false;
     }
   });
 
   pi.on("agent_before_settle", async (event) => {
-    if (uesModeActive() || parentProviderRecoveryAttempts >= PARENT_PROVIDER_RECOVERY_MAX) {
+    if (
+      uesModeActive() ||
+      parentProviderRecoveryConsecutive >= PARENT_PROVIDER_RECOVERY_MAX_CONSECUTIVE ||
+      parentProviderRecoveryTotal >= PARENT_PROVIDER_RECOVERY_MAX_TOTAL
+    ) {
       return undefined;
     }
 
@@ -3324,7 +3348,9 @@ export default function (pi: ExtensionAPI) {
     });
     if (!decision.transient) return undefined;
 
-    parentProviderRecoveryAttempts += 1;
+    parentProviderRecoveryConsecutive += 1;
+    parentProviderRecoveryTotal += 1;
+    parentProviderRecoveryPending = true;
     const afterTools = parentRunToolCalls > 0;
     const recoveryMessage = afterTools
       ? [
@@ -3347,9 +3373,11 @@ export default function (pi: ExtensionAPI) {
           content: recoveryMessage,
           display: false,
           details: {
-            schemaVersion: 1,
-            attempt: parentProviderRecoveryAttempts,
-            maxAttempts: PARENT_PROVIDER_RECOVERY_MAX,
+            schemaVersion: 2,
+            incidentAttempt: parentProviderRecoveryConsecutive,
+            maxIncidentAttempts: PARENT_PROVIDER_RECOVERY_MAX_CONSECUTIVE,
+            totalAttempts: parentProviderRecoveryTotal,
+            maxTotalAttempts: PARENT_PROVIDER_RECOVERY_MAX_TOTAL,
             reason: decision.reason,
             toolCalls: parentRunToolCalls,
             safeReplay: decision.safeReplay,
@@ -3363,6 +3391,9 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("agent_end", async () => {
     promptUesActive = false;
+    parentProviderRecoveryPending = false;
+    parentProviderRecoveryConsecutive = 0;
+    parentProviderRecoveryTotal = 0;
     deactivateParentUesTools();
   });
 
@@ -5248,7 +5279,7 @@ export default function (pi: ExtensionAPI) {
         "Parent Code Intelligence Lite: on (always-on read-only ues_code; no controller/child)",
         "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
         "Permission deny-and-continue recovery: on",
-        "Provider empty-response recovery: on (parent boundary retry + child RPC recovery; no blind replay after tools)",
+        "Provider empty-response recovery: on (per-incident parent retry + bounded total + child RPC recovery; no blind replay after tools)",
         "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
