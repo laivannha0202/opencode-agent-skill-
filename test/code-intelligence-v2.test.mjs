@@ -37,6 +37,18 @@ test("LSP provider status reports V2 operation surface independently of local se
   assert.equal(status.operations.includes("incoming-calls"), true)
 })
 
+test("LSP provider status can expose the parent-lite persistence policy explicitly", () => {
+  const status = lspProviderStatus("sample.ts", {
+    persistent: true,
+    policySource: "parent-lite",
+    includeSessions: false,
+  })
+  assert.equal(status.persistentPool.enabled, true)
+  assert.equal(status.persistentPool.policy.enabled, true)
+  assert.equal(status.persistentPool.policy.source, "parent-lite")
+  assert.equal(status.persistentPool.sessionsIncluded, false)
+})
+
 
 test("LSP persistence is scoped to long-lived Pi child runtimes by default", () => {
   const priorChild = process.env.UES_CHILD_PROCESS
@@ -131,14 +143,24 @@ test("Parent code search reuses semantic runtime cache for an unchanged Git work
     assert.equal(git(["add", "."]).status, 0)
     assert.equal(git(["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"]).status, 0)
 
-    const first = await searchCodeIntelligence(root, "cachedSearchNeedle", { maxFiles: 100 })
-    const second = await searchCodeIntelligence(root, "cachedSearchNeedle", { maxFiles: 100 })
+    const options = {
+      maxFiles: 100,
+      persistent: true,
+      policySource: "parent-lite",
+    }
+    const first = await searchCodeIntelligence(root, "cachedSearchNeedle", options)
+    const second = await searchCodeIntelligence(root, "cachedSearchNeedle", options)
     assert.equal(first.semantic.results[0]?.path, "src/orders.ts")
     assert.equal(first.semantic.runtimeCacheHit, false)
     assert.equal(second.semantic.runtimeCacheHit, true)
+    assert.equal(first.providers.lsp.persistentPool.enabled, true)
+    assert.equal(first.providers.lsp.persistentPool.policy.source, "parent-lite")
+    assert.equal(typeof first.structural.available, "boolean")
+    assert.equal(first.structural.attempted, false)
+    assert.equal(first.structural.reason, "not-requested")
 
     await writeFile(path.join(root, "src", "orders.ts"), "export const cachedSearchNeedle = 2\n")
-    const changed = await searchCodeIntelligence(root, "cachedSearchNeedle", { maxFiles: 100 })
+    const changed = await searchCodeIntelligence(root, "cachedSearchNeedle", options)
     assert.equal(changed.semantic.runtimeCacheHit, false)
     assert.notEqual(changed.workspaceFingerprint, second.workspaceFingerprint)
   } finally {
