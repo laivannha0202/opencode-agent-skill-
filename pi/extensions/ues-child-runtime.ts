@@ -450,9 +450,45 @@ export default function (pi: ExtensionAPI) {
           throw new Error("unsupported ues_code action");
         }
         const encoded = JSON.stringify(result, null, 2);
+        const bounded = encoded.length > 32000;
+        let contextRef: string | null = null;
+        let visible = encoded;
+        if (bounded) {
+          const preserved = await compactContext(ctx.cwd, encoded, {
+            kind: "ues-code-result",
+            source: `ues_code:${params.action}`,
+            summary: `Full child code-intelligence result for ${params.action}; preserve exact JSON before model-visible bounding`,
+          }).catch(() => null);
+          contextRef = preserved?.ref || null;
+          const metadataFirst = {
+            schemaVersion: result?.schemaVersion || 1,
+            action: params.action,
+            file: result?.file || null,
+            available: result?.available ?? null,
+            provider: result?.provider || null,
+            operation: result?.operation || null,
+            reason: result?.reason || null,
+            persistent: result?.persistent ?? null,
+            pool: result?.pool || result?.lsp?.persistentPool || null,
+            bounded: true,
+            originalChars: encoded.length,
+            contextRef,
+            preview: encoded.slice(0, 22000),
+          };
+          visible = JSON.stringify(metadataFirst, null, 2) +
+            "\n...[full result preserved; use ues_code context-expand with contextRef when more evidence is needed]";
+        }
         return {
-          content: [{ type: "text", text: encoded.length <= 32000 ? encoded : encoded.slice(0, 32000) + "\n...[bounded by ues_code]" }],
-          details: { action: params.action, bounded: encoded.length > 32000 },
+          content: [{ type: "text", text: visible }],
+          details: {
+            action: params.action,
+            bounded,
+            originalChars: encoded.length,
+            contextRef,
+            provider: result?.provider || null,
+            persistent: result?.persistent ?? null,
+            pool: result?.pool || result?.lsp?.persistentPool || null,
+          },
         };
       } catch (error) {
         return {
