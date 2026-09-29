@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { spawnSync } from "node:child_process"
-import { clearTypeScriptTsserverFallbackCache, lspOperation, lspPersistencePolicy, lspProviderStatus, resolveTypeScriptTsserverFallback, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
+import { clearTypeScriptTsserverFallbackCache, diagnosticsTimeoutPolicy, lspOperation, lspPersistencePolicy, lspProviderStatus, resolveTypeScriptTsserverFallback, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
 import { probeCodeIntelligence, searchCodeIntelligence } from "../lib/code-intelligence/index.mjs"
 
 test("Code Intelligence V2 advertises deterministic LSP operations", () => {
@@ -169,10 +169,50 @@ test("Parent code search reuses semantic runtime cache for an unchanged Git work
 })
 
 
-test("diagnostics surface semantic timeout reason without hiding transport success", async () => {
-  const { readFile } = await import("node:fs/promises")
-  const source = await readFile(new URL("../lib/code-intelligence/lsp-provider.mjs", import.meta.url), "utf8")
-  assert.match(source, /transportReason:/)
-  assert.match(source, /reason: complete \? result\?\.reason : diagnosticsReason/)
-  assert.match(source, /diagnosticsTimeoutMs/)
+test("diagnostics use a separate adaptive budget and preserve timeout semantics", async () => {
+  const previousTimeout = process.env.UES_LSP_DIAGNOSTICS_TIMEOUT_MS
+  const previousContinuation = process.env.UES_LSP_DIAGNOSTICS_CONTINUATION_MS
+  try {
+    delete process.env.UES_LSP_DIAGNOSTICS_TIMEOUT_MS
+    delete process.env.UES_LSP_DIAGNOSTICS_CONTINUATION_MS
+
+    assert.deepEqual(
+      diagnosticsTimeoutPolicy({ timeoutMs: 5000 }),
+      {
+        initialTimeoutMs: 10000,
+        continuationTimeoutMs: 5000,
+        totalTimeoutMs: 15000,
+      },
+    )
+    assert.deepEqual(
+      diagnosticsTimeoutPolicy({
+        timeoutMs: 5000,
+        diagnosticsTimeoutMs: 6000,
+        diagnosticsContinuationMs: 2000,
+      }),
+      {
+        initialTimeoutMs: 6000,
+        continuationTimeoutMs: 2000,
+        totalTimeoutMs: 8000,
+      },
+    )
+    assert.equal(
+      diagnosticsTimeoutPolicy({
+        diagnosticsTimeoutMs: 7000,
+        diagnosticsContinuationMs: 0,
+      }).totalTimeoutMs,
+      7000,
+    )
+
+    const { readFile } = await import("node:fs/promises")
+    const source = await readFile(new URL("../lib/code-intelligence/lsp-provider.mjs", import.meta.url), "utf8")
+    assert.match(source, /transportReason: "ok"/)
+    assert.match(source, /reason: complete \? transportReason : diagnosticsReason/)
+    assert.match(source, /diagnosticsContinuationUsed/)
+  } finally {
+    if (previousTimeout == null) delete process.env.UES_LSP_DIAGNOSTICS_TIMEOUT_MS
+    else process.env.UES_LSP_DIAGNOSTICS_TIMEOUT_MS = previousTimeout
+    if (previousContinuation == null) delete process.env.UES_LSP_DIAGNOSTICS_CONTINUATION_MS
+    else process.env.UES_LSP_DIAGNOSTICS_CONTINUATION_MS = previousContinuation
+  }
 })
