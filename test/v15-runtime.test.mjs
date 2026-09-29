@@ -396,6 +396,8 @@ test("V15 service runtime state is excluded from source-facing scans", async () 
   assert.match(fingerprint, /runtime-artifacts\.mjs/)
   assert.match(fingerprint, /RUNTIME_PATHSPECS = sourceGitPathspecs\(\)/)
   assert.match(artifacts, /\.ues-services/)
+  const gitignore = await readFile(path.join(root, ".gitignore"), "utf8")
+  assert.match(gitignore, /opencode-agent-skill-\*\.tgz/)
 
   for (const file of [
     ".gitignore",
