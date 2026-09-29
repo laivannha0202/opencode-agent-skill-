@@ -414,6 +414,7 @@ test("V15 source-facing status scans exclude UES runtime artifacts at Git pathsp
     "lib/execution-contract.mjs",
     "lib/memory-engine.mjs",
     "lib/worktree-sandbox.mjs",
+    "lib/context-manifest.mjs",
   ]) {
     const source = await readFile(path.join(root, file), "utf8")
     assert.match(source, /sourceGitPathspecs/)
