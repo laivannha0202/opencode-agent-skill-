@@ -3546,8 +3546,14 @@ export default function (pi: ExtensionAPI) {
       language: Type.Optional(Type.String()),
       startLine: Type.Optional(Type.Number({ minimum: 1 })),
       endLine: Type.Optional(Type.Number({ minimum: 1 })),
-      line: Type.Optional(Type.Number({ minimum: 1 })),
-      character: Type.Optional(Type.Number({ minimum: 1 })),
+      line: Type.Optional(Type.Number({
+        minimum: 1,
+        description: "1-based source line. UES converts it to the LSP protocol's 0-based line internally.",
+      })),
+      character: Type.Optional(Type.Number({
+        minimum: 1,
+        description: "1-based source character/column. UES converts it to the LSP protocol's 0-based character internally.",
+      })),
       newName: Type.Optional(Type.String({ minLength: 1, maxLength: 512 })),
       includeDeclaration: Type.Optional(Type.Boolean()),
       includeSessions: Type.Optional(Type.Boolean()),
