@@ -188,7 +188,7 @@ const CONTRACTS = [
     file: "lib/task-engine.mjs",
     minBytes: 45_000,
     startsWith: "import ",
-    required: ["workspaceFingerprint", "initWork", "finalizeWork", "UES_RUNTIME_DIRS", "sourceGitPathspecs"],
+    required: ["workspaceFingerprint", "initWork", "finalizeWork", "UES_RUNTIME_DIRS", "sourceGitPathspecs", "Fast common path: resolve worktree identity and HEAD in one Git process"],
   },
   {
     file: "lib/model-performance.mjs",
@@ -429,7 +429,8 @@ const CONTRACTS = [
     file: "lib/code-intelligence/index.mjs",
     minBytes: 4_000,
     startsWith: "import ",
-    required: ["runtimeCacheHit", "runtimeWorkspaceSnapshot", "buildSemanticIndexCached", "readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode"],
+    required: ["runtimeCacheHit", "runtimeWorkspaceSnapshot", "buildSemanticIndexCached", "readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode", "runSupervisedProcess", "resolveWindowsCommand", "hardTimeoutMs: 20_000", "idleTimeoutMs: 10_000"],
+    forbidden: ["spawnSync"],
   },
   {
     file: "lib/code-intelligence/lsp-provider.mjs",
