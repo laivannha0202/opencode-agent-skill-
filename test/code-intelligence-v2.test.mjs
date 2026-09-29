@@ -1,9 +1,9 @@
 import test from "node:test"
 import assert from "node:assert/strict"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { lspOperation, lspPersistencePolicy, lspProviderStatus, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
+import { lspOperation, lspPersistencePolicy, lspProviderStatus, resolveTypeScriptTsserverFallback, LSP_OPERATIONS } from "../lib/code-intelligence/lsp-provider.mjs"
 import { probeCodeIntelligence } from "../lib/code-intelligence/index.mjs"
 
 test("Code Intelligence V2 advertises deterministic LSP operations", () => {
@@ -61,5 +61,26 @@ test("LSP persistence is scoped to long-lived Pi child runtimes by default", () 
     else process.env.UES_CHILD_PROCESS = priorChild
     if (priorPersistent == null) delete process.env.UES_LSP_PERSISTENT
     else process.env.UES_LSP_PERSISTENT = priorPersistent
+  }
+})
+
+
+test("TypeScript LSP can derive a Windows global tsserver fallback", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-global-tsserver-"))
+  try {
+    const binEntry = path.join(root, "node_modules", "typescript", "bin", "tsserver")
+    const libEntry = path.join(root, "node_modules", "typescript", "lib", "tsserver.js")
+    await mkdir(path.dirname(binEntry), { recursive: true })
+    await mkdir(path.dirname(libEntry), { recursive: true })
+    await writeFile(binEntry, "#!/usr/bin/env node\n")
+    await writeFile(libEntry, "console.log('mock tsserver')\n")
+
+    const resolved = resolveTypeScriptTsserverFallback({
+      platform: "win32",
+      execution: { entry: binEntry, argsPrefix: [binEntry] },
+    })
+    assert.equal(resolved, libEntry)
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })
