@@ -40,3 +40,19 @@ test("Unified Workspace Snapshot V2 feeds fingerprint, hygiene and dirty-state c
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("Unified Workspace Snapshot V2 keeps unborn Git repositories fail-closed", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-workspace-unborn-"))
+  try {
+    git(root, ["init"])
+    await writeFile(path.join(root, "draft.js"), "export const draft = 1\n")
+    const state = captureWorkspaceStateV2(root)
+    assert.equal(state.git, true)
+    assert.equal(state.cacheable, false)
+    assert.equal(state.reason, "git-snapshot-incomplete")
+    assert.ok(state.changedFiles.includes("draft.js"))
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
