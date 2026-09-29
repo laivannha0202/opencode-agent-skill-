@@ -490,6 +490,10 @@ test("non-git workspace fingerprint tracks source changes but ignores UES runtim
     await writeFile(path.join(root, ".ues-traces", "run.jsonl"), "{\"type\":\"tool.call\"}\n")
     await mkdir(path.join(root, ".ues-memory"), { recursive: true })
     await writeFile(path.join(root, ".ues-memory", "MEMORY.json"), "{\"memories\":[]}\n")
+    await mkdir(path.join(root, ".ues-evals"), { recursive: true })
+    await writeFile(path.join(root, ".ues-evals", "latest.json"), "{}\n")
+    await mkdir(path.join(root, ".ues-services"), { recursive: true })
+    await writeFile(path.join(root, ".ues-services", "api.json"), "{}\n")
     assert.equal(workspaceFingerprint(root), first)
 
     await writeFile(path.join(root, "src", "value.txt"), "two\n")
@@ -498,6 +502,30 @@ test("non-git workspace fingerprint tracks source changes but ignores UES runtim
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test("git workspace fingerprint ignores every canonical UES runtime directory", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-git-fingerprint-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await writeFile(path.join(root, "src", "value.txt"), "one\n")
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+    const first = workspaceFingerprint(root)
+
+    for (const dir of [".ues-work", ".ues-learning", ".ues-dashboard", ".ues-sandboxes", ".ues-cache", ".ues-traces", ".ues-memory", ".ues-evals", ".ues-services"]) {
+      await mkdir(path.join(root, dir), { recursive: true })
+      await writeFile(path.join(root, dir, "runtime.json"), "{}\n")
+    }
+    assert.equal(workspaceFingerprint(root), first)
+
+    await writeFile(path.join(root, "src", "value.txt"), "two\n")
+    assert.notEqual(workspaceFingerprint(root), first)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 
 
 test("active task mutations require the current runId", async () => {
