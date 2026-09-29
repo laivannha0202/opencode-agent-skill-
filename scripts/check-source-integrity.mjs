@@ -131,7 +131,7 @@ const CONTRACTS = [
     file: "pi/extensions/ues-child-runtime.ts",
     minBytes: 6_000,
     startsWith: 'import type { ExtensionAPI }',
-    required: [
+    required: ["full result preserved; use ues_code context-expand with contextRef", "ues-code-result", 
       'pi.on("tool_call"',
       'pi.on("tool_result"',
       'name: "ues_evidence_get"',
