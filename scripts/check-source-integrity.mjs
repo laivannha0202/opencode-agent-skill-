@@ -437,7 +437,7 @@ const CONTRACTS = [
     file: "lib/code-intelligence/lsp-pool.mjs",
     minBytes: 12_000,
     startsWith: "import ",
-    required: [
+    required: ["averageTotalLatencyMs", "averageAcquisitionLatencyMs", "totalDurationMs", "acquisitionDurationMs", 
       "withManagedLspSession",
       'this.request("shutdown"',
       "closedNaturally",
