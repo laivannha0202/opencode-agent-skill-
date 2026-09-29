@@ -356,6 +356,62 @@ test("LSP V2 keeps a healthy warm session after a non-transient operation reject
     assert.equal(recovered.ok, true)
     assert.equal(recovered.meta.poolHit, true)
 
+    const status = lspPoolStatus()
+    assert.equal(status.metrics.attempts, 2)
+    assert.equal(status.metrics.operations, 1)
+    assert.equal(status.metrics.failedOperations, 1)
+    assert.equal(status.metrics.fallbacks, 1)
+    assert.equal(status.metrics.restarts, 0)
+
+    const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
+    assert.equal(starts.length, 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+
+test("LSP V2 notification timeout does not destroy a healthy session", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-notification-timeout-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const notificationTimeout = 1\n")
+    const p = provider(counterFile)
+
+    const timedOut = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 1, maxPerWorkspace: 1, maxRestarts: 1, timeoutMs: 1000, startupTimeoutMs: 3000 },
+      async () => {
+        const error = new Error("LSP notification timed out: textDocument/publishDiagnostics")
+        error.code = "LSP_NOTIFICATION_TIMEOUT"
+        throw error
+      },
+    )
+    assert.equal(timedOut.ok, false)
+    assert.equal(timedOut.reason, "managed-lsp-request-rejected")
+    assert.equal(timedOut.errorCode, "LSP_NOTIFICATION_TIMEOUT")
+
+    const recovered = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 1, maxPerWorkspace: 1, maxRestarts: 1, timeoutMs: 1000, startupTimeoutMs: 3000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(recovered.ok, true)
+    assert.equal(recovered.meta.poolHit, true)
+
+    const status = lspPoolStatus({ includeSessions: true })
+    assert.equal(status.active, 1)
+    assert.equal(status.sessionCount, 1)
+    assert.equal(status.metrics.restarts, 0)
+    assert.equal(status.metrics.fallbacks, 1)
+    assert.equal(status.metrics.attempts, 2)
+    assert.equal(status.metrics.failedOperations, 1)
+    assert.equal(status.metrics.operations, 1)
+
     const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
     assert.equal(starts.length, 1)
   } finally {
