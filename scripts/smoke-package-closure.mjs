@@ -54,6 +54,7 @@ for (const required of [
   "scripts/eval-pi.mjs",
   "scripts/eval-report.mjs",
   "scripts/benchmark-lsp-pool.mjs",
+  "scripts/run-test-suite.mjs",
   "evals/live/tasks.json",
   "global-config/AGENTS.md",
   "global-config/commands/run.md",
