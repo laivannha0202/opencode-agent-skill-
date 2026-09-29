@@ -3591,6 +3591,8 @@ export default function (pi: ExtensionAPI) {
             language: params.language,
             file: params.file,
             maxResults: 12,
+            persistent: true,
+            policySource: "parent-lite",
           });
           result.mode = "parent-lite";
         } else if (params.action === "read") {
@@ -3721,15 +3723,35 @@ export default function (pi: ExtensionAPI) {
           }).catch(() => null);
           contextRef = preserved?.ref || null;
           const pool = payload?.pool || payload?.lsp?.persistentPool || null;
+          const operationPool = pool && typeof pool === "object" &&
+            ("sessionId" in pool || "poolHit" in pool || "operationDurationMs" in pool);
           const poolSummary = pool && typeof pool === "object"
-            ? {
-                enabled: pool.enabled ?? null,
-                active: pool.active ?? null,
-                busy: pool.busy ?? null,
-                limits: pool.limits || null,
-                metrics: pool.metrics || null,
-                sessionCount: Array.isArray(pool.sessions) ? pool.sessions.length : null,
-              }
+            ? operationPool
+              ? {
+                  persistent: pool.persistent ?? payload?.persistent ?? null,
+                  poolHit: pool.poolHit ?? null,
+                  warm: pool.warm ?? null,
+                  startupJoin: pool.startupJoin ?? null,
+                  sessionId: pool.sessionId ?? null,
+                  state: pool.state ?? null,
+                  coldStartMs: pool.coldStartMs ?? null,
+                  acquisitionDurationMs: pool.acquisitionDurationMs ?? null,
+                  operationDurationMs: pool.operationDurationMs ?? null,
+                  totalDurationMs: pool.totalDurationMs ?? null,
+                  requestCount: pool.requestCount ?? null,
+                  configFingerprint: pool.configFingerprint ?? null,
+                  policy: pool.policy || null,
+                }
+              : {
+                  enabled: pool.enabled ?? null,
+                  active: pool.active ?? null,
+                  busy: pool.busy ?? null,
+                  limits: pool.limits || null,
+                  metrics: pool.metrics || null,
+                  sessionCount: pool.sessionCount ?? (Array.isArray(pool.sessions) ? pool.sessions.length : null),
+                  sessionsIncluded: pool.sessionsIncluded ?? null,
+                  policy: pool.policy || null,
+                }
             : null;
           const previewChars = Math.max(2_000, PARENT_CODE_VISIBLE_OUTPUT_LIMIT - 6_000);
           const metadataFirst = {
@@ -3769,14 +3791,19 @@ export default function (pi: ExtensionAPI) {
           },
         };
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        const envelope = {
+          schemaVersion: 1,
+          action: params.action,
+          reason: "ues-code-error",
+          error: message,
+          mode: "parent-lite",
+          controllerStarted: false,
+          childSpawned: false,
+        };
         return {
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          details: {
-            action: params.action,
-            mode: "parent-lite",
-            controllerStarted: false,
-            childSpawned: false,
-          },
+          content: [{ type: "text", text: JSON.stringify(envelope, null, 2) }],
+          details: envelope,
           isError: true,
         };
       }
