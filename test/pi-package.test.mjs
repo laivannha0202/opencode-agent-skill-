@@ -47,6 +47,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /childSpawned:\s*false/)
   assert.match(source, /persistent:\s*true/)
   assert.doesNotMatch(source, /UES_PARENT_TOOL_NAMES = new Set\(\[[^\]]*"ues_code"/)
+  assert.match(source, /ALWAYS_ON_PARENT_TOOLS = new Set\(\["ues_code"\]\)/)
+  assert.match(source, /toolName\.startsWith\("ues_"\) && !ALWAYS_ON_PARENT_TOOLS\.has\(toolName\)/)
   assert.match(source, /name:\s*"ues_cli"/)
   assert.match(source, /name:\s*"ues_dispatch"/)
   assert.match(source, /name:\s*"ues_execute"/)
