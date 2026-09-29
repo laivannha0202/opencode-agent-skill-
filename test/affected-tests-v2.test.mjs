@@ -50,3 +50,30 @@ test("Affected-Test Index V2 uses Git inventory and reuses exact fingerprint res
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("Affected-Test Index V2 ignores canonical UES runtime artifacts", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-affected-runtime-artifacts-"))
+  try {
+    await mkdir(path.join(root, "src"), { recursive: true })
+    await mkdir(path.join(root, "test"), { recursive: true })
+    await writeFile(path.join(root, "src", "real.js"), "export const real = 1\n")
+    await writeFile(path.join(root, "test", "real.test.js"), "import { real } from '../src/real.js'\nvoid real\n")
+    for (const dir of [".ues-work", ".ues-learning", ".ues-dashboard", ".ues-sandboxes", ".ues-cache", ".ues-traces", ".ues-memory", ".ues-evals", ".ues-services"]) {
+      await mkdir(path.join(root, dir), { recursive: true })
+      await writeFile(path.join(root, dir, "fake.test.js"), "throw new Error('must not be inventoried')\n")
+    }
+    git(root, ["init"])
+    git(root, ["add", "."])
+    git(root, ["-c", "user.name=UES", "-c", "user.email=ues@example.invalid", "commit", "-m", "init"])
+
+    clearAffectedTestCache()
+    await writeFile(path.join(root, "src", "real.js"), "export const real = 2\n")
+    const plan = await resolveAffectedTests(root)
+    assert.equal(plan.tests.some((item) => item.path.startsWith(".ues-")), false)
+    assert.equal(plan.tests.some((item) => item.path === "test/real.test.js"), true)
+  } finally {
+    clearAffectedTestCache()
+    await rm(root, { recursive: true, force: true })
+  }
+})
