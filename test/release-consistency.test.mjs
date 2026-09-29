@@ -186,3 +186,36 @@ test("release checker fails when CI drops packed install smoke", () => {
     rmSync(tmp, { recursive: true, force: true })
   }
 })
+
+
+test("release checker fails when full npm test drops the bounded runner", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+    pkg.scripts.test = "node --test"
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("bounded per-file test runner")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test("release checker fails when focused Pi test bypasses the bounded runner", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+    pkg.scripts["test:pi"] = "node --test test/pi-package.test.mjs"
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("bounded focused test:pi")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
