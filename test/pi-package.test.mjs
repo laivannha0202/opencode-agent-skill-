@@ -46,6 +46,8 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(source, /1-based source character\/column/)
   assert.match(source, /kind:\s*"ues-code-result"/)
   assert.match(source, /PARENT_CODE_VISIBLE_OUTPUT_LIMIT/)
+  assert.match(source, /originalChars: \${originalChars}/)
+  assert.match(source, /bounded: \${bounded}/)
   assert.match(source, /UES_PARENT_CODE_VISIBLE_OUTPUT_LIMIT/)
   assert.match(source, /kind:\s*"ues-code-read"/)
   assert.match(source, /anchored read bounded; exact content preserved/)
