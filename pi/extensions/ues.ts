@@ -156,6 +156,12 @@ const MODEL_VISIBLE_OUTPUT_LIMIT = configuredDuration(
   16 * 1024,
   256 * 1024,
 );
+const PARENT_CODE_VISIBLE_OUTPUT_LIMIT = configuredDuration(
+  "UES_PARENT_CODE_VISIBLE_OUTPUT_LIMIT",
+  16 * 1024,
+  8 * 1024,
+  64 * 1024,
+);
 
 function configuredCount(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name] || "");
@@ -3592,12 +3598,27 @@ export default function (pi: ExtensionAPI) {
           const startLine = Math.max(1, Math.trunc(Number(params.startLine || 1)));
           const endLine = Math.max(startLine, Math.min(startLine + 399, Math.trunc(Number(params.endLine || startLine + 199))));
           const read = await readAnchoredCode(ctx.cwd, params.file, { startLine, endLine });
+          const exactRead = [
+            `file: ${read.file}; lines: ${read.startLine}-${read.endLine}/${read.lineCount}; sourceHash: ${read.sourceHash}`,
+            "",
+            read.text,
+          ].join("\n");
+          const bounded = exactRead.length > PARENT_CODE_VISIBLE_OUTPUT_LIMIT;
+          let contextRef: string | null = null;
+          let visibleRead = exactRead;
+          if (bounded) {
+            const preserved = await compactContext(ctx.cwd, exactRead, {
+              kind: "ues-code-read",
+              source: `ues_code:read:${read.file}`,
+              summary: `Exact anchored parent-lite read for ${read.file}`,
+            }).catch(() => null);
+            contextRef = preserved?.ref || null;
+            const previewChars = Math.max(2_000, PARENT_CODE_VISIBLE_OUTPUT_LIMIT - 1_200);
+            visibleRead = exactRead.slice(0, previewChars) +
+              `\n...[anchored read bounded; exact content preserved${contextRef ? `; contextRef=${contextRef}` : ""}]`;
+          }
           return {
-            content: [{ type: "text", text: [
-              `file: ${read.file}; lines: ${read.startLine}-${read.endLine}/${read.lineCount}; sourceHash: ${read.sourceHash}`,
-              "",
-              read.text,
-            ].join("\n") }],
+            content: [{ type: "text", text: visibleRead }],
             details: {
               action: params.action,
               mode: "parent-lite",
@@ -3607,6 +3628,9 @@ export default function (pi: ExtensionAPI) {
               sourceHash: read.sourceHash,
               startLine: read.startLine,
               endLine: read.endLine,
+              bounded,
+              originalChars: exactRead.length,
+              contextRef,
             },
           };
         } else if (params.action === "diagnostics") {
@@ -3680,7 +3704,7 @@ export default function (pi: ExtensionAPI) {
           childSpawned: false,
         };
         const encoded = JSON.stringify(payload, null, 2);
-        const bounded = encoded.length > 32000;
+        const bounded = encoded.length > PARENT_CODE_VISIBLE_OUTPUT_LIMIT;
         let contextRef: string | null = null;
         let visible = encoded;
         if (bounded) {
@@ -3690,6 +3714,18 @@ export default function (pi: ExtensionAPI) {
             summary: `Full parent-lite result for ${params.action}; preserve exact JSON before model-visible bounding`,
           }).catch(() => null);
           contextRef = preserved?.ref || null;
+          const pool = payload?.pool || payload?.lsp?.persistentPool || null;
+          const poolSummary = pool && typeof pool === "object"
+            ? {
+                enabled: pool.enabled ?? null,
+                active: pool.active ?? null,
+                busy: pool.busy ?? null,
+                limits: pool.limits || null,
+                metrics: pool.metrics || null,
+                sessionCount: Array.isArray(pool.sessions) ? pool.sessions.length : null,
+              }
+            : null;
+          const previewChars = Math.max(2_000, PARENT_CODE_VISIBLE_OUTPUT_LIMIT - 6_000);
           const metadataFirst = {
             schemaVersion: payload?.schemaVersion || 1,
             action: params.action,
@@ -3699,14 +3735,14 @@ export default function (pi: ExtensionAPI) {
             operation: payload?.operation || null,
             reason: payload?.reason || null,
             persistent: payload?.persistent ?? null,
-            pool: payload?.pool || payload?.lsp?.persistentPool || null,
+            pool: poolSummary,
             mode: "parent-lite",
             controllerStarted: false,
             childSpawned: false,
             bounded: true,
             originalChars: encoded.length,
             contextRef,
-            preview: encoded.slice(0, 22000),
+            preview: encoded.slice(0, previewChars),
           };
           visible = JSON.stringify(metadataFirst, null, 2) +
             "\n...[full result preserved; use ues_code context-expand with contextRef when more evidence is needed]";
