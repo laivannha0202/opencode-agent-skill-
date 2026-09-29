@@ -3076,6 +3076,10 @@ export default function (pi: ExtensionAPI) {
   const UES_PARENT_TOOL_NAMES = new Set(["ues_cli", "ues_execute", "ues_service", "ues_session", "ues_dispatch"]);
   const ALWAYS_ON_PARENT_TOOLS = new Set(["ues_code"]);
   let normalActiveTools: string[] | null = null;
+  let parentRunToolCalls = 0;
+  let parentRunLastAssistant: any = null;
+  let parentProviderRecoveryAttempts = 0;
+  const PARENT_PROVIDER_RECOVERY_MAX = 1;
 
   const currentNonUesTools = () =>
     pi.getActiveTools().filter((name) => !UES_PARENT_TOOL_NAMES.has(String(name)));
@@ -3292,8 +3296,69 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("before_agent_start", async () => {
+    parentRunToolCalls = 0;
+    parentRunLastAssistant = null;
+    parentProviderRecoveryAttempts = 0;
     if (uesModeActive()) activateParentUesTools();
     else deactivateParentUesTools();
+  });
+
+  pi.on("message_end", async (event) => {
+    if ((event as any)?.message?.role === "assistant") {
+      parentRunLastAssistant = (event as any).message;
+    }
+  });
+
+  pi.on("agent_before_settle", async (event) => {
+    if (uesModeActive() || parentProviderRecoveryAttempts >= PARENT_PROVIDER_RECOVERY_MAX) {
+      return undefined;
+    }
+
+    const assistantText = extractAssistantText(parentRunLastAssistant);
+    const decision = classifyProviderFailure({
+      output: assistantText || "(no assistant output)",
+      errorMessage: parentRunLastAssistant?.errorMessage,
+      stopReason: parentRunLastAssistant?.stopReason,
+      toolCalls: parentRunToolCalls,
+      noAssistantMessage: !parentRunLastAssistant,
+    });
+    if (!decision.transient) return undefined;
+
+    parentProviderRecoveryAttempts += 1;
+    const afterTools = parentRunToolCalls > 0;
+    const recoveryMessage = afterTools
+      ? [
+          "UES parent provider recovery: the previous provider response was empty after completed tool calls.",
+          "Continue from the current conversation and existing tool results.",
+          "Do not restart the task and do not repeat tool calls that already completed unless fresh verification is strictly required.",
+          "Resume from the next unfinished step and finish the requested work/report.",
+        ].join(" ")
+      : [
+          "UES parent provider recovery: the previous provider response was empty before any tool side effect.",
+          "Retry the current request once using the existing conversation context and return a complete response.",
+        ].join(" ");
+
+    return {
+      entries: [
+        ...(event.entries || []),
+        {
+          type: "custom_message",
+          customType: "ues-parent-provider-recovery",
+          content: recoveryMessage,
+          display: false,
+          details: {
+            schemaVersion: 1,
+            attempt: parentProviderRecoveryAttempts,
+            maxAttempts: PARENT_PROVIDER_RECOVERY_MAX,
+            reason: decision.reason,
+            toolCalls: parentRunToolCalls,
+            safeReplay: decision.safeReplay,
+            safeSessionResume: decision.safeSessionResume,
+          },
+        },
+      ],
+      continue: true,
+    };
   });
 
   pi.on("agent_end", async () => {
@@ -3303,6 +3368,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    if (!uesModeActive()) parentRunToolCalls += 1;
     if (!uesModeActive()) {
       if (toolName.startsWith("ues_") && !ALWAYS_ON_PARENT_TOOLS.has(toolName)) {
         return {
@@ -5182,7 +5248,7 @@ export default function (pi: ExtensionAPI) {
         "Parent Code Intelligence Lite: on (always-on read-only ues_code; no controller/child)",
         "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
         "Permission deny-and-continue recovery: on",
-      "Provider empty-response recovery: on (fresh retry before tools; same-session resume after side effects)",
+        "Provider empty-response recovery: on (parent boundary retry + child RPC recovery; no blind replay after tools)",
         "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
         "Inherited dirty-work guard: on",
