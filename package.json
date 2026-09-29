@@ -29,7 +29,7 @@
   ],
   "scripts": {
     "syntax": "node scripts/syntax-check.mjs",
-    "test": "node --test",
+    "test": "node scripts/run-test-suite.mjs",
     "test:pi": "node --test test/pi-package.test.mjs",
     "docs:check": "node scripts/check-release-consistency.mjs",
     "release:check-tag": "node scripts/check-release-tag.mjs",
@@ -44,7 +44,8 @@
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node --test test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
     "release:verify": "npm run ci && npm run eval:v15",
-    "bench:lsp": "node scripts/benchmark-lsp-pool.mjs"
+    "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
+    "test:node": "node --test"
   },
   "keywords": [
     "pi-package",
