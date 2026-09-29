@@ -94,6 +94,72 @@ test("LSP V2 reuses one warm server and synchronizes edited documents", async ()
   }
 })
 
+test("LSP V2 deduplicates concurrent cold starts for the same pool key", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-dedupe-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "package.json"), JSON.stringify({ type: "module" }))
+    await writeFile(path.join(root, "demo.ts"), "export const concurrentValue = 1\n")
+    const p = provider(counterFile)
+    const target = await targetFor(root, "demo.ts")
+
+    const results = await Promise.all(
+      Array.from({ length: 8 }, () => withManagedLspSession(
+        target,
+        p,
+        { maxServers: 2, maxPerWorkspace: 1, timeoutMs: 2000, startupTimeoutMs: 3000 },
+        async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+      )),
+    )
+
+    assert.ok(results.every((result) => result.ok === true))
+    assert.equal(new Set(results.map((result) => result.meta.sessionId)).size, 1)
+    const starts = (await readFile(counterFile, "utf8")).trim().split(/\r?\n/).filter(Boolean)
+    assert.equal(starts.length, 1)
+
+    const status = lspPoolStatus()
+    assert.equal(status.active, 1)
+    assert.equal(status.metrics.coldStarts, 1)
+    assert.ok(status.metrics.startupJoins >= 1 || status.metrics.warmHits >= 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("LSP V2 counts STARTING reservations toward global and workspace capacity", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-capacity-v2-"))
+  const counterFile = path.join(root, "starts.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const capacityValue = 1\n")
+    const target = await targetFor(root, "demo.ts")
+    const providers = Array.from({ length: 4 }, (_, index) => ({
+      ...provider(counterFile),
+      id: "typescript-mock-" + index,
+    }))
+
+    const results = await Promise.all(
+      providers.map((p) => withManagedLspSession(
+        target,
+        p,
+        { maxServers: 2, maxPerWorkspace: 2, maxRestarts: 0, timeoutMs: 2000, startupTimeoutMs: 3000 },
+        async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+      )),
+    )
+
+    const status = lspPoolStatus({ maxServers: 2, maxPerWorkspace: 2 })
+    assert.ok(status.active <= 2)
+    assert.ok(status.metrics.coldStarts <= 2)
+    assert.equal(results.filter((result) => result.ok).length, 2)
+    assert.equal(results.filter((result) => result.reason === "pool-capacity-busy").length, 2)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test("LSP V2 isolates workspaces instead of sharing one global server", async () => {
   const left = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-left-"))
   const right = await mkdtemp(path.join(os.tmpdir(), "ues-lsp-right-"))
