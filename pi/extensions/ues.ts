@@ -3645,6 +3645,7 @@ export default function (pi: ExtensionAPI) {
           if (!params.file) throw new Error("ues_code diagnostics requires file");
           result = await diagnoseCode(ctx.cwd, params.file, {
             timeoutMs: 5000,
+            diagnosticsTimeoutMs: 10000,
             maxResults: 80,
             persistent: true,
           });
@@ -3769,6 +3770,8 @@ export default function (pi: ExtensionAPI) {
             childSpawned: false,
             bounded: true,
             originalChars: encoded.length,
+            originalPayloadChars: encoded.length,
+            originalCharsMeaning: "serialized-tool-payload",
             contextRef,
             preview: encoded.slice(0, previewChars),
           };
@@ -3784,6 +3787,8 @@ export default function (pi: ExtensionAPI) {
             childSpawned: false,
             bounded,
             originalChars: encoded.length,
+            originalPayloadChars: encoded.length,
+            originalCharsMeaning: "serialized-tool-payload",
             contextRef,
             provider: payload?.provider || null,
             persistent: payload?.persistent ?? null,
