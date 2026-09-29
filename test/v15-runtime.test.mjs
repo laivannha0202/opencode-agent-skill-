@@ -392,8 +392,9 @@ test("V15 managed service starts, proves readiness, captures evidence and stops"
 test("V15 service runtime state is excluded from source-facing scans", async () => {
   const fingerprint = await readFile(path.join(root, "lib", "workspace-fingerprint.mjs"), "utf8")
   const artifacts = await readFile(path.join(root, "lib", "runtime-artifacts.mjs"), "utf8")
-  assert.match(fingerprint, /UES_RUNTIME_DIRS/)
+  assert.match(fingerprint, /sourceGitPathspecs/)
   assert.match(fingerprint, /runtime-artifacts\.mjs/)
+  assert.match(fingerprint, /RUNTIME_PATHSPECS = sourceGitPathspecs\(\)/)
   assert.match(artifacts, /\.ues-services/)
 
   for (const file of [
