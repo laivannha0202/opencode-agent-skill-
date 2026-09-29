@@ -167,3 +167,12 @@ test("Parent code search reuses semantic runtime cache for an unchanged Git work
     await rm(root, { recursive: true, force: true })
   }
 })
+
+
+test("diagnostics surface semantic timeout reason without hiding transport success", async () => {
+  const { readFile } = await import("node:fs/promises")
+  const source = await readFile(new URL("../lib/code-intelligence/lsp-provider.mjs", import.meta.url), "utf8")
+  assert.match(source, /transportReason:/)
+  assert.match(source, /reason: complete \? result\?\.reason : diagnosticsReason/)
+  assert.match(source, /diagnosticsTimeoutMs/)
+})
