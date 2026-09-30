@@ -68,6 +68,7 @@ import {
   searchCodeIntelligence,
   shutdownLspPool,
 } from "../../lib/code-intelligence/index.mjs";
+import { reduceCodePayload } from "../../lib/code-intelligence/model-payload.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
 import {
@@ -160,6 +161,14 @@ const PARENT_CODE_VISIBLE_OUTPUT_LIMIT = configuredDuration(
   "UES_PARENT_CODE_VISIBLE_OUTPUT_LIMIT",
   16 * 1024,
   8 * 1024,
+  64 * 1024,
+);
+// Reduced payloads stay verifiable: the exact pre-reduction JSON is preserved in
+// reversible context once it is big enough to be worth a reference.
+const PARENT_CODE_RAW_EVIDENCE_MIN_CHARS = configuredDuration(
+  "UES_PARENT_CODE_RAW_EVIDENCE_MIN_CHARS",
+  4 * 1024,
+  1024,
   64 * 1024,
 );
 
@@ -3645,9 +3654,12 @@ export default function (pi: ExtensionAPI) {
           if (!params.file) throw new Error("ues_code diagnostics requires file");
           result = await diagnoseCode(ctx.cwd, params.file, {
             timeoutMs: 5000,
-            diagnosticsTimeoutMs: 10000,
             maxResults: 80,
             persistent: true,
+            // The diagnostics budget is derived by the runtime from file size,
+            // line count, provider, pooled cold/warm state and observed history.
+            // It is bounded on both ends and never model-selected.
+            diagnosticsBudgetPolicy: "parent-lite-adaptive",
           });
         } else if (["definition", "references", "symbols", "hover", "rename-preview", "incoming-calls", "outgoing-calls"].includes(params.action)) {
           if (!params.file) throw new Error(`ues_code ${params.action} requires file`);
@@ -3712,7 +3724,29 @@ export default function (pi: ExtensionAPI) {
           controllerStarted: false,
           childSpawned: false,
         };
-        const encoded = JSON.stringify(payload, null, 2);
+        // Compact model-facing payload; the exact pre-reduction JSON is preserved
+        // in reversible context so a verifier can still recover full evidence.
+        const rawEncoded = JSON.stringify(payload, null, 2);
+        const reduction = reduceCodePayload(params.action, payload, { file: params.file || payload?.file || null });
+        const reducedPayload: any = reduction.reduction.applied
+          ? { ...reduction.payload }
+          : { ...payload };
+        let rawContextRef: string | null = null;
+        if (reduction.reduction.applied && rawEncoded.length >= PARENT_CODE_RAW_EVIDENCE_MIN_CHARS) {
+          const preservedRaw = await compactContext(ctx.cwd, rawEncoded, {
+            kind: "ues-code-result-raw",
+            source: `ues_code:${params.action}:raw`,
+            summary: `Exact pre-reduction parent-lite payload for ${params.action}`,
+          }).catch(() => null);
+          rawContextRef = preservedRaw?.ref || null;
+        }
+        if (reduction.reduction.applied) {
+          reducedPayload.reduction = reduction.reduction;
+          if (rawContextRef) {
+            reducedPayload.rawEvidence = { chars: rawEncoded.length, ref: rawContextRef };
+          }
+        }
+        const encoded = JSON.stringify(reducedPayload, null, 2);
         const bounded = encoded.length > PARENT_CODE_VISIBLE_OUTPUT_LIMIT;
         let contextRef: string | null = null;
         let visible = encoded;
@@ -3772,6 +3806,8 @@ export default function (pi: ExtensionAPI) {
             originalChars: encoded.length,
             originalPayloadChars: encoded.length,
             originalCharsMeaning: "serialized-tool-payload",
+            reduction: reducedPayload?.reduction || null,
+            rawContextRef: reducedPayload?.rawEvidence?.ref || null,
             contextRef,
             preview: encoded.slice(0, previewChars),
           };
@@ -3790,9 +3826,12 @@ export default function (pi: ExtensionAPI) {
             originalPayloadChars: encoded.length,
             originalCharsMeaning: "serialized-tool-payload",
             contextRef,
-            provider: payload?.provider || null,
-            persistent: payload?.persistent ?? null,
-            pool: payload?.pool || payload?.lsp?.persistentPool || null,
+            reduction: reducedPayload?.reduction || null,
+            rawContextRef: reducedPayload?.rawEvidence?.ref || null,
+            rawPayloadChars: rawEncoded.length,
+            provider: reducedPayload?.provider || null,
+            persistent: reducedPayload?.persistent ?? null,
+            pool: reducedPayload?.pool || reducedPayload?.lsp?.persistentPool || null,
           },
         };
       } catch (error) {

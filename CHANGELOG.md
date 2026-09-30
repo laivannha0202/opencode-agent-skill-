@@ -6,6 +6,26 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.2.0] - 2026-09-30
+
+### Added
+
+- Adaptive diagnostics budget V2 for Parent Code Intelligence Lite: a deterministic, bounded budget derived from file size, line count, provider identity, pooled cold/warm state, measured server startup time and previously observed diagnostics durations. Model-visible telemetry exposes the chosen budget, its source, workload class, actual duration and whether it timed out.
+- Tiered diagnostics for the TypeScript/JavaScript family: the pooled language server stays the fast path, and a deterministic `typescript` compiler fallback — resolved from the provider's own installation, so there is no new dependency and no version skew — is launched after a short grace period and *raced* against the remaining server budget instead of running after it. A tier A timeout therefore costs the budget only, never `budget + fallback`, and the healthy fast path spawns no child process at all.
+- Honest diagnostics completeness: a result is only reported `complete: true` when a diagnostics source actually finished evaluating the requested scope. A workspace whose module graph or ambient type set does not resolve reports `complete: false` (`fallback-environment-incomplete`) together with the real diagnostics it did find, rather than presenting the absence of errors as a clean file.
+- A missed `publishDiagnostics` is accounted as a request-level outcome, not a session failure: it increments dedicated diagnostics counters and never inflates `failedOperations`, restarts, or evicts a healthy persistent session. `ues_code status` exposes those counters separately from pool health.
+- Model-facing payload reduction for `ues_code` (`symbols`, `search`, `diagnostics`, `definition`, `references`): positions are reported 1-based to match tool parameters, redundant pool/provider metadata is compacted, and the exact pre-reduction JSON is preserved in reversible context for verifiers.
+- `scripts/benchmark-code-intelligence.mjs` (`npm run bench:code`) producing a before/after receipt for cold/warm symbols, search, small/large diagnostics, repeated warm operations, pool status and model-facing payload sizes.
+
+### Changed
+
+- `git diff` reducer rows now keep bounded added/removed lines instead of file/hunk headers only, and a compound command hint unions every matching reducer family instead of silently using only the first.
+
+### Fixed
+
+- Language servers that echo document URIs in an equivalent but different form (percent-encoded drive colon, different drive-letter case) no longer cause every pooled diagnostics request to burn its full timeout as `diagnostics-timeout`.
+- AST/structural search capability detection now distinguishes "not installed" (`ast-provider-unavailable`) from "installed but unlaunchable" (`ast-provider-unresolvable`) and returns bounded, 1-based match evidence instead of verbose AST rows.
+
 ## [15.1.0] - 2026-09-28
 
 ### Added

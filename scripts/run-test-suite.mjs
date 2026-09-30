@@ -48,19 +48,37 @@ const concurrency = bounded(
   1,
   12,
 )
-const timeoutMs = bounded(
+// Global per-file hang bound. This stays tight on purpose: it is the default for
+// every test file, and lowering it costs hang-detection sensitivity across the
+// whole suite. A file that legitimately needs longer declares it below rather
+// than pushing the global bound up.
+const defaultTimeoutMs = bounded(
   parseFlag("--timeout-ms", process.env.UES_TEST_FILE_TIMEOUT_MS),
   45_000,
   5_000,
   10 * 60_000,
 )
+
+// Scoped, opt-in per-file bounds, keyed by repo-relative test path.
+//
+// An entry here is a deliberate exception, not a precedent: it must be justified
+// by a file that is legitimately slow (for example driving a real language
+// server over a large source file), and every other file keeps the tight global
+// bound. Keep this list as short as possible -- an entry is a hole in hang
+// detection, so remove it as soon as the file gets cheaper.
+const FILE_TIMEOUT_OVERRIDES = new Map([
+  // Drives a real typescript-language-server over a 242KB source file, so its
+  // floor is tens of seconds. Observed ~43-46s, so it genuinely straddles the
+  // 45s default under load. Next-slowest file in the suite runs in ~29s.
+  ["test/code-intelligence-v15-2-hardening.test.mjs", 90_000],
+])
 const files = selectedFiles((await walk(testRoot)).sort((a, b) => relative(a).localeCompare(relative(b))))
 
 if (!files.length) {
   console.error("No matching test files.")
   process.exitCode = 2
 } else {
-  console.log(`UES bounded test runner: ${files.length} files; concurrency=${concurrency}; perFileTimeoutMs=${timeoutMs}`)
+  console.log(`UES bounded test runner: ${files.length} files; concurrency=${concurrency}; perFileTimeoutMs=${defaultTimeoutMs}; scopedOverrides=${FILE_TIMEOUT_OVERRIDES.size}`)
 
   let cursor = 0
   let passed = 0
@@ -75,6 +93,9 @@ if (!files.length) {
       const label = relative(file)
       const ordinal = index + 1
       console.log(`[${ordinal}/${files.length}] RUN  ${label}`)
+
+      // Scoped bound for this file; the tight global default otherwise.
+      const timeoutMs = FILE_TIMEOUT_OVERRIDES.get(label) ?? defaultTimeoutMs
 
       const result = await runSupervisedProcess(
         process.execPath,

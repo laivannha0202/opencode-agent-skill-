@@ -19,7 +19,10 @@ const CONTRACTS = [
       "PARENT_CODE_VISIBLE_OUTPUT_LIMIT",
       "originalPayloadChars",
       'originalCharsMeaning: "serialized-tool-payload"',
-      "diagnosticsTimeoutMs: 10000",
+      "diagnosticsBudgetPolicy: \"parent-lite-adaptive\"",
+      "reduceCodePayload",
+      "PARENT_CODE_RAW_EVIDENCE_MIN_CHARS",
+      "ues-code-result-raw",
       "operationPool",
       "policySource: \"parent-lite\"",
       'reason: "ues-code-error"',
@@ -437,8 +440,37 @@ const CONTRACTS = [
     file: "lib/code-intelligence/index.mjs",
     minBytes: 4_000,
     startsWith: "import ",
-    required: ["runtimeCacheHit", "runtimeWorkspaceSnapshot", "buildSemanticIndexCached", "readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode", "runSupervisedProcess", "resolveWindowsCommand", "hardTimeoutMs: 20_000", "idleTimeoutMs: 10_000", "ast-provider-unavailable", "not-requested", "policySource"],
+    required: ["runtimeCacheHit", "runtimeWorkspaceSnapshot", "buildSemanticIndexCached", "readAnchoredCode", "applyAnchoredFileEdits", "searchCodeIntelligence", "diagnoseCode", "runSupervisedProcess", "resolveWindowsCommand", "hardTimeoutMs: 20_000", "idleTimeoutMs: 10_000", "ast-provider-unavailable", "not-requested", "policySource", "astProviderCommand", "compactStructuralRow", "AST_RESULT_CHAR_LIMIT", "ast-provider-unresolvable", "astProviderLaunchable"],
     forbidden: ["spawnSync"],
+  },
+  {
+    file: "lib/code-intelligence/diagnostics-budget.mjs",
+    minBytes: 3_000,
+    startsWith: "// Adaptive diagnostics budget",
+    required: ["resolveDiagnosticsBudget", "recordDiagnosticsOutcome", "diagnosticsBudgetBounds", "DIAGNOSTICS_WORKLOAD_BUCKETS", "workload-bucket", "resetDiagnosticsBudgetHistory"],
+  },
+  {
+    file: "lib/code-intelligence/ts-diagnostics.mjs",
+    minBytes: 3_000,
+    startsWith: "// Deterministic TypeScript/JavaScript diagnostics fallback",
+    required: ["computeTypeScriptDiagnostics", "runTypeScriptDiagnostics", "diagnosticsEvidenceFingerprint", "isEnvironmentDiagnostic", "resetTypeScriptFallbackCache", "fallback-environment-incomplete", "fallback-compiler-unavailable", "noEmit", "createCompilerHost", "createProgram", "provider-install", "FINGERPRINT_VERSION"],
+    // The fallback is evidence gathering. It must never be able to write, and it
+    // must never statically import typescript: the runtime ships no such
+    // dependency and a top-level import would abort the whole module.
+    forbidden: ['import tsModule from "typescript"', "writeFileSync", "outputFileNames", "emit("],
+  },
+  {
+    file: "lib/code-intelligence/ts-diagnostics-runner.mjs",
+    minBytes: 500,
+    startsWith: "// Out-of-process entry point",
+    required: ["computeTypeScriptDiagnostics", "fallback-bad-request", "fallback-crashed", "process.stdout.write"],
+    forbidden: ["writeFileSync", "rmSync", "unlinkSync"],
+  },
+  {
+    file: "lib/code-intelligence/model-payload.mjs",
+    minBytes: 3_000,
+    startsWith: "// Model-facing payload reduction",
+    required: ["reduceCodePayload", "CODE_PAYLOAD_REDUCERS", "positionBase", "1-based", "pool-summary", "provider-summary"],
   },
   {
     file: "lib/code-intelligence/lsp-provider.mjs",

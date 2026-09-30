@@ -25,6 +25,12 @@ function send(payload) {
 }
 
 function diagnostics(uri, version, text) {
+  // A silent server models a real failure mode (analysis never publishes) so
+  // callers can prove a notification timeout never tears down the session.
+  if (process.env.UES_MOCK_LSP_SILENT === "1") return
+  // A delayed server models the second real failure mode: analysis is slower
+  // than the initial budget but lands inside the continuation window.
+  const delayMs = Math.max(0, Number(process.env.UES_MOCK_LSP_DIAGNOSTICS_DELAY_MS || 5))
   setTimeout(() => {
     send({
       jsonrpc: "2.0",
@@ -43,7 +49,7 @@ function diagnostics(uri, version, text) {
         }],
       },
     })
-  }, 5)
+  }, delayMs)
 }
 
 function documentItem(uri) {
