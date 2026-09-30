@@ -6,6 +6,22 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.2.1] - 2026-09-30
+
+### Fixed
+
+- Tier-B diagnostics fallback could not win the race after a non-zero grace period. The race was constructed inside the retry loop while the fallback promise was still `null` (the grace timer had not fired yet), so tier B was raced against a never-settling promise; when the timer later assigned the real promise, the already-constructed race was not rebuilt, and the continuation branch then dropped it entirely. With the default grace a deterministic fallback that finished **complete** in ~800ms still could not win, so the call burned the whole initial plus continuation budget. Tier B now races one long-lived promise shared by every window, so a result becomes winnable as soon as it exists. Measured on `npm run bench:code`: `diagnosticsSmall` 7528ms -> 2179ms, `diagnosticsSmallRepeat` 10011ms -> 2469ms.
+- A **complete** tier-B result may now return early without waiting for tier A to time out, while an **incomplete** tier-B result still never stands in for a clean file: its evidence is held, the language server keeps its full bounded window, and the result is reported honestly as `complete: false`. The healthy LSP fast path is unchanged — a publish before the grace still spawns no child process, an LSP answer still wins over a running fallback, and a discarded fallback is still aborted and reaped without restarting or evicting the session.
+- Tier A's window is now an absolute deadline measured from the start of the request. Resuming tier A after an incomplete tier-B result previously re-armed a whole fresh initial window, so a large-file incomplete case could cost `grace + fallback + initial + continuation` instead of the intended bounded budget. `diagnosticsLarge` is back within its intended window while still reporting `complete: false` with the real diagnostics it found.
+- Adaptive diagnostics history is keyed on a stable workload identity — workspace + provider + `configFingerprint` + relative file + cold/warm class — instead of the language-server `sessionId`, which is a fresh UUID on every start. Learning previously survived nothing: every idle-TTL eviction, bounded restart or config re-acquisition discarded it. The identity still separates distinct workspaces and cold from warm timings, and invalidates on a relevant configuration change.
+- A single diagnostics request now contributes exactly one terminal history outcome. The tier A / tier B race has several legitimate exits and one request can pass through more than one, which previously recorded both a sample and a timeout and inflated the next request's budget twice. Only the actual observed duration is admitted as a timing sample; an intermediate incomplete tier-B settlement is no longer recorded as the request's outcome, and a configured budget is never recorded as if it were an observation.
+- `diagnosticsFallbackGraceMs` now reports the **effective** grace taken from the operation result rather than the raw option. The runtime clamps the configured grace to half the resolved initial window, so telemetry previously described an intent the runtime never used, and the default path reported `null` while a real 1500ms grace was in force. Metrics and existing result fields are otherwise unchanged.
+
+### Added
+
+- Regression coverage for the diagnostics race under the **default** grace. Earlier race tests all passed `diagnosticsFallbackGraceMs: 0`, the one configuration in which the fallback participated, which is why the default-path defect was not caught.
+- Bounded-memory coverage for the diagnostics request ledger that enforces exactly-once terminal accounting: it is a FIFO map capped at 256 entries with oldest-first eviction, verified deterministic at the exact boundary, still bounded after thousands of terminal requests, and verified to be insertion-bounded rather than time-based.
+
 ## [15.2.0] - 2026-09-30
 
 ### Added

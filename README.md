@@ -4,13 +4,15 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.2.0</code>  
+**Phiên bản package hiện tại:** <code>15.2.1</code>  
 **Nhánh phát triển hiện tại:** V15.19 Finalization Hardening  
 **Stable npm hiện tại:** <code>15.1.2</code>  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
 
 > UES không biến một model nhỏ thành model lớn theo nghĩa năng lực nền tảng. UES cố gắng giảm phần suy luận hạ tầng mà model phải tự gánh bằng deterministic tooling, bounded context, specialist roles, durable state và evidence-gated verification.
+
+> **15.2.1:** sửa race diagnostics tier B: fallback TypeScript deterministic trước đây được launch sau grace khác 0 nhưng không thực sự tham gia `Promise.race` (race được dựng lúc `fallbackPromise` còn `null`), nên một fallback **complete** sau ~800ms vẫn không thể thắng và call chạy hết budget. Nay một deferred dùng chung cho mọi cửa sổ nên fallback complete thắng sớm — `diagnosticsSmall` 7528ms → 2179ms (−71%) — trong khi fallback **incomplete** vẫn không bao giờ giả vờ clean, và deadline tier A là **tuyệt đối** nên large-file incomplete không thể vô tình kéo dài tổng budget. Lịch sử diagnostics giờ dùng identity ổn định (workspace + provider + configFingerprint + file + cold/warm) nên không mất khi session LSP bị idle-TTL evict, accounting terminal là exactly-once, và `diagnosticsFallbackGraceMs` báo **giá trị effective** sau clamp thay vì raw option.
 
 > **15.2.0:** tiered diagnostics cho Parent Code Intelligence Lite: persistent language server giữ fast path, còn TypeScript/JavaScript có fallback compiler deterministic (resolve từ chính provider install) được launch sau grace ngắn và **race** với budget còn lại thay vì chạy sau. Timeout tier A chỉ tốn budget, không thành `budget + fallback`; khi module graph / ambient type không resolve thì báo `complete: false` kèm diagnostics thật thay vì coi là clean; một `publishDiagnostics` bị miss là failure ở request-level nên không restart/evict persistent session đang healthy. Kèm model-facing payload reduction (position 1-based, raw evidence giữ trong reversible context), adaptive bounded diagnostics budget, AST capability detection trung thực, và `npm run bench:code` cho receipt before/after.
 
@@ -1433,7 +1435,7 @@ npm pack
 Package version hiện tại trên nhánh <code>main</code> là:
 
 ~~~text
-15.2.0
+15.2.1
 ~~~
 
 Stable npm public hiện là <code>15.1.2</code>. V15.3 DEEP Speed giảm exploration trùng lặp ở long-horizon bằng diagnosis deduplication và bounded specialist exploration, nhưng giữ nguyên plan/verifier/integration gates. V15.4 ACP-safe child runtime ngăn UES spawn lại ACP/Zed entrypoint; child specialist luôn được chạy bằng Pi CLI thật. V15.5 Per-Leaf Turbo cho phép leaf task nhỏ trong DEEP plan tự xuống FAST, giữ failure delta task-local, và tái sử dụng context theo root namespace + workspace fingerprint để giảm retry/rebuild latency. V15.6 Fast Planning đặt soft-steer/hard-idle budget riêng cho architect/plan-checker, recovery từ warm context thay vì scan lại, và lease/cleanup sandbox orphan an toàn sau crash/Stop. V15.7 Lightweight Sandbox Cleanup thu hồi worktree theo trace ngay khi /ues-run kết thúc, dọn metadata mồ côi, giảm legacy grace xuống 30 phút và cung cấp /ues-clean để dọn stale artifacts an toàn mà không đụng sandbox đang active. V15.8 Plan Gate Recovery bổ sung soft-steer + bounded recovery cho plan-checker và quét cả detached physical sandbox folders mà Git worktree registry đã quên. V15.9 Runtime Artifact Isolation loại .ues-traces/.ues-cache/.ues-services/.ues-work và runtime state khác khỏi task delta, write-scope conflict và sandbox integration, nhưng vẫn giữ safety gate cho source/config thật như apps/mobile/package.json. V15.10 Adaptive Stability Runtime thay hard-timeout tuyệt đối bằng activity-aware bounded deadlines, giữ absolute cap chống treo, salvage plan JSON đã validate từ partial output, phát graph trước prose, và role-bound context cho read-only planner trong task high-risk mà không giảm evidence budget của executor/verifier. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
@@ -1441,7 +1443,7 @@ Stable npm public hiện là <code>15.1.2</code>. V15.3 DEEP Speed giảm explor
 Test file packed với Pi:
 
 ~~~cmd
-pi install .\opencode-agent-skill-15.2.0.tgz
+pi install .\opencode-agent-skill-15.2.1.tgz
 pi list
 ~~~
 
