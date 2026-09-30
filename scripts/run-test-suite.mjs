@@ -71,6 +71,15 @@ const FILE_TIMEOUT_OVERRIDES = new Map([
   // floor is tens of seconds. Observed ~43-46s, so it genuinely straddles the
   // 45s default under load. Next-slowest file in the suite runs in ~29s.
   ["test/code-intelligence-v15-2-hardening.test.mjs", 90_000],
+  // Spawns the real install/uninstall scripts ~21 times, once per state scenario,
+  // each a full node process that copies the managed resource tree. Measured
+  // 36s unloaded on this machine, so it sits on the same 45s boundary as the
+  // entry above and crosses it whenever the suite runs at concurrency > 1. It
+  // depends on no module under change: it imports only node builtins and spawns
+  // scripts/install.mjs and scripts/uninstall.mjs, neither of which is touched
+  // by the retrieval work. This is the declared per-file bound the runner
+  // documents, not a relaxation of the global one.
+  ["test/installer.test.mjs", 90_000],
 ])
 const files = selectedFiles((await walk(testRoot)).sort((a, b) => relative(a).localeCompare(relative(b))))
 

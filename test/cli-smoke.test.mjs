@@ -119,7 +119,7 @@ test("cli index build writes and index status reads the semantic cache", async (
     assert.equal(statusResult.status, 0, statusResult.stderr)
     const status = JSON.parse(statusResult.stdout)
     assert.equal(status.exists, true)
-    assert.equal(status.cacheFile, ".ues-cache/semantic-index-v1.json")
+    assert.equal(status.cacheFile, ".ues-cache/semantic-index-v3.json")
     assert.equal(status.files, 2)
   } finally {
     await rm(dir, { recursive: true, force: true })

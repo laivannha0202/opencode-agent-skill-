@@ -4,13 +4,15 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.2.1</code>  
+**Phiên bản package hiện tại:** <code>15.3.0</code>  
 **Nhánh phát triển hiện tại:** V15.19 Finalization Hardening  
 **Stable npm hiện tại:** <code>15.1.2</code>  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
 
 > UES không biến một model nhỏ thành model lớn theo nghĩa năng lực nền tảng. UES cố gắng giảm phần suy luận hạ tầng mà model phải tự gánh bằng deterministic tooling, bounded context, specialist roles, durable state và evidence-gated verification.
+
+> **15.3.0:** retrieval quality được nâng theo hướng có evidence thật thay vì heuristic. **Incremental Write Intelligence** báo diagnostics ngay sau mỗi lần ghi file với trạng thái trung thực `complete` / `complete: false` / `pending` — không bao giờ coi "chưa resolve được" là clean; kết quả cũ bị **stale** thì loại, chuỗi ghi liên tiếp được **coalesce** thành một lần check, diagnostics bị cắt ngắn vẫn giữ được **reversible** qua Evidence Store, và hợp đồng coverage cho tool ghi nhiều file công khai đúng bề mặt write nó thực sự hỗ trợ. **Content-Addressed Semantic Index V3** lưu symbol dạng content-addressed nên worktree thứ hai của cùng một commit tái dùng được artifact thay vì parse lại, kèm **GC toàn cục có bound** với thứ tự victim xác định. **Graph-Ranked Repo Map V3** chọn context bằng structural + graph thay vì chỉ lexical overlap: resolve module/package/path theo cấu trúc, **tách definition khỏi reference**, khử nhập nhằng query với module thực sự khai báo symbol, và mỗi file được chọn đều có score contribution deterministic, giải thích được. Thêm **syntax gate cho Pi extension TypeScript** và `npm run accept:fresh-pi` chạy extension trong **Pi child process sạch** (child spawn sanitize cấu hình npm `allow-scripts` ngay tại ranh giới spawn) để assert post-write, repo-map, coalescing, cross-worktree reuse và session boundary trên host thật. Về retrieval evidence: **Holdout D** là holdout độc lập cuối cùng, tạo **sau** freeze V3b, hash + lock trước mọi lần chấm điểm, và chạy **đúng một lần** — 205 query, 5 family, đủ 10 class, không trùng answer path với DEV / holdout A / holdout B: recall@1 **0.700407**, recall@3 **0.916667**, recall@5 **0.970325**, MRR **0.897085**, hit@1 **0.834146**. Các số này đã được **tính lại độc lập offline** từ artifact đã lưu mà không chạy lại ranking, và khớp chính xác. Lịch sử đánh giá, nói đúng: **Holdout A** là diagnostic lịch sử; **Holdout B** đã từng được chạy và chấm điểm một lần và **thất bại** (116 query, verdict `15.3 BLOCKED`) nên không còn hợp lệ làm release evidence, và **không được chạy lại** trong chu kỳ V3b cuối cùng; draft **Holdout C** bị nhiễm ngay khi dựng fixture, **chưa từng được chấm**, không bao giờ là release evidence.
 
 > **15.2.1:** sửa race diagnostics tier B: fallback TypeScript deterministic trước đây được launch sau grace khác 0 nhưng không thực sự tham gia `Promise.race` (race được dựng lúc `fallbackPromise` còn `null`), nên một fallback **complete** sau ~800ms vẫn không thể thắng và call chạy hết budget. Nay một deferred dùng chung cho mọi cửa sổ nên fallback complete thắng sớm — `diagnosticsSmall` 7528ms → 2179ms (−71%) — trong khi fallback **incomplete** vẫn không bao giờ giả vờ clean, và deadline tier A là **tuyệt đối** nên large-file incomplete không thể vô tình kéo dài tổng budget. Lịch sử diagnostics giờ dùng identity ổn định (workspace + provider + configFingerprint + file + cold/warm) nên không mất khi session LSP bị idle-TTL evict, accounting terminal là exactly-once, và `diagnosticsFallbackGraceMs` báo **giá trị effective** sau clamp thay vì raw option.
 
@@ -1435,7 +1437,7 @@ npm pack
 Package version hiện tại trên nhánh <code>main</code> là:
 
 ~~~text
-15.2.1
+15.3.0
 ~~~
 
 Stable npm public hiện là <code>15.1.2</code>. V15.3 DEEP Speed giảm exploration trùng lặp ở long-horizon bằng diagnosis deduplication và bounded specialist exploration, nhưng giữ nguyên plan/verifier/integration gates. V15.4 ACP-safe child runtime ngăn UES spawn lại ACP/Zed entrypoint; child specialist luôn được chạy bằng Pi CLI thật. V15.5 Per-Leaf Turbo cho phép leaf task nhỏ trong DEEP plan tự xuống FAST, giữ failure delta task-local, và tái sử dụng context theo root namespace + workspace fingerprint để giảm retry/rebuild latency. V15.6 Fast Planning đặt soft-steer/hard-idle budget riêng cho architect/plan-checker, recovery từ warm context thay vì scan lại, và lease/cleanup sandbox orphan an toàn sau crash/Stop. V15.7 Lightweight Sandbox Cleanup thu hồi worktree theo trace ngay khi /ues-run kết thúc, dọn metadata mồ côi, giảm legacy grace xuống 30 phút và cung cấp /ues-clean để dọn stale artifacts an toàn mà không đụng sandbox đang active. V15.8 Plan Gate Recovery bổ sung soft-steer + bounded recovery cho plan-checker và quét cả detached physical sandbox folders mà Git worktree registry đã quên. V15.9 Runtime Artifact Isolation loại .ues-traces/.ues-cache/.ues-services/.ues-work và runtime state khác khỏi task delta, write-scope conflict và sandbox integration, nhưng vẫn giữ safety gate cho source/config thật như apps/mobile/package.json. V15.10 Adaptive Stability Runtime thay hard-timeout tuyệt đối bằng activity-aware bounded deadlines, giữ absolute cap chống treo, salvage plan JSON đã validate từ partial output, phát graph trước prose, và role-bound context cho read-only planner trong task high-risk mà không giảm evidence budget của executor/verifier. V15.1 bắt đầu bằng deterministic <code>/ues-run</code> admission và Managed Background Services để model yếu không thể bỏ qua controller và không bị treo bởi dev server foreground.
@@ -1443,7 +1445,7 @@ Stable npm public hiện là <code>15.1.2</code>. V15.3 DEEP Speed giảm explor
 Test file packed với Pi:
 
 ~~~cmd
-pi install .\opencode-agent-skill-15.2.1.tgz
+pi install .\opencode-agent-skill-15.3.0.tgz
 pi list
 ~~~
 

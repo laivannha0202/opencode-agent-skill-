@@ -6,6 +6,42 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.3.0] - 2026-09-30
+
+### Added
+
+- **Incremental Write Intelligence.** After a write tool edits a file, UES now reports diagnostics for that file without the caller asking. A result is only reported `complete: true` when a diagnostics source actually finished the requested scope; an unresolved module graph or ambient type set reports `complete: false` with the real diagnostics it did find rather than presenting the absence of errors as a clean file. The immediate answer is an honest `pending` state, not a guess.
+- Post-write feedback **rejects stale results**: a result whose file fingerprint no longer matches the current file is discarded rather than reported against newer content, and **coalesces** bursts so a rapid sequence of writes settles into one check instead of one per keystroke-batch.
+- Truncated diagnostics are preserved **reversibly** through the Evidence Store, so a bounded payload still carries the exact raw evidence needed to re-derive what was dropped.
+- A **multi-file mutation coverage contract**: write tools that can touch several files at once report which of them the post-write pass actually observed, and `ues status` advertises the supported write surface (`apply_patch`, `edit`, `str_replace`, `str_replace_editor`, `ues_code_edit`, `write`, `write_file`) instead of leaving the model to guess.
+- **Content-Addressed Semantic Index V3.** Symbol data is stored as a content-addressed artifact, so a second worktree of the same commit reuses the artifact instead of re-parsing, and a same-size/different-content edit is correctly treated as a miss.
+- **Bounded global content-artifact GC** removes orphaned artifacts with a deterministic victim order and a proven per-run cost bound, verified at the exact boundary and under a volume stress harness.
+- **Graph-Ranked Repo Map V3** (`lib/repo-map.mjs`): repo context is now selected by a graph-ranked structural pass rather than lexical overlap alone. It resolves modules, packages and paths structurally; separates **definitions from references**; disambiguates a query against the module that declares the symbol; and reports deterministic, explainable score contributions for every selected file.
+- A **TypeScript syntax gate for the Pi extensions** (`scripts/check-extension-types.mjs`, wired into `npm run syntax`), so the two `.ts` extension sources are type/syntax checked instead of only being read as text.
+- **`npm run accept:fresh-pi`**: an end-to-end acceptance gate that loads the extension into a *fresh* Pi child process and asserts the real post-write, repo-map, coalescing, cross-worktree-reuse and session-boundary behaviour. The child spawn sanitizes npm `allow-scripts` configuration at the spawn boundary so the host environment cannot suppress the install step.
+
+### Changed
+
+- `npm run ci` now includes `npm run accept:fresh-pi`.
+- The bounded test runner declares a scoped 90s per-file allowance for `test/installer.test.mjs`. The global per-file bound stays at 45s for every other file. This is a runner allowance only: the installer test file, `scripts/install.mjs` and `scripts/uninstall.mjs` are unchanged in this release, and the file's entire import closure is byte-identical to 15.2.1. It simply straddles the 45s boundary under real suite load (measured 41.5s in a 127-file run), so the allowance prevents a load-dependent flake rather than masking a regression.
+- The npm package no longer ships the retrieval holdout corpora. The shared retrieval scoring harness (`evals/retrieval/fixture.mjs`, `queries.json`, `score.mjs`) and the DEV tuning corpus still ship; `holdout-*` and the three holdout runners plus the holdout-dependent trace tool are excluded so an independent gate cannot be published with the package.
+
+### Verification
+
+Retrieval generalization was measured on a **final independent frozen holdout** created after freeze receipt V3b, hashed and locked before any scored ranking run, and executed **exactly once**: 205 queries, 5 families, all 10 classes, zero answer-path overlap with DEV / holdout A / holdout B.
+
+| metric | value |
+| --- | --- |
+| recall@1 | 0.700407 |
+| recall@3 | 0.916667 |
+| recall@5 | 0.970325 |
+| MRR | 0.897085 |
+| hit@1 (primary) | 0.834146 |
+
+Those figures were independently recomputed offline from the stored scored artifact without re-running any ranking, and the recomputation reproduces the published query count, class counts, MRR, hit@1, per-class MRR and every loss record exactly.
+
+Evaluation history, stated precisely: **Holdout A** is a historical diagnostic. **Holdout B** was previously executed and scored once and failed (116 queries, verdict `15.3 BLOCKED`); it is contaminated and no longer valid as final release evidence, and it was **not rerun** during the final V3b validation cycle and was **not used** as release evidence. A draft **Holdout C** was contaminated during fixture construction, was never scored, and is never release evidence. **Holdout D** is the final independent holdout described above.
+
 ## [15.2.1] - 2026-09-30
 
 ### Fixed

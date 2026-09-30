@@ -1,0 +1,273 @@
+{
+  "schemaVersion": 1,
+  "kind": "ues-retrieval-holdout-d-queries",
+  "purpose": "SECOND INDEPENDENT GATE for 15.3. Created only after freeze receipt V3b, validated, hashed and locked before any scored ranking run, and executed exactly once. Holdout A and holdout B were scored and are DIAGNOSTIC ONLY; holdout B is CONTAMINATED and is never release evidence; a draft holdout C was contaminated during fixture construction, never scored, and is preserved under .ues-evals/v15.3/contaminated/. No answer path below is shared with the DEV corpus, holdout A or holdout B.",
+  "classes": [
+    "exact-symbol",
+    "ambiguous-symbol",
+    "same-name-symbols-in-different-modules",
+    "cross-module-dependency",
+    "reverse-dependency",
+    "mentions-without-declaration",
+    "test-lookup",
+    "changed-file",
+    "monorepo-locality",
+    "generic-hotspot-distractor"
+  ],
+  "queries": [
+    { "family": "d1-lantern", "id": "hd1-exact-span", "class": "exact-symbol", "query": "lanternSpan", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-reach", "class": "exact-symbol", "query": "wickReach", "primary": "component/wick/Registry.ts", "expect": ["component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-dial", "class": "exact-symbol", "query": "renderDial", "primary": "component/console/Dial.ts", "expect": ["component/console/Dial.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-boot", "class": "exact-symbol", "query": "bootDial", "primary": "component/console/Boot.ts", "expect": ["component/console/Boot.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-gauge", "class": "exact-symbol", "query": "readGauge", "primary": "component/shared/Gauge.ts", "expect": ["component/shared/Gauge.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-admit", "class": "exact-symbol", "query": "admitEntries", "primary": "component/lantern/Entries.ts", "expect": ["component/lantern/Entries.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-dismiss", "class": "exact-symbol", "query": "dismissEntries", "primary": "component/wick/Entries.ts", "expect": ["component/wick/Entries.ts"] },
+    { "family": "d1-lantern", "id": "hd1-exact-report", "class": "exact-symbol", "query": "buildDialReport", "primary": "component/console/Report.ts", "expect": ["component/console/Report.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-amb-note", "class": "ambiguous-symbol", "query": "noteEntry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-amb-span", "class": "ambiguous-symbol", "query": "registry that also reports a span", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-amb-reach", "class": "ambiguous-symbol", "query": "registry that also reports a reach", "primary": "component/wick/Registry.ts", "expect": ["component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-amb-admits", "class": "ambiguous-symbol", "query": "registry that admits a name", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-amb-registry", "class": "ambiguous-symbol", "query": "LanternRegistry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-same-lantern", "class": "same-name-symbols-in-different-modules", "query": "lantern LanternRegistry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-same-wick", "class": "same-name-symbols-in-different-modules", "query": "wick LanternRegistry", "primary": "component/wick/Registry.ts", "expect": ["component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-same-prefix", "class": "same-name-symbols-in-different-modules", "query": "component/wick LanternRegistry", "primary": "component/wick/Registry.ts", "expect": ["component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-same-parent", "class": "same-name-symbols-in-different-modules", "query": "component LanternRegistry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-same-note-lantern", "class": "same-name-symbols-in-different-modules", "query": "lantern noteEntry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-same-explicit-path", "class": "same-name-symbols-in-different-modules", "query": "component/wick/Registry.ts", "primary": "component/wick/Registry.ts", "expect": ["component/wick/Registry.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-cross-console", "class": "cross-module-dependency", "query": "which console file uses both the lantern and the wick registry", "primary": "component/console/Dial.ts", "expect": ["component/console/Dial.ts", "component/console/Boot.ts", "component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-cross-admit", "class": "cross-module-dependency", "query": "callers of admitEntries", "primary": "component/lantern/Entries.ts", "expect": ["component/lantern/Entries.ts", "component/console/Boot.ts"] },
+    { "family": "d1-lantern", "id": "hd1-cross-lantern-index", "class": "cross-module-dependency", "query": "component/lantern re-exports", "primary": "component/lantern/index.ts", "expect": ["component/lantern/index.ts", "component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-cross-boot-gauge", "class": "cross-module-dependency", "query": "bootDial and the shared gauge", "primary": "component/console/Boot.ts", "expect": ["component/console/Boot.ts", "component/shared/Gauge.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-rev-admit", "class": "reverse-dependency", "query": "who imports admitEntries", "primary": "component/lantern/Entries.ts", "expect": ["component/lantern/Entries.ts", "component/console/Boot.ts"] },
+    { "family": "d1-lantern", "id": "hd1-rev-registry", "class": "reverse-dependency", "query": "dependents of the lantern registry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/lantern/Entries.ts", "component/lantern/index.ts", "component/console/Dial.ts"] },
+    { "family": "d1-lantern", "id": "hd1-rev-gauge", "class": "reverse-dependency", "query": "callers of readGauge", "primary": "component/shared/Gauge.ts", "expect": ["component/shared/Gauge.ts", "component/console/Boot.ts"] },
+    { "family": "d1-lantern", "id": "hd1-rev-dismiss", "class": "reverse-dependency", "query": "who calls dismissEntries", "primary": "component/wick/Entries.ts", "expect": ["component/wick/Entries.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-ment-report", "class": "mentions-without-declaration", "query": "LanternRegistry used to build a dial report", "primary": "component/console/Report.ts", "expect": ["component/console/Report.ts"] },
+    { "family": "d1-lantern", "id": "hd1-ment-dial", "class": "mentions-without-declaration", "query": "LanternRegistry used to render the console dial", "primary": "component/console/Dial.ts", "expect": ["component/console/Dial.ts"] },
+    { "family": "d1-lantern", "id": "hd1-ment-defined", "class": "mentions-without-declaration", "query": "where is noteEntry defined", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-test-lantern", "class": "test-lookup", "query": "test that admit notes an entry in the lantern component", "primary": "component/lantern/test/Registry.spec.ts", "expect": ["component/lantern/test/Registry.spec.ts", "component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-test-prefix", "class": "test-lookup", "query": "spec for component/lantern registry", "primary": "component/lantern/test/Registry.spec.ts", "expect": ["component/lantern/test/Registry.spec.ts"] },
+    { "family": "d1-lantern", "id": "hd1-test-explicit-path", "class": "test-lookup", "query": "component/lantern/test/Registry.spec.ts", "primary": "component/lantern/test/Registry.spec.ts", "expect": ["component/lantern/test/Registry.spec.ts"] },
+    { "family": "d1-lantern", "id": "hd1-test-wick", "class": "test-lookup", "query": "test for component/wick registry", "primary": "component/wick/test/Registry.spec.ts", "expect": ["component/wick/test/Registry.spec.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-changed-registry", "class": "changed-file", "changed": ["component/lantern/Registry.ts"], "query": "admitting a name returns the wrong count", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-changed-dial", "class": "changed-file", "changed": ["component/console/Dial.ts"], "query": "the console dial shows the wrong total", "primary": "component/console/Dial.ts", "expect": ["component/console/Dial.ts", "component/console/Boot.ts"] },
+    { "family": "d1-lantern", "id": "hd1-changed-gauge", "class": "changed-file", "changed": ["component/shared/Gauge.ts"], "query": "the shared gauge counts a read twice", "primary": "component/shared/Gauge.ts", "expect": ["component/shared/Gauge.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-local-lantern", "class": "monorepo-locality", "query": "component/lantern module", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/lantern/Entries.ts", "component/lantern/index.ts"] },
+    { "family": "d1-lantern", "id": "hd1-local-wick", "class": "monorepo-locality", "query": "component/wick module", "primary": "component/wick/Registry.ts", "expect": ["component/wick/Registry.ts", "component/wick/Entries.ts", "component/wick/index.ts"] },
+    { "family": "d1-lantern", "id": "hd1-local-shared", "class": "monorepo-locality", "query": "component/shared module", "primary": "component/shared/Gauge.ts", "expect": ["component/shared/Gauge.ts"] },
+    { "family": "d1-lantern", "id": "hd1-local-console", "class": "monorepo-locality", "query": "component/console dial", "primary": "component/console/Dial.ts", "expect": ["component/console/Dial.ts", "component/console/Boot.ts", "component/console/Report.ts"] },
+
+    { "family": "d1-lantern", "id": "hd1-hot-span", "class": "generic-hotspot-distractor", "query": "lanternSpan", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts"] },
+    { "family": "d1-lantern", "id": "hd1-hot-admit", "class": "generic-hotspot-distractor", "query": "admitEntries", "primary": "component/lantern/Entries.ts", "expect": ["component/lantern/Entries.ts"] },
+    { "family": "d1-lantern", "id": "hd1-hot-registry", "class": "generic-hotspot-distractor", "query": "LanternRegistry", "primary": "component/lantern/Registry.ts", "expect": ["component/lantern/Registry.ts", "component/wick/Registry.ts"] },
+
+    { "family": "d2-marlin", "id": "hd2-exact-depth", "class": "exact-symbol", "query": "cell_depth", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-exact-frond", "class": "exact-symbol", "query": "frond_weight", "primary": "service/kelp/manifest.py", "expect": ["service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-exact-scan", "class": "exact-symbol", "query": "scan_plankton_cells", "primary": "service/plankton/scan.py", "expect": ["service/plankton/scan.py"] },
+    { "family": "d2-marlin", "id": "hd2-exact-sweep", "class": "exact-symbol", "query": "sweep_kelp_cells", "primary": "service/kelp/sweep.py", "expect": ["service/kelp/sweep.py"] },
+    { "family": "d2-marlin", "id": "hd2-exact-runner", "class": "exact-symbol", "query": "run_reef_cells", "primary": "service/reef/runner.py", "expect": ["service/reef/runner.py"] },
+    { "family": "d2-marlin", "id": "hd2-exact-report", "class": "exact-symbol", "query": "build_plankton_manifest_report", "primary": "service/plankton/report.py", "expect": ["service/plankton/report.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-amb-track", "class": "ambiguous-symbol", "query": "track_cell", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-amb-manifest", "class": "ambiguous-symbol", "query": "PlanktonManifest", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-amb-depth", "class": "ambiguous-symbol", "query": "manifest that also measures a depth", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-amb-weight", "class": "ambiguous-symbol", "query": "manifest that also weighs a frond", "primary": "service/kelp/manifest.py", "expect": ["service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-amb-track-fn", "class": "ambiguous-symbol", "query": "a method that tracks a cell", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/kelp/manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-same-plankton", "class": "same-name-symbols-in-different-modules", "query": "plankton PlanktonManifest", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-same-kelp", "class": "same-name-symbols-in-different-modules", "query": "kelp PlanktonManifest", "primary": "service/kelp/manifest.py", "expect": ["service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-same-prefix", "class": "same-name-symbols-in-different-modules", "query": "service/kelp PlanktonManifest", "primary": "service/kelp/manifest.py", "expect": ["service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-same-parent", "class": "same-name-symbols-in-different-modules", "query": "service PlanktonManifest", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-same-explicit-path", "class": "same-name-symbols-in-different-modules", "query": "service/kelp/manifest.py", "primary": "service/kelp/manifest.py", "expect": ["service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-same-barrel", "class": "same-name-symbols-in-different-modules", "query": "kelp package barrel re-exports PlanktonManifest", "primary": "service/kelp/__init__.py", "expect": ["service/kelp/__init__.py", "service/kelp/manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-cross-scan", "class": "cross-module-dependency", "query": "how does the plankton scan reach track_cell", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/plankton/scan.py"] },
+    { "family": "d2-marlin", "id": "hd2-cross-reef", "class": "cross-module-dependency", "query": "reef runner reaching into both plankton and kelp", "primary": "service/reef/runner.py", "expect": ["service/reef/runner.py", "service/plankton/manifest.py", "service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-cross-sweep", "class": "cross-module-dependency", "query": "callers of sweep_kelp_cells", "primary": "service/kelp/sweep.py", "expect": ["service/kelp/sweep.py", "service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-cross-barrel-scan", "class": "cross-module-dependency", "query": "the plankton package barrel and its scan module", "primary": "service/plankton/__init__.py", "expect": ["service/plankton/__init__.py", "service/plankton/scan.py", "service/plankton/manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-rev-track", "class": "reverse-dependency", "query": "who imports track_cell", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/plankton/__init__.py", "service/plankton/scan.py", "service/reef/runner.py"] },
+    { "family": "d2-marlin", "id": "hd2-rev-manifest", "class": "reverse-dependency", "query": "dependents of the plankton manifest", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/plankton/__init__.py", "service/plankton/scan.py", "service/reef/runner.py"] },
+    { "family": "d2-marlin", "id": "hd2-rev-scan", "class": "reverse-dependency", "query": "callers of scan_plankton_cells", "primary": "service/plankton/scan.py", "expect": ["service/plankton/scan.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-ment-report", "class": "mentions-without-declaration", "query": "PlanktonManifest used to build a plankton report", "primary": "service/plankton/report.py", "expect": ["service/plankton/report.py"] },
+    { "family": "d2-marlin", "id": "hd2-ment-runner", "class": "mentions-without-declaration", "query": "PlanktonManifest used to run the reef", "primary": "service/reef/runner.py", "expect": ["service/reef/runner.py"] },
+    { "family": "d2-marlin", "id": "hd2-ment-defined", "class": "mentions-without-declaration", "query": "where is cell_depth defined", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-test-plankton", "class": "test-lookup", "query": "test that track_cell counts a plankton cell", "primary": "service/plankton/tests/test_manifest.py", "expect": ["service/plankton/tests/test_manifest.py", "service/plankton/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-test-kelp", "class": "test-lookup", "query": "test for service/kelp manifest", "primary": "service/kelp/tests/test_manifest.py", "expect": ["service/kelp/tests/test_manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-test-explicit-path", "class": "test-lookup", "query": "service/plankton/tests/test_manifest.py", "primary": "service/plankton/tests/test_manifest.py", "expect": ["service/plankton/tests/test_manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-changed-manifest", "class": "changed-file", "changed": ["service/plankton/manifest.py"], "query": "tracking a cell returns the wrong total", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-changed-runner", "class": "changed-file", "changed": ["service/reef/runner.py"], "query": "the reef runner tracks the wrong service", "primary": "service/reef/runner.py", "expect": ["service/reef/runner.py", "service/plankton/manifest.py", "service/kelp/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-changed-scan", "class": "changed-file", "changed": ["service/plankton/scan.py"], "query": "scanning plankton cells skips a row", "primary": "service/plankton/scan.py", "expect": ["service/plankton/scan.py", "service/plankton/manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-local-plankton", "class": "monorepo-locality", "query": "service/plankton package", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/plankton/scan.py", "service/plankton/report.py", "service/plankton/__init__.py"] },
+    { "family": "d2-marlin", "id": "hd2-local-kelp", "class": "monorepo-locality", "query": "service/kelp package", "primary": "service/kelp/manifest.py", "expect": ["service/kelp/manifest.py", "service/kelp/sweep.py", "service/kelp/__init__.py"] },
+    { "family": "d2-marlin", "id": "hd2-local-reef", "class": "monorepo-locality", "query": "service/reef module", "primary": "service/reef/runner.py", "expect": ["service/reef/runner.py"] },
+    { "family": "d2-marlin", "id": "hd2-local-plankton-report", "class": "monorepo-locality", "query": "service/plankton report module", "primary": "service/plankton/report.py", "expect": ["service/plankton/report.py", "service/plankton/manifest.py"] },
+
+    { "family": "d2-marlin", "id": "hd2-hot-depth", "class": "generic-hotspot-distractor", "query": "cell_depth", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py"] },
+    { "family": "d2-marlin", "id": "hd2-hot-scan", "class": "generic-hotspot-distractor", "query": "scan_plankton_cells", "primary": "service/plankton/scan.py", "expect": ["service/plankton/scan.py"] },
+    { "family": "d2-marlin", "id": "hd2-hot-manifest", "class": "generic-hotspot-distractor", "query": "PlanktonManifest", "primary": "service/plankton/manifest.py", "expect": ["service/plankton/manifest.py", "service/kelp/manifest.py"] },
+
+    { "family": "d3-basalt", "id": "hd3-exact-shell", "class": "exact-symbol", "query": "Shell", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go"] },
+    { "family": "d3-basalt", "id": "hd3-exact-crust", "class": "exact-symbol", "query": "Crust", "primary": "libs/mantle/crust.go", "expect": ["libs/mantle/crust.go"] },
+    { "family": "d3-basalt", "id": "hd3-exact-core", "class": "exact-symbol", "query": "Core", "primary": "libs/core/core.go", "expect": ["libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-exact-edge", "class": "exact-symbol", "query": "Edge", "primary": "libs/edge/edge.go", "expect": ["libs/edge/edge.go"] },
+    { "family": "d3-basalt", "id": "hd3-exact-layer", "class": "exact-symbol", "query": "Layer", "primary": "libs/mantle/layer.go", "expect": ["libs/mantle/layer.go"] },
+    { "family": "d3-basalt", "id": "hd3-exact-report", "class": "exact-symbol", "query": "BuildShellReport", "primary": "libs/mantle/report.go", "expect": ["libs/mantle/report.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-amb-shell-family", "class": "ambiguous-symbol", "query": "mantle shell package", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go", "libs/mantle/crust.go", "libs/mantle/layer.go"] },
+    { "family": "d3-basalt", "id": "hd3-amb-core-edge", "class": "ambiguous-symbol", "query": "core that talks to the edge", "primary": "libs/core/core.go", "expect": ["libs/core/core.go", "libs/edge/edge.go"] },
+    { "family": "d3-basalt", "id": "hd3-amb-report", "class": "ambiguous-symbol", "query": "a report over repeated shell calls", "primary": "libs/mantle/report.go", "expect": ["libs/mantle/report.go"] },
+    { "family": "d3-basalt", "id": "hd3-amb-mantle-grams", "class": "ambiguous-symbol", "query": "mantle grams", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go", "libs/mantle/crust.go", "libs/mantle/layer.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-same-shell", "class": "same-name-symbols-in-different-modules", "query": "mantle Shell", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go"] },
+    { "family": "d3-basalt", "id": "hd3-same-report", "class": "same-name-symbols-in-different-modules", "query": "libs/mantle BuildShellReport", "primary": "libs/mantle/report.go", "expect": ["libs/mantle/report.go"] },
+    { "family": "d3-basalt", "id": "hd3-same-libs", "class": "same-name-symbols-in-different-modules", "query": "libs package", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go", "libs/core/core.go", "libs/edge/edge.go"] },
+    { "family": "d3-basalt", "id": "hd3-same-apps", "class": "same-name-symbols-in-different-modules", "query": "apps module", "primary": "apps/gateway/main.go", "expect": ["apps/gateway/main.go"] },
+    { "family": "d3-basalt", "id": "hd3-same-explicit-path", "class": "same-name-symbols-in-different-modules", "query": "libs/edge/edge.go", "primary": "libs/edge/edge.go", "expect": ["libs/edge/edge.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-cross-gateway", "class": "cross-module-dependency", "query": "the gateway app reaching the mantle library", "primary": "libs/mantle/mantle.go", "expect": ["libs/mantle/mantle.go", "libs/mantle/shell.go", "apps/gateway/main.go"] },
+    { "family": "d3-basalt", "id": "hd3-cross-crust-core", "class": "cross-module-dependency", "query": "Crust depends on which core function", "primary": "libs/mantle/crust.go", "expect": ["libs/mantle/crust.go", "libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-cross-layer", "class": "cross-module-dependency", "query": "Layer calling through Crust", "primary": "libs/mantle/layer.go", "expect": ["libs/mantle/layer.go", "libs/mantle/crust.go", "libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-cross-second-hop", "class": "cross-module-dependency", "query": "from the gateway through the mantle down to core", "primary": "libs/mantle/mantle.go", "expect": ["libs/mantle/mantle.go", "libs/core/core.go", "apps/gateway/main.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-rev-shell", "class": "reverse-dependency", "query": "callers of Shell", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go", "libs/mantle/report.go"] },
+    { "family": "d3-basalt", "id": "hd3-rev-core", "class": "reverse-dependency", "query": "dependents of Core", "primary": "libs/core/core.go", "expect": ["libs/core/core.go", "libs/mantle/crust.go", "libs/edge/edge.go"] },
+    { "family": "d3-basalt", "id": "hd3-rev-crust", "class": "reverse-dependency", "query": "who calls Crust", "primary": "libs/mantle/crust.go", "expect": ["libs/mantle/crust.go", "libs/mantle/layer.go"] },
+    { "family": "d3-basalt", "id": "hd3-rev-edge", "class": "reverse-dependency", "query": "callers of Edge", "primary": "libs/edge/edge.go", "expect": ["libs/edge/edge.go", "libs/core/core.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-ment-report", "class": "mentions-without-declaration", "query": "Shell used to build a shell report", "primary": "libs/mantle/report.go", "expect": ["libs/mantle/report.go"] },
+    { "family": "d3-basalt", "id": "hd3-ment-defined", "class": "mentions-without-declaration", "query": "where is Core defined", "primary": "libs/core/core.go", "expect": ["libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-ment-layer", "class": "mentions-without-declaration", "query": "Layer used to stack a crust", "primary": "libs/mantle/layer.go", "expect": ["libs/mantle/layer.go", "libs/mantle/crust.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-test-shell", "class": "test-lookup", "query": "test that Shell doubles grams", "primary": "libs/mantle/shell_test.go", "expect": ["libs/mantle/shell_test.go", "libs/mantle/shell.go"] },
+    { "family": "d3-basalt", "id": "hd3-test-core", "class": "test-lookup", "query": "test for the core doubling the edge", "primary": "libs/core/core_test.go", "expect": ["libs/core/core_test.go", "libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-test-edge", "class": "test-lookup", "query": "test covering Edge", "primary": "libs/edge/edge_test.go", "expect": ["libs/edge/edge_test.go", "libs/edge/edge.go"] },
+    { "family": "d3-basalt", "id": "hd3-test-explicit-path", "class": "test-lookup", "query": "libs/core/core_test.go", "primary": "libs/core/core_test.go", "expect": ["libs/core/core_test.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-changed-shell", "class": "changed-file", "changed": ["libs/mantle/shell.go"], "query": "doubling grams in the shell is wrong", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go"] },
+    { "family": "d3-basalt", "id": "hd3-changed-core", "class": "changed-file", "changed": ["libs/core/core.go"], "query": "core returns the wrong total", "primary": "libs/core/core.go", "expect": ["libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-changed-crust", "class": "changed-file", "changed": ["libs/mantle/crust.go"], "query": "the crust adds the wrong amount", "primary": "libs/mantle/crust.go", "expect": ["libs/mantle/crust.go", "libs/core/core.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-local-mantle", "class": "monorepo-locality", "query": "libs/mantle package", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go", "libs/mantle/crust.go", "libs/mantle/layer.go", "libs/mantle/report.go"] },
+    { "family": "d3-basalt", "id": "hd3-local-core", "class": "monorepo-locality", "query": "libs/core package", "primary": "libs/core/core.go", "expect": ["libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-local-edge", "class": "monorepo-locality", "query": "libs/edge package", "primary": "libs/edge/edge.go", "expect": ["libs/edge/edge.go"] },
+    { "family": "d3-basalt", "id": "hd3-local-gateway", "class": "monorepo-locality", "query": "apps/gateway module", "primary": "apps/gateway/main.go", "expect": ["apps/gateway/main.go"] },
+
+    { "family": "d3-basalt", "id": "hd3-hot-shell", "class": "generic-hotspot-distractor", "query": "Shell", "primary": "libs/mantle/shell.go", "expect": ["libs/mantle/shell.go"] },
+    { "family": "d3-basalt", "id": "hd3-hot-core", "class": "generic-hotspot-distractor", "query": "Core", "primary": "libs/core/core.go", "expect": ["libs/core/core.go"] },
+    { "family": "d3-basalt", "id": "hd3-hot-layer", "class": "generic-hotspot-distractor", "query": "Layer", "primary": "libs/mantle/layer.go", "expect": ["libs/mantle/layer.go"] },
+
+    { "family": "d4-cobalt", "id": "hd4-exact-depth", "class": "exact-symbol", "query": "shelfDepth", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-exact-height", "class": "exact-symbol", "query": "stackHeight", "primary": "packages/stackyard/src/shelf.js", "expect": ["packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-exact-entry", "class": "exact-symbol", "query": "vaultEntry", "primary": "packages/vaultroom/src/consumer.js", "expect": ["packages/vaultroom/src/consumer.js"] },
+    { "family": "d4-cobalt", "id": "hd4-exact-meter", "class": "exact-symbol", "query": "useMeter", "primary": "packages/vaultroom/src/meter.js", "expect": ["packages/vaultroom/src/meter.js"] },
+    { "family": "d4-cobalt", "id": "hd4-exact-lock", "class": "exact-symbol", "query": "lockShelf", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/stackyard/src/shelf.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-amb-index", "class": "ambiguous-symbol", "query": "ShelfIndex", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-amb-depth", "class": "ambiguous-symbol", "query": "shelf index that also reports a depth", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-amb-height", "class": "ambiguous-symbol", "query": "shelf index that also reports a height", "primary": "packages/stackyard/src/shelf.js", "expect": ["packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-amb-add", "class": "ambiguous-symbol", "query": "a method that adds a row to the shelf", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/stackyard/src/shelf.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-same-vaultroom", "class": "same-name-symbols-in-different-modules", "query": "vaultroom ShelfIndex", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-same-stackyard", "class": "same-name-symbols-in-different-modules", "query": "stackyard ShelfIndex", "primary": "packages/stackyard/src/shelf.js", "expect": ["packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-same-prefix", "class": "same-name-symbols-in-different-modules", "query": "packages/stackyard ShelfIndex", "primary": "packages/stackyard/src/shelf.js", "expect": ["packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-same-parent", "class": "same-name-symbols-in-different-modules", "query": "packages ShelfIndex", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-same-explicit-path", "class": "same-name-symbols-in-different-modules", "query": "packages/stackyard/src/shelf.js", "primary": "packages/stackyard/src/shelf.js", "expect": ["packages/stackyard/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-same-barrel", "class": "same-name-symbols-in-different-modules", "query": "stackyard package barrel ShelfIndex", "primary": "packages/stackyard/src/index.js", "expect": ["packages/stackyard/src/index.js", "packages/stackyard/src/shelf.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-cross-consumer", "class": "cross-module-dependency", "query": "the vaultroom consumer reaching the shelf through the barrels", "primary": "packages/vaultroom/src/consumer.js", "expect": ["packages/vaultroom/src/consumer.js", "packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-cross-barrels", "class": "cross-module-dependency", "query": "index surface entry re-exports of the vaultroom shelf", "primary": "packages/vaultroom/src/index.js", "expect": ["packages/vaultroom/src/index.js", "packages/vaultroom/src/surface.js", "packages/vaultroom/src/entry.js", "packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-cross-lock", "class": "cross-module-dependency", "query": "callers of lockShelf in the vaultroom", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/vaultroom/src/consumer.js"] },
+    { "family": "d4-cobalt", "id": "hd4-cross-stack", "class": "cross-module-dependency", "query": "stackyard barrels publishing the shelf index", "primary": "packages/stackyard/src/index.js", "expect": ["packages/stackyard/src/index.js", "packages/stackyard/src/surface.js", "packages/stackyard/src/entry.js", "packages/stackyard/src/shelf.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-rev-lock", "class": "reverse-dependency", "query": "dependents of lockShelf", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/vaultroom/src/entry.js", "packages/vaultroom/src/consumer.js"] },
+    { "family": "d4-cobalt", "id": "hd4-rev-index", "class": "reverse-dependency", "query": "who imports the vaultroom package index", "primary": "packages/vaultroom/src/index.js", "expect": ["packages/vaultroom/src/index.js", "packages/vaultroom/src/consumer.js", "packages/vaultroom/test/shelf.spec.js"] },
+    { "family": "d4-cobalt", "id": "hd4-rev-consumer", "class": "reverse-dependency", "query": "callers of vaultEntry", "primary": "packages/vaultroom/src/consumer.js", "expect": ["packages/vaultroom/src/consumer.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-ment-lock", "class": "mentions-without-declaration", "query": "ShelfIndex used to build the vault entry", "primary": "packages/vaultroom/src/consumer.js", "expect": ["packages/vaultroom/src/consumer.js"] },
+    { "family": "d4-cobalt", "id": "hd4-ment-defined", "class": "mentions-without-declaration", "query": "where is shelfDepth defined", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-ment-surface", "class": "mentions-without-declaration", "query": "ShelfIndex published by the vaultroom surface module", "primary": "packages/vaultroom/src/surface.js", "expect": ["packages/vaultroom/src/surface.js", "packages/vaultroom/src/entry.js", "packages/vaultroom/src/shelf.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-test-shelf", "class": "test-lookup", "query": "test that add locks a shelf in the vaultroom", "primary": "packages/vaultroom/test/shelf.spec.js", "expect": ["packages/vaultroom/test/shelf.spec.js", "packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-test-again", "class": "test-lookup", "query": "second vaultroom shelf spec", "primary": "packages/vaultroom/test/shelf-again.spec.js", "expect": ["packages/vaultroom/test/shelf-again.spec.js"] },
+    { "family": "d4-cobalt", "id": "hd4-test-stack", "class": "test-lookup", "query": "test for the stackyard shelf", "primary": "packages/stackyard/test/shelf.spec.js", "expect": ["packages/stackyard/test/shelf.spec.js"] },
+    { "family": "d4-cobalt", "id": "hd4-test-explicit-path", "class": "test-lookup", "query": "packages/vaultroom/test/shelf.spec.js", "primary": "packages/vaultroom/test/shelf.spec.js", "expect": ["packages/vaultroom/test/shelf.spec.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-changed-shelf", "class": "changed-file", "changed": ["packages/vaultroom/src/shelf.js"], "query": "adding a row returns the wrong count", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-changed-consumer", "class": "changed-file", "changed": ["packages/vaultroom/src/consumer.js"], "query": "the vault entry locks the wrong shelf", "primary": "packages/vaultroom/src/consumer.js", "expect": ["packages/vaultroom/src/consumer.js", "packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-changed-surface", "class": "changed-file", "changed": ["packages/vaultroom/src/surface.js"], "query": "the vaultroom surface re-exports the wrong thing", "primary": "packages/vaultroom/src/surface.js", "expect": ["packages/vaultroom/src/surface.js", "packages/vaultroom/src/entry.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-local-vaultroom", "class": "monorepo-locality", "query": "packages/vaultroom module", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/vaultroom/src/index.js", "packages/vaultroom/src/surface.js", "packages/vaultroom/src/entry.js"] },
+    { "family": "d4-cobalt", "id": "hd4-local-stackyard", "class": "monorepo-locality", "query": "packages/stackyard module", "primary": "packages/stackyard/src/shelf.js", "expect": ["packages/stackyard/src/shelf.js", "packages/stackyard/src/index.js", "packages/stackyard/src/surface.js", "packages/stackyard/src/entry.js"] },
+    { "family": "d4-cobalt", "id": "hd4-local-meter", "class": "monorepo-locality", "query": "packages/vaultroom meter module", "primary": "packages/vaultroom/src/meter.js", "expect": ["packages/vaultroom/src/meter.js", "packages/vaultroom/src/shelf.js"] },
+
+    { "family": "d4-cobalt", "id": "hd4-hot-depth", "class": "generic-hotspot-distractor", "query": "shelfDepth", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js"] },
+    { "family": "d4-cobalt", "id": "hd4-hot-entry", "class": "generic-hotspot-distractor", "query": "vaultEntry", "primary": "packages/vaultroom/src/consumer.js", "expect": ["packages/vaultroom/src/consumer.js"] },
+    { "family": "d4-cobalt", "id": "hd4-hot-index", "class": "generic-hotspot-distractor", "query": "ShelfIndex", "primary": "packages/vaultroom/src/shelf.js", "expect": ["packages/vaultroom/src/shelf.js", "packages/stackyard/src/shelf.js"] },
+
+    { "family": "d5-trellis", "id": "hd5-exact-span", "class": "exact-symbol", "query": "gate_span", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-exact-reach", "class": "exact-symbol", "query": "vine_reach", "primary": "lib/vineyard/registry.py", "expect": ["lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-exact-scan", "class": "exact-symbol", "query": "scan_trellis_latches", "primary": "lib/trellisgate/scan.py", "expect": ["lib/trellisgate/scan.py"] },
+    { "family": "d5-trellis", "id": "hd5-exact-sweep", "class": "exact-symbol", "query": "sweep_vineyard_latches", "primary": "lib/vineyard/sweep.py", "expect": ["lib/vineyard/sweep.py"] },
+    { "family": "d5-trellis", "id": "hd5-exact-post", "class": "exact-symbol", "query": "Post", "primary": "trellis/internal/post/post.go", "expect": ["trellis/internal/post/post.go"] },
+    { "family": "d5-trellis", "id": "hd5-exact-panel", "class": "exact-symbol", "query": "renderTrellisPanel", "primary": "trellis/ui/panel.ts", "expect": ["trellis/ui/panel.ts"] },
+    { "family": "d5-trellis", "id": "hd5-exact-report", "class": "exact-symbol", "query": "build_trellis_registry_report", "primary": "lib/trellisgate/report.py", "expect": ["lib/trellisgate/report.py"] },
+
+    { "family": "d5-trellis", "id": "hd5-amb-latch", "class": "ambiguous-symbol", "query": "latch_gate", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-amb-registry", "class": "ambiguous-symbol", "query": "TrellisRegistry", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-amb-span", "class": "ambiguous-symbol", "query": "registry that also measures a span", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-amb-reach", "class": "ambiguous-symbol", "query": "registry that also measures a reach", "primary": "lib/vineyard/registry.py", "expect": ["lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-amb-latch-method", "class": "ambiguous-symbol", "query": "a method that latches a name", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/vineyard/registry.py"] },
+
+    { "family": "d5-trellis", "id": "hd5-same-trellisgate", "class": "same-name-symbols-in-different-modules", "query": "trellisgate TrellisRegistry", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-same-vineyard", "class": "same-name-symbols-in-different-modules", "query": "vineyard TrellisRegistry", "primary": "lib/vineyard/registry.py", "expect": ["lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-same-prefix", "class": "same-name-symbols-in-different-modules", "query": "lib/vineyard TrellisRegistry", "primary": "lib/vineyard/registry.py", "expect": ["lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-same-parent", "class": "same-name-symbols-in-different-modules", "query": "lib TrellisRegistry", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-same-explicit-path", "class": "same-name-symbols-in-different-modules", "query": "lib/vineyard/registry.py", "primary": "lib/vineyard/registry.py", "expect": ["lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-same-barrel", "class": "same-name-symbols-in-different-modules", "query": "vineyard package barrel TrellisRegistry", "primary": "lib/vineyard/__init__.py", "expect": ["lib/vineyard/__init__.py", "lib/vineyard/registry.py"] },
+
+    { "family": "d5-trellis", "id": "hd5-cross-scan", "class": "cross-module-dependency", "query": "how does the trellisgate scan reach latch_gate", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/trellisgate/scan.py"] },
+    { "family": "d5-trellis", "id": "hd5-cross-panel", "class": "cross-module-dependency", "query": "the trellis ui panel reaching the trellisgate registry", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "trellis/ui/panel.ts", "lib/trellisgate/__init__.py"] },
+    { "family": "d5-trellis", "id": "hd5-cross-sweep", "class": "cross-module-dependency", "query": "callers of sweep_vineyard_latches", "primary": "lib/vineyard/sweep.py", "expect": ["lib/vineyard/sweep.py", "lib/vineyard/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-cross-post", "class": "cross-module-dependency", "query": "trellis internal post package", "primary": "trellis/internal/post/post.go", "expect": ["trellis/internal/post/post.go", "trellis/internal/post/post_test.go"] },
+
+    { "family": "d5-trellis", "id": "hd5-rev-latch", "class": "reverse-dependency", "query": "who imports latch_gate", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/trellisgate/__init__.py", "lib/trellisgate/scan.py", "tests/test_trellisgate_registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-rev-registry", "class": "reverse-dependency", "query": "dependents of the trellisgate registry", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/trellisgate/__init__.py", "lib/trellisgate/scan.py", "trellis/ui/panel.ts"] },
+    { "family": "d5-trellis", "id": "hd5-rev-post", "class": "reverse-dependency", "query": "callers of Post", "primary": "trellis/internal/post/post.go", "expect": ["trellis/internal/post/post.go", "trellis/internal/post/post_test.go"] },
+
+    { "family": "d5-trellis", "id": "hd5-ment-report", "class": "mentions-without-declaration", "query": "TrellisRegistry used to build a trellis report", "primary": "lib/trellisgate/report.py", "expect": ["lib/trellisgate/report.py"] },
+    { "family": "d5-trellis", "id": "hd5-ment-panel", "class": "mentions-without-declaration", "query": "TrellisRegistry used to render the trellis panel", "primary": "trellis/ui/panel.ts", "expect": ["trellis/ui/panel.ts"] },
+    { "family": "d5-trellis", "id": "hd5-ment-defined", "class": "mentions-without-declaration", "query": "where is gate_span defined", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py"] },
+
+    { "family": "d5-trellis", "id": "hd5-test-gate", "class": "test-lookup", "query": "test that latch_gate counts a trellisgate latch", "primary": "tests/test_trellisgate_registry.py", "expect": ["tests/test_trellisgate_registry.py", "lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-test-vine", "class": "test-lookup", "query": "test for the vineyard registry latch", "primary": "tests/test_vineyard_registry.py", "expect": ["tests/test_vineyard_registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-test-panel", "class": "test-lookup", "query": "test covering renderTrellisPanel", "primary": "trellis/ui/panel.spec.ts", "expect": ["trellis/ui/panel.spec.ts", "trellis/ui/panel.ts"] },
+    { "family": "d5-trellis", "id": "hd5-test-post", "class": "test-lookup", "query": "test that Post adds four", "primary": "trellis/internal/post/post_test.go", "expect": ["trellis/internal/post/post_test.go", "trellis/internal/post/post.go"] },
+    { "family": "d5-trellis", "id": "hd5-test-explicit-path", "class": "test-lookup", "query": "tests/test_trellisgate_registry.py", "primary": "tests/test_trellisgate_registry.py", "expect": ["tests/test_trellisgate_registry.py"] },
+
+    { "family": "d5-trellis", "id": "hd5-changed-registry", "class": "changed-file", "changed": ["lib/trellisgate/registry.py"], "query": "latching a name returns the wrong count", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-changed-panel", "class": "changed-file", "changed": ["trellis/ui/panel.ts"], "query": "the trellis panel latches twice", "primary": "trellis/ui/panel.ts", "expect": ["trellis/ui/panel.ts", "lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-changed-post", "class": "changed-file", "changed": ["trellis/internal/post/post.go"], "query": "posting grams adds the wrong amount", "primary": "trellis/internal/post/post.go", "expect": ["trellis/internal/post/post.go"] },
+
+    { "family": "d5-trellis", "id": "hd5-local-trellisgate", "class": "monorepo-locality", "query": "lib/trellisgate package", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/trellisgate/scan.py", "lib/trellisgate/report.py", "lib/trellisgate/__init__.py"] },
+    { "family": "d5-trellis", "id": "hd5-local-vineyard", "class": "monorepo-locality", "query": "lib/vineyard package", "primary": "lib/vineyard/registry.py", "expect": ["lib/vineyard/registry.py", "lib/vineyard/sweep.py", "lib/vineyard/__init__.py"] },
+    { "family": "d5-trellis", "id": "hd5-local-post", "class": "monorepo-locality", "query": "trellis/internal/post package", "primary": "trellis/internal/post/post.go", "expect": ["trellis/internal/post/post.go", "trellis/internal/post/post_test.go"] },
+    { "family": "d5-trellis", "id": "hd5-local-ui", "class": "monorepo-locality", "query": "trellis/ui panel module", "primary": "trellis/ui/panel.ts", "expect": ["trellis/ui/panel.ts", "trellis/ui/panel.spec.ts"] },
+
+    { "family": "d5-trellis", "id": "hd5-hot-span", "class": "generic-hotspot-distractor", "query": "gate_span", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py"] },
+    { "family": "d5-trellis", "id": "hd5-hot-post", "class": "generic-hotspot-distractor", "query": "Post", "primary": "trellis/internal/post/post.go", "expect": ["trellis/internal/post/post.go"] },
+    { "family": "d5-trellis", "id": "hd5-hot-latch", "class": "generic-hotspot-distractor", "query": "latch_gate", "primary": "lib/trellisgate/registry.py", "expect": ["lib/trellisgate/registry.py", "lib/vineyard/registry.py"] }
+  ]
+}

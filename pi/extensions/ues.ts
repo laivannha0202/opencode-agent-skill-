@@ -58,15 +58,23 @@ import {
   visualEvidenceNeeded,
 } from "../../lib/browser-mcp-routing.mjs";
 import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
+import { buildRepoMap } from "../../lib/repo-map.mjs";
+import { contentArtifactStoreStats } from "../../lib/content-artifacts.mjs";
 import { clearSemanticIndexRuntimeCache } from "../../lib/semantic-index.mjs";
 import {
+  SINGLE_FILE_WRITE_TOOLS,
+  MULTI_FILE_WRITE_TOOLS,
+  createWriteFeedbackController,
   diagnoseCode,
+  extractWrittenFiles,
   lspOperation,
   lspPoolStatus,
   probeCodeIntelligence,
   readAnchoredCode,
   searchCodeIntelligence,
   shutdownLspPool,
+  writeFeedbackMetrics,
+  WRITE_FEEDBACK_TOOLS,
 } from "../../lib/code-intelligence/index.mjs";
 import { reduceCodePayload } from "../../lib/code-intelligence/model-payload.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
@@ -3099,6 +3107,93 @@ export default function (pi: ExtensionAPI) {
   const PARENT_PROVIDER_RECOVERY_MAX_CONSECUTIVE = 1;
   const PARENT_PROVIDER_RECOVERY_MAX_TOTAL = 3;
 
+  // V15.3 incremental write intelligence.
+  //
+  // One controller per workspace root, created lazily on the first observed
+  // write so an idle session starts no language server and no timer. The
+  // controller is the only thing that may add a code signal to a write result;
+  // it never blocks the write, never rewrites it, and reports "not proven"
+  // rather than "clean" whenever its analysis was incomplete.
+  const WRITE_FEEDBACK_ENABLED = !["0", "false", "off"].includes(
+    String(process.env.UES_POST_WRITE_FEEDBACK || "1").trim().toLowerCase(),
+  );
+  let writeFeedbackController: any = null;
+  let writeFeedbackRoot = "";
+  let writeFeedbackInHandler = false;
+  let writeFeedbackCoverage = {
+    observedWriteTools: [] as string[],
+    instrumentedWriteTools: [] as string[],
+    unsupportedSurfaces: [] as string[],
+  };
+  // Repo-map counters are cumulative for the session and are what make a
+  // ranking change observable rather than anecdotal.
+  // Final verdicts that were produced but never shown to the model. Bounded, and
+  // reported so an operator can see that a turn ended on an unverified write.
+  const writeFeedbackFinalVerdicts: any[] = [];
+  const REPO_MAP_STATUS = {
+    queries: 0,
+    candidateCount: 0,
+    selectedCount: 0,
+    graphExpansionCount: 0,
+    contextChars: 0,
+    lspEnriched: 0,
+    degraded: 0,
+    lastContextChars: 0,
+  };
+  const NL = String.fromCharCode(10);
+
+  // The final post-write verdict for a turn, for the boundary below.
+  //
+  // A model's LAST tool call being a write is the hard case: the check is
+  // coalesced, there is no later tool_result to carry it, and the turn ends. The
+  // previous wiring fired `void controller.flush()` at agent_end and threw the
+  // result away, which meant the model finalised believing a write it had never
+  // been told about -- neither delivered nor marked. This reports the truth:
+  // run the trailing check, and report it as NOT SEEN BY THE MODEL.
+  const finalPostWriteVerdict = async () => {
+    const controller = writeFeedbackController;
+    if (!controller) return null;
+    try {
+      const result = await controller.flush();
+      const last = result?.last || controller.last?.(result?.file) || null;
+      const outstanding = controller.drain();
+      const rows = [...(outstanding || []), ...(last ? [last] : [])];
+      if (!rows.length) return null;
+      return {
+        seenByModel: false,
+        rows,
+        text: rows.map((row: any) => row.text || `UES post-write ${row.file}: ${row.status} (complete=${row.complete === true})`).join(NL),
+      };
+    } catch {
+      return null;
+    }
+  };
+
+  const contentArtifactDigest = () => contentArtifactStoreStats();
+  const repoMapStats = () => ({ ...REPO_MAP_STATUS });
+
+  const parentWriteFeedback = (root: string) => {
+    if (!WRITE_FEEDBACK_ENABLED) return null;
+    const resolved = root || process.cwd();
+    if (writeFeedbackController && writeFeedbackRoot === resolved) return writeFeedbackController;
+    if (writeFeedbackController) {
+      void writeFeedbackController.shutdown?.().catch(() => {});
+      writeFeedbackController = null;
+    }
+    writeFeedbackRoot = resolved;
+    writeFeedbackController = createWriteFeedbackController({
+      root: resolved,
+      runDiagnostics: (target: { root: string; relative: string }) =>
+        diagnoseCode(target.root, target.relative, {
+          timeoutMs: 5_000,
+          maxResults: 60,
+          persistent: true,
+          diagnosticsBudgetPolicy: "post-write-adaptive",
+        }),
+    });
+    return writeFeedbackController;
+  };
+
   const currentNonUesTools = () =>
     pi.getActiveTools().filter((name) => !UES_PARENT_TOOL_NAMES.has(String(name)));
 
@@ -3345,6 +3440,26 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_before_settle", async (event) => {
+    // Before the agent is allowed to finalise, tell it about any post-write
+    // feedback it has not been shown. This is a CONTEXT EDIT, not a `continue`:
+    // it injects the verdict into the transcript without requesting another model
+    // turn, so it cannot become a wait or a loop. The normal verifier still
+    // performs final verification; this only stops the model from finishing on an
+    // assumption it was never given.
+    {
+      const owed = (writeFeedbackController?.drain?.() || []).filter((item: any) => item?.text);
+      if (owed.length) {
+        return {
+          contextEdit: {
+            label: "ues-post-write-verdict",
+            text: [
+              "UES post-write feedback was produced after your last tool result and is shown here for the first time:",
+              ...owed.map((item: any) => "  " + item.text),
+            ].join(NL),
+          },
+        };
+      }
+    }
     if (
       uesModeActive() ||
       parentProviderRecoveryConsecutive >= PARENT_PROVIDER_RECOVERY_MAX_CONSECUTIVE ||
@@ -3405,6 +3520,18 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("agent_end", async () => {
+    // Run the trailing check, and be explicit that the model never saw it. A
+    // flush whose result is discarded is the same as no feedback at all, and
+    // pretending otherwise is worse than the gap it hides.
+    const finalVerdict = await finalPostWriteVerdict();
+    if (finalVerdict) {
+      writeFeedbackFinalVerdicts.push({
+        at: new Date().toISOString(),
+        seenByModel: false,
+        rows: finalVerdict.rows.map((row: any) => ({ file: row.file, status: row.status, complete: row.complete === true })),
+      });
+      while (writeFeedbackFinalVerdicts.length > 8) writeFeedbackFinalVerdicts.shift();
+    }
     promptUesActive = false;
     parentProviderRecoveryPending = false;
     parentProviderRecoveryConsecutive = 0;
@@ -3491,10 +3618,11 @@ export default function (pi: ExtensionAPI) {
     return undefined;
   });
 
-  pi.on("tool_result", async (event) => {
-    if (!uesModeActive()) return undefined;
+  pi.on("tool_result", async (event, eventCtx) => {
     const toolName = String((event as any).toolName || "");
-    if (!toolName || toolName === "bash" || toolName === "powershell") return undefined;
+    const postWrite = await appendPostWriteFeedback(event as any, eventCtx as any, toolName);
+    if (!uesModeActive()) return postWrite;
+    if (!toolName || toolName === "bash" || toolName === "powershell") return postWrite;
     const resultText = toolResultText(event);
     const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
     const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
@@ -3510,26 +3638,109 @@ export default function (pi: ExtensionAPI) {
     const externalBoundary =
       policy.externalEvidenceBoundary === true ||
       HOST_BROWSER_TOOL_NAMES.includes(toolName);
-    if (!externalBoundary || !resultText) return undefined;
+    if (!externalBoundary || !resultText) return postWrite;
 
     const analysis = analyzeUntrustedOutput(resultText, { source: toolName });
-    if (!analysis.flagged) return undefined;
+    if (!analysis.flagged) return postWrite;
     const originalContent = Array.isArray((event as any).content)
       ? (event as any).content
       : [{ type: "text", text: resultText }];
     return {
       content: [
         { type: "text", text: renderUntrustedOutputWarning(analysis, { source: toolName }) },
-        ...originalContent,
+        ...(postWrite?.content || originalContent),
       ],
       details: {
         ...((event as any).details && typeof (event as any).details === "object" ? (event as any).details : {}),
+        ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
         uesUntrustedOutputBoundary: analysis,
       },
       isError: (event as any).isError === true,
       usage: (event as any).usage,
     };
   });
+
+  // V15.3 incremental write intelligence.
+  //
+  // Runs for every tool result, including outside a UES run, because a weak
+  // model editing a file in a normal Pi chat is exactly the case that produced
+  // silent breakage. Composition-only: it returns `undefined` for every
+  // non-write tool, and for a write tool it returns a result that preserves the
+  // host's content, details, isError and usage and only appends one bounded
+  // text block.
+  async function appendPostWriteFeedback(event: any, eventCtx: any, toolName: string) {
+    if (!WRITE_FEEDBACK_ENABLED) return undefined;
+    // Reentrancy: a feedback result is never itself a write, but if a future
+    // wiring ever made it one, the nested write is dropped rather than looping.
+    if (writeFeedbackInHandler) return undefined;
+
+    const root = String(eventCtx?.cwd || process.cwd());
+    const controller = parentWriteFeedback(root);
+    if (!controller) return undefined;
+
+    // Deliver anything a coalesced write is still owed, on ANY tool result.
+    // Without this, a model that edits one file three times in a row is told
+    // "pending" twice and then never learns the final result -- the model would
+    // end its turn holding a promise the runtime has already broken.
+    const owed = controller.drain().filter((item: any) => item?.text);
+    let feedback: any = null;
+    if (WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase()) && event?.isError !== true) {
+      const input = (event && typeof event.input === "object" && event.input ? event.input : {}) as Record<string, unknown>;
+      const discovered = extractWrittenFiles(toolName, input);
+      const relative = discovered[0];
+      if (!relative) {
+        if (!writeFeedbackCoverage.unsupportedSurfaces.includes(toolName)) {
+          writeFeedbackCoverage.unsupportedSurfaces.push(toolName);
+        }
+      } else {
+        if (!writeFeedbackCoverage.instrumentedWriteTools.includes(toolName)) {
+          writeFeedbackCoverage.instrumentedWriteTools.push(toolName);
+        }
+        writeFeedbackInHandler = true;
+        try {
+          feedback = await controller.noteWrite({ toolName, input, relative });
+        } catch {
+          // A failure to observe the write must never surface as a failed write.
+          feedback = null;
+        } finally {
+          writeFeedbackInHandler = false;
+        }
+        if (feedback?.text && !writeFeedbackCoverage.observedWriteTools.includes(toolName)) {
+          writeFeedbackCoverage.observedWriteTools.push(toolName);
+        }
+      }
+    }
+
+    const blocks = [...owed.map((item: any) => item.text), ...(feedback?.text ? [feedback.text] : [])];
+    if (!blocks.length) return undefined;
+
+    const originalContent = Array.isArray(event.content) ? event.content : [];
+    return {
+      content: [...originalContent, ...blocks.map((text) => ({ type: "text", text }))],
+      details: {
+        ...(event.details && typeof event.details === "object" ? event.details : {}),
+        uesPostWrite: {
+          delivered: owed.length,
+          ...(feedback
+            ? {
+                file: feedback.file,
+                status: feedback.status,
+                complete: feedback.complete === true,
+                errorCount: feedback.errorCount ?? 0,
+                warningCount: feedback.warningCount ?? 0,
+                truncated: feedback.truncated === true,
+                durationMs: feedback.durationMs ?? null,
+                poolHit: feedback.poolHit ?? null,
+                superseded: feedback.superseded === true,
+                stale: feedback.stale === true,
+              }
+            : {}),
+        },
+      },
+      isError: event.isError === true,
+      usage: event.usage,
+    };
+  }
 
   // Always-on, read-only intelligence for normal Pi conversations.
   // Keep this outside UES_PARENT_TOOL_NAMES so session_start does not hide it.
@@ -3554,9 +3765,13 @@ export default function (pi: ExtensionAPI) {
         Type.Literal("document"),
         Type.Literal("context-expand"),
         Type.Literal("context-search"),
+        Type.Literal("repo-map"),
       ]),
       file: Type.Optional(Type.String()),
       query: Type.Optional(Type.String()),
+      declaredFiles: Type.Optional(Type.Array(Type.String())),
+      changedFiles: Type.Optional(Type.Array(Type.String())),
+      contextBudgetChars: Type.Optional(Type.Number({ minimum: 400, maximum: 60000 })),
       structuralPattern: Type.Optional(Type.String()),
       language: Type.Optional(Type.String()),
       startLine: Type.Optional(Type.Number({ minimum: 1 })),
@@ -3714,6 +3929,27 @@ export default function (pi: ExtensionAPI) {
             maxBytes: params.maxBytes || 512000,
             maxMatches: 12,
           });
+        } else if (params.action === "repo-map") {
+          if (!params.query) throw new Error("ues_code repo-map requires query");
+          // The map is read-only and budgeted: it ranks files and names the
+          // symbols in them, it never inlines source. Ranking quality is gated
+          // by scripts/bench-repo-map.mjs.
+          result = await buildRepoMap(ctx.cwd, params.query, {
+            declaredFiles: params.declaredFiles,
+            changedFiles: params.changedFiles,
+            contextBudgetChars: params.contextBudgetChars,
+            limit: 12,
+            maxFiles: 6000,
+          });
+          result.mode = "parent-lite";
+          REPO_MAP_STATUS.queries += 1;
+          REPO_MAP_STATUS.candidateCount += Number(result.stats?.candidateCount || 0);
+          REPO_MAP_STATUS.selectedCount += Number(result.stats?.selectedCount || 0);
+          REPO_MAP_STATUS.graphExpansionCount += Number(result.stats?.graphExpansionCount || 0);
+          REPO_MAP_STATUS.contextChars += Number(result.stats?.contextChars || 0);
+          REPO_MAP_STATUS.lspEnriched += Number(result.stats?.lspEnriched || 0);
+          REPO_MAP_STATUS.lastContextChars = Number(result.stats?.contextChars || 0);
+          if (result.stats?.affectedTestsDegraded === true) REPO_MAP_STATUS.degraded += 1;
         } else {
           throw new Error("unsupported ues_code action");
         }
@@ -5443,17 +5679,64 @@ export default function (pi: ExtensionAPI) {
         "Portable temp-path guard: on",
         "Explicit phase barriers: on",
         "Independent final verdict matrix: on",
+        "V15.3 incremental write intelligence: on (post-edit diagnostics feedback; never reports clean from an incomplete analysis)",
+        "V15.3 content-addressed semantic index: on (sha256 identity, shared across worktrees; git blob fast path opt-in)",
+        "V15.3 graph-ranked repo map: on (ues_code repo-map; budgeted, ranked, reasoned)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
         "Disk hygiene: bounded + auto-clean",
         "Writer concurrency: " + MAX_WRITER_CONCURRENCY,
       ].join("\n");
+      // Runtime metrics are appended as structured details rather than folded
+      // into the human-readable block, so /ues-status stays readable while the
+      // numbers remain machine-readable. The readable tail is a one-line digest.
+      const writeFeedbackStats = writeFeedbackMetrics();
+      const contentArtifacts = contentArtifactDigest();
+      const digest = [
+        "post-write checks/complete/incomplete: " + writeFeedbackStats.postWriteChecks + "/" + writeFeedbackStats.postWriteComplete + "/" + writeFeedbackStats.postWriteIncomplete,
+        "post-write errors/coalesced/stale-discarded: " + writeFeedbackStats.postWriteErrors + "/" + writeFeedbackStats.postWriteCoalesced + "/" + writeFeedbackStats.postWriteStaleDiscarded,
+        "content artifacts hits/misses/evictions: " + (contentArtifacts?.contentArtifactHits ?? 0) + "/" + (contentArtifacts?.contentArtifactMisses ?? 0) + "/" + (contentArtifacts?.contentArtifactEvictions ?? 0),
+        "content hashes git-blob/sha256: " + (contentArtifacts?.contentHashSource?.["git-blob"] ?? 0) + "/" + (contentArtifacts?.contentHashSource?.sha256 ?? 0),
+        "files reparsed / bytes read: " + (contentArtifacts?.filesReparsed ?? 0) + "/" + (contentArtifacts?.bytesRead ?? 0),
+        "repo map queries/selected/context chars: " + repoMapStats().queries + "/" + repoMapStats().selected + "/" + repoMapStats().contextChars,
+      ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",
-        content: status,
+        content: status + "\n" + digest,
         display: true,
-        details: { version: PACKAGE_VERSION, packageRoot: PACKAGE_ROOT, childRuntime: CHILD_RUNTIME },
+        details: {
+          version: PACKAGE_VERSION,
+          packageRoot: PACKAGE_ROOT,
+          childRuntime: CHILD_RUNTIME,
+          // Status schema V2: the human-readable block above is unchanged, and
+          // the V15.3 counters are additive. `statusSchemaVersion` lets a
+          // consumer detect the new fields without guessing.
+          statusSchemaVersion: 2,
+          incrementalWrite: {
+            ...writeFeedbackStats,
+            coverage: {
+              instrumentedWriteTools: [...writeFeedbackCoverage.instrumentedWriteTools].sort(),
+              unrecognisedWriteSurfaces: [...writeFeedbackCoverage.unsupportedSurfaces].sort(),
+              supportedWriteTools: [...WRITE_FEEDBACK_TOOLS].sort(),
+              // Pi 0.87.1 ships only `edit` and `write`, and both take one path
+              // per call (verified against the tool schemas). Every other name
+              // comes from another host or an MCP server, so a call through one
+              // of those may mutate many files and reports its coverage.
+              piSingleFileTools: [...SINGLE_FILE_WRITE_TOOLS].sort(),
+              multiFileCapableTools: [...MULTI_FILE_WRITE_TOOLS].sort(),
+            },
+          },
+          contentArtifacts: contentArtifacts,
+          repoMap: repoMapStats(),
+          // Turns that ended on a post-write verdict the model never saw. A
+          // non-empty list means some write was left unverified at the boundary.
+          finalWriteVerdictsNotSeen: writeFeedbackFinalVerdicts.map((row) => ({
+            at: row.at,
+            seenByModel: false,
+            rows: row.rows,
+          })),
+        },
       }, { triggerTurn: false });
       try { ctx.ui.notify("UES runtime " + PACKAGE_VERSION + " loaded", "info"); } catch {}
     },
@@ -5511,9 +5794,12 @@ export default function (pi: ExtensionAPI) {
         const entries = await fs.promises.readdir(cacheDir, { withFileTypes: true }).catch(() => []);
         for (const entry of entries) {
           if (entry.name === "evidence-v1") continue;
+          // Matched by shape rather than by exact name: the semantic index
+          // cache file is versioned, and /ues-clean must not strand an older
+          // schema's file when the schema is bumped.
           if (
-            entry.name === "semantic-index-v1.json" ||
-            entry.name.startsWith("semantic-index-v1.json.") ||
+            /^semantic-index-v\d+\.json$/.test(entry.name) ||
+            entry.name.startsWith("semantic-index-v") ||
             entry.name === "verification-broker-v1.json" ||
             entry.name.startsWith("verification-broker-v1.json.")
           ) {

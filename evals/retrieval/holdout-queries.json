@@ -1,0 +1,327 @@
+{
+  "schemaVersion": 1,
+  "kind": "ues-retrieval-holdout",
+  "frozenAt": "15.3 independent hardening audit, section A",
+  "note": "FROZEN HOLDOUT. Written from the design of evals/retrieval/holdout-fixtures.mjs before any holdout run, and never used to tune lib/repo-map.mjs. The original 21-query set is not a holdout any more because the ranking was revised after its failures were observed. Class coverage: exact symbol, ambiguous symbol, cross-module dependency, reverse dependency, test lookup, changed-file bug, monorepo locality, generic hotspot distractor, same-name symbols in different modules, file with many identifier mentions but no declaration.",
+  "queries": [
+    {
+      "family": "family-a-python-services",
+      "id": "a-exact-post-entry",
+      "class": "exact-symbol",
+      "query": "post_entry",
+      "primary": "services/ledger/src/ledger/posting.py",
+      "expect": ["services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-exact-normalise",
+      "class": "exact-symbol",
+      "query": "normalise_entry",
+      "primary": "services/ledger/src/ledger/entries.py",
+      "expect": ["services/ledger/src/ledger/entries.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-exact-dispatch",
+      "class": "exact-symbol",
+      "query": "dispatch_route",
+      "primary": "services/gateway/src/gateway/router.py",
+      "expect": ["services/gateway/src/gateway/router.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-exact-handle-request",
+      "class": "exact-symbol",
+      "query": "handle_post_entry_request",
+      "primary": "services/gateway/src/gateway/handlers.py",
+      "expect": ["services/gateway/src/gateway/handlers.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-ambiguous-posting-rejected",
+      "class": "ambiguous-symbol",
+      "query": "PostingRejected",
+      "primary": "services/ledger/src/ledger/posting.py",
+      "expect": ["services/ledger/src/ledger/posting.py", "services/ledger/src/ledger/posting_legacy.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-ambiguous-legacy-posting",
+      "class": "ambiguous-symbol",
+      "query": "post_entry_legacy",
+      "primary": "services/ledger/src/ledger/posting_legacy.py",
+      "expect": ["services/ledger/src/ledger/posting_legacy.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-mentions-only-reports",
+      "class": "mentions-without-declaration",
+      "query": "post_entry report summary",
+      "primary": "services/gateway/src/gateway/reports.py",
+      "expect": ["services/gateway/src/gateway/reports.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-cross-module-router-to-ledger",
+      "class": "cross-module-dependency",
+      "query": "how does the gateway route reach the ledger",
+      "primary": "services/gateway/src/gateway/router.py",
+      "expect": ["services/gateway/src/gateway/router.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-cross-module-posting-to-entries",
+      "class": "cross-module-dependency",
+      "query": "what does post_entry normalise before returning",
+      "primary": "services/ledger/src/ledger/entries.py",
+      "expect": ["services/ledger/src/ledger/entries.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-reverse-of-entries",
+      "class": "reverse-dependency",
+      "query": "callers of normalise_entry",
+      "primary": "services/ledger/src/ledger/entries.py",
+      "expect": ["services/ledger/src/ledger/entries.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-reverse-of-telemetry",
+      "class": "reverse-dependency",
+      "changed": ["lib/shared/src/shared/telemetry.py"],
+      "query": "audit_span recording",
+      "primary": "lib/shared/src/shared/telemetry.py",
+      "expect": ["lib/shared/src/shared/telemetry.py", "services/gateway/src/gateway/router.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-test-posting",
+      "class": "test-lookup",
+      "query": "tests covering post_entry",
+      "primary": "tests/test_posting.py",
+      "expect": ["tests/test_posting.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-test-router",
+      "class": "test-lookup",
+      "query": "test for dispatch_route",
+      "primary": "tests/test_router.py",
+      "expect": ["tests/test_router.py", "services/gateway/src/gateway/router.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-changed-posting-bug",
+      "class": "changed-file-bug",
+      "changed": ["services/ledger/src/ledger/posting.py"],
+      "query": "post_entry raises on empty amount",
+      "primary": "services/ledger/src/ledger/posting.py",
+      "expect": ["services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-changed-router-bug",
+      "class": "changed-file-bug",
+      "changed": ["services/gateway/src/gateway/router.py"],
+      "query": "wrong route returns for an entry",
+      "primary": "services/gateway/src/gateway/router.py",
+      "expect": ["services/gateway/src/gateway/router.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-locality-gateway",
+      "class": "monorepo-locality",
+      "query": "services/gateway request handling",
+      "primary": "services/gateway/src/gateway/handlers.py",
+      "expect": ["services/gateway/src/gateway/handlers.py", "services/gateway/src/gateway/router.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-locality-ledger",
+      "class": "monorepo-locality",
+      "query": "services/ledger entry normalisation",
+      "primary": "services/ledger/src/ledger/entries.py",
+      "expect": ["services/ledger/src/ledger/entries.py", "services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-hotspot-distractor",
+      "class": "hotspot-distractor",
+      "query": "post_entry",
+      "primary": "services/ledger/src/ledger/posting.py",
+      "expect": ["services/ledger/src/ledger/posting.py"]
+    },
+    {
+      "family": "family-a-python-services",
+      "id": "a-substring-trap",
+      "class": "exact-symbol",
+      "query": "summarise_entries",
+      "primary": "services/ledger/src/ledger/entries.py",
+      "expect": ["services/ledger/src/ledger/entries.py"]
+    },
+
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-exact-fetch-ledger",
+      "class": "exact-symbol",
+      "query": "fetchLedger",
+      "primary": "src/api/client.js",
+      "expect": ["src/api/client.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-exact-parse-amount",
+      "class": "exact-symbol",
+      "query": "parseAmount",
+      "primary": "src/utils/money.js",
+      "expect": ["src/utils/money.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-exact-hydrate",
+      "class": "exact-symbol",
+      "query": "hydrateStore",
+      "primary": "src/core/store.js",
+      "expect": ["src/core/store.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-exact-chart",
+      "class": "exact-symbol",
+      "query": "renderLedgerChart",
+      "primary": "src/components/LedgerChart.js",
+      "expect": ["src/components/LedgerChart.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-ambiguous-format-amount",
+      "class": "ambiguous-symbol",
+      "query": "formatAmount",
+      "primary": "src/utils/money.js",
+      "expect": ["src/utils/money.js", "src/components/LedgerChart.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-ambiguous-legacy-page",
+      "class": "ambiguous-symbol",
+      "query": "fetchLedgerLegacy",
+      "primary": "src/api/client.js",
+      "expect": ["src/api/client.js", "src/legacy/client-legacy.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-barrel-trap",
+      "class": "mentions-without-declaration",
+      "query": "src/index.js barrel re-exports",
+      "primary": "src/index.js",
+      "expect": ["src/index.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-mentions-only-panel",
+      "class": "mentions-without-declaration",
+      "query": "formatAmount used to render a panel",
+      "primary": "src/components/LedgerPanel.js",
+      "expect": ["src/components/LedgerPanel.js", "src/utils/money.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-cross-module-table-to-money",
+      "class": "cross-module-dependency",
+      "query": "how does the table render amounts",
+      "primary": "src/components/LedgerTable.js",
+      "expect": ["src/components/LedgerTable.js", "src/utils/money.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-cross-module-hook-to-client",
+      "class": "cross-module-dependency",
+      "query": "useLedger fetches from which client",
+      "primary": "src/hooks/useLedger.js",
+      "expect": ["src/hooks/useLedger.js", "src/api/client.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-circular-client-store",
+      "class": "cross-module-dependency",
+      "query": "fetchLedger reads the store it also feeds",
+      "primary": "src/api/client.js",
+      "expect": ["src/api/client.js", "src/core/store.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-reverse-of-money",
+      "class": "reverse-dependency",
+      "query": "who imports formatAmount from utils",
+      "primary": "src/utils/money.js",
+      "expect": ["src/utils/money.js", "src/components/LedgerTable.js", "src/components/LedgerPanel.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-reverse-of-client",
+      "class": "reverse-dependency",
+      "changed": ["src/api/client.js"],
+      "query": "fetchLedger endpoint handling",
+      "primary": "src/api/client.js",
+      "expect": ["src/api/client.js", "src/hooks/useLedger.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-test-fetch-ledger",
+      "class": "test-lookup",
+      "query": "tests for fetchLedger",
+      "primary": "test/fetchLedger.test.js",
+      "expect": ["test/fetchLedger.test.js", "src/api/client.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-test-amount",
+      "class": "test-lookup",
+      "query": "test that formatAmount rounds cents",
+      "primary": "test/formatAmount.test.js",
+      "expect": ["test/formatAmount.test.js", "src/utils/money.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-changed-table-bug",
+      "class": "changed-file-bug",
+      "changed": ["src/components/LedgerTable.js"],
+      "query": "table shows the wrong amount for an entry",
+      "primary": "src/components/LedgerTable.js",
+      "expect": ["src/components/LedgerTable.js", "src/utils/money.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-changed-store-bug",
+      "class": "changed-file-bug",
+      "changed": ["src/core/store.js"],
+      "query": "store hydration returns stale entries",
+      "primary": "src/core/store.js",
+      "expect": ["src/core/store.js", "src/api/client.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-locality-components",
+      "class": "monorepo-locality",
+      "query": "src/components chart rendering",
+      "primary": "src/components/LedgerChart.js",
+      "expect": ["src/components/LedgerChart.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-locality-hooks",
+      "class": "monorepo-locality",
+      "query": "src/hooks ledger hook",
+      "primary": "src/hooks/useLedger.js",
+      "expect": ["src/hooks/useLedger.js"]
+    },
+    {
+      "family": "family-b-flat-js-app",
+      "id": "b-hotspot-distractor",
+      "class": "hotspot-distractor",
+      "query": "renderLedgerTable",
+      "primary": "src/components/LedgerTable.js",
+      "expect": ["src/components/LedgerTable.js"]
+    }
+  ]
+}

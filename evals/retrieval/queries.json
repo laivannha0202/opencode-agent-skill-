@@ -1,0 +1,157 @@
+{
+  "schemaVersion": 1,
+  "kind": "ues-retrieval-queries",
+  "note": "Deterministic repo-map retrieval fixtures. `expect` is the full set of relevant files for recall@K; `primary` is the single file that must rank first for MRR. `changed`/`declared` model the runtime signals a real task supplies. Every path must exist in evals/retrieval/fixture.mjs (asserted by test/repo-map.test.mjs).",
+  "queries": [
+    {
+      "id": "exact-symbol-pricing",
+      "class": "exact-symbol",
+      "query": "calculateOrderTotal",
+      "primary": "packages/core/src/pricing.mjs",
+      "expect": ["packages/core/src/pricing.mjs"]
+    },
+    {
+      "id": "exact-symbol-inventory",
+      "class": "exact-symbol",
+      "query": "reserveInventory",
+      "primary": "packages/core/src/inventory.mjs",
+      "expect": ["packages/core/src/inventory.mjs"]
+    },
+    {
+      "id": "exact-symbol-tax",
+      "class": "exact-symbol",
+      "query": "computeTaxRate",
+      "primary": "packages/billing/src/tax.mjs",
+      "expect": ["packages/billing/src/tax.mjs"]
+    },
+    {
+      "id": "exact-symbol-refunds",
+      "class": "exact-symbol",
+      "query": "refundInvoice",
+      "primary": "packages/billing/src/refunds.mjs",
+      "expect": ["packages/billing/src/refunds.mjs"]
+    },
+    {
+      "id": "exact-symbol-audit",
+      "class": "exact-symbol",
+      "query": "auditTrail",
+      "primary": "packages/shared/src/telemetry.mjs",
+      "expect": ["packages/shared/src/telemetry.mjs"]
+    },
+    {
+      "id": "cross-file-where-checkout-totals",
+      "class": "cross-file-dependency",
+      "query": "where is checkout order total computed",
+      "primary": "apps/api/src/checkout.mjs",
+      "expect": ["apps/api/src/checkout.mjs", "packages/core/src/pricing.mjs"]
+    },
+    {
+      "id": "cross-file-who-calls-invoice",
+      "class": "cross-file-dependency",
+      "query": "buildInvoiceSummary callers",
+      "primary": "packages/billing/src/invoice.mjs",
+      "expect": ["packages/billing/src/invoice.mjs", "apps/api/src/checkout.mjs"]
+    },
+    {
+      "id": "cross-file-cart-to-api",
+      "class": "cross-file-dependency",
+      "query": "submitCart handleCheckoutRequest",
+      "primary": "apps/web/src/cart.mjs",
+      "expect": ["apps/web/src/cart.mjs", "apps/api/src/handlers.mjs", "apps/api/src/checkout.mjs"]
+    },
+    {
+      "id": "cross-file-tax-applied-to-invoice",
+      "class": "cross-file-dependency",
+      "query": "how is tax applied to an invoice summary",
+      "primary": "packages/billing/src/invoice.mjs",
+      "expect": ["packages/billing/src/invoice.mjs", "packages/billing/src/tax.mjs"]
+    },
+    {
+      "id": "changed-file-place-order-bug",
+      "class": "changed-file-bug",
+      "query": "placeOrder reports wrong total after promotion",
+      "primary": "packages/core/src/orders.mjs",
+      "changed": ["packages/core/src/orders.mjs"],
+      "expect": ["packages/core/src/orders.mjs", "packages/core/src/pricing.mjs"]
+    },
+    {
+      "id": "changed-file-telemetry-leak",
+      "class": "changed-file-bug",
+      "query": "counters grow without bound in telemetry",
+      "primary": "packages/shared/src/telemetry.mjs",
+      "changed": ["packages/shared/src/telemetry.mjs"],
+      "expect": ["packages/shared/src/telemetry.mjs"]
+    },
+    {
+      "id": "test-related-pricing",
+      "class": "test-related",
+      "query": "tests for calculateOrderTotal and applyPromotion",
+      "primary": "test/pricing.test.mjs",
+      "expect": ["test/pricing.test.mjs", "packages/core/src/pricing.mjs"]
+    },
+    {
+      "id": "test-related-checkout",
+      "class": "test-related",
+      "query": "checkout request handler test coverage",
+      "primary": "apps/api/src/handlers.mjs",
+      "expect": ["apps/api/src/handlers.mjs", "test/checkout.test.mjs"]
+    },
+    {
+      "id": "ambiguous-lexical-pricing",
+      "class": "ambiguous-lexical",
+      "query": "pricing",
+      "primary": "packages/core/src/pricing.mjs",
+      "expect": ["packages/core/src/pricing.mjs"]
+    },
+    {
+      "id": "ambiguous-lexical-legacy",
+      "class": "ambiguous-lexical",
+      "query": "legacyPricingSheet season factor",
+      "primary": "packages/core/src/legacy/pricing-legacy.mjs",
+      "expect": ["packages/core/src/legacy/pricing-legacy.mjs"]
+    },
+    {
+      "id": "ambiguous-lexical-order-word",
+      "class": "ambiguous-lexical",
+      "query": "order",
+      "primary": "packages/core/src/orders.mjs",
+      "expect": ["packages/core/src/orders.mjs"]
+    },
+    {
+      "id": "ambiguous-lexical-invoice-word",
+      "class": "ambiguous-lexical",
+      "query": "invoice",
+      "primary": "packages/billing/src/invoice.mjs",
+      "expect": ["packages/billing/src/invoice.mjs"]
+    },
+    {
+      "id": "monorepo-billing-tax",
+      "class": "monorepo-local",
+      "query": "@fixture/billing regional tax",
+      "primary": "packages/billing/src/tax.mjs",
+      "expect": ["packages/billing/src/tax.mjs"]
+    },
+    {
+      "id": "monorepo-core-money",
+      "class": "monorepo-local",
+      "query": "packages/core currency rounding helper",
+      "primary": "packages/core/src/utils/money.mjs",
+      "expect": ["packages/core/src/utils/money.mjs"]
+    },
+    {
+      "id": "monorepo-api-handler-entry",
+      "class": "monorepo-local",
+      "query": "apps/api http entry point",
+      "primary": "apps/api/src/handlers.mjs",
+      "expect": ["apps/api/src/handlers.mjs", "apps/api/src/checkout.mjs"]
+    },
+    {
+      "id": "declared-scope-money",
+      "class": "declared",
+      "query": "adjust rounding behaviour",
+      "declared": ["packages/core/src/utils/money.mjs"],
+      "primary": "packages/core/src/utils/money.mjs",
+      "expect": ["packages/core/src/utils/money.mjs"]
+    }
+  ]
+}

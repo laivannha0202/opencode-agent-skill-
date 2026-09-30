@@ -18,12 +18,15 @@ import {
 } from "../../lib/verification-command.mjs";
 import {
   applyAnchoredFileEdits,
+  createWriteFeedbackController,
   diagnoseCode,
+  extractWrittenFiles,
   lspOperation,
   probeCodeIntelligence,
   readAnchoredCode,
   searchCodeIntelligence,
   shutdownLspPool,
+  WRITE_FEEDBACK_TOOLS,
 } from "../../lib/code-intelligence/index.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
@@ -233,8 +236,92 @@ export default function (pi: ExtensionAPI) {
     return undefined;
   });
 
+  // V15.3 incremental write intelligence.
+  //
+  // The child runtime owns a mutation surface Pi does not expose to handlers
+  // (`ues_code_edit` runs in-tool, before `tool_result` fires), so it gets its
+  // own controller and the same honesty contract. `ues_code_edit` therefore
+  // reports code state by default and the old opt-in `diagnostics` parameter is
+  // retained only for callers that want the full uncompacted list.
+  const childWriteFeedbackEnabled = !["0", "false", "off"].includes(
+    String(process.env.UES_POST_WRITE_FEEDBACK || "1").trim().toLowerCase(),
+  );
+  let childWriteFeedback: any = null;
+  let childWriteFeedbackRoot = "";
+
+  const childWriteFeedbackController = (root: string) => {
+    if (!childWriteFeedbackEnabled) return null;
+    const resolved = root || process.cwd();
+    if (childWriteFeedback && childWriteFeedbackRoot === resolved) return childWriteFeedback;
+    if (childWriteFeedback) {
+      void childWriteFeedback.shutdown?.().catch(() => {});
+      childWriteFeedback = null;
+    }
+    childWriteFeedbackRoot = resolved;
+    childWriteFeedback = createWriteFeedbackController({
+      root: resolved,
+      runDiagnostics: (target: { root: string; relative: string }) =>
+        diagnoseCode(target.root, target.relative, {
+          timeoutMs: 4_000,
+          maxResults: 40,
+          persistent: true,
+          diagnosticsBudgetPolicy: "post-write-adaptive",
+        }),
+    });
+    return childWriteFeedback;
+  };
+
+  // Returns an object to COMPOSE onto the host result, or undefined. Never
+  // mutates, never blocks a write, never reports "clean" from an incomplete run.
+  async function childPostWriteFeedback(event: any, eventCtx: any, toolName: string) {
+    if (!childWriteFeedbackEnabled) return undefined;
+    if (event?.isError === true) return undefined;
+    const controller = childWriteFeedbackController(String(eventCtx?.cwd || process.cwd()));
+    if (!controller) return undefined;
+    // Anything a coalesced write is still owed is delivered on ANY tool result,
+    // so a child that edits one file repeatedly is never left holding a
+    // "pending" with nothing behind it.
+    const owed = controller.drain().filter((item: any) => item?.text);
+    let feedback: any = null;
+    if (WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase())) {
+      const input = event && typeof event.input === "object" && event.input ? event.input : {};
+      const relative = extractWrittenFiles(toolName, input)[0];
+      if (relative) {
+        try {
+          feedback = await controller.noteWrite({ toolName, input, relative });
+        } catch {
+          return undefined;
+        }
+      }
+    }
+    const blocks = [...owed.map((item: any) => item.text), ...(feedback?.text ? [feedback.text] : [])];
+    if (!blocks.length) return undefined;
+    const originalContent = Array.isArray(event.content) ? event.content : [];
+    return {
+      content: [...originalContent, ...blocks.map((text: string) => ({ type: "text", text }))],
+      details: {
+        ...(event.details && typeof event.details === "object" ? event.details : {}),
+        uesPostWrite: {
+          delivered: owed.length,
+          ...(feedback
+            ? {
+                file: feedback.file,
+                status: feedback.status,
+                complete: feedback.complete === true,
+                errorCount: feedback.errorCount ?? 0,
+                warningCount: feedback.warningCount ?? 0,
+              }
+            : {}),
+        },
+      },
+      isError: event.isError === true,
+      usage: event.usage,
+    };
+  }
+
   pi.on("tool_result", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    const postWrite = await childPostWriteFeedback(event as any, ctx as any, toolName);
     const shownText = visibleText(event);
     const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
     const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
@@ -251,10 +338,11 @@ export default function (pi: ExtensionAPI) {
         return {
           content: [
             { type: "text", text: renderUntrustedOutputWarning(analysis, { source: toolName }) },
-            ...originalContent,
+            ...(postWrite?.content || originalContent),
           ],
           details: {
             ...(event.details && typeof event.details === "object" ? event.details : {}),
+            ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
             uesUntrustedOutputBoundary: analysis,
           },
           isError: event.isError,
@@ -264,7 +352,7 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (!["bash", "powershell", "grep", "find", "ls"].includes(toolName)) {
-      return undefined;
+      return postWrite;
     }
     const capture = await capturedText(event, shownText);
     const rawText = capture.text;
@@ -514,6 +602,17 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
         const edited = await applyAnchoredFileEdits(ctx.cwd, params.file, params.edits, { dryRun: params.dryRun === true });
+        // Post-write intelligence is on by default. The `diagnostics` parameter
+        // is kept as the request for the FULL provider payload; the default path
+        // returns a compact, honest block that never claims "clean" from an
+        // incomplete analysis. A dry run reports nothing because nothing changed.
+        let postWrite: any = null;
+        if (params.dryRun !== true) {
+          const controller = childWriteFeedbackController(String(ctx.cwd || process.cwd()));
+          postWrite = controller
+            ? await controller.noteWrite({ toolName: "ues_code_edit", input: { file: params.file }, relative: params.file }).catch(() => null)
+            : null;
+        }
         const diagnostics = params.diagnostics === true && params.dryRun !== true
           ? await diagnoseCode(ctx.cwd, params.file, { timeoutMs: 3000, maxDiagnostics: 40 }).catch(() => null)
           : null;
@@ -523,15 +622,34 @@ export default function (pi: ExtensionAPI) {
           dryRun: edited.dryRun,
           sourceHash: edited.sourceHash,
           outputHash: edited.outputHash,
+          postWrite: postWrite
+            ? {
+                status: postWrite.status,
+                complete: postWrite.complete === true,
+                source: postWrite.source,
+                errorCount: postWrite.errorCount ?? 0,
+                warningCount: postWrite.warningCount ?? 0,
+                errors: postWrite.errors || [],
+                warnings: postWrite.warnings || [],
+                truncated: postWrite.truncated === true,
+                durationMs: postWrite.durationMs ?? null,
+                poolHit: postWrite.poolHit ?? null,
+                ...(postWrite.reason ? { reason: postWrite.reason } : {}),
+              }
+            : null,
           diagnostics: diagnostics ? {
             available: diagnostics.available,
             provider: diagnostics.provider,
             reason: diagnostics.reason,
+            complete: diagnostics.complete === true,
             count: diagnostics.diagnostics?.length || 0,
             items: (diagnostics.diagnostics || []).slice(0, 40),
           } : null,
         };
-        return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }], details: result };
+        const text = postWrite?.text
+          ? [JSON.stringify(result, null, 2), postWrite.text].join("\n")
+          : JSON.stringify(result, null, 2);
+        return { content: [{ type: "text", text }], details: result };
       } catch (error) {
         return {
           content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
