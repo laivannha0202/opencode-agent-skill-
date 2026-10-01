@@ -2050,13 +2050,23 @@ async function runRoutedAgent(
       stderr: "",
       model: inheritedModel,
       modelTier: selection.tier,
-      modelSelection: selection,
+      modelSelection: { ...selection, diversitySelectedModel: selectedModel || null },
       taskPolicy,
       verdict: "FAIL",
     };
   }
 
-  const selectedModel = selection.model || inheritedModel;
+  let selectedModel = selection.model || inheritedModel;
+  const verifierRole = ["verifier", "integration-verifier", "visual-verifier"].includes(role);
+  const highRiskVerification = ["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase());
+  if (verifierRole && highRiskVerification) {
+    const diverseCandidate = (selection.capabilitySelection?.candidates || [])
+      .filter((candidate: any) => candidate?.eligible && candidate?.id && candidate.id !== inheritedModel)
+      .sort((a: any, b: any) =>
+        Number(b.adjustedScore ?? b.score ?? 0) - Number(a.adjustedScore ?? a.score ?? 0)
+      )[0];
+    if (diverseCandidate?.id) selectedModel = String(diverseCandidate.id);
+  }
   const selectedProvider = selectedModel && selectedModel.includes("/")
     ? selectedModel.split("/", 1)[0]
     : null;
@@ -2281,6 +2291,19 @@ async function runRoutedAgent(
     }
   }
   const contextBuildMs = Date.now() - contextBuildStartedAt;
+
+  if (modelProfile.roleContextABI) {
+    const abi = modelProfile.roleContextABI;
+    enrichedTask += [
+      "",
+      "## UES V15.9 Role Context ABI",
+      "Role: " + String(abi.role || role) + "; readOnly=" + String(abi.readOnly === true) + "; freshContextRequired=" + String(abi.freshContextRequired === true) + ".",
+      "Use only task-scoped evidence needed by this role. Executor private rationale is not evidence and must not be used by independent verifier/critic roles.",
+      abi.readOnly === true
+        ? "Do not mutate repository state; return findings/verdict with evidence."
+        : "Mutations must stay inside the approved task/write scope and remain independently verifiable.",
+    ].join("\n");
+  }
 
   if (browserRequested) {
     enrichedTask += browserTools.length
