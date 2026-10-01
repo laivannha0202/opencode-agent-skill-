@@ -245,6 +245,8 @@ const CONTRACTS = [
       "cacheAwareVisibleBudget",
       "recordEfficiencyEvent",
       "UES_CHILD_CACHE_MODE",
+      "requested > configured",
+      "(event.input as any).timeout = configured",
     ],
   },
   {
@@ -402,7 +404,7 @@ const CONTRACTS = [
     file: "lib/provider-cache-stability.mjs",
     minBytes: 2_000,
     startsWith: 'import { readTaskTelemetry }',
-    required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "NOT_MEASURED", "preserveStablePrefix"],
+    required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens"],
   },
   {
     file: "lib/content-router-v2.mjs",
@@ -426,7 +428,7 @@ const CONTRACTS = [
     file: "lib/efficiency-ledger.mjs",
     minBytes: 3_000,
     startsWith: 'import path from "node:path"',
-    required: ["recordEfficiencyEvent", "efficiencySummary", "DERIVED_FROM_MEASURED", "NOT_INFERRED_FROM_EFFICIENCY", "uncachedInputTokens"],
+    required: ["recordEfficiencyEvent", "efficiencySummary", "DERIVED_FROM_MEASURED", "NOT_INFERRED_FROM_EFFICIENCY", "uncachedInputTokens", "withEfficiencyLock", "UES_EFFICIENCY_LEDGER_LOCK_TIMEOUT", "pi-normalized-disjoint"],
   },
   {
     file: "lib/runtime-waste-learner.mjs",
@@ -438,7 +440,7 @@ const CONTRACTS = [
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["hidden verification progress", "cache policy is measurement gated", "cachePolicyHash-changed", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "task telemetry feeds the efficiency ledger"],
+    required: ["hidden verification progress", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
