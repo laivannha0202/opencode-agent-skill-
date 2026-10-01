@@ -1084,6 +1084,7 @@ const CONTRACTS = [
       "--mode must be baseline, ues, or both",
       "firstUsage",
       "usageSample",
+      "step.firstUsage",
       "telemetryLines",
       "consumePiOutput",
       "requireMeasuredEfficiency: true",
