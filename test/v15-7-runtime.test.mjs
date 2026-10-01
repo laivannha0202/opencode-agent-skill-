@@ -42,7 +42,7 @@ test("V15.7 cache policy is measurement gated and cache aware", () => {
   const rows = Array.from({ length: 5 }, (_, index) => ({
     type: "task.telemetry",
     model: "provider/model",
-    metrics: { inputTokens: 1000, cacheReadTokens: 700, cacheWriteTokens: 50 + index },
+    metrics: { inputTokens: 200, cacheReadTokens: 700, cacheWriteTokens: 100 + index },
   }))
   const policy = cacheStabilityFromRows(rows, { model: "provider/model", minSamples: 4 })
   assert.equal(policy.mode, "cache")
@@ -84,11 +84,13 @@ test("V15.7 efficiency ledger labels measured and derived evidence honestly", ()
     inputTokens: 1000,
     cacheReadTokens: 600,
     cacheWriteTokens: 100,
+    uncachedInputTokens: 1000,
+    usageAccounting: "pi-normalized-disjoint",
     outputTokens: 50,
     beforeChars: 20000,
     afterChars: 8000,
   })
-  assert.equal(row.metrics.uncachedInputTokens, 300)
+  assert.equal(row.metrics.uncachedInputTokens, 1000)
   assert.equal(row.provenance.providerTokens, "MEASURED")
   assert.equal(row.provenance.uncachedInputTokens, "DERIVED_FROM_MEASURED")
   assert.equal(row.provenance.quality, "NOT_MEASURED")
@@ -163,7 +165,7 @@ test("V15.7 task telemetry feeds the efficiency ledger", async () => {
     assert.equal(summary.observations, 1)
     assert.equal(summary.measuredProviderTokenRows, 1)
     assert.equal(summary.inputTokens, 2000)
-    assert.equal(summary.uncachedInputTokens, 900)
+    assert.equal(summary.uncachedInputTokens, 2000)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
