@@ -30,6 +30,7 @@ test("V16 external outputs keep an explicit non-authoritative provenance boundar
   assert.match(runtime, /always:\s*true/)
   assert.doesNotMatch(runtime, /if\s*\(analysis\.flagged\)\s*\{/)
   assert.match(runtime, /governToolOutput\(ctx\.cwd, rawText/)
+  assert.match(runtime, /sensitiveExecutionRisk/)
   assert.match(boundary, /instructionAuthority:\s*"none"/)
   assert.match(boundary, /UES EXTERNAL DATA BOUNDARY/)
 })
@@ -53,6 +54,7 @@ test("V16 runtime status exposes the active hardening contracts", async () => {
     "V16 static completeness gate: on",
     "V16 durable evidence integrity: on",
     "V16 external data provenance: on",
+    "V16 capability exfiltration guard: on",
     "V16 Windows cleanup barrier: on",
     "V16 cost-aware model routing: on",
   ]) {
