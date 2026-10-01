@@ -169,6 +169,7 @@ const CONTRACTS = [
       "initializeRunArtifacts",
       "finalizeRunArtifacts",
       "UES_CHILD_RUNTIME_EPOCH_ID",
+      "skills: Array.isArray(microSkills?.loaded)",
       "V15.6 durable run journal",
       "V15.6 adaptive tool scheduler",
     ],
@@ -331,7 +332,7 @@ const CONTRACTS = [
     file: "lib/run-journal.mjs",
     minBytes: 4_000,
     startsWith: 'import { createHash }',
-    required: ["createRunJournal", "appendRunJournalEvent", "recoverRunJournal", "UES_RUN_IDEMPOTENCY_CONFLICT", "tool.interrupted", "replayed: false"],
+    required: ["createRunJournal", "appendRunJournalEvent", "recoverRunJournal", "UES_RUN_IDEMPOTENCY_CONFLICT", "UES_RUN_JOURNAL_LOCK_TIMEOUT", "withCrossProcessJournalLock", "tool.interrupted", "replayed: false"],
   },
   {
     file: "lib/adaptive-compaction.mjs",
@@ -361,7 +362,7 @@ const CONTRACTS = [
     file: "test/v15-6-runtime.test.mjs",
     minBytes: 7_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["runtime epochs are deterministic", "tool scheduler runs bounded reads together", "preflight admission never waits behind sibling tools", "crash recovery never replays side effects", "adaptive compaction preserves more", "refuse diverged rollback", "run artifacts and inspector"],
+    required: ["runtime epochs are deterministic", "skillSurfaceHash-changed", "tool scheduler runs bounded reads together", "preflight admission never waits behind sibling tools", "crash recovery never replays side effects", "adaptive compaction preserves more", "refuse diverged rollback", "never follow symlink paths", "run artifacts and inspector"],
   },
   {
     file: "scripts/inspect-run.mjs",
