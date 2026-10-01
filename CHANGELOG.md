@@ -1,5 +1,29 @@
 # Changelog
 
+## [15.8.0] - 2026-10-01
+
+### Added
+
+- **Command Intelligence V4.** Unwraps PowerShell call-operator commands, `cmd /c`, PowerShell/pwsh `-Command`, and POSIX `sh/bash/zsh -c` launchers before verification/service classification. Hidden verification pipelines remain visible to policy after wrapper unwrapping.
+- **Bun package-manager coverage.** `bun test`, filtered Bun tests, and Bun dev/start scripts share the verification/managed-service lanes and command-aware output reduction.
+- **Real A/B Telemetry V2.** Pi eval captures first provider usage, so initial-input inflation is measured instead of silently unavailable.
+- **Fail-closed real-model promotion.** `ues trial --require-promotion` / `npm run trial:gate` requires paired quality non-regression plus measured efficiency evidence.
+- **Provider Cache Stability V2.** Learning is scoped by provider + model + accounting schema and uses bounded hysteresis to avoid oscillation on borderline samples.
+- **Model Runtime Profile V2.** Runtime surfaces prefer measured performance, then configured capability evidence, then model-name heuristics.
+- Added `npm run eval:v15.8` and V15.8 measured-hardening regression coverage.
+
+### Changed
+
+- Package/status contracts advance to 15.8.0 / status schema V6.
+- `release:verify` now includes `eval:v15.8`.
+- Cache policy cold-start evidence is more conservative while preserving V15.7 live-zone-only compaction and stable-prefix semantics.
+
+### Safety / quality invariants
+
+- Independent verifier, integration/visual gates, Evidence Store, dirty-work/local-env/destructive-command guards, execution ownership and selected thinking level are not weakened.
+- Missing real-model token evidence blocks promotion when `--require-promotion` is requested; deterministic tests still never imply real-model performance.
+- Runtime Waste Learner remains evidence-producing and does not self-modify correctness/security gates.
+
 ## [15.7.0] - 2026-10-01
 
 ### Added
