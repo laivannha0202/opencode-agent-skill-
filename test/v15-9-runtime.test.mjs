@@ -1,5 +1,8 @@
 import test from "node:test"
 import assert from "node:assert/strict"
+import { readFile } from "node:fs/promises"
+import { fileURLToPath } from "node:url"
+import path from "node:path"
 
 import { compileModelAciProfile, modelRuntimeProfile } from "../lib/model-runtime-profile.mjs"
 import { compilePolicyLattice, evaluatePolicyLattice } from "../lib/permission-policy.mjs"
@@ -177,4 +180,34 @@ test("V15.9 lifecycle hook ABI exposes deterministic hook boundaries", async () 
   const result = await bus.emit("tool.before", { bounded: false })
   assert.equal(result.payload.bounded, true)
   assert.equal(bus.snapshot().schemaVersion, 2)
+})
+
+
+test("V15.9 Pi runtime wires lifecycle ABI and exact surface telemetry", async () => {
+  const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+  const parent = await readFile(path.join(root, "pi", "extensions", "ues.ts"), "utf8")
+  const child = await readFile(path.join(root, "pi", "extensions", "ues-child-runtime.ts"), "utf8")
+  for (const marker of [
+    'PARENT_RUNTIME_HOOKS.emit("tool.before-expose"',
+    'PARENT_RUNTIME_HOOKS.emit("context.before-build"',
+    'PARENT_RUNTIME_HOOKS.emit("context.after-build"',
+    'PARENT_RUNTIME_HOOKS.emit("compaction.before"',
+    'PARENT_RUNTIME_HOOKS.emit("compaction.after"',
+    'PARENT_RUNTIME_HOOKS.emit("finalize.before"',
+    'PARENT_RUNTIME_HOOKS.emit("finalize.after"',
+    '"decision.surface-compiled"',
+    "policySnapshotId: policySnapshot.id",
+    "allowedTools: [...allowedTools]",
+  ]) assert.ok(parent.includes(marker), "missing parent runtime marker: " + marker)
+
+  for (const marker of [
+    'RUNTIME_HOOKS.emit("tool.before"',
+    'RUNTIME_HOOKS.emit("tool.after"',
+    'RUNTIME_HOOKS.emit("write.before"',
+    'RUNTIME_HOOKS.emit("write.after"',
+    'RUNTIME_HOOKS.emit("verification.before"',
+    'RUNTIME_HOOKS.emit("verification.after"',
+    "governToolOutput",
+    "uesOutputGovernor",
+  ]) assert.ok(child.includes(marker), "missing child runtime marker: " + marker)
 })
