@@ -454,7 +454,7 @@ const CONTRACTS = [
     file: "lib/runtime-waste-learner.mjs",
     minBytes: 2_000,
     startsWith: 'import { listRunJournals',
-    required: ["learnRuntimeWaste", "repeated-tool-work", "repeated-read-work", "repeated-search-work", "repeated-mutation-work", "tool-queue-pressure", "provider-wait-pressure", "exact-tool-schema-token-tax", "exact-subagent-prefix-token-tax", "counterfactual-quality-gain"],
+    required: ["learnRuntimeWaste", "measuredNumber", "repeated-tool-work", "repeated-read-work", "repeated-search-work", "repeated-mutation-work", "tool-queue-pressure", "provider-wait-pressure", "provider-stage-latency", "exact-tool-schema-token-tax", "exact-subagent-prefix-token-tax", "counterfactual-quality-gain"],
   },
   {
     file: "test/v15-7-runtime.test.mjs",
