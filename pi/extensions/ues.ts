@@ -895,8 +895,6 @@ async function runAgentCli(
   const usageSamples: any[] = [];
   let toolCalls = 0;
   let toolQueueMs = 0;
-  let firstUsage: any = undefined;
-  const usageSamples: any[] = [];
   const toolNames = new Set<string>();
 
   try {
@@ -1367,6 +1365,8 @@ async function runAgentRpc(
   let lastActivityAt = startedAt;
   let toolCalls = 0;
   let toolQueueMs = 0;
+  let firstUsage: any = undefined;
+  const usageSamples: any[] = [];
   const toolNames = new Set<string>();
   const activeTools = new Map<string, { name: string; args: any }>();
   const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
