@@ -2050,7 +2050,7 @@ async function runRoutedAgent(
       stderr: "",
       model: inheritedModel,
       modelTier: selection.tier,
-      modelSelection: { ...selection, diversitySelectedModel: selectedModel || null },
+      modelSelection: selection,
       taskPolicy,
       verdict: "FAIL",
     };
@@ -2499,7 +2499,7 @@ async function runRoutedAgent(
     ...result,
     task,
     modelTier: selection.tier,
-    modelSelection: selection,
+    modelSelection: { ...selection, diversitySelectedModel: selectedModel || null },
     taskPolicy: {
       ...taskPolicy,
       runtimeContextBudget: budgetDecision,
