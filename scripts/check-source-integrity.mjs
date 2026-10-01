@@ -431,7 +431,7 @@ const CONTRACTS = [
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
     startsWith: "const DIRECT_VERIFY",
-    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
+    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
     file: "lib/solution-economy.mjs",
