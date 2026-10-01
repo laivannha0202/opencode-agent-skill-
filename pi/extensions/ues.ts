@@ -1999,11 +1999,24 @@ async function runRoutedAgent(
   const thinking = selectedModel && inheritedModel && selectedModel !== inheritedModel
     ? undefined
     : inheritedThinking;
+  const selectedCapabilityCandidate = selection.capabilitySelection?.selected || null;
   const modelProfile = modelRuntimeProfile(selectedModel, {
     role,
     executionProfile: taskPolicy.executionProfile,
     attempt,
     taskChars: task.length,
+    capabilityProfile:
+      selectedCapabilityCandidate?.capabilities ||
+      (selectedModel ? modelPolicy.capabilities?.[selectedModel] : null) ||
+      null,
+    performanceRecord:
+      selectedCapabilityCandidate?.empiricalEvidence ||
+      (selectedModel
+        ? modelPolicy.performance?.[selectedModel]?.[selection.capabilitySelection?.taskClass || "general"] ||
+          modelPolicy.performance?.[selectedModel]?.overall ||
+          null
+        : null),
+    performanceMinSamples: modelPolicy.performanceMinSamples || 8,
   });
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
