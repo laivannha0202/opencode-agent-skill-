@@ -230,6 +230,8 @@ const CONTRACTS = [
       'case "work"',
       'case "task-policy"',
       'case "sandbox"',
+      'case "checkpoint"',
+      'case "run-inspect"',
       'case "store"',
       'case "capabilities"',
       'case "capability-fabric"',
@@ -244,6 +246,9 @@ const CONTRACTS = [
       'case "remove"',
       'case "help"',
       "getEvidenceSelected",
+      "listWriteCheckpoints",
+      "rollbackWriteCheckpoint",
+      "compareRunInspections",
     ],
   },
   {
@@ -338,7 +343,7 @@ const CONTRACTS = [
     file: "lib/write-checkpoints.mjs",
     minBytes: 4_000,
     startsWith: 'import { createHash, randomUUID }',
-    required: ["createWriteCheckpoint", "finalizeWriteCheckpoint", "rollbackWriteCheckpoint", "workspace-diverged", "maxTotalBytes"],
+    required: ["createWriteCheckpoint", "finalizeWriteCheckpoint", "listWriteCheckpoints", "rollbackWriteCheckpoint", "workspace-diverged", "maxTotalBytes", "lstat"],
   },
   {
     file: "lib/run-artifacts.mjs",
