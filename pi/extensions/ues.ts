@@ -2089,7 +2089,9 @@ async function runRoutedAgent(
   const verifierRole = ["verifier", "integration-verifier", "visual-verifier"].includes(role);
   const highRiskVerification = ["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase());
   const executorBaselineModel = inheritedModel || selection.model || null;
-  if (verifierRole && highRiskVerification && executorBaselineModel) {
+  const diversityMayResetThinking = configuredBoolean("UES_DIVERSE_VERIFIER_ALLOW_THINKING_RESET", false);
+  const diversityThinkingSafe = !inheritedThinking || diversityMayResetThinking;
+  if (verifierRole && highRiskVerification && executorBaselineModel && diversityThinkingSafe) {
     diversitySelection = (selection.capabilitySelection?.candidates || [])
       .filter((candidate: any) => candidate?.eligible && candidate?.id && candidate.id !== executorBaselineModel)
       .sort((a: any, b: any) =>
@@ -2114,7 +2116,7 @@ async function runRoutedAgent(
     attempt,
     taskChars: task.length,
     executorModel: executorBaselineModel || selectedModel,
-    alternateModels: diversitySelection?.id ? [String(diversitySelection.id)] : configuredModels,
+    alternateModels: diversitySelection?.id ? [String(diversitySelection.id)] : [],
     capabilityProfile:
       activeCapabilityCandidate?.capabilities ||
       (selectedModel ? modelPolicy.capabilities?.[selectedModel] : null) ||
@@ -2587,7 +2589,11 @@ async function runRoutedAgent(
       ...selection,
       diversitySelectedModel: diversitySelection?.id ? String(diversitySelection.id) : null,
       diversitySelectedTier: diversitySelection?.tier || null,
-      diversityReason: diversitySelection?.id ? "high-risk-capability-eligible-alternate" : null,
+      diversityReason: diversitySelection?.id
+        ? "high-risk-capability-eligible-alternate"
+        : (verifierRole && highRiskVerification && inheritedThinking && !diversityMayResetThinking
+          ? "fresh-context-same-model-thinking-preserved"
+          : null),
     },
     taskPolicy: {
       ...taskPolicy,
@@ -2620,6 +2626,8 @@ async function runRoutedAgent(
       modelAciProfile,
       roleContextABI: modelProfile.roleContextABI || null,
       verificationDiversity: modelProfile.verificationDiversity || null,
+      diversityThinkingPreserved: !(diversitySelection?.id && inheritedThinking),
+      diversityMayResetThinking,
       providerCacheStability: cachePolicy,
       solutionEconomyMode: economy.active ? economy.mode : null,
       runtimeEpochId: result.runtimeEpochId || null,
