@@ -284,7 +284,7 @@ test("V15.8 Pi eval captures first usage and exposes a hard promotion switch", a
   assert.match(extensionSource, /usageSamples: recoveredUsageSamples/)
   assert.match(extensionSource, /aggregateUsageSamples\(result\.usageSamples\)/)
   assert.match(extensionSource, /provider: selectedProvider,\s*model: selectedModel/)
-  assert.match(extensionSource, /const performanceModel = result\.modelSelection\?\.model \|\| result\.model/)
+  assert.match(extensionSource, /const performanceModel = result\.modelSelection\?\.diversitySelectedModel \|\| result\.modelSelection\?\.model \|\| result\.model/)
   assert.match(source, /const telemetryLines = \[\]/)
   assert.match(source, /telemetryLines\.push\(line\)/)
   assert.match(source, /parsePiTelemetry\(telemetryLines\.join\("\\n"\)\)/)
