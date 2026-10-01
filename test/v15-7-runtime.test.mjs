@@ -52,6 +52,20 @@ test("V15.7 command intelligence catches workspace-filtered test pipelines", () 
   assert.equal(analysis.finding, "verification-output-hidden-by-pipeline")
 })
 
+test("V15.7 command intelligence routes workspace-filtered dev servers to managed service", () => {
+  for (const command of [
+    "npm --filter @agrimarket/api run start",
+    "pnpm --filter customer-web dev",
+    "yarn workspace admin-web run serve",
+  ]) {
+    const analysis = analyzeShellCommand(command)
+    assert.equal(analysis.longRunningService, true, command)
+    assert.equal(analysis.shouldUseManagedService, true, command)
+    assert.equal(analysis.finding, "long-running-service-command", command)
+  }
+  assert.equal(analyzeShellCommand('echo "npm --filter api run start"').longRunningService, false)
+})
+
 test("V15.7 verification timeout clamp bounds the former 5400s hang case", () => {
   const analysis = analyzeShellCommand(
     "npm --filter @agrimarket/api test 2>&1 | grep -v progress | tail -45",
