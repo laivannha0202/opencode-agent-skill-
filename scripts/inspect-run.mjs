@@ -71,6 +71,15 @@ if (hasArg("--json")) {
   console.log("terminal: " + String(current.summary?.terminalType || "open"))
   console.log("tool queue total/max ms: " + Number(current.totalToolQueueMs || 0) + "/" + Number(current.maxToolQueueMs || 0))
   console.log("duplicate tool signatures: " + Number(current.duplicateToolSignatures?.length || 0))
+  console.log("repeated read/search/mutation signatures: " +
+    Number(current.repeatedReadSignatures?.length || 0) + "/" +
+    Number(current.repeatedSearchSignatures?.length || 0) + "/" +
+    Number(current.repeatedMutationSignatures?.length || 0))
+  console.log("blocked/interrupted/failed tools: " +
+    Number(current.blockedTools || 0) + "/" +
+    Number(current.interruptedTools || 0) + "/" +
+    Number(current.failedTools || 0))
+  console.log("hidden-output verification pipelines: " + Number(current.hiddenOutputPipelines || 0))
   console.log("dangling tool calls: " + Number(current.summary?.danglingToolCalls?.length || 0))
   console.log("artifacts: " + (current.artifacts || []).join(", "))
   if (payload.comparison) {
