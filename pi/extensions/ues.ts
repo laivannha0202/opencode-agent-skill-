@@ -51,7 +51,7 @@ import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
 import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { applyModelToolBudget, compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
 import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
-import { decisionPointFingerprint } from "../../lib/context-observatory.mjs";
+import { buildContextObservatory, decisionPointFingerprint } from "../../lib/context-observatory.mjs";
 import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
 import { appendRunJournalEvent, closeRunJournal, createRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
@@ -2302,6 +2302,26 @@ async function runRoutedAgent(
   const economy = solutionEconomyContract({ role, risk: taskPolicy.risk, task });
   if (economy.active && !enrichedTask.includes("## UES Solution Economy Gate")) {
     enrichedTask += "\n\n" + economy.text;
+  }
+
+  const contextObservatory = buildContextObservatory({
+    systemRuntime: modelAciProfile,
+    skills: microSkills,
+    repoMap: { contextQuality, contextPerformance },
+    selectedFiles: enrichedTask,
+    toolHistory: null,
+    planState: taskPolicy,
+    evidenceViews: reusableVerification,
+    recentContext: affectedTests,
+  });
+  if (traceID) {
+    await appendTrajectoryEvent(traceRoot, traceID, "context.observatory", {
+      ...contextObservatory,
+      modelProfileId: modelProfile.id,
+      modelAciProfileId: modelAciProfile.id,
+      role,
+      risk: taskPolicy.risk,
+    }).catch(() => {});
   }
 
   const planningBudget = planningRuntimeBudget(role, attempt, {
