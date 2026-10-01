@@ -26,6 +26,14 @@
 - RPC safe same-session provider recovery preserves the prior effective Runtime Epoch identity; ordinary new turns still compute a new epoch.
 - `release:verify` now includes `eval:v15.7`.
 
+### Hardened before release
+
+- **Telemetry provenance stays per-field.** Missing provider cache/input/output buckets remain `null` in Efficiency Ledger summaries instead of becoming false zeroes. Provider Cache Stability requires complete disjoint `input/cacheRead/cacheWrite` samples before changing cache mode; partial samples are observational only.
+- **Cross-process task telemetry serialization.** Concurrent Pi processes now serialize task-telemetry append/compaction with a bounded filesystem lock so cache-learning evidence is not corrupted by multi-session writes.
+- **Monorepo service routing.** Workspace/filter service commands such as `npm --filter ... run start`, `pnpm --filter ... dev` and `yarn workspace ... serve` are recognized as long-running services and stay on the managed-service lane.
+- **Trial option fidelity.** `ues trial` preserves explicit `--mode=x`, `--suite=x` and `--trials=x` forms instead of appending competing defaults.
+- **V15.7 regression import cleanup.** Removed a duplicate ownership import that could stop the V15.7 test file at parse time.
+
 ### Safety / quality invariants
 
 - Selected thinking level is unchanged.
