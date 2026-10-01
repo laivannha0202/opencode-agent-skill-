@@ -67,6 +67,21 @@ test("V15.7 command intelligence only classifies executable command heads", () =
   assert.equal(analyzeShellCommand("C:\\tools\\npm.cmd test").verificationFamily, "test")
 })
 
+test("V15.7 command intelligence preserves quoted package-manager tokens", () => {
+  for (const command of [
+    'pnpm --filter "./apps/*" dev',
+    'npm --workspace "@agrimarket/api" run start',
+    'yarn workspace "admin-web" run serve',
+  ]) {
+    const analysis = analyzeShellCommand(command)
+    assert.equal(analysis.longRunningService, true, command)
+    assert.equal(analysis.shouldUseManagedService, true, command)
+  }
+
+  assert.equal(analyzeShellCommand('npm run "test:unit"').verificationFamily, "test")
+  assert.equal(analyzeShellCommand('"C:\\Program Files\\nodejs\\npm.cmd" test').verificationFamily, "test")
+})
+
 test("V15.7 command intelligence ignores pipe text inside quotes", () => {
   const analysis = analyzeShellCommand(
     'npm test -- --testNamePattern="renders | tail literally"',
