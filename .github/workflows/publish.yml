@@ -26,8 +26,8 @@ jobs:
       - name: Install package metadata
         run: npm ci --ignore-scripts
 
-      - name: Validate package
-        run: npm run ci
+      - name: Validate release
+        run: npm run release:verify
 
       - name: Verify release tag
         run: npm run release:check-tag
@@ -50,7 +50,7 @@ jobs:
         run: |
           VERSION="$(node -p "require('./package.json').version")"
           if [[ "$VERSION" == *-* ]]; then
-            npm publish --access public --provenance --tag next
+            npm publish --ignore-scripts --access public --provenance --tag next
           else
-            npm publish --access public --provenance
+            npm publish --ignore-scripts --access public --provenance
           fi
