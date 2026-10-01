@@ -4,7 +4,7 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.4.1</code>  
+**Phiên bản package hiện tại:** <code>15.4.1</code>\
 **Nhánh phát triển hiện tại:** V15.4 Observability & Safe Runtime  
 **Stable npm hiện tại:** <code>15.3.0</code>  
 **Runtime:** Node.js 22.19+  
