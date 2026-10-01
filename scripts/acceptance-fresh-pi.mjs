@@ -258,7 +258,7 @@ async function childHarness() {
   record("A-no-lsp-session-precreated", (poolBefore.sessionCount ?? 0) === 0, {
     sessionCount: poolBefore.sessionCount ?? 0,
   })
-  record("A-status-schema-current", details.statusSchemaVersion === 5, { statusSchemaVersion: details.statusSchemaVersion })
+  record("A-status-schema-current", details.statusSchemaVersion === 6, { statusSchemaVersion: details.statusSchemaVersion })
   record("A-status-advertises-v15-3",
     String(status?.content || "").includes("V15.3 incremental write intelligence")
     && String(status?.content || "").includes("V15.3 content-addressed semantic index")
@@ -287,6 +287,13 @@ async function childHarness() {
     && String(status?.content || "").includes("V15.6 bounded write checkpoints")
     && String(status?.content || "").includes("V15.6 run artifacts + inspector"),
   { contentHead: String(status?.content || "").split("\n").slice(0, 4).join(" | ") })
+  record("A-status-advertises-v15-8",
+    String(status?.content || "").includes("V15.8 command intelligence")
+    && String(status?.content || "").includes("V15.8 real-model promotion telemetry")
+    && String(status?.content || "").includes("V15.8 provider cache stability")
+    && String(status?.content || "").includes("V15.8 model runtime profiles"),
+  { contentHead: String(status?.content || "").split("\n").slice(0, 5).join(" | ") })
+
   record("A-status-reports-coverage",
     Array.isArray(details.incrementalWrite?.coverage?.supportedWriteTools)
     && details.incrementalWrite.coverage.supportedWriteTools.includes("edit"),
