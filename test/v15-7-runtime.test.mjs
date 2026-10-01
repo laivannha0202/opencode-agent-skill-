@@ -13,11 +13,6 @@ import { recordTaskTelemetry } from "../lib/run-telemetry.mjs"
 import { buildRuntimeEpoch, runtimeEpochCompatibility } from "../lib/runtime-epoch.mjs"
 import { createRunJournal, appendRunJournalEvent } from "../lib/run-journal.mjs"
 import { learnRuntimeWaste } from "../lib/runtime-waste-learner.mjs"
-import {
-  assertExecutionOwnership,
-  claimExecutionOwnership,
-  releaseExecutionOwnership,
-} from "../lib/execution-ownership.mjs"
 import { assertExecutionOwnership, claimExecutionOwnership, pruneExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
 import { inspectRunRows } from "../lib/run-inspector.mjs"
 import { reduceCommandOutput } from "../lib/performance-fabric.mjs"
