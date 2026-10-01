@@ -2076,6 +2076,8 @@ async function runRoutedAgent(
     ? undefined
     : inheritedThinking;
   const selectedCapabilityCandidate = selection.capabilitySelection?.selected || null;
+  const activeCapabilityCandidate = diversitySelection || selectedCapabilityCandidate;
+  const effectiveModelTier = diversitySelection?.tier || selection.tier;
   const configuredModels = [...new Set(Object.values(modelPolicy.tiers || {}).filter(Boolean).map(String))];
   const runtimeProfileOptions = {
     role,
@@ -2086,11 +2088,11 @@ async function runRoutedAgent(
     executorModel: executorBaselineModel || selectedModel,
     alternateModels: diversitySelection?.id ? [String(diversitySelection.id)] : configuredModels,
     capabilityProfile:
-      selectedCapabilityCandidate?.capabilities ||
+      activeCapabilityCandidate?.capabilities ||
       (selectedModel ? modelPolicy.capabilities?.[selectedModel] : null) ||
       null,
     performanceRecord:
-      selectedCapabilityCandidate?.empiricalEvidence ||
+      activeCapabilityCandidate?.empiricalEvidence ||
       (selectedModel
         ? modelPolicy.performance?.[selectedModel]?.[selection.capabilitySelection?.taskClass || "general"] ||
           modelPolicy.performance?.[selectedModel]?.overall ||
@@ -2363,7 +2365,7 @@ async function runRoutedAgent(
     task,
     traceID,
     model: selectedModel,
-    modelTier: selection.tier,
+    modelTier: effectiveModelTier,
     workspaceFingerprint,
   }).catch(() => null);
   if (childArtifact?.handle) {
@@ -2500,7 +2502,7 @@ async function runRoutedAgent(
   const enrichedResult: RunResult = {
     ...result,
     task,
-    modelTier: selection.tier,
+    modelTier: effectiveModelTier,
     modelSelection: {
       ...selection,
       diversitySelectedModel: diversitySelection?.id ? String(diversitySelection.id) : null,
