@@ -344,7 +344,7 @@ const CONTRACTS = [
     file: "lib/write-checkpoints.mjs",
     minBytes: 4_000,
     startsWith: 'import { createHash, randomUUID }',
-    required: ["createWriteCheckpoint", "finalizeWriteCheckpoint", "listWriteCheckpoints", "rollbackWriteCheckpoint", "workspace-diverged", "maxTotalBytes", "lstat"],
+    required: ["createWriteCheckpoint", "finalizeWriteCheckpoint", "listWriteCheckpoints", "rollbackWriteCheckpoint", "workspace-diverged", "symlink-traversal", "hasSymlinkTraversal", "maxTotalBytes", "lstat"],
   },
   {
     file: "lib/run-artifacts.mjs",
