@@ -24,6 +24,17 @@ test("V15.7 command intelligence detects hidden verification progress", () => {
   assert.equal(analysis.recommendedTimeoutSec, 300)
 })
 
+test("V15.7 command intelligence catches workspace-filtered test pipelines", () => {
+  const analysis = analyzeShellCommand(
+    "npm --filter @agrimarket/api test 2>&1 | grep -v progress | tail -45",
+    { verificationTimeoutSec: 300 },
+  )
+  assert.equal(analysis.verificationLike, true)
+  assert.equal(analysis.hidesProgress, true)
+  assert.equal(analysis.recommendedTimeoutSec, 300)
+  assert.equal(analysis.finding, "verification-output-hidden-by-pipeline")
+})
+
 test("V15.7 content router preserves more semantic diff evidence than noisy JSON", () => {
   const diff = routeToolContent("diff --git a/a.ts b/a.ts\n+const x = 1", {
     command: "git diff",
