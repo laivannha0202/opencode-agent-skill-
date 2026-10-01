@@ -47,6 +47,10 @@ import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
+import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
+import { applyModelToolBudget, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
+import { appendRunJournalEvent, closeRunJournal, createRunJournal } from "../../lib/run-journal.mjs";
+import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
 import { summarizeCompactionRecall } from "../../lib/compaction-recall.mjs";
@@ -353,6 +357,8 @@ type RunResult = {
   providerSessionResumeAttempts?: number;
   subagentArtifact?: any;
   optimizations?: any;
+  runtimeEpochId?: string;
+  modelRuntimeProfile?: any;
 };
 
 function cap(text: string, limit = OUTPUT_LIMIT) {
@@ -740,6 +746,12 @@ async function runAgentCli(
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
     reuseRpcSession?: boolean;
+    runId?: string;
+    journalRoot?: string;
+    workspaceFingerprint?: string;
+    executionProfile?: string;
+    attempt?: number;
+    modelProfile?: any;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -762,6 +774,12 @@ async function runAgentCli(
   const codeIntelligenceTools = WRITE_AGENTS.has(agent)
     ? ["ues_code", "ues_code_edit"]
     : ["ues_code"];
+  const modelProfile = runtimeOptions.modelProfile || modelRuntimeProfile(model, {
+    role: agent,
+    executionProfile: runtimeOptions.executionProfile || "standard",
+    attempt: runtimeOptions.attempt || 1,
+    taskChars: task.length,
+  });
   const candidateTools = [...new Set([
     ...config.tools,
     ...codeIntelligenceTools,
@@ -769,7 +787,10 @@ async function runAgentCli(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
-  const toolExposure = await resolveChildToolExposure(agent, candidateTools);
+  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, [
+    "ues_code", "ues_code_edit", "ues_service", "ues_evidence_get",
+  ]);
+  const toolExposure = await resolveChildToolExposure(agent, budgetedTools);
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
     agent,
@@ -779,6 +800,16 @@ async function runAgentCli(
     destructiveActions: false,
     workspaceContainment: true,
     verificationTimeoutSec: runtimeOptions.verificationTimeoutSec || 300,
+  });
+  const runtimeEpoch = buildRuntimeEpoch({
+    policySnapshotId: policySnapshot.id,
+    workspaceFingerprint: runtimeOptions.workspaceFingerprint || cwd,
+    context: task,
+    tools: allowedTools,
+    skills: [],
+    modelProfile,
+    model,
+    thinking: thinkingLevel,
   });
   args.push("--tools", allowedTools.join(","));
 
@@ -808,6 +839,10 @@ async function runAgentCli(
           UES_CHILD_PROCESS: "1",
           UES_CHILD_AGENT: agent,
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
+          UES_CHILD_RUNTIME_EPOCH_ID: runtimeEpoch.id,
+          UES_CHILD_RUN_ID: runtimeOptions.runId || "",
+          UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
+          UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -1097,6 +1132,8 @@ async function runAgentCli(
     browserTools: [...extraTools],
     childRuntime: "cli",
     workerReused: false,
+    runtimeEpochId: runtimeEpoch.id,
+    modelRuntimeProfile: modelProfile,
   };
 }
 
@@ -1145,6 +1182,12 @@ async function runAgentRpc(
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
     reuseRpcSession?: boolean;
+    runId?: string;
+    journalRoot?: string;
+    workspaceFingerprint?: string;
+    executionProfile?: string;
+    attempt?: number;
+    modelProfile?: any;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1164,6 +1207,12 @@ async function runAgentRpc(
   const codeIntelligenceTools = WRITE_AGENTS.has(agent)
     ? ["ues_code", "ues_code_edit"]
     : ["ues_code"];
+  const modelProfile = runtimeOptions.modelProfile || modelRuntimeProfile(model, {
+    role: agent,
+    executionProfile: runtimeOptions.executionProfile || "standard",
+    attempt: runtimeOptions.attempt || 1,
+    taskChars: task.length,
+  });
   const candidateTools = [...new Set([
     ...config.tools,
     ...codeIntelligenceTools,
@@ -1171,7 +1220,10 @@ async function runAgentRpc(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
-  const toolExposure = await resolveChildToolExposure(agent, candidateTools);
+  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, [
+    "ues_code", "ues_code_edit", "ues_service", "ues_evidence_get",
+  ]);
+  const toolExposure = await resolveChildToolExposure(agent, budgetedTools);
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
     agent,
@@ -1181,6 +1233,16 @@ async function runAgentRpc(
     destructiveActions: false,
     workspaceContainment: true,
     verificationTimeoutSec: runtimeOptions.verificationTimeoutSec || 300,
+  });
+  const runtimeEpoch = buildRuntimeEpoch({
+    policySnapshotId: policySnapshot.id,
+    workspaceFingerprint: runtimeOptions.workspaceFingerprint || cwd,
+    context: task,
+    tools: allowedTools,
+    skills: [],
+    modelProfile,
+    model,
+    thinking: thinkingLevel,
   });
   args.push("--tools", allowedTools.join(","));
   args.push("--append-system-prompt", rpcPromptPath(agent));
@@ -1196,6 +1258,7 @@ async function runAgentRpc(
     Number(runtimeOptions.verificationTimeoutSec || 0),
     Boolean(runtimeOptions.allowLocalEnvWrite),
     policySnapshot.id,
+    runtimeEpoch.id,
   ]);
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
@@ -1234,6 +1297,10 @@ async function runAgentRpc(
           UES_CHILD_PROCESS: "1",
           UES_CHILD_AGENT: agent,
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
+          UES_CHILD_RUNTIME_EPOCH_ID: runtimeEpoch.id,
+          UES_CHILD_RUN_ID: runtimeOptions.runId || "",
+          UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
+          UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -1315,6 +1382,8 @@ async function runAgentRpc(
       browserTools: [...extraTools],
       childRuntime: "rpc",
       workerReused: rpc.workerReused === true,
+      runtimeEpochId: runtimeEpoch.id,
+      modelRuntimeProfile: modelProfile,
     };
     const providerDecision = classifyProviderFailure(baseResult);
     if (providerDecision.transient) {
@@ -1411,6 +1480,12 @@ async function runAgent(
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
     reuseRpcSession?: boolean;
+    runId?: string;
+    journalRoot?: string;
+    workspaceFingerprint?: string;
+    executionProfile?: string;
+    attempt?: number;
+    modelProfile?: any;
   } = {},
 ): Promise<RunResult> {
   const runOnce = async (): Promise<RunResult> => {
@@ -1804,6 +1879,12 @@ async function runRoutedAgent(
   const thinking = selectedModel && inheritedModel && selectedModel !== inheritedModel
     ? undefined
     : inheritedThinking;
+  const modelProfile = modelRuntimeProfile(selectedModel, {
+    role,
+    executionProfile: taskPolicy.executionProfile,
+    attempt,
+    taskChars: task.length,
+  });
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
 
@@ -2056,6 +2137,12 @@ async function runRoutedAgent(
       allowLocalEnvWrite:
         taskPolicy.localEnvWriteExplicitlyAllowed === true ||
         taskExplicitlyAllowsLocalEnvWrite(task),
+      runId: traceID || childArtifact?.handle || undefined,
+      journalRoot: artifactRoot,
+      workspaceFingerprint,
+      executionProfile: taskPolicy.executionProfile,
+      attempt,
+      modelProfile,
       },
     );
   } catch (error) {
@@ -2138,6 +2225,8 @@ async function runRoutedAgent(
       planningRuntimeBudget: planningBudget,
       affectedTestInventorySource: affectedTests?.inventorySource || null,
       contextPerformance,
+      modelRuntimeProfile: modelProfile,
+      runtimeEpochId: result.runtimeEpochId || null,
       latencyMs: {
         workspaceSnapshot: workspaceSnapshotMs,
         contextBuild: contextBuildMs,
@@ -4371,6 +4460,23 @@ export default function (pi: ExtensionAPI) {
         executionContractPrompt: contractPrompt,
       };
       const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
+      const controllerWorkspaceFingerprint = String(
+        runtimeWorkspaceSnapshot(cwd, { workspaceState: controllerWorkspaceState }).fingerprint || "unknown",
+      );
+      await createRunJournal(cwd, {
+        runId: traceID,
+        taskHash: executionContract.taskHash,
+        workspaceFingerprint: controllerWorkspaceFingerprint,
+        executionProfile: policy.executionProfile,
+        risk: policy.risk,
+      }).catch(() => null);
+      await initializeRunArtifacts(cwd, {
+        runId: traceID,
+        taskHash: executionContract.taskHash,
+        workspaceFingerprint: controllerWorkspaceFingerprint,
+        executionProfile: policy.executionProfile,
+        risk: policy.risk,
+      }).catch(() => null);
       const orphanCleanup = await pruneOrphanTaskSandboxes(cwd, {
         minAgeMs: 5 * 60_000,
         legacyMinAgeMs: 30 * 60_000,
@@ -4456,6 +4562,7 @@ export default function (pi: ExtensionAPI) {
         });
         let softSteerSent = false;
         const governedTask = [task, "", contractPrompt].filter(Boolean).join("\n");
+        await appendRunJournalEvent(cwd, traceID, "agent.started", { agent, attempt }).catch(() => null);
         const result = await runRoutedAgent(
           agent,
           governedTask,
@@ -4507,6 +4614,14 @@ export default function (pi: ExtensionAPI) {
           policy,
         );
         steps.push(result);
+        await appendRunJournalEvent(cwd, traceID, "agent.completed", {
+          agent,
+          attempt,
+          exitCode: result.exitCode,
+          verdict: result.verdict || null,
+          durationMs: result.durationMs || null,
+          runtimeEpochId: result.runtimeEpochId || null,
+        }).catch(() => null);
         onUpdate?.({
           content: [{
             type: "text",
@@ -5726,6 +5841,13 @@ export default function (pi: ExtensionAPI) {
         "V15.4 compaction recall analytics: on (tracks later evidence expansion/search by ref)",
         "V15.4 mutation-shape write detection: on (custom write surfaces + correct multi-file coverage)",
         "V15.4 document ingestion: async supervised MarkItDown + content-addressed bounded cache",
+        "V15.6 durable run journal: on (idempotent admission + interrupted side effects are never blindly replayed)",
+        "V15.6 runtime epoch: on (policy/context/tool/model surfaces fence warm reuse)",
+        "V15.6 model runtime profiles: on (bounded tool/context surface; thinking level preserved)",
+        "V15.6 adaptive tool scheduler: on in specialist children (parallel-safe reads; writes/process/unknown fail serial)",
+        "V15.6 adaptive compaction: on (command-aware reducers tuned by observed recall demand)",
+        "V15.6 bounded write checkpoints: on (hash-guarded reversible small-file snapshots)",
+        "V15.6 run artifacts + inspector: on (.ues-work evidence bundle; no raw task text in RUN metadata)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -5758,7 +5880,7 @@ export default function (pi: ExtensionAPI) {
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
           // Status schema V3 adds V15.4 operational telemetry and recall summaries without removing V15.3 counters.
-          statusSchemaVersion: 3,
+          statusSchemaVersion: 4,
           incrementalWrite: {
             ...writeFeedbackStats,
             coverage: {
@@ -6039,7 +6161,7 @@ export default function (pi: ExtensionAPI) {
       .trim() || "(UES controller returned no text)";
     const controllerPass = result?.isError !== true;
     const telemetrySteps = Array.isArray(result?.details?.steps) ? result.details.steps : [];
-    await recordTaskTelemetry(workspaceRoot, {
+    const controllerTelemetryRecord = await recordTaskTelemetry(workspaceRoot, {
       exitCode: controllerPass ? 0 : 1,
       verdict: controllerPass ? "PASS" : "FAIL",
       durationMs: Math.max(0, Date.now() - directStartedAt),
@@ -6055,6 +6177,22 @@ export default function (pi: ExtensionAPI) {
       taskClass: result?.details?.policy?.executionProfile || admissionDecision?.policy?.executionProfile || null,
       thinking: ctx.thinkingLevel as string | undefined,
       passed: controllerPass,
+    }).catch(() => null);
+    const directDurationMs = Math.max(0, Date.now() - directStartedAt);
+    await closeRunJournal(workspaceRoot, directTraceID, {
+      passed: controllerPass,
+      aborted: abort.signal.aborted,
+      verdict: controllerPass ? "PASS" : "FAIL",
+      durationMs: directDurationMs,
+    }).catch(() => null);
+    await finalizeRunArtifacts(workspaceRoot, directTraceID, {
+      passed: controllerPass,
+      aborted: abort.signal.aborted,
+      verdict: controllerPass ? "PASS" : "FAIL",
+      durationMs: directDurationMs,
+      verification: result?.details?.verdictMatrix || null,
+      telemetry: controllerTelemetryRecord?.receipt || null,
+      summary: content,
     }).catch(() => null);
 
     if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
