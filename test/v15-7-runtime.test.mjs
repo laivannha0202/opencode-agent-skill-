@@ -68,6 +68,20 @@ test("V15.7 runtime epoch fences provider cache policy changes", () => {
   const compatibility = runtimeEpochCompatibility(cache, token)
   assert.equal(compatibility.compatible, false)
   assert.ok(compatibility.reasons.includes("cachePolicyHash-changed"))
+
+  const sameDecisionNewSample = buildRuntimeEpoch({
+    ...input,
+    cachePolicy: {
+      mode: "cache",
+      evidence: "MEASURED",
+      samples: 999,
+      cacheReadRatio: 0.91,
+      preserveStablePrefix: true,
+      compactLiveZoneOnly: true,
+      usageAccounting: "pi-normalized-disjoint",
+    },
+  })
+  assert.equal(runtimeEpochCompatibility(cache, sameDecisionNewSample).compatible, true)
 })
 
 test("V15.7 solution economy remains safety first", () => {
