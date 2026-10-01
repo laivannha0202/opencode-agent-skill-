@@ -17,6 +17,7 @@
 - Package/status contracts advance to 15.8.0 / status schema V6.
 - `release:verify` now includes `eval:v15.8`.
 - Cache policy cold-start evidence is more conservative while preserving V15.7 live-zone-only compaction and stable-prefix semantics.
+- V15.8 telemetry hardening now isolates cache learning by accounting schema and routed model identity, shares one durable learning root across task sandboxes, preserves cross-stream event order, records true first-turn child usage, and aggregates all provider turns/recovery attempts for token/cache measurement.
 
 ### Safety / quality invariants
 
