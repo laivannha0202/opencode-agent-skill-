@@ -1084,6 +1084,8 @@ const CONTRACTS = [
       "--mode must be baseline, ues, or both",
       "firstUsage",
       "usageSample",
+      "telemetryLines",
+      "consumePiOutput",
       "requireMeasuredEfficiency: true",
       "--require-promotion",
       "UES real-model promotion gate: PASS",
