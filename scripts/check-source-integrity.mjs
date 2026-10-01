@@ -400,7 +400,7 @@ const CONTRACTS = [
     file: "lib/run-inspector.mjs",
     minBytes: 2_000,
     startsWith: 'import { createHash }',
-    required: ["listRunJournals", "inspectRun", "compareRunInspections", "repeated-tool-signature", "repeated-read-signature", "repeated-search-signature", "repeated-mutation-signature", "blocked-tool-call", "interrupted-tool-call", "failed-tool-call", "repeatedReadSignatures", "tool-queue-delay", "hidden-output-verification-pipeline", "hiddenOutputPipelines"],
+    required: ["listRunJournals", "inspectRun", "compareRunInspections", "repeated-tool-signature", "repeated-read-signature", "repeated-search-signature", "repeated-mutation-signature", "blocked-tool-call", "interrupted-tool-call", "failed-tool-call", "repeatedReadSignatures", "repeatedToolCalls", "repeatedReadCalls", "repeatedSearchCalls", "repeatedMutationCalls", "tool-queue-delay", "hidden-output-verification-pipeline", "hiddenOutputPipelines"],
   },
   {
     file: "test/v15-6-runtime.test.mjs",
@@ -460,13 +460,13 @@ const CONTRACTS = [
     file: "lib/runtime-waste-learner.mjs",
     minBytes: 2_000,
     startsWith: 'import { listRunJournals',
-    required: ["learnRuntimeWaste", "measuredNumber", "repeated-tool-work", "repeated-read-work", "repeated-search-work", "repeated-mutation-work", "tool-queue-pressure", "provider-wait-pressure", "provider-stage-latency", "exact-tool-schema-token-tax", "exact-subagent-prefix-token-tax", "counterfactual-quality-gain"],
+    required: ["learnRuntimeWaste", "measuredNumber", "repeated-tool-work", "repeated-read-work", "repeated-search-work", "repeated-mutation-work", "repeatedToolCalls", "repeatedReadCalls", "repeatedSearchCalls", "repeatedMutationCalls", "tool-queue-pressure", "provider-wait-pressure", "provider-stage-latency", "exact-tool-schema-token-tax", "exact-subagent-prefix-token-tax", "counterfactual-quality-gain"],
   },
   {
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["trial preserves equals-form evaluator options", "hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "routes workspace-filtered dev servers to managed service", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["trial preserves equals-form evaluator options", "hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "routes workspace-filtered dev servers to managed service", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "repeatedToolCalls", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
