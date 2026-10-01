@@ -8,7 +8,7 @@ import { analyzeShellCommand, boundedVerificationTimeout } from "../lib/command-
 import { routeToolContent } from "../lib/content-router-v2.mjs"
 import { cacheAwareVisibleBudget, cacheStabilityFromRows } from "../lib/provider-cache-stability.mjs"
 import { solutionEconomyContract } from "../lib/solution-economy.mjs"
-import { buildEfficiencyEvent, efficiencySummary } from "../lib/efficiency-ledger.mjs"
+import { buildEfficiencyEvent, efficiencySummary, summarizeEfficiencyRows } from "../lib/efficiency-ledger.mjs"
 import { recordTaskTelemetry } from "../lib/run-telemetry.mjs"
 import { buildRuntimeEpoch, runtimeEpochCompatibility } from "../lib/runtime-epoch.mjs"
 import { createRunJournal, appendRunJournalEvent } from "../lib/run-journal.mjs"
@@ -120,6 +120,20 @@ test("V15.7 cache policy is measurement gated and cache aware", () => {
   assert.ok(routed < 24000)
 })
 
+test("V15.7 cache policy never fabricates a missing cache-write bucket", () => {
+  const rows = Array.from({ length: 8 }, () => ({
+    type: "task.telemetry",
+    model: "provider/model",
+    metrics: { inputTokens: 200, cacheReadTokens: 800, cacheWriteTokens: null },
+  }))
+  const policy = cacheStabilityFromRows(rows, { model: "provider/model", minSamples: 4 })
+  assert.equal(policy.mode, "neutral")
+  assert.equal(policy.evidence, "NOT_MEASURED")
+  assert.equal(policy.samples, 0)
+  assert.equal(policy.partialSamples, 8)
+  assert.equal(policy.cacheReadRatio, null)
+})
+
 test("V15.7 runtime epoch fences provider cache policy changes", () => {
   const input = {
     policySnapshotId: "policy:1",
@@ -175,6 +189,24 @@ test("V15.7 efficiency ledger labels measured and derived evidence honestly", ()
   assert.equal(row.provenance.providerTokens, "MEASURED")
   assert.equal(row.provenance.uncachedInputTokens, "DERIVED_FROM_MEASURED")
   assert.equal(row.provenance.quality, "NOT_MEASURED")
+})
+
+test("V15.7 efficiency summary keeps missing provider buckets null", () => {
+  const row = buildEfficiencyEvent({
+    kind: "task",
+    inputTokens: 1000,
+    outputTokens: 50,
+    usageAccounting: "pi-normalized-disjoint",
+  })
+  const summary = summarizeEfficiencyRows([{ type: "efficiency.observation", ...row }])
+  assert.equal(row.provenance.inputTokens, "MEASURED")
+  assert.equal(row.provenance.cacheReadTokens, "NOT_MEASURED")
+  assert.equal(row.provenance.cacheWriteTokens, "NOT_MEASURED")
+  assert.equal(summary.inputTokens, 1000)
+  assert.equal(summary.cacheReadTokens, null)
+  assert.equal(summary.cacheWriteTokens, null)
+  assert.equal(summary.measuredCacheReadRows, 0)
+  assert.equal(summary.measuredCacheWriteRows, 0)
 })
 
 test("V15.7 runtime waste learner reports only observed evidence", async () => {
