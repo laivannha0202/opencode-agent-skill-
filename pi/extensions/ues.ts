@@ -31,6 +31,7 @@ import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-co
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
+import { collectFastStaticEvidence } from "../../lib/fast-static-verification.mjs";
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { classifyProviderFailure, providerRecoveryBackoffMs } from "../../lib/provider-recovery.mjs";
@@ -3327,12 +3328,24 @@ async function executeStructuredPlan(input: {
                   ? { workspaceFingerprint: snapshot.fingerprint }
                   : {}),
               }).catch(() => ({ results: [] }));
+              const staticEvidence = await collectFastStaticEvidence(item.cwd, snapshot).catch((error: any) => ({
+                schemaVersion: 1,
+                required: true,
+                complete: false,
+                errorCount: 0,
+                warningCount: 0,
+                file: null,
+                source: null,
+                fingerprint: null,
+                reason: "static-probe-error:" + String(error?.message || error),
+              }));
               leafFastGate = evaluateFastVerificationGate({
                 policy: leafPolicy,
                 implementation,
                 receipts: receipts?.results || [],
                 attemptStartedAtMs: leafAttemptStartedAt,
                 visualRequired: leafVisualRequired,
+                staticEvidence,
               });
             }
 
@@ -6011,7 +6024,25 @@ export default function (pi: ExtensionAPI) {
             previewBytes: 2200,
             ...(snapshot.cacheable === true && snapshot.fingerprint ? { workspaceFingerprint: snapshot.fingerprint } : {}),
           }).catch(() => ({ results: [] }));
-          fastGate = evaluateFastVerificationGate({ policy, implementation, receipts: receipts?.results || [], attemptStartedAtMs: fastAttemptStartedAt, visualRequired: false });
+          const staticEvidence = await collectFastStaticEvidence(cwd, snapshot).catch((error: any) => ({
+            schemaVersion: 1,
+            required: true,
+            complete: false,
+            errorCount: 0,
+            warningCount: 0,
+            file: null,
+            source: null,
+            fingerprint: null,
+            reason: "static-probe-error:" + String(error?.message || error),
+          }));
+          fastGate = evaluateFastVerificationGate({
+            policy,
+            implementation,
+            receipts: receipts?.results || [],
+            attemptStartedAtMs: fastAttemptStartedAt,
+            visualRequired: false,
+            staticEvidence,
+          });
         }
         if (fastGate?.passed === true) {
           verification = {
