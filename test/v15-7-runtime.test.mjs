@@ -7,6 +7,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import test from "node:test"
 
 import { analyzeShellCommand, boundedVerificationTimeout } from "../lib/command-intelligence.mjs"
+import { looksLikeLongRunningServiceCommand } from "../lib/service-manager.mjs"
 import { routeToolContent } from "../lib/content-router-v2.mjs"
 import { cacheAwareVisibleBudget, cacheStabilityFromRows } from "../lib/provider-cache-stability.mjs"
 import { solutionEconomyContract } from "../lib/solution-economy.mjs"
@@ -69,6 +70,32 @@ test("V15.7 command intelligence catches workspace-filtered test pipelines", () 
   assert.equal(analysis.hidesProgress, true)
   assert.equal(analysis.recommendedTimeoutSec, 300)
   assert.equal(analysis.finding, "verification-output-hidden-by-pipeline")
+})
+
+test("V15.7 managed-service guard shares monorepo service intelligence", () => {
+  for (const command of [
+    "npm --filter @agrimarket/api run start",
+    "pnpm --filter customer-web dev",
+    "yarn workspace admin-web run serve",
+  ]) {
+    assert.equal(looksLikeLongRunningServiceCommand(command), true, command)
+  }
+})
+
+test("V15.7 content router retains grep/find/ls tool-kind signal", () => {
+  const grep = routeToolContent("src/a.ts:12:needle", {
+    command: "needle",
+    source: "grep",
+    kind: "child-grep-output",
+    phase: "execute",
+  })
+  const find = routeToolContent("src/a.ts\nsrc/b.ts", {
+    command: "*.ts",
+    source: "find",
+    kind: "child-find-output",
+  })
+  assert.equal(grep.contentType, "search")
+  assert.equal(find.contentType, "search")
 })
 
 test("V15.7 command intelligence routes workspace-filtered dev servers to managed service", () => {
@@ -165,6 +192,7 @@ test("V15.7 cache policy never fabricates a missing cache-write bucket", () => {
   assert.equal(policy.samples, 0)
   assert.equal(policy.partialSamples, 8)
   assert.equal(policy.cacheReadRatio, null)
+  assert.equal(policy.reason, "insufficient-complete-provider-cache-telemetry")
 })
 
 test("V15.7 runtime epoch fences provider cache policy changes", () => {
