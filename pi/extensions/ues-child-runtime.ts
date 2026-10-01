@@ -49,7 +49,7 @@ import { adaptiveCompactionBudget } from "../../lib/adaptive-compaction.mjs";
 import { routeToolContent } from "../../lib/content-router-v2.mjs";
 import { cacheAwareVisibleBudget } from "../../lib/provider-cache-stability.mjs";
 import { recordEfficiencyEvent } from "../../lib/efficiency-ledger.mjs";
-import { analyzeShellCommand } from "../../lib/command-intelligence.mjs";
+import { analyzeShellCommand, boundedVerificationTimeout } from "../../lib/command-intelligence.mjs";
 import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
 import { createWriteCheckpoint, finalizeWriteCheckpoint } from "../../lib/write-checkpoints.mjs";
 import {
@@ -444,13 +444,15 @@ export default function (pi: ExtensionAPI) {
     }
     if (commandAnalysis.verificationLike || looksLikeVerificationCommand(command)) {
       const configured = configuredVerificationTimeout();
-      const requested = Number((event.input as any)?.timeout);
       // A model-provided 90 minute timeout must not bypass the bounded verification
       // policy. Clamp, rather than only filling a missing timeout, so hidden-output
       // pipelines cannot make the agent look hung for an unbounded period.
-      if (!Number.isFinite(requested) || requested <= 0 || requested > configured) {
-        (event.input as any).timeout = configured;
-      }
+      const boundedTimeout = boundedVerificationTimeout(
+        { ...commandAnalysis, verificationLike: true },
+        (event.input as any)?.timeout,
+        configured,
+      );
+      if (boundedTimeout != null) (event.input as any).timeout = boundedTimeout;
     }
     return undefined;
   });
