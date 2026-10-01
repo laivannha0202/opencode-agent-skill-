@@ -159,3 +159,30 @@ test("V15.5 policy snapshots are deterministic and reject implicit child looseni
   assert.equal(inheritance.safe, false)
   assert.ok(inheritance.reasons.includes("local-env-write-loosened"))
 })
+
+
+test("V15.5 bidirectional JSON-RPC keeps server request ownership when IDs collide", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v155-request-owner-"))
+  const counterFile = path.join(root, "starts.log")
+  try {
+    resetLspPoolMetrics()
+    await writeFile(path.join(root, "demo.ts"), "export const owner = 1\n")
+    const p = provider(counterFile, { UES_MOCK_LSP_REGISTER_DIAGNOSTICS_ON_SYMBOL: "1" })
+    const result = await withManagedLspSession(
+      await targetFor(root, "demo.ts"),
+      p,
+      { maxServers: 1, maxPerWorkspace: 1, timeoutMs: 1_000, startupTimeoutMs: 3_000 },
+      async (session) => session.request("textDocument/documentSymbol", { textDocument: { uri: session.uri } }),
+    )
+    assert.equal(result.ok, true)
+    assert.equal(result.result?.[0]?.name, "mockSymbol")
+
+    const status = lspPoolStatus()
+    assert.equal(status.sessions[0].supportsDiagnosticPull, true)
+    assert.equal(status.sessions[0].dynamicRegistrations, 1)
+    assert.equal(status.metrics.dynamicRegistrations, 1)
+  } finally {
+    await shutdownLspPool(root)
+    await rm(root, { recursive: true, force: true })
+  }
+})

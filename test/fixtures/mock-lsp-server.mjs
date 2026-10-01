@@ -69,6 +69,10 @@ function dispatch(message) {
   if (process.env.UES_MOCK_LSP_PROTOCOL_FILE && (method === "shutdown" || method === "exit")) {
     appendFileSync(process.env.UES_MOCK_LSP_PROTOCOL_FILE, method + "\n", "utf8")
   }
+  // Response to a server->client request. Do not reflect it back as another
+  // request or a same-ID capability-registration test would ping-pong forever.
+  if (message?.id != null && !method) return
+
   if (message?.id != null) {
     if (method === "initialize") {
       const capabilities = {
@@ -98,6 +102,27 @@ function dispatch(message) {
       return
     }
     if (method === "textDocument/documentSymbol") {
+      if (process.env.UES_MOCK_LSP_REGISTER_DIAGNOSTICS_ON_SYMBOL === "1") {
+        // Deliberately reuse the in-flight client request ID. Correct
+        // bidirectional JSON-RPC routing must treat this as a server request,
+        // not as the documentSymbol response.
+        send({
+          jsonrpc: "2.0",
+          id: message.id,
+          method: "client/registerCapability",
+          params: {
+            registrations: [{
+              id: "mock-diagnostics-registration",
+              method: "textDocument/diagnostic",
+              registerOptions: { interFileDependencies: false, workspaceDiagnostics: false },
+            }],
+          },
+        })
+        setTimeout(() => {
+          send({ jsonrpc: "2.0", id: message.id, result: [documentItem(uri)] })
+        }, 5)
+        return
+      }
       send({ jsonrpc: "2.0", id: message.id, result: [documentItem(uri)] })
       return
     }
