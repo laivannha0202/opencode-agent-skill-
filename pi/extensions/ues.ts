@@ -2020,7 +2020,8 @@ async function runRoutedAgent(
   });
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
-  const cachePolicy = await providerCacheStabilityPolicy(cwd, {
+  const telemetryRoot = await taskSandboxOwnerRoot(cwd).catch(() => null) || traceRoot;
+  const cachePolicy = await providerCacheStabilityPolicy(telemetryRoot, {
     provider: selectedProvider,
     model: selectedModel,
     minSamples: 6,
@@ -2220,7 +2221,7 @@ async function runRoutedAgent(
     taskChars: task.length,
   });
   const startedAt = Date.now();
-  const artifactRoot = await taskSandboxOwnerRoot(cwd).catch(() => null) || traceRoot;
+  const artifactRoot = telemetryRoot;
   const childArtifact = await createSubagentArtifact(artifactRoot, {
     agent,
     role,
