@@ -46,6 +46,7 @@ import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
 import { summarizeCompactionRecall } from "../../lib/compaction-recall.mjs";
@@ -770,6 +771,15 @@ async function runAgentCli(
   ])];
   const toolExposure = await resolveChildToolExposure(agent, candidateTools);
   const allowedTools = toolExposure.tools;
+  const policySnapshot = buildPolicySnapshot({
+    agent,
+    workspaceRoot: cwd,
+    tools: allowedTools,
+    allowLocalEnvWrite: runtimeOptions.allowLocalEnvWrite === true,
+    destructiveActions: false,
+    workspaceContainment: true,
+    verificationTimeoutSec: runtimeOptions.verificationTimeoutSec || 300,
+  });
   args.push("--tools", allowedTools.join(","));
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-pi-"));
@@ -797,6 +807,7 @@ async function runAgentCli(
           ...process.env,
           UES_CHILD_PROCESS: "1",
           UES_CHILD_AGENT: agent,
+          UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -1162,6 +1173,15 @@ async function runAgentRpc(
   ])];
   const toolExposure = await resolveChildToolExposure(agent, candidateTools);
   const allowedTools = toolExposure.tools;
+  const policySnapshot = buildPolicySnapshot({
+    agent,
+    workspaceRoot: cwd,
+    tools: allowedTools,
+    allowLocalEnvWrite: runtimeOptions.allowLocalEnvWrite === true,
+    destructiveActions: false,
+    workspaceContainment: true,
+    verificationTimeoutSec: runtimeOptions.verificationTimeoutSec || 300,
+  });
   args.push("--tools", allowedTools.join(","));
   args.push("--append-system-prompt", rpcPromptPath(agent));
 
@@ -1175,6 +1195,7 @@ async function runAgentRpc(
     Number(runtimeOptions.toolOutputLimit || 0),
     Number(runtimeOptions.verificationTimeoutSec || 0),
     Boolean(runtimeOptions.allowLocalEnvWrite),
+    policySnapshot.id,
   ]);
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
@@ -1212,6 +1233,7 @@ async function runAgentRpc(
           ...process.env,
           UES_CHILD_PROCESS: "1",
           UES_CHILD_AGENT: agent,
+          UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),

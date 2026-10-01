@@ -6,6 +6,27 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.5.0] - 2026-10-01
+
+### Added
+
+- **LSP Diagnostics V2.** Managed sessions retain server capabilities and dynamic diagnostic registrations, advertise LSP 3.17 diagnostic client capabilities, and use `textDocument/diagnostic` only when the server declares support. A full pull report is authoritative; failed/unsupported/unchanged-without-cache pull results are never treated as clean.
+- **Pooled first-push recovery.** If a persistent document is unchanged but no current published diagnostics exist, UES sends a versioned full-content `didChange` to trigger fresh analysis instead of waiting on work the server was never asked to redo.
+- **Large-file diagnostics policy.** Medium/large/XL TypeScript workloads launch deterministic compiler fallback earlier (1000/500/250 ms recommendation) while keeping primary LSP enabled.
+- **Telemetry V2 compatibility.** Pi aliases `input`, `output`, `cacheRead`, and `cacheWrite` are normalized; optional provider/model/tool/LSP/verification stage timings remain nullable and never synthesize wall time.
+- **Tool Concurrency Contract V1 + Policy Snapshot V2.** Bounded reads/searches are explicitly parallel-safe; writes/processes/unknown tools fail serial. Specialist children receive a deterministic policy snapshot ID, and RPC warm reuse is keyed by it.
+- **V15.5 regression suite.** Covers lost first diagnostics push recovery, pull diagnostics, Pi token aliases, large-file policy, concurrency classification and child-policy loosening detection.
+
+### Changed
+
+- Managed LSP status exposes diagnostic capability/registration state and protocol-level received/matched/re-sync counters.
+- `release:verify` includes `eval:v15.5`.
+
+### Safety / quality invariants
+
+- Independent verifier, integration/visual policy, Evidence Store, completion auditor, fail-closed incomplete diagnostics, dirty-work guard, local `.env` guard, workspace containment, destructive-command protection, Repo Map V3 ranking, Semantic Index V3, Holdout D and thinking policy are not weakened.
+- Real-model A/B is not inferred from deterministic tests; release reporting must say `MEASURED` or `NOT MEASURED`.
+
 ## [15.4.1] - 2026-10-01
 
 ### Fixed

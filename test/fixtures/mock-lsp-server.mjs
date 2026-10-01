@@ -14,6 +14,7 @@ if (process.env.UES_MOCK_LSP_FAIL_ONCE_FILE) {
 
 let buffer = Buffer.alloc(0)
 const documents = new Map()
+let diagnosticsPublishCount = 0
 
 function encode(payload) {
   const body = Buffer.from(JSON.stringify(payload), "utf8")
@@ -24,30 +25,25 @@ function send(payload) {
   process.stdout.write(encode(payload))
 }
 
+function diagnosticItems(version, text) {
+  return [{
+    range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } },
+    severity: 2,
+    source: "ues-mock-lsp",
+    message: "mock-version-" + version + ":" + String(text || "").slice(0, 20),
+  }]
+}
+
 function diagnostics(uri, version, text) {
-  // A silent server models a real failure mode (analysis never publishes) so
-  // callers can prove a notification timeout never tears down the session.
+  diagnosticsPublishCount += 1
   if (process.env.UES_MOCK_LSP_SILENT === "1") return
-  // A delayed server models the second real failure mode: analysis is slower
-  // than the initial budget but lands inside the continuation window.
+  if (process.env.UES_MOCK_LSP_SKIP_FIRST_DIAGNOSTICS === "1" && diagnosticsPublishCount === 1) return
   const delayMs = Math.max(0, Number(process.env.UES_MOCK_LSP_DIAGNOSTICS_DELAY_MS || 5))
   setTimeout(() => {
     send({
       jsonrpc: "2.0",
       method: "textDocument/publishDiagnostics",
-      params: {
-        uri,
-        version,
-        diagnostics: [{
-          range: {
-            start: { line: 0, character: 0 },
-            end: { line: 0, character: 1 },
-          },
-          severity: 2,
-          source: "ues-mock-lsp",
-          message: "mock-version-" + version + ":" + String(text || "").slice(0, 20),
-        }],
-      },
+      params: { uri, version, diagnostics: diagnosticItems(version, text) },
     })
   }, delayMs)
 }
@@ -75,25 +71,32 @@ function dispatch(message) {
   }
   if (message?.id != null) {
     if (method === "initialize") {
-      send({
-        jsonrpc: "2.0",
-        id: message.id,
-        result: {
-          capabilities: {
-            textDocumentSync: 1,
-            documentSymbolProvider: true,
-            hoverProvider: true,
-            definitionProvider: true,
-            referencesProvider: true,
-            renameProvider: { prepareProvider: true },
-            callHierarchyProvider: true,
-          },
-        },
-      })
+      const capabilities = {
+        textDocumentSync: 1,
+        documentSymbolProvider: true,
+        hoverProvider: true,
+        definitionProvider: true,
+        referencesProvider: true,
+        renameProvider: { prepareProvider: true },
+        callHierarchyProvider: true,
+      }
+      if (process.env.UES_MOCK_LSP_PULL_DIAGNOSTICS === "1") {
+        capabilities.diagnosticProvider = { interFileDependencies: false, workspaceDiagnostics: false }
+      }
+      send({ jsonrpc: "2.0", id: message.id, result: { capabilities } })
       return
     }
 
     const uri = message?.params?.textDocument?.uri || message?.params?.item?.uri || ""
+    if (method === "textDocument/diagnostic") {
+      const doc = documents.get(uri) || { text: "", version: 1 }
+      send({
+        jsonrpc: "2.0",
+        id: message.id,
+        result: { kind: "full", items: diagnosticItems(Number(doc.version || 1), doc.text || "") },
+      })
+      return
+    }
     if (method === "textDocument/documentSymbol") {
       send({ jsonrpc: "2.0", id: message.id, result: [documentItem(uri)] })
       return

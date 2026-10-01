@@ -4,14 +4,15 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>15.4.1</code>\
-**Nhánh phát triển hiện tại:** V15.4 Observability & Safe Runtime  
+**Phiên bản package hiện tại:** <code>15.5.0</code>\
+**Nhánh phát triển hiện tại:** V15.5 Diagnostics & Runtime Intelligence  
 **Stable npm hiện tại:** <code>15.3.0</code>  
 **Runtime:** Node.js 22.19+  
 **License:** MIT
 
 > UES không biến một model nhỏ thành model lớn theo nghĩa năng lực nền tảng. UES cố gắng giảm phần suy luận hạ tầng mà model phải tự gánh bằng deterministic tooling, bounded context, specialist roles, durable state và evidence-gated verification.
 
+> **15.5.0:** Diagnostics & Runtime Intelligence V2. Pooled LSP now tracks server capabilities/dynamic registrations, recovers a lost first diagnostics push with a versioned full-content re-sync, and uses LSP 3.17 pull diagnostics only when the server advertises support. Large TypeScript files start the deterministic compiler lane earlier without skipping the primary LSP lane. Telemetry accepts Pi compact token aliases and optional non-overlapping stage timings without fabricating missing values. Child/RPC workers carry an immutable policy snapshot ID whose tool list includes an explicit fail-serial concurrency contract. Verifier, Evidence Store, dirty-work/.env guards, Repo Map V3, Holdout D and thinking policy are unchanged. Real-model A/B remains explicitly environment-dependent and must be reported as measured or not measured; no synthetic benchmark is promoted to a real-model claim.
 > **15.4.1:** hotfix. Sửa unhandled rejection khi huỷ (cancel) trong đường async document ingestion và thay đồng bộ test V15.4 phụ thuộc thời gian bằng sự kiện thật. Không đổi kiến trúc, ranking, Repo Map V3, holdout hay public schema.
 > **15.4.0:** tập trung vào độ mượt và ổn định thay vì mở rộng thêm agent. Runtime ghi **task-level operational telemetry** có bound, theo dõi **compaction recall demand** theo Evidence Store ref, thêm **permission preflight** chỉ ẩn tool chắc chắn bị deny ở cấp action, và giữ runtime permission check theo resource làm nguồn sự thật cuối cùng. Post-write intelligence nhận diện thêm mutation theo **argument shape**, đồng thời sửa đường multi-file để kiểm tra toàn bộ file phát hiện được. Office/PDF ingestion bỏ `spawnSync`: MarkItDown chạy async dưới process supervisor, có timeout/output cap/process-tree cleanup, content-addressed cache và coalescing. Repo Map V3 / holdout 15.3 không đổi trọng số và không bị tái chấm.
 
