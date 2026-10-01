@@ -432,13 +432,17 @@ try {
           (providerExtensions.length ? " with provider extension isolation" : ""),
         )
         const progressBuffers = { stdout: "", stderr: "" }
-        const consumeControllerProgress = (chunk, stream) => {
-          if (mode !== "ues") return
+        const telemetryLines = []
+        const consumePiOutput = (chunk, stream) => {
           progressBuffers[stream] += String(chunk || "")
           const lines = progressBuffers[stream].split(/\r?\n/)
           progressBuffers[stream] = lines.pop() || ""
           for (const line of lines) {
             if (!line.trim()) continue
+            // Preserve cross-stream arrival order. Concatenating all stdout before
+            // all stderr after exit can invert the true first provider usage sample.
+            telemetryLines.push(line)
+            if (mode !== "ues") continue
             try {
               const event = JSON.parse(line)
               if (event?.type !== "ues_controller_progress") continue
@@ -464,8 +468,8 @@ try {
           timeoutMs,
           idleTimeoutMs,
           signal: abortController.signal,
-          onStdout: (chunk) => consumeControllerProgress(chunk, "stdout"),
-          onStderr: (chunk) => consumeControllerProgress(chunk, "stderr"),
+          onStdout: (chunk) => consumePiOutput(chunk, "stdout"),
+          onStderr: (chunk) => consumePiOutput(chunk, "stderr"),
           onHeartbeat: ({ elapsedMs, idleMs }) => {
             console.log(
               "[" + mode + "] " + task.id + " trial " + trial +
@@ -485,9 +489,11 @@ try {
 
         const afterSnapshot = await snapshotWorkspace(workspace)
         const changedFiles = diffWorkspaceSnapshots(beforeSnapshot, afterSnapshot)
-        const telemetry = parsePiTelemetry(
-          [agentRun.stdout, agentRun.stderr].filter(Boolean).join("\n"),
-        )
+        for (const stream of ["stdout", "stderr"]) {
+          const remainder = progressBuffers[stream]
+          if (remainder?.trim()) telemetryLines.push(remainder)
+        }
+        const telemetry = parsePiTelemetry(telemetryLines.join("\n"))
         const baselineIsolated = mode !== "baseline" || telemetry.controllerUsed === false
         const controllerValid =
           mode === "baseline"
