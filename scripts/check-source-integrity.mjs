@@ -188,6 +188,8 @@ const CONTRACTS = [
       "firstUsage: result.firstUsage || resumed.firstUsage",
       "usageSamples",
       "aggregateUsageSamples",
+      "recoveredUsageSamples",
+      "recoveredFirstUsage",
       "performanceModel",
       "solutionEconomyContract",
       "providerCacheStability",
