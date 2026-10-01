@@ -321,7 +321,7 @@ const CONTRACTS = [
     file: "lib/run-telemetry.mjs",
     minBytes: 3_000,
     startsWith: "import ",
-    required: ["recordTaskTelemetry", "taskTelemetrySummary", "taskHash", "tokenScope", "usage.input", "usage.output", "usage.cacheRead", "usage.cacheWrite", "toolQueueMs", "lspPrimaryAttempts", "diagnosticsTemperature"],
+    required: ["recordTaskTelemetry", "taskTelemetrySummary", "taskHash", "tokenScope", "usage.input", "usage.output", "usage.cacheRead", "usage.cacheWrite", "toolQueueMs", "averageProviderWaitMs", "averageModelGenerationMs", "averageToolExecutionMs", "averageToolResultProcessingMs", "averageVerificationMs", "averageLspPrimaryMs", "averageLspFallbackMs", "lspPrimaryAttempts", "diagnosticsTemperature"],
   },
   {
     file: "lib/tool-concurrency.mjs",
