@@ -393,7 +393,7 @@ const CONTRACTS = [
     file: "lib/run-inspector.mjs",
     minBytes: 2_000,
     startsWith: 'import { createHash }',
-    required: ["listRunJournals", "inspectRun", "compareRunInspections", "repeated-tool-signature", "tool-queue-delay", "hidden-output-verification-pipeline", "hiddenOutputPipelines"],
+    required: ["listRunJournals", "inspectRun", "compareRunInspections", "repeated-tool-signature", "repeated-read-signature", "repeated-search-signature", "repeated-mutation-signature", "blocked-tool-call", "interrupted-tool-call", "failed-tool-call", "repeatedReadSignatures", "tool-queue-delay", "hidden-output-verification-pipeline", "hiddenOutputPipelines"],
   },
   {
     file: "test/v15-6-runtime.test.mjs",
@@ -447,13 +447,13 @@ const CONTRACTS = [
     file: "lib/runtime-waste-learner.mjs",
     minBytes: 2_000,
     startsWith: 'import { listRunJournals',
-    required: ["learnRuntimeWaste", "repeated-tool-work", "tool-queue-pressure", "exact-tool-schema-token-tax", "counterfactual-quality-gain"],
+    required: ["learnRuntimeWaste", "repeated-tool-work", "repeated-read-work", "repeated-search-work", "repeated-mutation-work", "tool-queue-pressure", "provider-wait-pressure", "exact-tool-schema-token-tax", "exact-subagent-prefix-token-tax", "counterfactual-quality-gain"],
   },
   {
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["hidden verification progress", "5400s hang case", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "execution ownership fences stale runtimes", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["hidden verification progress", "5400s hang case", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
