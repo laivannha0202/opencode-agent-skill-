@@ -1433,18 +1433,22 @@ async function runAgentRpc(
         stopReason: "hung-tool",
         errorMessage: message,
         toolCalls,
+        toolQueueMs,
         toolNames: [...toolNames],
         browserTools: [...extraTools],
         childRuntime: "rpc",
         workerReused: false,
+        runtimeEpochId: runtimeEpoch.id,
+        modelRuntimeProfile: modelProfile,
       };
     }
     if (signal?.aborted || /UES RPC aborted/i.test(message)) {
       return {
         agent, task, cwd, exitCode: 130, output: message, stderr: message,
         model, stopReason: "aborted", errorMessage: message,
-        toolCalls, toolNames: [...toolNames], browserTools: [...extraTools],
+        toolCalls, toolQueueMs, toolNames: [...toolNames], browserTools: [...extraTools],
         childRuntime: "rpc", workerReused: false,
+        runtimeEpochId: runtimeEpoch.id, modelRuntimeProfile: modelProfile,
       };
     }
     if ((error as any)?.uesRpcPhase === "runtime") {
@@ -1465,10 +1469,13 @@ async function runAgentRpc(
         stopReason: timeout ? "timeout" : toolStall ? "tool-error-stall" : "rpc-runtime-error",
         errorMessage: message,
         toolCalls,
+        toolQueueMs,
         toolNames: [...toolNames],
         browserTools: [...extraTools],
         childRuntime: "rpc",
         workerReused: false,
+        runtimeEpochId: runtimeEpoch.id,
+        modelRuntimeProfile: modelProfile,
       };
     }
     throw error;
@@ -5908,7 +5915,7 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V3 adds V15.4 operational telemetry and recall summaries without removing V15.3 counters.
+          // Status schema V4 adds V15.6 durable/measured runtime contracts while retaining earlier telemetry counters.
           statusSchemaVersion: 4,
           incrementalWrite: {
             ...writeFeedbackStats,
