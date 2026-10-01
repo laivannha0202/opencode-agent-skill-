@@ -137,6 +137,7 @@ function parsePiTelemetry(stdout) {
   let childUsageSamples = 0
   let parentToolCalls = 0
   let childToolCalls = 0
+  let childToolQueueMs = 0
   let controllerUsed = false
   let controllerPass = false
   let finalAssistant = ""
@@ -177,6 +178,7 @@ function parsePiTelemetry(stdout) {
         childUsageSamples += 1
       }
       childToolCalls += Number(step?.toolCalls || 0)
+      childToolQueueMs += Number(step?.toolQueueMs || 0)
       for (const name of step?.toolNames || []) {
         const key = "child:" + String(name)
         toolNames[key] = Number(toolNames[key] || 0) + 1
@@ -243,6 +245,8 @@ function parsePiTelemetry(stdout) {
     toolCalls: parentToolCalls + childToolCalls,
     parentToolCalls,
     childToolCalls,
+    childToolQueueMs,
+    toolQueueMs: childToolQueueMs,
     toolNames,
     usageSamples: parentUsageSamples + childUsageSamples,
     parentUsageSamples,
