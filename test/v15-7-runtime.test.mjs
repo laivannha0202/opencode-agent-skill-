@@ -13,6 +13,8 @@ import { recordTaskTelemetry } from "../lib/run-telemetry.mjs"
 import { buildRuntimeEpoch, runtimeEpochCompatibility } from "../lib/runtime-epoch.mjs"
 import { createRunJournal, appendRunJournalEvent } from "../lib/run-journal.mjs"
 import { learnRuntimeWaste } from "../lib/runtime-waste-learner.mjs"
+import { assertExecutionOwnership, claimExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
+import { inspectRunRows } from "../lib/run-inspector.mjs"
 
 test("V15.7 command intelligence detects hidden verification progress", () => {
   const analysis = analyzeShellCommand("npm test 2>&1 | grep -v progress | tail -45", {
@@ -184,6 +186,83 @@ test("V15.7 runtime waste learner reports only observed evidence", async () => {
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test("V15.7 durable execution ownership fences expired and replaced runtimes", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v157-owner-"))
+  const scope = "epoch:test-owner"
+  const ownerA = "owner:test-a"
+  const ownerB = "owner:test-b"
+  try {
+    const first = await claimExecutionOwnership(root, scope, ownerA, {
+      nowMs: 1_000,
+      ttlMs: 1_000,
+      ownerPid: process.pid,
+      runtimeEpochId: scope,
+    })
+    assert.equal(first.lease.stolenFromExpiredOwner, false)
+    await assertExecutionOwnership(root, scope, ownerA, {
+      nowMs: 1_500,
+      runtimeEpochId: scope,
+    })
+    await assert.rejects(
+      assertExecutionOwnership(root, scope, ownerA, {
+        nowMs: 2_001,
+        runtimeEpochId: scope,
+      }),
+      (error) => error?.code === "UES_EXECUTION_OWNERSHIP_EXPIRED",
+    )
+
+    const replacement = await claimExecutionOwnership(root, scope, ownerB, {
+      nowMs: 2_001,
+      ttlMs: 1_000,
+      ownerPid: process.pid,
+      runtimeEpochId: scope,
+    })
+    assert.equal(replacement.lease.stolenFromExpiredOwner, true)
+    await assert.rejects(
+      assertExecutionOwnership(root, scope, ownerA, {
+        nowMs: 2_100,
+        runtimeEpochId: scope,
+      }),
+      (error) => error?.code === "UES_EXECUTION_OWNERSHIP_STALE",
+    )
+    await assertExecutionOwnership(root, scope, ownerB, {
+      nowMs: 2_100,
+      runtimeEpochId: scope,
+    })
+  } finally {
+    await releaseExecutionOwnership(root, scope, ownerA).catch(() => null)
+    await releaseExecutionOwnership(root, scope, ownerB).catch(() => null)
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15.7 trajectory intelligence separates repeated reads searches and mutations", () => {
+  const rows = [
+    { type: "tool.started", toolCallId: "r1", tool: "read", inputHash: "same-read", queuedMs: 0, concurrencyClass: "READ_PARALLEL_SAFE" },
+    { type: "tool.completed", toolCallId: "r1", tool: "read" },
+    { type: "tool.started", toolCallId: "r2", tool: "read", inputHash: "same-read", queuedMs: 0, concurrencyClass: "READ_PARALLEL_SAFE" },
+    { type: "tool.completed", toolCallId: "r2", tool: "read" },
+    { type: "tool.started", toolCallId: "s1", tool: "grep", inputHash: "same-search", queuedMs: 0, concurrencyClass: "READ_PARALLEL_SAFE" },
+    { type: "tool.completed", toolCallId: "s1", tool: "grep" },
+    { type: "tool.started", toolCallId: "s2", tool: "grep", inputHash: "same-search", queuedMs: 0, concurrencyClass: "READ_PARALLEL_SAFE" },
+    { type: "tool.completed", toolCallId: "s2", tool: "grep" },
+    { type: "tool.started", toolCallId: "w1", tool: "edit", inputHash: "same-write", queuedMs: 0, concurrencyClass: "WRITE_SERIAL" },
+    { type: "tool.completed", toolCallId: "w1", tool: "edit" },
+    { type: "tool.started", toolCallId: "w2", tool: "edit", inputHash: "same-write", queuedMs: 0, concurrencyClass: "WRITE_SERIAL" },
+    { type: "tool.failed", toolCallId: "w2", tool: "edit" },
+    { type: "tool.blocked", toolCallId: "b1", tool: "bash", reason: "stale-execution-owner" },
+    { type: "tool.interrupted", toolCallId: "i1", tool: "bash" },
+  ]
+  const inspected = inspectRunRows(rows)
+  assert.equal(inspected.schemaVersion, 2)
+  assert.equal(inspected.repeatedReadSignatures.length, 1)
+  assert.equal(inspected.repeatedSearchSignatures.length, 1)
+  assert.equal(inspected.repeatedMutationSignatures.length, 1)
+  assert.equal(inspected.blockedTools, 1)
+  assert.equal(inspected.interruptedTools, 1)
+  assert.equal(inspected.failedTools, 1)
 })
 
 test("V15.7 task telemetry feeds the efficiency ledger", async () => {
