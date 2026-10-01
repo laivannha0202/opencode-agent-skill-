@@ -152,9 +152,12 @@ function usageSample(usage = {}) {
 
 function addUsage(target, usage) {
   if (!usage || typeof usage !== "object") return target
-  for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]) {
-    target[key] += Number(usage[key] || 0)
+  const sample = usageSample(usage)
+  for (const key of ["input", "output", "cacheRead", "cacheWrite"]) {
+    const value = sample[key]
+    if (value != null) target[key] += value
   }
+  if (sample.totalTokens != null) target.totalTokens += sample.totalTokens
   const cost = usage.cost || {}
   for (const key of ["input", "output", "cacheRead", "cacheWrite", "total"]) {
     target.cost[key] += Number(cost[key] || 0)
