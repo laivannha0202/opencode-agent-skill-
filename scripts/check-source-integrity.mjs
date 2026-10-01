@@ -188,6 +188,7 @@ const CONTRACTS = [
       "solutionEconomyMode",
       "acquireRuntimeExecutionOwnership",
       "UES_CHILD_EXECUTION_OWNER_TOKEN",
+      "UES_CHILD_EXECUTION_OWNER_SCOPE",
       "resumeRuntimeEpochId",
       "effectiveRuntimeEpochId",
       "V15.6 durable run journal",
@@ -252,6 +253,7 @@ const CONTRACTS = [
       "assertExecutionOwnership",
       "stale-execution-owner",
       "UES_CHILD_EXECUTION_OWNER_TOKEN",
+      "UES_CHILD_EXECUTION_OWNER_SCOPE",
       "boundedVerificationTimeout",
       "(event.input as any).timeout = boundedTimeout",
     ],
@@ -422,14 +424,14 @@ const CONTRACTS = [
   {
     file: "lib/content-router-v2.mjs",
     minBytes: 1_500,
-    startsWith: "function clean",
-    required: ["classifyContentType", "routeToolContent", "budgetMultiplier", 'cacheZone: "live"', "diff", "diagnostics"],
+    startsWith: 'import { analyzeShellCommand }',
+    required: ["classifyContentType", "routeToolContent", "verificationFamily", "budgetMultiplier", 'cacheZone: "live"', "diff", "diagnostics", "build"],
   },
   {
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
     startsWith: "const DIRECT_VERIFY",
-    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
+    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
     file: "lib/solution-economy.mjs",
@@ -453,7 +455,7 @@ const CONTRACTS = [
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["hidden verification progress", "5400s hang case", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
