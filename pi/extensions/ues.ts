@@ -2577,6 +2577,7 @@ async function runRoutedAgent(
       evidenceViews: reusableVerification,
       recentContext: affectedTests,
       toolNames: result.toolNames || [],
+      toolCallCount: Number(result.toolCalls || 0),
       unusedToolSchemas: allowedToolList.filter((name: string) => !usedToolSet.has(String(name))).length,
     });
     await appendTrajectoryEvent(traceRoot, traceID, "context.observatory", {
