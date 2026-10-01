@@ -45,10 +45,6 @@ import { compactContext, expandContext, searchContext } from "../../lib/reversib
 import { ToolScheduler } from "../../lib/tool-scheduler.mjs";
 import { toolConcurrencyContract } from "../../lib/tool-concurrency.mjs";
 import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
-import { adaptiveCompactionBudget } from "../../lib/adaptive-compaction.mjs";
-import { routeToolContent } from "../../lib/content-router-v2.mjs";
-import { cacheAwareVisibleBudget } from "../../lib/provider-cache-stability.mjs";
-import { recordEfficiencyEvent } from "../../lib/efficiency-ledger.mjs";
 import { analyzeShellCommand, boundedVerificationTimeout } from "../../lib/command-intelligence.mjs";
 import { assertExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
