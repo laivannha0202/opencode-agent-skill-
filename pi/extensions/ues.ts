@@ -6405,6 +6405,11 @@ export default function (pi: ExtensionAPI) {
         "V15.8 real-model promotion telemetry: on (first usage measured; missing efficiency evidence fails closed when required)",
         "V15.8 provider cache stability: on (provider + model scoped; hysteresis bounded)",
         "V15.8 model runtime profiles: on (measured performance > configured capabilities > name heuristic)",
+        "V16 static completeness gate: on (FAST deterministic PASS fails closed on incomplete/error diagnostics)",
+        "V16 durable evidence integrity: on (active-work refs pinned during GC + resume ref audit)",
+        "V16 external data provenance: on (external-data; instruction-authority=none; flagged output remains governed)",
+        "V16 Windows cleanup barrier: on (bounded EBUSY/EPERM/ENOTEMPTY retry)",
+        "V16 cost-aware model routing: on (retry-amplified token economics after evidence floor)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -6438,8 +6443,8 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V6 adds V15.8 measured-hardening contracts while retaining earlier counters.
-          statusSchemaVersion: 6,
+          // Status schema V7 adds V16 deterministic hardening contracts while retaining earlier counters.
+          statusSchemaVersion: 7,
           incrementalWrite: {
             ...writeFeedbackStats,
             coverage: {
