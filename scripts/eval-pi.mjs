@@ -324,6 +324,7 @@ const taskFilter = argValue("--task")
 const requestedMode = argValue("--mode", "both")
 const suiteName = argValue("--suite", "live")
 const keep = hasArg("--keep")
+const requirePromotion = hasArg("--require-promotion")
 const timeoutMs = positiveInt(argValue("--timeout-ms"), 20 * 60_000)
 const idleTimeoutMs = positiveInt(argValue("--idle-timeout-ms"), 7 * 60_000)
 const heartbeatMs = positiveInt(argValue("--heartbeat-ms"), 30_000)
@@ -334,11 +335,15 @@ const providerExtensions = explicitProviderExtensions.length
 const suiteRoot = path.join(root, "evals", suiteName)
 
 if (!model) {
-  console.error("Usage: node scripts/eval-pi.mjs --model provider/model [--pi-command path-or-command] [--provider-extension path|npm:spec|git:spec] [--thinking off|minimal|low|medium|high|xhigh] [--suite live] [--trials N] [--task id] [--mode baseline|ues|both] [--keep]")
+  console.error("Usage: node scripts/eval-pi.mjs --model provider/model [--pi-command path-or-command] [--provider-extension path|npm:spec|git:spec] [--thinking off|minimal|low|medium|high|xhigh] [--suite live] [--trials N] [--task id] [--mode baseline|ues|both] [--keep] [--require-promotion]")
   process.exit(2)
 }
 if (!["baseline", "ues", "both"].includes(requestedMode)) {
   console.error("--mode must be baseline, ues, or both")
+  process.exit(2)
+}
+if (requirePromotion && requestedMode !== "both") {
+  console.error("--require-promotion requires --mode both")
   process.exit(2)
 }
 if (!existsSync(path.join(suiteRoot, "tasks.json"))) {
@@ -569,6 +574,15 @@ try {
     console.log(JSON.stringify(confidence, null, 2))
   }
   console.log("Result file: " + outputFile)
+  if (requirePromotion) {
+    if (confidence?.turbo?.promotionEligible === true) {
+      console.log("UES real-model promotion gate: PASS")
+    } else {
+      console.error("UES real-model promotion gate: FAIL")
+      console.error(JSON.stringify(confidence?.turbo?.checks || confidence?.checks || {}, null, 2))
+      process.exitCode = 1
+    }
+  }
 } finally {
   if (!keep) await rm(runRoot, { recursive: true, force: true }).catch(() => {})
 }
