@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url"
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const input = process.argv.slice(2)
 const args = [...input]
-const has = (name) => args.includes(name)
+const has = (name) => args.some((arg) => arg === name || arg.startsWith(name + "="))
 if (!has("--mode")) args.push("--mode", "both")
 if (!has("--trials")) args.push("--trials", "3")
 if (!has("--suite")) args.push("--suite", "live")
