@@ -119,6 +119,8 @@ Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill 
   ocskill eval                 Validate the bundled static skill-routing suite
   ocskill eval-live [options]  Run legacy OpenCode baseline-vs-UES behavioral evals
   ocskill eval-pi [options]    Run Pi-native baseline-vs-UES weak-model benchmark
+  ues trial [options]         Run paired real-model baseline vs UES trial (defaults: live, both, 3 trials, keep)
+  ues optimize-report [dir]   Analyze recent measured runtime waste and efficiency evidence
   ocskill eval-report [paths]  Aggregate live eval pass-rate/cost/tool telemetry
   ocskill inspect [dir]        Deterministic repository/stack/test-command map
   ocskill impact <query> [dir] Search likely impact paths and matching lines
@@ -246,6 +248,14 @@ function printCommandHelp(commandName, subcommand) {
   }
   if (commandName === "run-inspect") {
     console.log("Usage: ues run-inspect [run-id|last] [dir] [--compare <run-id|previous>]\n")
+    return
+  }
+  if (commandName === "trial") {
+    console.log("Usage: ues trial --model <provider/model> [--thinking <level>] [--suite live] [--task <id>] [--trials N]\n")
+    return
+  }
+  if (commandName === "optimize-report" || commandName === "learn-runtime") {
+    console.log("Usage: ues optimize-report [dir] [--limit N]\n")
     return
   }
   if (commandName === "diff") {
@@ -470,6 +480,22 @@ async function evaluatePi() {
   const code = run(
     process.execPath,
     [path.join(packageRoot, "scripts", "eval-pi.mjs"), ...args.slice(1)],
+  )
+  if (code !== 0) process.exitCode = code
+}
+
+async function trialControl() {
+  const code = run(
+    process.execPath,
+    [path.join(packageRoot, "scripts", "ues-trial.mjs"), ...args.slice(1)],
+  )
+  if (code !== 0) process.exitCode = code
+}
+
+async function optimizeReportControl() {
+  const code = run(
+    process.execPath,
+    [path.join(packageRoot, "scripts", "runtime-waste-report.mjs"), ...args.slice(1)],
   )
   if (code !== 0) process.exitCode = code
 }
@@ -1935,6 +1961,13 @@ async function main() {
     break
   case "eval-pi":
     await evaluatePi()
+    break
+  case "trial":
+    await trialControl()
+    break
+  case "optimize-report":
+  case "learn-runtime":
+    await optimizeReportControl()
     break
   case "eval-report":
     await evaluateReport()
