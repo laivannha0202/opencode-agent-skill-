@@ -214,7 +214,12 @@ const CONTRACTS = [
       "UES_CHILD_RUNTIME_EPOCH_ID",
       "UES_CHILD_MAX_PARALLEL_READS",
       "uesScheduler",
-      "uesCheckpoint",    ],
+      "uesCheckpoint",
+      "registerBuiltInExecutionModes",
+      "HOST_SEQUENTIAL_TOOLS",
+      "scheduler-preflight-conflict",
+      'executionMode: "sequential"',
+    ],
   },
   {
     file: "bin/ocskill.mjs",
@@ -297,7 +302,7 @@ const CONTRACTS = [
     file: "lib/tool-scheduler.mjs",
     minBytes: 3_000,
     startsWith: 'import { toolConcurrencyContract }',
-    required: ["class ToolScheduler", "maxParallelReads", "UES_TOOL_QUEUE_TIMEOUT", "parallelSafe", "averageQueueMs", "reset(reason"],
+    required: ["class ToolScheduler", "maxParallelReads", "UES_TOOL_QUEUE_TIMEOUT", "parallelSafe", "averageQueueMs", "tryAcquire", "reset(reason"],
   },
   {
     file: "lib/runtime-epoch.mjs",
@@ -351,7 +356,7 @@ const CONTRACTS = [
     file: "test/v15-6-runtime.test.mjs",
     minBytes: 7_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["runtime epochs are deterministic", "tool scheduler runs bounded reads together", "crash recovery never replays side effects", "adaptive compaction preserves more", "refuse diverged rollback", "run artifacts and inspector"],
+    required: ["runtime epochs are deterministic", "tool scheduler runs bounded reads together", "preflight admission never waits behind sibling tools", "crash recovery never replays side effects", "adaptive compaction preserves more", "refuse diverged rollback", "run artifacts and inspector"],
   },
   {
     file: "scripts/inspect-run.mjs",
