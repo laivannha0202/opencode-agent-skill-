@@ -13,6 +13,11 @@ import { recordTaskTelemetry } from "../lib/run-telemetry.mjs"
 import { buildRuntimeEpoch, runtimeEpochCompatibility } from "../lib/runtime-epoch.mjs"
 import { createRunJournal, appendRunJournalEvent } from "../lib/run-journal.mjs"
 import { learnRuntimeWaste } from "../lib/runtime-waste-learner.mjs"
+import {
+  assertExecutionOwnership,
+  claimExecutionOwnership,
+  releaseExecutionOwnership,
+} from "../lib/execution-ownership.mjs"
 import { assertExecutionOwnership, claimExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
 import { inspectRunRows } from "../lib/run-inspector.mjs"
 
@@ -263,6 +268,54 @@ test("V15.7 trajectory intelligence separates repeated reads searches and mutati
   assert.equal(inspected.blockedTools, 1)
   assert.equal(inspected.interruptedTools, 1)
   assert.equal(inspected.failedTools, 1)
+})
+
+test("V15.7 execution ownership fences stale runtimes without blind takeover", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v157-owner-"))
+  const scope = "epoch:test-owner"
+  try {
+    const first = await claimExecutionOwnership(root, scope, "owner:a", {
+      ttlMs: 1000,
+      nowMs: 1000,
+      ownerPid: process.pid,
+      runtimeEpochId: scope,
+    })
+    assert.equal(first.lease.generation, 1)
+    await assertExecutionOwnership(root, scope, "owner:a", {
+      nowMs: 1500,
+      runtimeEpochId: scope,
+    })
+    await assert.rejects(
+      claimExecutionOwnership(root, scope, "owner:b", {
+        ttlMs: 1000,
+        nowMs: 1500,
+        ownerPid: process.pid,
+        runtimeEpochId: scope,
+      }),
+      (error) => error?.code === "UES_EXECUTION_OWNERSHIP_CONFLICT",
+    )
+
+    const takeover = await claimExecutionOwnership(root, scope, "owner:b", {
+      ttlMs: 1000,
+      nowMs: 2501,
+      ownerPid: process.pid,
+      runtimeEpochId: scope,
+    })
+    assert.equal(takeover.lease.generation, 2)
+    assert.equal(takeover.lease.stolenFromExpiredOwner, true)
+    await assert.rejects(
+      assertExecutionOwnership(root, scope, "owner:a", {
+        nowMs: 2501,
+        runtimeEpochId: scope,
+      }),
+      (error) => error?.code === "UES_EXECUTION_OWNERSHIP_STALE",
+    )
+    await releaseExecutionOwnership(root, scope, "owner:a")
+    const released = await releaseExecutionOwnership(root, scope, "owner:b")
+    assert.equal(released.released, true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test("V15.7 task telemetry feeds the efficiency ledger", async () => {
