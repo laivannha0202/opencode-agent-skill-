@@ -427,6 +427,12 @@ const CONTRACTS = [
     required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens"],
   },
   {
+    file: "lib/performance-fabric.mjs",
+    minBytes: 10_000,
+    startsWith: 'import { putEvidence }',
+    required: ["analyzeShellCommand", "reduceCommandOutput", "npm-test", "command-aware reducer", "Raw bytes are persisted before any model-visible reduction"],
+  },
+  {
     file: "lib/content-router-v2.mjs",
     minBytes: 1_500,
     startsWith: 'import { analyzeShellCommand }',
