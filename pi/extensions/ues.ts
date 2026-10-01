@@ -55,7 +55,7 @@ import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
 import { appendRunJournalEvent, closeRunJournal, createRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
 import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
-import { recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
+import { aggregateUsageSamples, recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
 import { summarizeCompactionRecall } from "../../lib/compaction-recall.mjs";
 import { efficiencySummary } from "../../lib/efficiency-ledger.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
@@ -2495,13 +2495,14 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
   const performanceModel = result.modelSelection?.model || result.model;
   if (!performanceModel) return;
   try {
+    const aggregateUsage = aggregateUsageSamples(result.usageSamples);
     await recordModelPerformance(getUesConfigDir(), {
       model: performanceModel,
       text: task,
       passed,
       retries,
       latencyMs: result.durationMs || 0,
-      tokens: Number(result.usage?.totalTokens || 0),
+      tokens: Number(aggregateUsage?.totalTokens ?? result.usage?.totalTokens ?? 0),
     });
   } catch {
     // Telemetry must never make the engineering task fail.
