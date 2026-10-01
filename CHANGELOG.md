@@ -1,5 +1,29 @@
 # Changelog
 
+## [16.0.0] - 2026-10-02
+
+### Added
+
+- **Static Completeness Gate V2.** Turbo FAST deterministic PASS now combines fresh behavioral receipts with complete, error-free static diagnostics for supported changed source files. Timeout, unavailable/incomplete diagnostics, multi-file static scope or diagnostics errors fall back to the independent verifier rather than being treated as clean.
+- **Durable Evidence Pinning + Resume Integrity.** Evidence Store GC protects references reachable from active `.ues-work` state; checkpoints persist concrete evidence refs when present, and compaction resume reports `OK` / `DEGRADED` / `NOT_APPLICABLE` evidence integrity.
+- **External Data Provenance Boundary.** External/MCP output is explicitly non-authoritative (`trustClass=external-data`, `instructionAuthority=none`). Prompt-injection-like output remains under the reversible output governor instead of bypassing compaction.
+- **Windows-safe Cleanup Barrier.** Shared bounded cleanup retries transient `EBUSY`, `EPERM`, `ENOTEMPTY`, `EMFILE` and `ENFILE` failures for worktree/workspace cleanup.
+- **Cost-aware empirical routing.** Model performance reranking now incorporates retry-amplified expected token work after the existing minimum evidence floor.
+- Added `npm run eval:v16`, a V16 runtime wiring contract, and package/release closure checks for V16 hardening artifacts.
+
+### Changed
+
+- Package runtime advances to 16.0.0 and `/ues-status` schema advances to V7 with explicit V16 hardening markers.
+- Deterministic FAST verification receipts record the static diagnostics file/source/fingerprint alongside behavioral evidence.
+- `release:verify` now includes `eval:v16`; V16 documentation and critical runtime modules are protected by release/package closure checks.
+
+### Safety / quality invariants
+
+- V15.9 ACI/context/reversible-output architecture, LSP lifecycle, process-tree supervision, task leases, dirty-work/local-env guards and independent verifier/integration gates are retained.
+- Incomplete static analysis cannot be converted into deterministic PASS.
+- Missing durable evidence during compaction resume is surfaced as degraded state and must be reacquired instead of guessed.
+- **Non-goal:** V16.0 does not claim full container isolation of the Pi/model session. Existing container isolation remains a deterministic verification boundary; broader host execution isolation remains a separate hardening track.
+
 ## [15.8.0] - 2026-10-01
 
 ### Added
