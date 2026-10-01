@@ -358,6 +358,19 @@ export default function (pi: ExtensionAPI) {
     const localEnvAllowed = String(process.env.UES_CHILD_ALLOW_LOCAL_ENV_WRITE || "") === "1";
     const mutation = detectMutationShape(toolName, input);
     const writeTool = mutation.mutation === "yes";
+    if (writeTool) {
+      const writeHook = await RUNTIME_HOOKS.emit("write.before", {
+        toolCallId: owner,
+        toolName,
+        files: mutation.files || [],
+        inputHash: toolInputHash(input),
+      }, { cwd: ctx.cwd }).catch(() => ({ decision: "allow" }));
+      if (writeHook.decision === "deny") {
+        toolExecutionState.delete(String(event.toolCallId || ""));
+        await releaseScheduledTool(event, ctx, "tool.blocked");
+        return { block: true, reason: writeHook.reason || "UES write lifecycle hook denied mutation" };
+      }
+    }
     const knownFileTool = ["read", "edit", "write", "write_file", "apply_patch", "ues_code", "ues_code_edit"].includes(toolName);
     const fallbackFile = String(input.file || input.path || input.filePath || input.target || "");
     const fileCandidates = mutation.files.length ? mutation.files : (fallbackFile ? [fallbackFile] : []);
@@ -458,6 +471,22 @@ export default function (pi: ExtensionAPI) {
       };
     }
 
+    const verificationLike = commandAnalysis.verificationLike || looksLikeVerificationCommand(command);
+    if (verificationLike) {
+      const verificationHook = await RUNTIME_HOOKS.emit("verification.before", {
+        toolCallId: owner,
+        toolName,
+        command,
+        inputHash: toolInputHash(input),
+        progressVisibility: commandAnalysis.progressVisibility,
+      }, { cwd: ctx.cwd }).catch(() => ({ decision: "allow" }));
+      if (verificationHook.decision === "deny") {
+        toolExecutionState.delete(String(event.toolCallId || ""));
+        await releaseScheduledTool(event, ctx, "tool.blocked");
+        return { block: true, reason: verificationHook.reason || "UES verification lifecycle hook denied command" };
+      }
+    }
+
     const canonicalVerification = canonicalVerificationCommand(command);
     const reusableCandidate = Boolean(canonicalVerification);
     const workspaceBefore = reusableCandidate
@@ -480,7 +509,7 @@ export default function (pi: ExtensionAPI) {
         inputHash: toolInputHash(input),
       });
     }
-    if (commandAnalysis.verificationLike || looksLikeVerificationCommand(command)) {
+    if (verificationLike) {
       const configured = configuredVerificationTimeout();
       // A model-provided 90 minute timeout must not bypass the bounded verification
       // policy. Clamp, rather than only filling a missing timeout, so hidden-output
@@ -616,6 +645,28 @@ export default function (pi: ExtensionAPI) {
       ctx,
       event.isError === true ? "tool.failed" : "tool.completed",
     );
+    const resultInput: any = event && typeof event.input === "object" && event.input ? event.input : {};
+    const resultMutation = detectMutationShape(toolName, resultInput);
+    if (resultMutation.mutation === "yes") {
+      await RUNTIME_HOOKS.emit("write.after", {
+        toolCallId: owner,
+        toolName,
+        files: resultMutation.files || [],
+        isError: event.isError === true,
+      }, { cwd: ctx.cwd }).catch(() => null);
+    }
+    const resultCommand = ["bash", "powershell"].includes(toolName)
+      ? String(resultInput.command || "")
+      : "";
+    if (resultCommand && looksLikeVerificationCommand(resultCommand)) {
+      await RUNTIME_HOOKS.emit("verification.after", {
+        toolCallId: owner,
+        toolName,
+        command: resultCommand,
+        isError: event.isError === true,
+        exitCode: shellExitCode(event, visibleText(event)),
+      }, { cwd: ctx.cwd }).catch(() => null);
+    }
     if (!event.details || typeof event.details !== "object") (event as any).details = {};
     (event.details as any).uesScheduler = {
       queuedMs: Number(schedulerLease?.queuedMs || 0),
