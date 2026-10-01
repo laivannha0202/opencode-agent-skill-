@@ -258,6 +258,9 @@ const CONTRACTS = [
       'case "sandbox"',
       'case "checkpoint"',
       'case "run-inspect"',
+      'case "trial"',
+      'case "optimize-report"',
+      'case "learn-runtime"',
       'case "store"',
       'case "capabilities"',
       'case "capability-fabric"',
@@ -381,7 +384,7 @@ const CONTRACTS = [
     file: "lib/run-inspector.mjs",
     minBytes: 2_000,
     startsWith: 'import { createHash }',
-    required: ["listRunJournals", "inspectRun", "compareRunInspections", "repeated-tool-signature", "tool-queue-delay"],
+    required: ["listRunJournals", "inspectRun", "compareRunInspections", "repeated-tool-signature", "tool-queue-delay", "hidden-output-verification-pipeline", "hiddenOutputPipelines"],
   },
   {
     file: "test/v15-6-runtime.test.mjs",
