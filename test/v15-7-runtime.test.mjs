@@ -52,6 +52,8 @@ test("V15.7 command intelligence only classifies executable command heads", () =
     "echo npm test",
     "printf pytest",
     "echo npm run dev",
+    "npm exec echo test",
+    "npm exec echo start",
     'node -e "console.log(\'npm test\')"',
   ]) {
     const analysis = analyzeShellCommand(command)
@@ -62,6 +64,7 @@ test("V15.7 command intelligence only classifies executable command heads", () =
   assert.equal(analyzeShellCommand("cd apps/api && npm --filter @agrimarket/api test").verificationLike, true)
   assert.equal(analyzeShellCommand("FOO=1 npm --filter @agrimarket/api run start").longRunningService, true)
   assert.equal(analyzeShellCommand("env FOO=1 pnpm --filter web run typecheck").verificationFamily, "diagnostics")
+  assert.equal(analyzeShellCommand("C:\\tools\\npm.cmd test").verificationFamily, "test")
 })
 
 test("V15.7 command intelligence ignores pipe text inside quotes", () => {
