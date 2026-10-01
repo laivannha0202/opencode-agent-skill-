@@ -8,6 +8,7 @@ import { analyzeShellCommand, boundedVerificationTimeout } from "../lib/command-
 import { cacheStabilityFromRows } from "../lib/provider-cache-stability.mjs"
 import { modelRuntimeProfile } from "../lib/model-runtime-profile.mjs"
 import { pairedBenchmarkConfidence } from "../lib/benchmark-confidence.mjs"
+import { buildTaskTelemetry } from "../lib/run-telemetry.mjs"
 
 test("V15.8 command intelligence unwraps Windows and POSIX shell wrappers", () => {
   const cases = [
@@ -200,6 +201,24 @@ function promotionPairs(withUsage) {
   return rows
 }
 
+test("V15.8 telemetry keys learning by routed model identity", () => {
+  const row = buildTaskTelemetry(
+    {
+      model: "provider-display-model",
+      exitCode: 0,
+      usage: { input: 100, output: 20, cacheRead: 30, cacheWrite: 0 },
+    },
+    {
+      model: "provider-a/canonical-model",
+      provider: "provider-a",
+      task: "identity test",
+    },
+  )
+  assert.equal(row.model, "provider-a/canonical-model")
+  assert.equal(row.provider, "provider-a")
+  assert.equal(row.metrics.usageAccounting, "pi-normalized-disjoint")
+})
+
 test("V15.8 real-model promotion fails closed when efficiency telemetry is absent", () => {
   const missing = pairedBenchmarkConfidence(promotionPairs(false), {
     requireMeasuredEfficiency: true,
@@ -220,6 +239,9 @@ test("V15.8 real-model promotion fails closed when efficiency telemetry is absen
 test("V15.8 Pi eval captures first usage and exposes a hard promotion switch", async () => {
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
   const source = await readFile(path.join(root, "scripts", "eval-pi.mjs"), "utf8")
+  const extensionSource = await readFile(path.join(root, "pi", "extensions", "ues.ts"), "utf8")
+  assert.match(extensionSource, /provider: selectedProvider,\s*model: selectedModel/)
+  assert.match(extensionSource, /const performanceModel = result\.modelSelection\?\.model \|\| result\.model/)
   assert.match(source, /if \(firstUsage === null\) firstUsage = usageSample/)
   assert.match(source, /requireMeasuredEfficiency: true/)
   assert.match(source, /--require-promotion/)
