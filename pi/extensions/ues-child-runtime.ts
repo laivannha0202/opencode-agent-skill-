@@ -85,6 +85,7 @@ const CHILD_RUN_ID = String(process.env.UES_CHILD_RUN_ID || "").trim();
 const CHILD_JOURNAL_ROOT = String(process.env.UES_CHILD_JOURNAL_ROOT || "").trim();
 const CHILD_RUNTIME_EPOCH_ID = String(process.env.UES_CHILD_RUNTIME_EPOCH_ID || "").trim();
 const CHILD_EXECUTION_OWNER_TOKEN = String(process.env.UES_CHILD_EXECUTION_OWNER_TOKEN || "").trim();
+const CHILD_EXECUTION_OWNER_SCOPE = String(process.env.UES_CHILD_EXECUTION_OWNER_SCOPE || "").trim();
 const CHILD_OWNERSHIP_ROOT = String(process.env.UES_CHILD_OWNERSHIP_ROOT || "").trim();
 const TOOL_SCHEDULER = new ToolScheduler({
   maxParallelReads: Number(process.env.UES_CHILD_MAX_PARALLEL_READS || 4),
@@ -142,10 +143,11 @@ async function journalChildEvent(ctx: any, type: string, data: any = {}) {
 async function executionOwnershipBlock(ctx: any, toolName: string, owner: string) {
   if (!CHILD_EXECUTION_OWNER_TOKEN || !CHILD_RUNTIME_EPOCH_ID) return null;
   const root = CHILD_OWNERSHIP_ROOT || CHILD_JOURNAL_ROOT || String(ctx?.cwd || process.cwd());
+  const scope = CHILD_EXECUTION_OWNER_SCOPE || CHILD_RUNTIME_EPOCH_ID;
   try {
     await assertExecutionOwnership(
       root,
-      CHILD_RUNTIME_EPOCH_ID,
+      scope,
       CHILD_EXECUTION_OWNER_TOKEN,
       { runtimeEpochId: CHILD_RUNTIME_EPOCH_ID },
     );
