@@ -430,8 +430,18 @@ export default function (pi: ExtensionAPI) {
           "UES local-env guard blocked a shell write to .env/.env.*. Use .env.example/sample/template or report NEEDS_USER_ENV unless explicitly authorized.",
       };
     }
-    if (looksLikeLongRunningServiceCommand(command)) {
+    const commandAnalysis = analyzeShellCommand(command, {
+      verificationTimeoutSec: configuredVerificationTimeout(),
+    });
+    if (looksLikeLongRunningServiceCommand(command) || commandAnalysis.shouldUseManagedService) {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await journalChildEvent(ctx, "command.intelligence", {
+        toolCallId: owner,
+        tool: toolName,
+        finding: "long-running-service-command",
+        progressVisibility: commandAnalysis.progressVisibility,
+        inputHash: toolInputHash(input),
+      });
       await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
@@ -464,9 +474,6 @@ export default function (pi: ExtensionAPI) {
       workspaceBefore,
       reusableCandidate,
       canonicalVerification,
-    });
-    const commandAnalysis = analyzeShellCommand(command, {
-      verificationTimeoutSec: configuredVerificationTimeout(),
     });
     if (commandAnalysis.finding) {
       await journalChildEvent(ctx, "command.intelligence", {
