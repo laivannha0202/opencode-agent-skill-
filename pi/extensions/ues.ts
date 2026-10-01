@@ -791,6 +791,7 @@ async function runAgentCli(
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
     reuseRpcSession?: boolean;
+    resumeRuntimeEpochId?: string;
     runId?: string;
     journalRoot?: string;
     workspaceFingerprint?: string;
@@ -1246,6 +1247,7 @@ async function runAgentRpc(
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
     reuseRpcSession?: boolean;
+    resumeRuntimeEpochId?: string;
     runId?: string;
     journalRoot?: string;
     workspaceFingerprint?: string;
@@ -1319,6 +1321,14 @@ async function runAgentRpc(
   args.push("--tools", allowedTools.join(","));
   args.push("--append-system-prompt", rpcPromptPath(agent));
 
+  // A transient provider continuation after completed tools is a new user turn,
+  // not a privileged-context change. Keep the original runtime epoch only when
+  // explicitly resuming the same RPC session; all ordinary turns use the newly
+  // computed epoch and therefore retain normal stale-context fencing.
+  const effectiveRuntimeEpochId = runtimeOptions.reuseRpcSession && runtimeOptions.resumeRuntimeEpochId
+    ? String(runtimeOptions.resumeRuntimeEpochId)
+    : runtimeEpoch.id;
+
   const invocation = getPiInvocation(args);
   const workerKey = JSON.stringify([
     agent,
@@ -1330,7 +1340,7 @@ async function runAgentRpc(
     Number(runtimeOptions.verificationTimeoutSec || 0),
     Boolean(runtimeOptions.allowLocalEnvWrite),
     policySnapshot.id,
-    runtimeEpoch.id,
+    effectiveRuntimeEpochId,
     runtimeOptions.runId || "",
     runtimeOptions.journalRoot || cwd,
   ]);
@@ -1345,7 +1355,7 @@ async function runAgentRpc(
   let detectedHang: any = null;
   const executionOwnership = await acquireRuntimeExecutionOwnership(
     runtimeOptions.journalRoot || cwd,
-    runtimeEpoch.id,
+    effectiveRuntimeEpochId,
   );
 
   const progressTimer = setInterval(() => {
@@ -1376,7 +1386,7 @@ async function runAgentRpc(
           UES_CHILD_PROCESS: "1",
           UES_CHILD_AGENT: agent,
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
-          UES_CHILD_RUNTIME_EPOCH_ID: runtimeEpoch.id,
+          UES_CHILD_RUNTIME_EPOCH_ID: effectiveRuntimeEpochId,
           UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
           UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
@@ -1466,7 +1476,7 @@ async function runAgentRpc(
       browserTools: [...extraTools],
       childRuntime: "rpc",
       workerReused: rpc.workerReused === true,
-      runtimeEpochId: runtimeEpoch.id,
+      runtimeEpochId: effectiveRuntimeEpochId,
       modelRuntimeProfile: modelProfile,
     };
     const providerDecision = classifyProviderFailure(baseResult);
@@ -1503,7 +1513,7 @@ async function runAgentRpc(
         browserTools: [...extraTools],
         childRuntime: "rpc",
         workerReused: false,
-        runtimeEpochId: runtimeEpoch.id,
+        runtimeEpochId: effectiveRuntimeEpochId,
         modelRuntimeProfile: modelProfile,
       };
     }
@@ -1513,7 +1523,7 @@ async function runAgentRpc(
         model, stopReason: "aborted", errorMessage: message,
         toolCalls, toolQueueMs, toolNames: [...toolNames], browserTools: [...extraTools],
         childRuntime: "rpc", workerReused: false,
-        runtimeEpochId: runtimeEpoch.id, modelRuntimeProfile: modelProfile,
+        runtimeEpochId: effectiveRuntimeEpochId, modelRuntimeProfile: modelProfile,
       };
     }
     if ((error as any)?.uesRpcPhase === "runtime") {
@@ -1539,7 +1549,7 @@ async function runAgentRpc(
         browserTools: [...extraTools],
         childRuntime: "rpc",
         workerReused: false,
-        runtimeEpochId: runtimeEpoch.id,
+        runtimeEpochId: effectiveRuntimeEpochId,
         modelRuntimeProfile: modelProfile,
       };
     }
@@ -1572,6 +1582,7 @@ async function runAgent(
     postToolErrorIdleTimeoutMs?: number;
     allowLocalEnvWrite?: boolean;
     reuseRpcSession?: boolean;
+    resumeRuntimeEpochId?: string;
     runId?: string;
     journalRoot?: string;
     workspaceFingerprint?: string;
@@ -1646,7 +1657,11 @@ async function runAgent(
         signal,
         onProgress,
         extraTools,
-        { ...runtimeOptions, reuseRpcSession: true },
+        {
+          ...runtimeOptions,
+          reuseRpcSession: true,
+          resumeRuntimeEpochId: result.runtimeEpochId || runtimeOptions.resumeRuntimeEpochId,
+        },
       );
       result = {
         ...resumed,
