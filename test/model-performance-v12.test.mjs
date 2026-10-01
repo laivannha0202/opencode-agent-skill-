@@ -46,3 +46,41 @@ test("V14.2 default empirical routing waits for the stronger sample floor", () =
   assert.equal(reranked.selected.id, "provider/a")
   assert.equal(reranked.candidates.find((item) => item.id === "provider/b").empiricalConfidence < 1, true)
 })
+
+
+test("V16 empirical routing accounts for expected retry-amplified token cost", () => {
+  const selection = {
+    candidates: [
+      { id: "provider/a", eligible: true, score: 80 },
+      { id: "provider/b", eligible: true, score: 79 },
+    ],
+    selected: { id: "provider/a", eligible: true, score: 80 },
+  }
+  let history = {}
+  for (let index = 0; index < 10; index += 1) {
+    history = recordPerformanceOutcome(history, {
+      model: "provider/a",
+      taskClass: "backend",
+      passed: true,
+      retries: 0,
+      tokens: 60_000,
+      latencyMs: 1_000,
+    })
+    history = recordPerformanceOutcome(history, {
+      model: "provider/b",
+      taskClass: "backend",
+      passed: true,
+      retries: 0,
+      tokens: 4_000,
+      latencyMs: 1_000,
+    })
+  }
+  const reranked = rerankCapabilitySelection(selection, history, {
+    taskClass: "backend",
+    minSamples: 8,
+  })
+  assert.equal(reranked.selected.id, "provider/b")
+  const expensive = reranked.candidates.find((item) => item.id === "provider/a")
+  assert.equal(expensive.empiricalExpectedWorkTokens, 60_000)
+  assert.ok(expensive.empiricalTokenPenalty > 0)
+})
