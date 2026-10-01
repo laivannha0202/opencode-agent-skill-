@@ -424,6 +424,9 @@ type RunResult = {
   subagentArtifact?: any;
   optimizations?: any;
   runtimeEpochId?: string;
+  policySnapshotId?: string;
+  allowedTools?: string[];
+  toolExposure?: any;
   modelRuntimeProfile?: any;
 };
 
