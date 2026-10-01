@@ -48,6 +48,7 @@ import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, compilePolicyLattice, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
+import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { applyModelToolBudget, compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
 import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
@@ -300,17 +301,25 @@ const MCP_HEALTH = new McpHealthTracker({
 const PERMISSION_POLICY = new PermissionPolicyStore(
   path.join(getUesConfigDir(), ".ues", "permissions.json"),
 );
+const PARENT_RUNTIME_HOOKS = new RuntimeHookBus();
 
 async function resolveChildToolExposure(agent: string, candidateTools: string[]) {
   const unique = [...new Set(candidateTools.map((item) => String(item || "").trim()).filter(Boolean))];
+  const exposureHook = await PARENT_RUNTIME_HOOKS.emit("tool.before-expose", {
+    agent,
+    tools: unique,
+  }, { agent }).catch(() => ({ decision: "allow", payload: { agent, tools: unique } }));
+  const hookTools = Array.isArray((exposureHook as any)?.payload?.tools)
+    ? [...new Set((exposureHook as any).payload.tools.map((item: any) => String(item || "").trim()).filter(Boolean))]
+    : unique;
   const loaded: any = await PERMISSION_POLICY.load().catch((error) => ({
     configured: true,
     error: error instanceof Error ? error.message : String(error),
     config: null,
   }));
-  if (loaded?.error) return { tools: unique, hidden: [], degraded: loaded.error };
+  if (loaded?.error) return { tools: hookTools, hidden: [], degraded: loaded.error };
   if (!loaded?.configured || !loaded?.config) {
-    return { schemaVersion: 1, tools: unique, hidden: [], ask: [], configured: false, precedence: ["system","ues","repo","role","task","user"] };
+    return { schemaVersion: 1, tools: hookTools, hidden: [], ask: [], configured: false, precedence: ["system","ues","repo","role","task","user"] };
   }
   const roleRules = loaded.config.agents?.[agent] || [];
   const plan = compilePolicyLattice([
@@ -320,7 +329,7 @@ async function resolveChildToolExposure(agent: string, candidateTools: string[])
     { name: "role", rules: roleRules },
     { name: "task", rules: [] },
     { name: "user", rules: [] },
-  ], unique, { defaultEffect: loaded.config.defaultEffect });
+  ], hookTools, { defaultEffect: loaded.config.defaultEffect });
   if (!plan.tools.length && unique.length) {
     throw new Error("UES V15.9 policy lattice denied every tool for " + agent + "; refusing to launch a tool-less specialist.");
   }
@@ -2176,6 +2185,13 @@ async function runRoutedAgent(
   let contextCacheHit = false;
   let contextPerformance: any = null;
   const contextBuildStartedAt = Date.now();
+  await PARENT_RUNTIME_HOOKS.emit("context.before-build", {
+    agent,
+    role,
+    task,
+    risk: taskPolicy.risk,
+    modelProfileId: modelProfile.id,
+  }, { cwd }).catch(() => null);
   try {
     if (fastBoundedContext) {
       contextQuality = { schemaVersion: 1, profile: "fast-bounded", bounded: true };
@@ -2311,6 +2327,16 @@ async function runRoutedAgent(
     }
   }
   const contextBuildMs = Date.now() - contextBuildStartedAt;
+  await PARENT_RUNTIME_HOOKS.emit("context.after-build", {
+    agent,
+    role,
+    task,
+    risk: taskPolicy.risk,
+    modelProfileId: modelProfile.id,
+    contextBuildMs,
+    contextError: contextError || null,
+    bounded: true,
+  }, { cwd }).catch(() => null);
 
   if (modelProfile.roleContextABI) {
     const abi = modelProfile.roleContextABI;
@@ -2543,6 +2569,13 @@ async function runRoutedAgent(
         verdict: verdictFromOutput(result.output),
       }).catch(() => null)
     : null;
+  await PARENT_RUNTIME_HOOKS.emit("finalize.before", {
+    agent,
+    role,
+    exitCode: result.exitCode,
+    runtimeEpochId: result.runtimeEpochId || null,
+    policySnapshotId: result.policySnapshotId || null,
+  }, { cwd }).catch(() => null);
   const enrichedResult: RunResult = {
     ...result,
     task,
@@ -2640,6 +2673,14 @@ async function runRoutedAgent(
     provider: selectedProvider,
     model: selectedModel,
   }).catch(() => null);
+  await PARENT_RUNTIME_HOOKS.emit("finalize.after", {
+    agent,
+    role,
+    exitCode: enrichedResult.exitCode,
+    verdict: enrichedResult.verdict || null,
+    runtimeEpochId: enrichedResult.runtimeEpochId || null,
+    policySnapshotId: enrichedResult.policySnapshotId || null,
+  }, { cwd }).catch(() => null);
   return enrichedResult;
 }
 
@@ -3732,6 +3773,10 @@ export default function (pi: ExtensionAPI) {
   pi.on("session_before_compact", async (event, ctx) => {
     const root = resolveGitWorkspaceRoot(ctx.cwd || "");
     if (!root) return undefined;
+    await PARENT_RUNTIME_HOOKS.emit("compaction.before", {
+      reason: event.reason,
+      workspaceRoot: root,
+    }, { cwd: ctx.cwd }).catch(() => null);
     await checkpointDurableWorkBeforeCompaction(root, {
       reason: event.reason,
       maxWorkspaces: 3,
@@ -3766,6 +3811,12 @@ export default function (pi: ExtensionAPI) {
         modelSummaryTrustedForDurableState: false,
       },
     }, { triggerTurn: false });
+    await PARENT_RUNTIME_HOOKS.emit("compaction.after", {
+      reason: event.reason,
+      workspaceRoot: root,
+      rehydrationManifestId: manifest.id,
+      workspaceCount: packet.workspaceCount,
+    }, { cwd: ctx.cwd }).catch(() => null);
   });
 
   pi.on("session_shutdown", async () => {
