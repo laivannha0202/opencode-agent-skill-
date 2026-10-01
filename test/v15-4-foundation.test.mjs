@@ -14,7 +14,11 @@ test("V15.4 task telemetry stores operational metrics without raw task text", as
   try {
     const receipt = buildTaskTelemetry({ agent:"ues-verifier", task:"fix checkout", exitCode:0, verdict:"PASS", durationMs:120, toolCalls:3, toolNames:["read","bash","read"], providerRecoveryAttempts:1, optimizations:{ latencyMs:{ workspaceSnapshot:5, contextBuild:10, modelRun:80, hygiene:5, total:110 } } })
     assert.equal(receipt.metrics.totalTokens, null)
+    assert.equal(receipt.metrics.tokenScope, "unavailable")
     assert.equal(receipt.metrics.timingConsistent, true)
+    const nullUsage = buildTaskTelemetry({ exitCode:0, usage:{ inputTokens:null, outputTokens:null } })
+    assert.equal(nullUsage.metrics.totalTokens, null)
+    assert.equal(nullUsage.metrics.tokenScope, "unavailable")
     assert.deepEqual(receipt.metrics.toolNames, ["read","bash"])
     assert.equal(receipt.outcome.passed, true)
     await recordTaskTelemetry(root, { agent:"ues-verifier", task:"fix checkout", exitCode:0, verdict:"PASS", durationMs:120, toolCalls:3, usage:{ inputTokens:100, outputTokens:40 } })
@@ -24,8 +28,12 @@ test("V15.4 task telemetry stores operational metrics without raw task text", as
     assert.equal(summary.runs, 1)
     assert.equal(summary.averageTotalTokens, 140)
     assert.equal(summary.byScope["specialist-run"].runs, 1)
+    await recordTaskTelemetry(root, { exitCode:0, durationMs:200, toolCalls:5 }, { scope:"controller-run", task:"top-level secret task", passed:true })
+    const mixed = summarizeTaskTelemetryRows(await readTaskTelemetry(root))
+    assert.equal(mixed.byScope["controller-run"].runs, 1)
+    assert.equal(mixed.byScope["specialist-run"].runs, 1)
     const raw = await readFile(path.join(root, ".ues-learning", "task-telemetry-v1.jsonl"), "utf8")
-    assert.doesNotMatch(raw, /fix checkout/)
+    assert.doesNotMatch(raw, /fix checkout|top-level secret task/)
   } finally { await rm(root, { recursive:true, force:true }) }
 })
 

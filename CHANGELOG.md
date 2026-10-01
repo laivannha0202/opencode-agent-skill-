@@ -26,7 +26,7 @@ The project follows Semantic Versioning.
 ### Safety
 
 - V15.4 does not change Repo Map V3 weights, semantic-index identity, historical holdouts, verifier requirements, thinking level, or destructive-command policy.
-- Telemetry persists hashes/operational metrics rather than raw task prompt text and uses the existing bounded runtime-event journal.
+- Telemetry persists hashes/operational metrics rather than raw task prompt text; compaction analytics hashes command/source hints instead of persisting them verbatim. Explicit `null`/missing token data remains unavailable rather than being coerced to zero.
 - MarkItDown remains optional and is never auto-installed.
 - Real-model quality A/B remains explicitly unmeasured in repository CI when provider credentials are unavailable; deterministic gates are not presented as a substitute.
 - Public reversible-context and document-ingestion response schema numbers remain compatible with V15.3; only internal cache/event schemas advance independently.
