@@ -6438,6 +6438,7 @@ export default function (pi: ExtensionAPI) {
                   exitCode: step?.exitCode,
                   optimizations: step?.optimizations || null,
                   usage: step?.usage || null,
+                  firstUsage: step?.firstUsage || null,
                   toolCalls: Number(step?.toolCalls || 0),
                   toolQueueMs: Number(step?.toolQueueMs || 0),
                   toolNames: Array.isArray(step?.toolNames) ? step.toolNames : [],
