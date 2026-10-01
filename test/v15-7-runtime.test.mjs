@@ -227,6 +227,7 @@ test("V15.7 runtime waste learner reports only observed evidence", async () => {
     assert.ok(report.findings.some((row) => row.kind === "hidden-output-verification-pipeline"))
     assert.equal(report.efficiency.measuredProviderTokenRows >= 1, true)
     assert.ok(report.unavailable.includes("exact-tool-schema-token-tax"))
+    assert.ok(report.unavailable.includes("provider-stage-latency"))
   } finally {
     await rm(root, { recursive: true, force: true })
   }
