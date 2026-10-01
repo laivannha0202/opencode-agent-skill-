@@ -42,3 +42,68 @@ test("FAST verification gate rejects missing verification report or non-FAST pol
   assert.equal(highRisk.passed, false)
   assert.equal(highRisk.reason, "not-fast-bounded")
 })
+
+
+test("FAST verification gate fails closed when required static evidence is incomplete", () => {
+  const row = receipt("node", ["--test", ".ues-cache/fast-acceptance.test.mjs"], new Date().toISOString())
+  const gate = evaluateFastVerificationGate({
+    policy,
+    implementation,
+    receipts: [row],
+    attemptStartedAtMs: Date.now() - 1000,
+    staticEvidence: {
+      required: true,
+      complete: false,
+      errorCount: 0,
+      warningCount: 0,
+      file: "src/demo.ts",
+      source: "typescript-compiler-api",
+      reason: "fallback-timeout",
+    },
+  })
+  assert.equal(gate.passed, false)
+  assert.equal(gate.reason, "static-evidence-incomplete")
+})
+
+test("FAST verification gate rejects complete static evidence containing errors", () => {
+  const row = receipt("node", ["--test", ".ues-cache/fast-acceptance.test.mjs"], new Date().toISOString())
+  const gate = evaluateFastVerificationGate({
+    policy,
+    implementation,
+    receipts: [row],
+    attemptStartedAtMs: Date.now() - 1000,
+    staticEvidence: {
+      required: true,
+      complete: true,
+      errorCount: 1,
+      warningCount: 0,
+      file: "src/demo.ts",
+      source: "lsp-publish",
+      reason: "static-errors",
+    },
+  })
+  assert.equal(gate.passed, false)
+  assert.equal(gate.reason, "static-evidence-errors")
+})
+
+test("FAST verification gate accepts complete clean static evidence", () => {
+  const row = receipt("node", ["--test", ".ues-cache/fast-acceptance.test.mjs"], new Date().toISOString())
+  const gate = evaluateFastVerificationGate({
+    policy,
+    implementation,
+    receipts: [row],
+    attemptStartedAtMs: Date.now() - 1000,
+    staticEvidence: {
+      required: true,
+      complete: true,
+      errorCount: 0,
+      warningCount: 0,
+      file: "src/demo.ts",
+      source: "lsp-publish",
+      fingerprint: "abc",
+      reason: "static-complete",
+    },
+  })
+  assert.equal(gate.passed, true)
+  assert.equal(gate.staticEvidence.complete, true)
+})
