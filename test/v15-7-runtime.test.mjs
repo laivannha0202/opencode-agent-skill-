@@ -1,6 +1,8 @@
 import assert from "node:assert/strict"
 import os from "node:os"
 import path from "node:path"
+import { spawnSync } from "node:child_process"
+import { fileURLToPath } from "node:url"
 import { mkdtemp, rm } from "node:fs/promises"
 import test from "node:test"
 
@@ -16,6 +18,23 @@ import { learnRuntimeWaste } from "../lib/runtime-waste-learner.mjs"
 import { assertExecutionOwnership, claimExecutionOwnership, pruneExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
 import { inspectRunRows } from "../lib/run-inspector.mjs"
 import { reduceCommandOutput } from "../lib/performance-fabric.mjs"
+
+test("V15.7 trial preserves equals-form evaluator options", () => {
+  const here = path.dirname(fileURLToPath(import.meta.url))
+  const trialScript = path.resolve(here, "../scripts/ues-trial.mjs")
+  const run = spawnSync(process.execPath, [
+    trialScript,
+    "--model=provider/model",
+    "--mode=invalid",
+    "--trials=1",
+    "--suite=live",
+  ], {
+    encoding: "utf8",
+    cwd: path.resolve(here, ".."),
+  })
+  assert.equal(run.status, 2)
+  assert.match(String(run.stderr || "") + String(run.stdout || ""), /--mode must be baseline, ues, or both/)
+})
 
 test("V15.7 command intelligence detects hidden verification progress", () => {
   const analysis = analyzeShellCommand("npm test 2>&1 | grep -v progress | tail -45", {
