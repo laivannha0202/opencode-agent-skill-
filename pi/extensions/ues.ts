@@ -6183,6 +6183,7 @@ export default function (pi: ExtensionAPI) {
       verdict: controllerPass ? "PASS" : "FAIL",
       durationMs: Math.max(0, Date.now() - directStartedAt),
       toolCalls: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.toolCalls || 0), 0),
+      toolQueueMs: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.toolQueueMs || 0), 0),
       toolNames: [...new Set(telemetrySteps.flatMap((step: any) => Array.isArray(step?.toolNames) ? step.toolNames : []))],
       providerRecoveryAttempts: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.providerRecoveryAttempts || 0), 0),
       providerSessionResumeAttempts: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.providerSessionResumeAttempts || 0), 0),
@@ -6232,6 +6233,7 @@ export default function (pi: ExtensionAPI) {
                   optimizations: step?.optimizations || null,
                   usage: step?.usage || null,
                   toolCalls: Number(step?.toolCalls || 0),
+                  toolQueueMs: Number(step?.toolQueueMs || 0),
                   toolNames: Array.isArray(step?.toolNames) ? step.toolNames : [],
                 }))
               : [],
