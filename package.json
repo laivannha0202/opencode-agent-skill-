@@ -78,7 +78,7 @@
     "eval:v15.8": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-8-runtime.test.mjs test/v15-7-runtime.test.mjs test/benchmark-confidence.test.mjs test/runtime-events.test.mjs test/compaction-resume-guard.test.mjs",
     "eval:skills:v15.9": "node scripts/eval-skills-v15-9.mjs",
     "eval:v15.9": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-9-runtime.test.mjs test/v15-8-runtime.test.mjs test/permission-policy.test.mjs test/compaction-resume-guard.test.mjs test/runtime-events.test.mjs && npm run eval:skills:v15.9",
-    "eval:v16": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-runtime.test.mjs test/fast-verification-gate.test.mjs test/fast-static-verification-v16.test.mjs test/evidence-store-active-work-v16.test.mjs test/fs-cleanup-v16.test.mjs test/untrusted-output.test.mjs test/model-performance-v12.test.mjs test/compaction-resume-guard.test.mjs test/v15-9-runtime.test.mjs"
+    "eval:v16": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-runtime.test.mjs test/fast-verification-gate.test.mjs test/fast-static-verification-v16.test.mjs test/evidence-store-active-work-v16.test.mjs test/fs-cleanup-v16.test.mjs test/execution-capability-v16.test.mjs test/untrusted-output.test.mjs test/model-performance-v12.test.mjs test/compaction-resume-guard.test.mjs test/v15-9-runtime.test.mjs"
   },
   "keywords": [
     "pi-package",
