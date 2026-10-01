@@ -116,6 +116,12 @@ test("V15.7 runtime waste learner reports only observed evidence", async () => {
         tool: "read",
       })
     }
+    await appendRunJournalEvent(root, "run-a", "command.intelligence", {
+      toolCallId: "verify-1",
+      tool: "bash",
+      finding: "verification-output-hidden-by-pipeline",
+      progressVisibility: "reduced-by-shell-pipeline",
+    })
     await recordTaskTelemetry(root, {
       exitCode: 0,
       verdict: "PASS",
@@ -134,6 +140,7 @@ test("V15.7 runtime waste learner reports only observed evidence", async () => {
     assert.equal(report.runsInspected, 1)
     assert.ok(report.findings.some((row) => row.kind === "repeated-tool-work"))
     assert.ok(report.findings.some((row) => row.kind === "provider-recovery-cost"))
+    assert.ok(report.findings.some((row) => row.kind === "hidden-output-verification-pipeline"))
     assert.equal(report.efficiency.measuredProviderTokenRows >= 1, true)
     assert.ok(report.unavailable.includes("exact-tool-schema-token-tax"))
   } finally {
