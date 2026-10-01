@@ -48,6 +48,7 @@ import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
+import { claimExecutionOwnership, executionOwnerToken, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { applyModelToolBudget, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
 import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
@@ -152,6 +153,46 @@ const CHILD_HEARTBEAT_MS = configuredDuration(
   5_000,
   60_000,
 );
+const EXECUTION_OWNERSHIP_TTL_MS = configuredDuration(
+  "UES_EXECUTION_OWNERSHIP_TTL_MS",
+  45_000,
+  10_000,
+  5 * 60_000,
+);
+const EXECUTION_OWNERSHIP_HEARTBEAT_MS = Math.max(
+  2_000,
+  Math.min(CHILD_HEARTBEAT_MS, Math.trunc(EXECUTION_OWNERSHIP_TTL_MS / 3)),
+);
+
+async function acquireRuntimeExecutionOwnership(root: string, runtimeEpochId: string) {
+  const ownershipRoot = path.resolve(root || process.cwd());
+  const ownerToken = executionOwnerToken(runtimeEpochId);
+  await claimExecutionOwnership(ownershipRoot, runtimeEpochId, ownerToken, {
+    ttlMs: EXECUTION_OWNERSHIP_TTL_MS,
+    ownerPid: process.pid,
+    runtimeEpochId,
+  });
+  let released = false;
+  const timer = setInterval(() => {
+    void renewExecutionOwnership(ownershipRoot, runtimeEpochId, ownerToken, {
+      ttlMs: EXECUTION_OWNERSHIP_TTL_MS,
+      ownerPid: process.pid,
+      runtimeEpochId,
+    }).catch(() => {});
+  }, EXECUTION_OWNERSHIP_HEARTBEAT_MS);
+  timer.unref?.();
+  return {
+    ownershipRoot,
+    ownerToken,
+    runtimeEpochId,
+    async release() {
+      if (released) return;
+      released = true;
+      clearInterval(timer);
+      await releaseExecutionOwnership(ownershipRoot, runtimeEpochId, ownerToken).catch(() => null);
+    },
+  };
+}
 const HUNG_TOOL_GRACE_MS = configuredDuration(
   "UES_HUNG_TOOL_GRACE_MS",
   8_000,
@@ -830,6 +871,10 @@ async function runAgentCli(
   await fs.promises.writeFile(promptPath, getAgentPrompt(agent), { encoding: "utf8", mode: 0o600 });
   args.push("--append-system-prompt", promptPath);
   const taskInput = `Task: ${task}\n`;
+  const executionOwnership = await acquireRuntimeExecutionOwnership(
+    runtimeOptions.journalRoot || cwd,
+    runtimeEpoch.id,
+  );
 
   let output = "";
   let stderr = "";
@@ -853,6 +898,8 @@ async function runAgentCli(
           UES_CHILD_AGENT: agent,
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
           UES_CHILD_RUNTIME_EPOCH_ID: runtimeEpoch.id,
+          UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
+          UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
           UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
           UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
@@ -1127,6 +1174,7 @@ async function runAgentCli(
       }
     });
   } finally {
+    await executionOwnership.release();
     await fs.promises.rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
 
@@ -1283,6 +1331,8 @@ async function runAgentRpc(
     Boolean(runtimeOptions.allowLocalEnvWrite),
     policySnapshot.id,
     runtimeEpoch.id,
+    runtimeOptions.runId || "",
+    runtimeOptions.journalRoot || cwd,
   ]);
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
@@ -1293,6 +1343,10 @@ async function runAgentRpc(
   const activeTools = new Map<string, { name: string; args: any }>();
   const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
   let detectedHang: any = null;
+  const executionOwnership = await acquireRuntimeExecutionOwnership(
+    runtimeOptions.journalRoot || cwd,
+    runtimeEpoch.id,
+  );
 
   const progressTimer = setInterval(() => {
     try {
@@ -1323,6 +1377,8 @@ async function runAgentRpc(
           UES_CHILD_AGENT: agent,
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
           UES_CHILD_RUNTIME_EPOCH_ID: runtimeEpoch.id,
+          UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
+          UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
           UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
           UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
@@ -1491,6 +1547,7 @@ async function runAgentRpc(
   } finally {
     clearInterval(progressTimer);
     toolOutput.clear();
+    await executionOwnership.release();
   }
 }
 
