@@ -6,6 +6,17 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.4.1] - 2026-10-01
+
+### Fixed
+
+- **Cancellation unhandled rejection in async document ingestion.** When an already-aborted signal reached the shared-conversion waiter, that waiter left before attaching a rejection handler to the shared promise. Aborting the underlying controller then rejected a promise nobody was listening to, which Node escalates to a process-level `unhandledRejection` and can terminate the runtime during an ordinary cancellation. The shared promise now gets its rejection consumed before the underlying controller is aborted. The caller still receives its own `ABORT_ERR`; public API semantics are unchanged apart from removing the process-level crash.
+- **Timing-sensitive V15.4 foundation test synchronization.** The coalescing test waited a fixed 5ms before asserting the converter had been invoked. Because `ingestDocument` still resolves the workspace, lstat/realpath and reads the file before reaching the converter, that budget was exceeded under the parallel load `release:verify` itself runs. The test now waits for the actual converter-invocation event, keeping a bounded guard so a non-invoked converter still fails instead of hanging, and keeping the assertion that the converter ran exactly once. The guard timer handle is cleared once the race settles so it no longer keeps the event loop alive.
+
+### Notes
+
+- Hotfix only. No architecture, ranking, Repo Map V3, holdout, verifier, safety-policy or public-schema changes. No performance claim is made for this release.
+
 ## [15.4.0] - 2026-10-01
 
 ### Added

@@ -94,13 +94,40 @@ test("V15.4 MarkItDown path is async and reuses identical content after rename",
     let release
     const wait = new Promise((resolve) => { release = resolve })
     let coalescedCalls = 0
-    const coalescedRunner = async () => { coalescedCalls += 1; await wait; return { provider:"fake-markitdown", markdown:"# shared\n", durationMs:5 } }
+    let signalStarted
+    // Deterministic sync point. The previous shape waited a fixed 5ms and then
+    // asserted the runner had already been invoked. That budget only held when
+    // the filesystem settled inside it: ingestDocument still has to resolve the
+    // workspace, lstat the file, realpath it and read it before the converter is
+    // reached, and under the parallel load `release:verify` itself runs
+    // (run-test-suite.mjs --concurrency=4 over 128 files) that tail exceeds 5ms.
+    // Measured on an idle process the invocation latency is p50 1.5ms / p99 4.1ms
+    // against a 5ms budget, so the assertion failed 3/3 full-suite runs while the
+    // product behaviour under test was correct. Waiting for the actual event
+    // makes the check deterministic without weakening what it proves.
+    // The 10s guard stays bounded on purpose: if the converter is never invoked
+    // the race resolves on the timer and `coalescedCalls === 1` fails instead of
+    // the file hanging until the runner's own timeout. The handle is cleared once
+    // the race settles, because an uncleared timer keeps the event loop alive and
+    // added a full 10s to this file's wall-clock on every run (69ms of actual test
+    // body, 10.2s process time) without affecting the outcome.
+    const started = new Promise((resolve) => { signalStarted = resolve })
+    const coalescedRunner = async () => { coalescedCalls += 1; signalStarted(); await wait; return { provider:"fake-markitdown", markdown:"# shared\n", durationMs:5 } }
     const p1 = ingestDocument(root, "same.pdf", { markitdownRunner:coalescedRunner, converterIdentity:"coalesce-test" })
     const p2 = ingestDocument(root, "same.pdf", { markitdownRunner:coalescedRunner, converterIdentity:"coalesce-test" })
-    await new Promise((resolve) => setTimeout(resolve, 5))
+    let guardTimer = null
+    try {
+      await Promise.race([ started, new Promise((resolve) => { guardTimer = setTimeout(resolve, 10000) }) ])
+    } finally {
+      clearTimeout(guardTimer)
+    }
     assert.equal(coalescedCalls, 1)
     release()
     await Promise.all([p1, p2])
+    // The authoritative check: once both waiters have settled, a single shared
+    // conversion means the converter ran exactly once. Asserting only before the
+    // race could not detect a second conversion that started later.
+    assert.equal(coalescedCalls, 1)
 
     await writeFile(path.join(root, "abort.pdf"), Buffer.from("PDF-D"))
     const abort = new AbortController()
