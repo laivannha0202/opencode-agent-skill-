@@ -45,11 +45,13 @@ import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
-import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { PermissionPolicyStore, compilePolicyLattice, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
 import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
-import { applyModelToolBudget, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
+import { applyModelToolBudget, compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
+import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
+import { decisionPointFingerprint } from "../../lib/context-observatory.mjs";
 import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
 import { appendRunJournalEvent, closeRunJournal, createRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
@@ -301,15 +303,28 @@ const PERMISSION_POLICY = new PermissionPolicyStore(
 
 async function resolveChildToolExposure(agent: string, candidateTools: string[]) {
   const unique = [...new Set(candidateTools.map((item) => String(item || "").trim()).filter(Boolean))];
-  const result: any = await PERMISSION_POLICY.preflightTools(unique, { agent }).catch((error) => ({
+  const loaded: any = await PERMISSION_POLICY.load().catch((error) => ({
     configured: true,
     error: error instanceof Error ? error.message : String(error),
-    plan: null,
+    config: null,
   }));
-  if (result?.error || !result?.plan) return { tools: unique, hidden: [], degraded: result?.error || "preflight-unavailable" };
-  const tools = Array.isArray(result.plan.tools) ? result.plan.tools : unique;
-  if (!tools.length && unique.length) throw new Error("UES permission preflight denied every tool for " + agent + "; refusing to launch a tool-less specialist.");
-  return { ...result.plan, tools, configured: result.configured === true };
+  if (loaded?.error) return { tools: unique, hidden: [], degraded: loaded.error };
+  if (!loaded?.configured || !loaded?.config) {
+    return { schemaVersion: 1, tools: unique, hidden: [], ask: [], configured: false, precedence: ["system","ues","repo","role","task","user"] };
+  }
+  const roleRules = loaded.config.agents?.[agent] || [];
+  const plan = compilePolicyLattice([
+    { name: "system", rules: [] },
+    { name: "ues", rules: [] },
+    { name: "repo", rules: loaded.config.permissions || [], defaultEffect: loaded.config.defaultEffect },
+    { name: "role", rules: roleRules },
+    { name: "task", rules: [] },
+    { name: "user", rules: [] },
+  ], unique, { defaultEffect: loaded.config.defaultEffect });
+  if (!plan.tools.length && unique.length) {
+    throw new Error("UES V15.9 policy lattice denied every tool for " + agent + "; refusing to launch a tool-less specialist.");
+  }
+  return { ...plan, configured: true };
 }
 
 function abortActiveCliChildren() {
@@ -2049,11 +2064,15 @@ async function runRoutedAgent(
     ? undefined
     : inheritedThinking;
   const selectedCapabilityCandidate = selection.capabilitySelection?.selected || null;
-  const modelProfile = modelRuntimeProfile(selectedModel, {
+  const configuredModels = [...new Set(Object.values(modelPolicy.tiers || {}).filter(Boolean).map(String))];
+  const runtimeProfileOptions = {
     role,
     executionProfile: taskPolicy.executionProfile,
+    risk: taskPolicy.risk,
     attempt,
     taskChars: task.length,
+    executorModel: inheritedModel || selectedModel,
+    alternateModels: configuredModels,
     capabilityProfile:
       selectedCapabilityCandidate?.capabilities ||
       (selectedModel ? modelPolicy.capabilities?.[selectedModel] : null) ||
@@ -2066,7 +2085,28 @@ async function runRoutedAgent(
           null
         : null),
     performanceMinSamples: modelPolicy.performanceMinSamples || 8,
-  });
+  };
+  const modelProfile = modelRuntimeProfile(selectedModel, runtimeProfileOptions);
+  const modelAciProfile = compileModelAciProfile(selectedModel, runtimeProfileOptions);
+  if (traceID) {
+    const decision = decisionPointFingerprint({
+      model: selectedModel,
+      provider: selectedProvider,
+      thinking,
+      runtimeProfileId: modelProfile.id,
+      toolSurface: [],
+      skillIds: [],
+      repoMapIds: [],
+      evidenceRefs: [],
+      compactionEpoch: null,
+      reducer: null,
+    });
+    await appendTrajectoryEvent(traceRoot, traceID, "decision.profile-compiled", {
+      decisionPointId: decision.id,
+      modelRuntimeProfile: modelProfile,
+      modelAciProfile,
+    }).catch(() => {});
+  }
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
   const telemetryRoot = await taskSandboxOwnerRoot(cwd).catch(() => null) || traceRoot;
@@ -2169,7 +2209,7 @@ async function runRoutedAgent(
     const [microSkillResult, affectedTestResult, reusableVerificationResult] = await Promise.all([
       MICRO_SKILLS_ENABLED
         ? compileSkillContext(taskPolicy, role, {
-            maxSkills: taskPolicy.maxSkills,
+            maxSkills: Math.min(Number(taskPolicy.maxSkills || modelProfile.maxSkillMetadata || 12), Number(modelProfile.maxSkillMetadata || 12)),
             totalChars: taskPolicy.executionProfile === "fast" ? 1800 : 3200,
             taskText: task,
           }).catch(() => null)
@@ -2311,11 +2351,14 @@ async function runRoutedAgent(
         CHILD_TOOL_COMPACTION_ENABLED &&
         !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase()),
       toolOutputLimit:
-        taskPolicy.executionProfile === "fast"
-          ? 12 * 1024
-          : taskPolicy.executionProfile === "standard"
-            ? 24 * 1024
-            : 48 * 1024,
+        Math.min(
+          Number(modelProfile.toolOutputChars || 24 * 1024),
+          taskPolicy.executionProfile === "fast"
+            ? 12 * 1024
+            : taskPolicy.executionProfile === "standard"
+              ? 24 * 1024
+              : 48 * 1024,
+        ),
       verificationTimeoutSec:
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.verificationTimeoutSec
@@ -2442,6 +2485,9 @@ async function runRoutedAgent(
       affectedTestInventorySource: affectedTests?.inventorySource || null,
       contextPerformance,
       modelRuntimeProfile: modelProfile,
+      modelAciProfile,
+      roleContextABI: modelProfile.roleContextABI || null,
+      verificationDiversity: modelProfile.verificationDiversity || null,
       providerCacheStability: cachePolicy,
       solutionEconomyMode: economy.active ? economy.mode : null,
       runtimeEpochId: result.runtimeEpochId || null,
@@ -3605,18 +3651,23 @@ export default function (pi: ExtensionAPI) {
       maxWorkspaces: 3,
     }).catch(() => null);
     if (!packet?.workspaces?.length) return;
-    const content = renderCompactionResumeGuard(packet);
+    const manifest = buildRehydrationManifest(packet);
+    const content = [renderCompactionResumeGuard(packet), renderRehydrationManifest(manifest)]
+      .filter(Boolean)
+      .join("\n\n");
     if (!content) return;
     pi.sendMessage({
       customType: "ues-durable-resume-guard",
       content,
       display: false,
       details: {
-        schemaVersion: packet.schemaVersion || 1,
+        schemaVersion: 2,
         reason: event.reason,
         willRetry: event.willRetry,
         workspaceCount: packet.workspaceCount,
         source: packet.source,
+        rehydrationManifestId: manifest.id,
+        modelSummaryTrustedForDurableState: false,
       },
     }, { triggerTurn: false });
   });
