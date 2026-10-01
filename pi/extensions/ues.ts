@@ -346,6 +346,7 @@ type RunResult = {
   durationMs?: number;
   usage?: any;
   toolCalls?: number;
+  toolQueueMs?: number;
   toolNames?: string[];
   report?: any;
   browserRequested?: boolean;
@@ -827,6 +828,7 @@ async function runAgentCli(
   let seenModel: string | undefined;
   let usage: any = undefined;
   let toolCalls = 0;
+  let toolQueueMs = 0;
   const toolNames = new Set<string>();
 
   try {
@@ -1036,6 +1038,7 @@ async function runAgentCli(
           }
           if (event.type === "tool_execution_end") {
             const toolCallId = String(event.toolCallId || "");
+            toolQueueMs += Number(event?.result?.details?.uesScheduler?.queuedMs || event?.details?.uesScheduler?.queuedMs || 0);
             const timer = hangTimers.get(toolCallId);
             if (timer) {
               clearTimeout(timer);
@@ -1128,6 +1131,7 @@ async function runAgentCli(
     errorMessage,
     usage,
     toolCalls,
+    toolQueueMs,
     toolNames: [...toolNames],
     browserTools: [...extraTools],
     childRuntime: "cli",
@@ -1264,6 +1268,7 @@ async function runAgentRpc(
   const startedAt = Date.now();
   let lastActivityAt = startedAt;
   let toolCalls = 0;
+  let toolQueueMs = 0;
   const toolNames = new Set<string>();
   const activeTools = new Map<string, { name: string; args: any }>();
   const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
@@ -1356,6 +1361,7 @@ async function runAgentRpc(
           }
           if (event.type === "tool_execution_end") {
             const id = String(event.toolCallId || "");
+            toolQueueMs += Number(event?.result?.details?.uesScheduler?.queuedMs || event?.details?.uesScheduler?.queuedMs || 0);
             activeTools.delete(id);
             toolOutput.delete(id);
           }
@@ -1378,6 +1384,7 @@ async function runAgentRpc(
       errorMessage: message?.errorMessage,
       usage: message?.usage,
       toolCalls: rpc.toolCalls ?? toolCalls,
+      toolQueueMs,
       toolNames: rpc.toolNames?.length ? rpc.toolNames : [...toolNames],
       browserTools: [...extraTools],
       childRuntime: "rpc",
