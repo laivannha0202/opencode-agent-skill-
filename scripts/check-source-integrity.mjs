@@ -328,7 +328,7 @@ const CONTRACTS = [
     file: "lib/run-telemetry.mjs",
     minBytes: 3_000,
     startsWith: "import ",
-    required: ["recordTaskTelemetry", "taskTelemetrySummary", "taskHash", "tokenScope", "usage.input", "usage.output", "usage.cacheRead", "usage.cacheWrite", "toolQueueMs", "averageProviderWaitMs", "averageModelGenerationMs", "averageToolExecutionMs", "averageToolResultProcessingMs", "averageVerificationMs", "averageLspPrimaryMs", "averageLspFallbackMs", "lspPrimaryAttempts", "diagnosticsTemperature"],
+    required: ["recordTaskTelemetry", "taskTelemetrySummary", "taskHash", "tokenScope", "usage.input", "usage.output", "usage.cacheRead", "usage.cacheWrite", "toolQueueMs", "averageProviderWaitMs", "averageModelGenerationMs", "averageToolExecutionMs", "averageToolResultProcessingMs", "averageVerificationMs", "averageLspPrimaryMs", "averageLspFallbackMs", "lspPrimaryAttempts", "diagnosticsTemperature", "withTelemetryLock", "UES_TASK_TELEMETRY_LOCK_TIMEOUT"],
   },
   {
     file: "lib/tool-concurrency.mjs",
@@ -424,7 +424,7 @@ const CONTRACTS = [
     file: "lib/provider-cache-stability.mjs",
     minBytes: 2_000,
     startsWith: 'import { readTaskTelemetry }',
-    required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens"],
+    required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens", "partialSamples", "insufficient-complete-provider-cache-telemetry"],
   },
   {
     file: "lib/performance-fabric.mjs",
@@ -454,7 +454,7 @@ const CONTRACTS = [
     file: "lib/efficiency-ledger.mjs",
     minBytes: 3_000,
     startsWith: 'import path from "node:path"',
-    required: ["recordEfficiencyEvent", "efficiencySummary", "DERIVED_FROM_MEASURED", "NOT_INFERRED_FROM_EFFICIENCY", "uncachedInputTokens", "withEfficiencyLock", "UES_EFFICIENCY_LEDGER_LOCK_TIMEOUT", "pi-normalized-disjoint"],
+    required: ["recordEfficiencyEvent", "efficiencySummary", "summarizeEfficiencyRows", "DERIVED_FROM_MEASURED", "NOT_INFERRED_FROM_EFFICIENCY", "uncachedInputTokens", "measuredCacheReadRows", "measuredCacheWriteRows", "withEfficiencyLock", "UES_EFFICIENCY_LEDGER_LOCK_TIMEOUT", "pi-normalized-disjoint"],
   },
   {
     file: "lib/runtime-waste-learner.mjs",
@@ -466,13 +466,13 @@ const CONTRACTS = [
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
     minBytes: 700,
     startsWith: "#!/usr/bin/env node",
-    required: ["--mode", "both", "--trials", "--keep", "real-model evidence"],
+    required: ["--mode", "both", "--trials", "--keep", "arg.startsWith(name + \"=\")", "real-model evidence"],
   },
   {
     file: "scripts/runtime-waste-report.mjs",
