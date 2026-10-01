@@ -1072,6 +1072,11 @@ const CONTRACTS = [
       "onStderr: (chunk) => consumeControllerProgress",
       "controllerValid=",
       "UES_EVAL_DIRECT_TELEMETRY",
+      "name + \"=\"",
+      "startsWith(prefix)",
+      "--mode must be baseline, ues, or both",
+      "idleTimeoutMs",
+      "timeoutMs",
     ],
   },
   {
