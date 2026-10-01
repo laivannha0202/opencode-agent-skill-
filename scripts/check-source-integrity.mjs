@@ -250,6 +250,7 @@ const CONTRACTS = [
       "scheduler-preflight-conflict",
       'executionMode: "sequential"',
       "analyzeShellCommand",
+      "commandAnalysis.shouldUseManagedService",
       "verification-output-hidden-by-pipeline",
       "routeToolContent",
       "cacheAwareVisibleBudget",
@@ -466,7 +467,7 @@ const CONTRACTS = [
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["trial preserves equals-form evaluator options", "hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "routes workspace-filtered dev servers to managed service", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "repeatedToolCalls", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["trial preserves equals-form evaluator options", "hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "routes workspace-filtered dev servers to managed service", "managed-service guard shares monorepo service intelligence", "content router retains grep/find/ls tool-kind signal", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "repeatedToolCalls", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
@@ -946,7 +947,7 @@ const CONTRACTS = [
       "looksLikeLongRunningServiceCommand",
       "terminateProcessTree",
       'kind: "service-log"',
-    ],
+    , "analyzeShellCommand", "shouldUseManagedService"],
   },
   {
     file: "test/runtime-artifacts.test.mjs",
