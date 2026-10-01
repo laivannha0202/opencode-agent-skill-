@@ -272,6 +272,8 @@ test("V15.8 Pi eval captures first usage and exposes a hard promotion switch", a
   assert.match(extensionSource, /providerCacheStabilityPolicy\(telemetryRoot, \{/)
   assert.match(extensionSource, /const artifactRoot = telemetryRoot/)
   assert.match(extensionSource, /firstUsage\?: any/)
+  assert.equal((extensionSource.match(/let firstUsage: any = undefined;/g) || []).length, 2)
+  assert.equal((extensionSource.match(/const usageSamples: any\[\] = \[\];/g) || []).length, 2)
   assert.match(extensionSource, /if \(firstUsage === undefined\) firstUsage = event\.message\.usage/)
   assert.match(extensionSource, /firstUsage: firstUsage \|\| message\?\.usage/)
   assert.match(extensionSource, /firstUsage: result\.firstUsage \|\| resumed\.firstUsage/)
