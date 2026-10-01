@@ -18,7 +18,7 @@ import {
   claimExecutionOwnership,
   releaseExecutionOwnership,
 } from "../lib/execution-ownership.mjs"
-import { assertExecutionOwnership, claimExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
+import { assertExecutionOwnership, claimExecutionOwnership, pruneExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
 import { inspectRunRows } from "../lib/run-inspector.mjs"
 
 test("V15.7 command intelligence detects hidden verification progress", () => {
@@ -345,6 +345,24 @@ test("V15.7 execution ownership fences stale runtimes without blind takeover", a
     await releaseExecutionOwnership(root, scope, "owner:a")
     const released = await releaseExecutionOwnership(root, scope, "owner:b")
     assert.equal(released.released, true)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15.7 stale execution ownership artifacts are bounded", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v157-owner-gc-"))
+  try {
+    const scope = "epoch:orphan::run::dead"
+    await claimExecutionOwnership(root, scope, "owner:dead", {
+      nowMs: 1_000,
+      ttlMs: 1_000,
+      ownerPid: 2_147_483_647,
+      runtimeEpochId: "epoch:orphan",
+    })
+    const gc = await pruneExecutionOwnership(root, { nowMs: 3_000 })
+    assert.equal(gc.removedCount, 1)
+    assert.equal(gc.active, 0)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
