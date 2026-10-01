@@ -753,6 +753,7 @@ async function runAgentCli(
     executionProfile?: string;
     attempt?: number;
     modelProfile?: any;
+    skills?: string[];
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -812,7 +813,7 @@ async function runAgentCli(
     workspaceFingerprint: runtimeOptions.workspaceFingerprint || cwd,
     context: task,
     tools: allowedTools,
-    skills: [],
+    skills: runtimeOptions.skills || [],
     modelProfile,
     model,
     thinking: thinkingLevel,
@@ -1197,6 +1198,7 @@ async function runAgentRpc(
     executionProfile?: string;
     attempt?: number;
     modelProfile?: any;
+    skills?: string[];
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1253,7 +1255,7 @@ async function runAgentRpc(
     workspaceFingerprint: runtimeOptions.workspaceFingerprint || cwd,
     context: task,
     tools: allowedTools,
-    skills: [],
+    skills: runtimeOptions.skills || [],
     modelProfile,
     model,
     thinking: thinkingLevel,
@@ -1503,6 +1505,7 @@ async function runAgent(
     executionProfile?: string;
     attempt?: number;
     modelProfile?: any;
+    skills?: string[];
   } = {},
 ): Promise<RunResult> {
   const runOnce = async (): Promise<RunResult> => {
@@ -2168,6 +2171,7 @@ async function runRoutedAgent(
       executionProfile: taskPolicy.executionProfile,
       attempt,
       modelProfile,
+      skills: Array.isArray(microSkills?.loaded) ? microSkills.loaded : [],
       },
     );
   } catch (error) {
