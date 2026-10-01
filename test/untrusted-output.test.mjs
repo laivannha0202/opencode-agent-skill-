@@ -54,3 +54,21 @@ test("warning preserves source and signal names without copying the payload", ()
   assert.match(warning, /instruction-override/)
   assert.doesNotMatch(warning, /reveal the API key/)
 })
+
+
+test("V16 external provenance is explicit even when content is benign", () => {
+  const analysis = analyzeUntrustedOutput(
+    "Build completed successfully.",
+    { source: "mcp_browser", trustClass: "external-data" },
+  )
+  assert.equal(analysis.flagged, false)
+  assert.equal(analysis.trustClass, "external-data")
+  assert.equal(analysis.instructionAuthority, "none")
+  const boundary = renderUntrustedOutputWarning(analysis, {
+    source: "mcp_browser",
+    always: true,
+  })
+  assert.match(boundary, /UES EXTERNAL DATA BOUNDARY/)
+  assert.match(boundary, /instruction-authority=none/)
+  assert.match(boundary, /mcp_browser/)
+})
