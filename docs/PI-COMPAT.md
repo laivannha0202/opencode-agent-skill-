@@ -2,7 +2,18 @@
 
 Repository này hiện đóng gói UES cho **Pi Agent**.
 
-**Current package runtime:** 15.8.0 — Measured Hardening. V15.8 unwraps Windows/POSIX shell launchers before command policy, adds Bun coverage, activates first-turn A/B usage measurement and a fail-closed promotion gate, scopes cache learning by provider + model with hysteresis, and makes measured/configured model evidence outrank name heuristics. V15.7 efficiency intelligence and V15.6 durable journal/checkpoint/recovery remain intact; thinking and verifier requirements are not lowered.
+**Current package runtime:** 15.9.0 — Adaptive Agent Intelligence. V15.9 compiles model-specific ACI/tool/skill/context surfaces from measured or configured evidence, deterministically rehydrates durable state after compaction, routes bounded non-write tool output through reversible Evidence Store reduction, compiles policy visibility before tool exposure, enables risk-gated verifier diversity, and adds measured skill/context/replay observability. V15.8 measured hardening, V15.7 efficiency intelligence and V15.6 durable journal/checkpoint/recovery remain intact; thinking, safety and verifier requirements are not lowered.
+
+## V15.9 Adaptive Agent Intelligence
+
+- Adaptive Runtime Profile V3 + Model-Specific ACI Compiler bound tool count, output budget, skill metadata, context ABI, delegation breadth and scaffold level by measured/configured model capability.
+- Role Context ABI keeps verifier/critic roles fresh and read-only; executor private rationale is never treated as verification evidence.
+- Deterministic Rehydration Manifest augments the durable compaction resume guard. Filesystem artifacts and evidence remain authoritative over model summaries.
+- Universal Tool Output Governor preserves raw output in Evidence Store while exposing bounded command/content-aware reductions to the model.
+- Policy Lattice compiles system → UES → repo → role → task → user visibility before prompt/tool exposure; runtime resource checks remain authoritative.
+- High/critical verification prefers a distinct capability-eligible verifier model when available and falls back to fresh-context same-model verification.
+- Skill Activation Eval/Skill Diet measures precision and recall before any skill cleanup; no optimization self-promotes without evidence.
+- `ues context-report` and `ues replay` expose bounded context accounting and side-effect-free decision replay packets.
 
 ## V15.8 Measured Hardening
 
