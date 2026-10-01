@@ -13,7 +13,7 @@ import { Type } from "typebox";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
+import { governToolOutput } from "../../lib/tool-output-governor.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
@@ -656,15 +656,25 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (!["bash", "powershell", "grep", "find", "ls"].includes(toolName)) {
-      return postWrite;
-    }
-    const capture = await capturedText(event, shownText);
+    const compactableTool = ![
+      "edit", "write", "ues_code_edit", "ues_evidence_get",
+    ].includes(toolName.toLowerCase());
+    if (!compactableTool) return postWrite;
+
+    const effectiveContent = Array.isArray(postWrite?.content)
+      ? postWrite.content
+      : (Array.isArray(event.content) ? event.content : []);
+    const effectiveShownText = effectiveContent
+      .filter((part: any) => part?.type === "text" && typeof part.text === "string")
+      .map((part: any) => part.text)
+      .join("\n");
+    const capture = await capturedText(event, effectiveShownText);
     const rawText = capture.text;
-    const images = (event.content || []).filter((part: any) => part?.type !== "text");
+    const images = effectiveContent.filter((part: any) => part?.type !== "text");
     const commandHint = String(
       (event.input as any)?.command ||
       (event.input as any)?.pattern ||
+      (event.input as any)?.query ||
       toolName ||
       "tool",
     );
@@ -685,7 +695,7 @@ export default function (pi: ExtensionAPI) {
           await recordVerification(ctx.cwd, {
             command: canonical.command,
             args: canonical.args,
-            exitCode: shellExitCode(event, shownText || rawText),
+            exitCode: shellExitCode(event, effectiveShownText || rawText),
             stdout: rawText,
             stderr: "",
             startedAt: new Date(executionState.startedAt).toISOString(),
@@ -699,66 +709,39 @@ export default function (pi: ExtensionAPI) {
     }
     toolExecutionState.delete(String(event.toolCallId || ""));
 
-    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
-    const baseMaxChars = configuredLimit();
-    const contentRoute = routeToolContent(rawText, {
+    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return postWrite;
+    const phase = looksLikeVerificationCommand(commandHint) ? "verify" : "execute";
+    const governed = await governToolOutput(ctx.cwd, rawText, {
+      baseMaxChars: configuredLimit(),
       command: commandHint,
-      phase: looksLikeVerificationCommand(commandHint) ? "verify" : "execute",
-      kind: `child-${toolName}-output`,
-    });
-    const cacheMode = String(process.env.UES_CHILD_CACHE_MODE || "neutral");
-    const compactionBudget = await adaptiveCompactionBudget(ctx.cwd, commandHint, baseMaxChars).catch(() => ({
-      schemaVersion: 1,
-      family: null,
-      samples: 0,
-      recallRate: null,
-      baseMaxChars,
-      maxChars: baseMaxChars,
-      multiplier: 1,
-      reason: "adaptive-budget-unavailable",
-    }));
-    const maxChars = cacheAwareVisibleBudget(
-      Number(compactionBudget.maxChars || baseMaxChars),
-      contentRoute,
-      { mode: cacheMode },
-    );
-    if (!rawText || rawText.length <= maxChars) return undefined;
-
-    const compacted = await compactReversibleOutput(ctx.cwd, rawText, {
-      maxChars,
-      command: commandHint,
+      toolName,
+      phase,
+      cacheMode: String(process.env.UES_CHILD_CACHE_MODE || "neutral"),
+      runId: CHILD_RUN_ID || null,
       kind: `child-${toolName}-output`,
       source: commandHint,
       summary: capture.full
-        ? `Full Pi shell output captured from ${capture.sourcePath} before model-visible compaction`
-        : "Captured Pi tool output preserved before model-visible compaction",
+        ? `Full Pi tool output captured from ${capture.sourcePath} before V15.9 model-visible reduction`
+        : "Captured Pi tool output preserved before V15.9 model-visible reduction",
     }).catch(() => null);
-    if (!compacted?.compacted) return undefined;
-
-    await recordEfficiencyEvent(ctx.cwd, {
-      kind: "tool-compaction",
-      runId: CHILD_RUN_ID || null,
-      beforeChars: compacted.originalChars,
-      afterChars: compacted.returnedChars,
-      commandFamily: compacted.commandFamily || contentRoute.reducer,
-      contentType: contentRoute.contentType,
-      cacheMode,
-    }).catch(() => null);
+    if (!governed?.compacted) return postWrite;
 
     return {
-      content: [{ type: "text", text: compacted.text }, ...images],
+      content: [{ type: "text", text: governed.text }, ...images],
       details: {
         ...(event.details && typeof event.details === "object" ? event.details : {}),
-        uesCompaction: {
-          strategy: compacted.strategy,
-          originalChars: compacted.originalChars,
-          returnedChars: compacted.returnedChars,
-          evidenceRef: compacted.evidenceRef,
-          rawCapture: capture.full ? "full-output-path" : "tool-result",
+        ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
+        uesOutputGovernor: {
+          schemaVersion: governed.schemaVersion,
+          strategy: governed.strategy,
+          originalChars: governed.originalChars,
+          returnedChars: governed.returnedChars,
+          evidenceRef: governed.evidenceRef,
           recoveryTool: "ues_evidence_get",
-          adaptiveBudget: { ...compactionBudget, routedMaxChars: maxChars },
-          contentRoute,
-          cacheMode,
+          adaptiveBudget: { ...governed.adaptive, routedMaxChars: governed.maxChars },
+          contentRoute: governed.route,
+          cacheMode: governed.cacheMode,
+          universalBoundary: true,
         },
       },
       isError: event.isError,
