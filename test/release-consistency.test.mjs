@@ -219,3 +219,21 @@ test("release checker fails when focused Pi test bypasses the bounded runner", (
     rmSync(tmp, { recursive: true, force: true })
   }
 })
+
+
+test("release checker fails when focused V16 eval drops a required hardening regression", () => {
+  const tmp = mkdirTemp()
+  try {
+    fillFixture(tmp)
+    const pkgPath = path.join(tmp, "package.json")
+    const pkg = JSON.parse(readFileSync(pkgPath, "utf8"))
+    pkg.scripts["eval:v16"] = String(pkg.scripts["eval:v16"] || "")
+      .replace(/\s+test\/evidence-store-active-work-v16\.test\.mjs\b/, "")
+    writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + "\n")
+    const result = checkReleaseConsistency(tmp)
+    assert.equal(result.pass, false)
+    assert.ok(result.errors.some((error) => error.includes("eval:v16")))
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
