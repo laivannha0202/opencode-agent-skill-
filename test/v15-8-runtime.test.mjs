@@ -8,7 +8,7 @@ import { analyzeShellCommand, boundedVerificationTimeout } from "../lib/command-
 import { cacheStabilityFromRows } from "../lib/provider-cache-stability.mjs"
 import { modelRuntimeProfile } from "../lib/model-runtime-profile.mjs"
 import { pairedBenchmarkConfidence } from "../lib/benchmark-confidence.mjs"
-import { buildTaskTelemetry } from "../lib/run-telemetry.mjs"
+import { aggregateUsageSamples, buildTaskTelemetry } from "../lib/run-telemetry.mjs"
 
 test("V15.8 command intelligence unwraps Windows and POSIX shell wrappers", () => {
   const cases = [
@@ -201,6 +201,34 @@ function promotionPairs(withUsage) {
   return rows
 }
 
+test("V15.8 usage accounting aggregates every child provider turn", () => {
+  const samples = [
+    { input: 100, output: 20, cacheRead: 30, cacheWrite: 5 },
+    { input: 200, output: 40, cacheRead: 50, cacheWrite: 10 },
+  ]
+  const aggregate = aggregateUsageSamples(samples)
+  assert.equal(aggregate.input, 300)
+  assert.equal(aggregate.output, 60)
+  assert.equal(aggregate.cacheRead, 80)
+  assert.equal(aggregate.cacheWrite, 15)
+  assert.equal(aggregate.totalTokens, 360)
+
+  const row = buildTaskTelemetry(
+    {
+      model: "provider-a/canonical-model",
+      exitCode: 0,
+      usage: samples.at(-1),
+      usageSamples: samples,
+    },
+    { model: "provider-a/canonical-model", provider: "provider-a", task: "aggregate usage" },
+  )
+  assert.equal(row.metrics.inputTokens, 300)
+  assert.equal(row.metrics.outputTokens, 60)
+  assert.equal(row.metrics.cacheReadTokens, 80)
+  assert.equal(row.metrics.cacheWriteTokens, 15)
+  assert.equal(row.metrics.totalTokens, 360)
+})
+
 test("V15.8 telemetry keys learning by routed model identity", () => {
   const row = buildTaskTelemetry(
     {
@@ -248,14 +276,18 @@ test("V15.8 Pi eval captures first usage and exposes a hard promotion switch", a
   assert.match(extensionSource, /firstUsage: firstUsage \|\| message\?\.usage/)
   assert.match(extensionSource, /firstUsage: result\.firstUsage \|\| resumed\.firstUsage/)
   assert.match(extensionSource, /firstUsage: step\?\.firstUsage \|\| null/)
+  assert.match(extensionSource, /usageSamples: Array\.isArray\(step\?\.usageSamples\) \? step\.usageSamples : \[\]/)
+  assert.match(extensionSource, /aggregateUsageSamples\(result\.usageSamples\)/)
   assert.match(extensionSource, /provider: selectedProvider,\s*model: selectedModel/)
   assert.match(extensionSource, /const performanceModel = result\.modelSelection\?\.model \|\| result\.model/)
   assert.match(source, /const telemetryLines = \[\]/)
   assert.match(source, /telemetryLines\.push\(line\)/)
   assert.match(source, /parsePiTelemetry\(telemetryLines\.join\("\\n"\)\)/)
   assert.doesNotMatch(source, /\[agentRun\.stdout, agentRun\.stderr\]/)
-  assert.match(source, /usageSample\(step\.firstUsage \|\| step\.usage\)/)
+  assert.match(source, /const stepUsageSamples = Array\.isArray\(step\?\.usageSamples\)/)
+  assert.match(source, /for \(const usage of stepUsageSamples\)/)
   assert.match(source, /if \(firstUsage === null\) firstUsage = usageSample/)
+  assert.match(source, /step\.firstUsage \|\| stepUsageSamples\[0\]/)
   assert.match(source, /requireMeasuredEfficiency: true/)
   assert.match(source, /--require-promotion/)
   assert.match(source, /UES real-model promotion gate: PASS/)
