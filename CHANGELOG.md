@@ -6,6 +6,33 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.6.0] - 2026-10-01
+
+### Added
+
+- **Durable Run Journal V2.** Controller runs receive an idempotent admission record and ordered JSONL event stream under `.ues-work/journals/`. Recovery marks tool calls that were still running across a process boundary as `tool.interrupted` with `replayed: false`; side effects are never blindly replayed.
+- **Runtime Epoch V1.** Child identity now binds policy snapshot, workspace/context identity, tool/skill surfaces, model runtime profile, model and thinking level. Warm RPC worker keys include the epoch ID so reuse cannot cross an incompatible runtime surface.
+- **Model Runtime Profiles.** Compact/balanced/expanded surfaces bound advertised tool choice and read parallelism while preserving the host-selected thinking level. The classification is an orchestration profile, not a model-quality ranking.
+- **Tool Scheduler V1.** The V15.5 Tool Concurrency Contract is enforced in specialist child `tool_call` admission. Explicit bounded reads/searches may run concurrently; writes, process tools and unknown surfaces queue serially. Queue latency is surfaced back into run telemetry.
+- **Adaptive Compaction V2 policy.** Existing command-aware reversible reducers keep raw Evidence Store data as source of truth, while the model-visible budget adjusts only after enough observed compaction-recall history exists.
+- **Bounded Write Checkpoints.** Small file writes may capture exact pre-write bytes under `.ues-work/checkpoints/`; rollback is allowed only when every current file hash still matches the finalized post-write state.
+- **Run Artifact Bundle + Inspector.** Controller runs emit bounded `.ues-work/runs/<runId>/` metadata/evidence artifacts and `npm run inspect:run -- last` can report event counts, scheduler delay, repeated tool signatures, dangling calls and comparisons.
+- **Runtime Hook Bus V1.** Internal deterministic lifecycle hooks support observe/modify/deny semantics with critical hooks failing closed.
+- **V15.6 regression suite.** Covers epoch fencing, model profiles, actual tool scheduling, journal idempotency/recovery, recall-driven compaction, hook decisions, rollback divergence protection and run inspection.
+
+### Changed
+
+- `/ues-status` schema advances to V4 and advertises the V15.6 durable/measured runtime contracts.
+- `release:verify` includes `eval:v15.6`; `prepublishOnly` now runs the full release verification gate.
+- Stable npm text in README is no longer hard-coded to an old version; the registry query is the source of truth.
+
+### Safety / quality invariants
+
+- No verifier, integration/visual evidence requirement, Evidence Store semantics, dirty-work guard, local `.env` guard, destructive-command policy, Repo Map V3 ranking, Semantic Index V3, LSP Diagnostics V2, Holdout D or thinking policy is weakened.
+- Checkpoints never overwrite a file whose post-write hash has diverged, and unsupported/large checkpoint targets are skipped rather than treated as safely reversible.
+- Model Runtime Profiles reduce orchestration noise only; they do not lower the user's selected thinking level or claim to make a weak model intrinsically equivalent to a larger model.
+- Real-model pass-rate, latency or token improvements remain **NOT MEASURED** until `eval:pi` is run on a real paired corpus. Deterministic tests validate contracts, not real-model quality.
+
 ## [15.5.0] - 2026-10-01
 
 ### Added
