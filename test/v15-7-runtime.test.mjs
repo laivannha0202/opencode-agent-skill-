@@ -205,7 +205,7 @@ test("V15.7 cache policy is measurement gated and cache aware", () => {
   const rows = Array.from({ length: 5 }, (_, index) => ({
     type: "task.telemetry",
     model: "provider/model",
-    metrics: { inputTokens: 200, cacheReadTokens: 700, cacheWriteTokens: 100 + index },
+    metrics: { inputTokens: 200, cacheReadTokens: 700, cacheWriteTokens: 100 + index, usageAccounting: "pi-normalized-disjoint" },
   }))
   const policy = cacheStabilityFromRows(rows, { model: "provider/model", minSamples: 4 })
   assert.equal(policy.mode, "cache")
@@ -219,7 +219,7 @@ test("V15.7 cache policy never fabricates a missing cache-write bucket", () => {
   const rows = Array.from({ length: 8 }, () => ({
     type: "task.telemetry",
     model: "provider/model",
-    metrics: { inputTokens: 200, cacheReadTokens: 800, cacheWriteTokens: null },
+    metrics: { inputTokens: 200, cacheReadTokens: 800, cacheWriteTokens: null, usageAccounting: "pi-normalized-disjoint" },
   }))
   const policy = cacheStabilityFromRows(rows, { model: "provider/model", minSamples: 4 })
   assert.equal(policy.mode, "neutral")
