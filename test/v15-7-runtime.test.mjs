@@ -4,7 +4,7 @@ import path from "node:path"
 import { mkdtemp, rm } from "node:fs/promises"
 import test from "node:test"
 
-import { analyzeShellCommand } from "../lib/command-intelligence.mjs"
+import { analyzeShellCommand, boundedVerificationTimeout } from "../lib/command-intelligence.mjs"
 import { routeToolContent } from "../lib/content-router-v2.mjs"
 import { cacheAwareVisibleBudget, cacheStabilityFromRows } from "../lib/provider-cache-stability.mjs"
 import { solutionEconomyContract } from "../lib/solution-economy.mjs"
@@ -33,6 +33,18 @@ test("V15.7 command intelligence catches workspace-filtered test pipelines", () 
   assert.equal(analysis.hidesProgress, true)
   assert.equal(analysis.recommendedTimeoutSec, 300)
   assert.equal(analysis.finding, "verification-output-hidden-by-pipeline")
+})
+
+test("V15.7 verification timeout clamp bounds the former 5400s hang case", () => {
+  const analysis = analyzeShellCommand(
+    "npm --filter @agrimarket/api test 2>&1 | grep -v progress | tail -45",
+    { verificationTimeoutSec: 300 },
+  )
+  assert.equal(boundedVerificationTimeout(analysis, 5400, 300), 300)
+  assert.equal(boundedVerificationTimeout(analysis, 120, 300), 120)
+  assert.equal(boundedVerificationTimeout(analysis, undefined, 300), 300)
+  const ordinary = analyzeShellCommand("node scripts/one-shot.mjs")
+  assert.equal(boundedVerificationTimeout(ordinary, 5400, 300), 5400)
 })
 
 test("V15.7 content router preserves more semantic diff evidence than noisy JSON", () => {
