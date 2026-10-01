@@ -46,6 +46,10 @@ import { ToolScheduler } from "../../lib/tool-scheduler.mjs";
 import { toolConcurrencyContract } from "../../lib/tool-concurrency.mjs";
 import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { adaptiveCompactionBudget } from "../../lib/adaptive-compaction.mjs";
+import { routeToolContent } from "../../lib/content-router-v2.mjs";
+import { cacheAwareVisibleBudget } from "../../lib/provider-cache-stability.mjs";
+import { recordEfficiencyEvent } from "../../lib/efficiency-ledger.mjs";
+import { analyzeShellCommand } from "../../lib/command-intelligence.mjs";
 import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
 import { createWriteCheckpoint, finalizeWriteCheckpoint } from "../../lib/write-checkpoints.mjs";
 import {
@@ -426,8 +430,27 @@ export default function (pi: ExtensionAPI) {
       reusableCandidate,
       canonicalVerification,
     });
-    if (looksLikeVerificationCommand(command) && (event.input as any)?.timeout == null) {
-      (event.input as any).timeout = configuredVerificationTimeout();
+    const commandAnalysis = analyzeShellCommand(command, {
+      verificationTimeoutSec: configuredVerificationTimeout(),
+    });
+    if (commandAnalysis.finding) {
+      await journalChildEvent(ctx, "command.intelligence", {
+        toolCallId: owner,
+        tool: toolName,
+        finding: commandAnalysis.finding,
+        progressVisibility: commandAnalysis.progressVisibility,
+        inputHash: toolInputHash(input),
+      });
+    }
+    if (commandAnalysis.verificationLike || looksLikeVerificationCommand(command)) {
+      const configured = configuredVerificationTimeout();
+      const requested = Number((event.input as any)?.timeout);
+      // A model-provided 90 minute timeout must not bypass the bounded verification
+      // policy. Clamp, rather than only filling a missing timeout, so hidden-output
+      // pipelines cannot make the agent look hung for an unbounded period.
+      if (!Number.isFinite(requested) || requested <= 0 || requested > configured) {
+        (event.input as any).timeout = configured;
+      }
     }
     return undefined;
   });
@@ -634,6 +657,12 @@ export default function (pi: ExtensionAPI) {
 
     if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
     const baseMaxChars = configuredLimit();
+    const contentRoute = routeToolContent(rawText, {
+      command: commandHint,
+      phase: looksLikeVerificationCommand(commandHint) ? "verify" : "execute",
+      kind: `child-${toolName}-output`,
+    });
+    const cacheMode = String(process.env.UES_CHILD_CACHE_MODE || "neutral");
     const compactionBudget = await adaptiveCompactionBudget(ctx.cwd, commandHint, baseMaxChars).catch(() => ({
       schemaVersion: 1,
       family: null,
@@ -644,11 +673,16 @@ export default function (pi: ExtensionAPI) {
       multiplier: 1,
       reason: "adaptive-budget-unavailable",
     }));
-    const maxChars = Number(compactionBudget.maxChars || baseMaxChars);
+    const maxChars = cacheAwareVisibleBudget(
+      Number(compactionBudget.maxChars || baseMaxChars),
+      contentRoute,
+      { mode: cacheMode },
+    );
     if (!rawText || rawText.length <= maxChars) return undefined;
 
     const compacted = await compactReversibleOutput(ctx.cwd, rawText, {
       maxChars,
+      command: commandHint,
       kind: `child-${toolName}-output`,
       source: commandHint,
       summary: capture.full
@@ -656,6 +690,16 @@ export default function (pi: ExtensionAPI) {
         : "Captured Pi tool output preserved before model-visible compaction",
     }).catch(() => null);
     if (!compacted?.compacted) return undefined;
+
+    await recordEfficiencyEvent(ctx.cwd, {
+      kind: "tool-compaction",
+      runId: CHILD_RUN_ID || null,
+      beforeChars: compacted.originalChars,
+      afterChars: compacted.returnedChars,
+      commandFamily: compacted.commandFamily || contentRoute.reducer,
+      contentType: contentRoute.contentType,
+      cacheMode,
+    }).catch(() => null);
 
     return {
       content: [{ type: "text", text: compacted.text }, ...images],
@@ -668,7 +712,9 @@ export default function (pi: ExtensionAPI) {
           evidenceRef: compacted.evidenceRef,
           rawCapture: capture.full ? "full-output-path" : "tool-result",
           recoveryTool: "ues_evidence_get",
-          adaptiveBudget: compactionBudget,
+          adaptiveBudget: { ...compactionBudget, routedMaxChars: maxChars },
+          contentRoute,
+          cacheMode,
         },
       },
       isError: event.isError,
