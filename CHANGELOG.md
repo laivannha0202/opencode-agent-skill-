@@ -10,6 +10,8 @@
 - **Efficiency Ledger V2.** Bounded `.ues-learning/efficiency-ledger-v2.jsonl` observations separate directly measured, derived-from-measured and unavailable metrics. Task telemetry feeds provider/cache/tool/wall-time observations; reversible tool compaction records exact before/after character counts.
 - **Pi-normalized cache accounting.** Cache-read share uses Pi's disjoint `input + cacheRead + cacheWrite` prompt-side counters; uncached input is Pi's `input` bucket rather than subtracting cache counters from it. Efficiency ledger writes are serialized across parent/child Pi processes with a bounded filesystem lock.
 - **Runtime Waste Learner.** `ues optimize-report` summarizes measured repeated tool signatures, queue pressure, interrupted/dangling tools, compaction recall demand and provider recovery. Metrics that are not observable remain explicitly unavailable.
+- **Trajectory Intelligence V2.** Run inspection separates repeated reads, searches and mutations, and counts blocked/interrupted/failed tool calls, queue delays and hidden-output verification pipelines. Stage telemetry summaries expose measured provider/model/tool/verification/LSP latency averages when available instead of reconstructing missing time.
+- **Durable execution ownership.** CLI/RPC child execution is fenced by a Runtime-Epoch-bound lease with parent heartbeat. Stale/expired children are blocked before the next tool side effect, while expired/abandoned ownership can be taken over by a replacement parent without blindly replaying work.
 - **Solution Economy Gate.** Writer roles prefer existing repository patterns, standard library, native platform primitives and already-installed dependencies before adding the smallest complete new implementation. Correctness, security, validation, accessibility, explicit requirements and verification are never traded for fewer lines.
 - **One-command real-model trial.** `ues trial` wraps the existing Pi baseline-vs-UES evaluator with live/both/3-trial/keep defaults.
 - **Durable execution ownership fencing.** Parent CLI/RPC launches heartbeat a Runtime Epoch lease and child Pi checks the owner before every tool call. Expired/abandoned parent ownership can be taken over; stale owner tokens fail closed before another side effect. Explicit same-session provider recovery now preserves the prior effective Runtime Epoch so the RPC pool actually addresses the existing worker/session.
@@ -20,6 +22,7 @@
 - V15.6 recall-driven compaction now composes with content routing and cache-stability policy while exact raw Evidence Store payload remains authoritative.
 - Verification/test commands with explicit overlong timeouts are clamped instead of only receiving a timeout when the field is absent.
 - Runtime Epoch includes `cachePolicyHash`.
+- RPC safe same-session provider recovery preserves the prior effective Runtime Epoch identity; ordinary new turns still compute a new epoch.
 - `release:verify` now includes `eval:v15.7`.
 
 ### Safety / quality invariants
