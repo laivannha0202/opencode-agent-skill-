@@ -369,7 +369,7 @@ const CONTRACTS = [
     file: "lib/model-runtime-profile.mjs",
     minBytes: 2_000,
     startsWith: 'import { createHash }',
-    required: ["MODEL_RUNTIME_SURFACE", "modelRuntimeProfile", "applyModelToolBudget", "preservesThinkingLevel", "architect-editor"],
+    required: ["MODEL_RUNTIME_SURFACE", "modelRuntimeProfile", "applyModelToolBudget", "empiricalSurface", "capabilitySurface", "measured-model-performance", "configured-model-capabilities", "evidenceSource", "preservesThinkingLevel", "architect-editor"],
   },
   {
     file: "lib/runtime-hooks.mjs",
@@ -429,7 +429,7 @@ const CONTRACTS = [
     file: "lib/provider-cache-stability.mjs",
     minBytes: 2_000,
     startsWith: 'import { readTaskTelemetry }',
-    required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens", "partialSamples", "insufficient-complete-provider-cache-telemetry"],
+    required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "provider", "stableSamples", "previousMode", "measured-cache-hysteresis", "measured-token-hysteresis", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens", "partialSamples", "insufficient-complete-provider-cache-telemetry"],
   },
   {
     file: "lib/performance-fabric.mjs",
@@ -447,7 +447,7 @@ const CONTRACTS = [
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
     startsWith: "const VERIFY_SCRIPT",
-    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "packageManagerLongRunningService", "packageManagerScript", "simpleShellSegments", "executableWords", "executableSegments", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
+    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "packageManagerLongRunningService", "packageManagerScript", "simpleShellSegments", "executableWords", "executableSegments", "unwrapExecutableWords", "shellAnalysisCommands", "powershell.exe", "pwsh.exe", "bun.exe", "findstr", "select-string", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
     file: "lib/solution-economy.mjs",
@@ -1082,9 +1082,26 @@ const CONTRACTS = [
       "name + \"=\"",
       "startsWith(prefix)",
       "--mode must be baseline, ues, or both",
+      "firstUsage",
+      "usageSample",
+      "requireMeasuredEfficiency: true",
+      "--require-promotion",
+      "UES real-model promotion gate: PASS",
       "idleTimeoutMs",
       "timeoutMs",
     ],
+  },
+  {
+    file: "lib/benchmark-confidence.mjs",
+    minBytes: 4_000,
+    startsWith: "function asBool",
+    required: ["pairedBenchmarkConfidence", "requireMeasuredEfficiency", "initialInputMeasured", "tokensMeasured", "telemetryEvidence", "quality-non-regression-with-efficiency-gain"],
+  },
+  {
+    file: "test/v15-8-runtime.test.mjs",
+    minBytes: 5_000,
+    startsWith: 'import test from "node:test"',
+    required: ["unwraps Windows and POSIX shell wrappers", "detects hidden verification output inside wrappers", "supports Bun verification and services", "cache learning is provider scoped", "cache policy uses bounded hysteresis", "model runtime profile prefers measured and configured evidence over names", "real-model promotion fails closed when efficiency telemetry is absent", "Pi eval captures first usage and exposes a hard promotion switch"],
   },
   {
     file: "lib/semantic-index.mjs",
