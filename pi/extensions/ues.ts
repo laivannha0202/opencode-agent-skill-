@@ -2108,7 +2108,6 @@ async function runRoutedAgent(
   const selectedCapabilityCandidate = selection.capabilitySelection?.selected || null;
   const activeCapabilityCandidate = diversitySelection || selectedCapabilityCandidate;
   const effectiveModelTier = diversitySelection?.tier || selection.tier;
-  const configuredModels = [...new Set(Object.values(modelPolicy.tiers || {}).filter(Boolean).map(String))];
   const runtimeProfileOptions = {
     role,
     executionProfile: taskPolicy.executionProfile,
@@ -2379,10 +2378,11 @@ async function runRoutedAgent(
   }
 
   const contextObservatory = buildContextObservatory({
-    systemRuntime: modelAciProfile,
-    skills: microSkills,
+    modelVisibleText: getAgentPrompt(agent) + "\n" + enrichedTask,
+    systemRuntime: { agentPrompt: getAgentPrompt(agent), modelAciProfile },
+    skills: microSkills?.text || null,
     repoMap: { contextQuality, contextPerformance },
-    selectedFiles: enrichedTask,
+    selectedFiles: null,
     toolHistory: null,
     planState: taskPolicy,
     evidenceViews: reusableVerification,
@@ -2565,6 +2565,29 @@ async function runRoutedAgent(
       allowedTools: Array.isArray((result as any)?.allowedTools) ? (result as any).allowedTools : [],
       selectedSkills: selectedSkillIds,
       toolExposure: (result as any)?.toolExposure || null,
+    }).catch(() => {});
+    const allowedToolList = Array.isArray((result as any)?.allowedTools) ? (result as any).allowedTools : [];
+    const usedToolSet = new Set((result.toolNames || []).map(String));
+    const finalContextObservatory = buildContextObservatory({
+      modelVisibleText: getAgentPrompt(agent) + "\n" + enrichedTask,
+      systemRuntime: { agentPrompt: getAgentPrompt(agent), modelAciProfile },
+      skills: microSkills?.text || null,
+      repoMap: { contextQuality, contextPerformance },
+      planState: taskPolicy,
+      evidenceViews: reusableVerification,
+      recentContext: affectedTests,
+      toolNames: result.toolNames || [],
+      unusedToolSchemas: allowedToolList.filter((name: string) => !usedToolSet.has(String(name))).length,
+    });
+    await appendTrajectoryEvent(traceRoot, traceID, "context.observatory", {
+      ...finalContextObservatory,
+      modelProfileId: modelProfile.id,
+      modelAciProfileId: modelAciProfile.id,
+      role,
+      risk: taskPolicy.risk,
+      exactAllowedToolCount: allowedToolList.length,
+      exactUsedToolCount: usedToolSet.size,
+      postRun: true,
     }).catch(() => {});
   }
     const finalizedChildArtifact = childArtifact?.handle
