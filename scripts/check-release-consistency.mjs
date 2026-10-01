@@ -293,6 +293,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     }
     const focusedV16 = String(scripts["eval:v16"] || "").trim().split(/\s+/).filter(Boolean)
     const requiredV16Tests = [
+      "test/v16-runtime.test.mjs",
       "test/fast-verification-gate.test.mjs",
       "test/fast-static-verification-v16.test.mjs",
       "test/evidence-store-active-work-v16.test.mjs",
