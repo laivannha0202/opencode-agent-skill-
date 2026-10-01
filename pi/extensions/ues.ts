@@ -5724,7 +5724,7 @@ export default function (pi: ExtensionAPI) {
         "content hashes git-blob/sha256: " + (contentArtifacts?.contentHashSource?.["git-blob"] ?? 0) + "/" + (contentArtifacts?.contentHashSource?.sha256 ?? 0),
         "files reparsed / bytes read: " + (contentArtifacts?.filesReparsed ?? 0) + "/" + (contentArtifacts?.bytesRead ?? 0),
         "repo map queries/selected/context chars: " + repoMapStats().queries + "/" + repoMapStats().selected + "/" + repoMapStats().contextChars,
-        "task telemetry runs/pass-rate/retries: " + (telemetry?.runs ?? 0) + "/" + (telemetry?.passRate == null ? "n/a" : telemetry.passRate.toFixed(3)) + "/" + (telemetry?.providerRetries ?? 0),
+        "task telemetry controller-runs/pass-rate/retries: " + (telemetry?.byScope?.["controller-run"]?.runs ?? 0) + "/" + (telemetry?.byScope?.["controller-run"]?.passRate == null ? "n/a" : telemetry.byScope["controller-run"].passRate.toFixed(3)) + "/" + (telemetry?.byScope?.["controller-run"]?.providerRetries ?? 0),
         "compaction recalled/created: " + (compactionRecall?.recalledRefs ?? 0) + "/" + (compactionRecall?.compactedRefs ?? 0),
       ].join("\n");
       pi.sendMessage({
@@ -5905,6 +5905,7 @@ export default function (pi: ExtensionAPI) {
     const abort = new AbortController();
     directControllerAbort = abort;
     const directTraceID = createTraceID(admission === "automatic" ? "ues-auto" : "ues-run");
+    const directStartedAt = Date.now();
     syncSessionIdentity(uesSessionName("run", task, workspaceRoot), ctx);
     let result: any;
     let lastProgressNoticeAt = 0;
@@ -6015,6 +6016,24 @@ export default function (pi: ExtensionAPI) {
       .join("\n")
       .trim() || "(UES controller returned no text)";
     const controllerPass = result?.isError !== true;
+    const telemetrySteps = Array.isArray(result?.details?.steps) ? result.details.steps : [];
+    await recordTaskTelemetry(workspaceRoot, {
+      exitCode: controllerPass ? 0 : 1,
+      verdict: controllerPass ? "PASS" : "FAIL",
+      durationMs: Math.max(0, Date.now() - directStartedAt),
+      toolCalls: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.toolCalls || 0), 0),
+      toolNames: [...new Set(telemetrySteps.flatMap((step: any) => Array.isArray(step?.toolNames) ? step.toolNames : []))],
+      providerRecoveryAttempts: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.providerRecoveryAttempts || 0), 0),
+      providerSessionResumeAttempts: telemetrySteps.reduce((sum: number, step: any) => sum + Number(step?.providerSessionResumeAttempts || 0), 0),
+      model: ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : null,
+    }, {
+      scope: "controller-run",
+      task,
+      traceID: directTraceID,
+      taskClass: result?.details?.policy?.executionProfile || admissionDecision?.policy?.executionProfile || null,
+      thinking: ctx.thinkingLevel as string | undefined,
+      passed: controllerPass,
+    }).catch(() => null);
 
     if (process.env.UES_EVAL_DIRECT_TELEMETRY === "1") {
       const details = result?.details || null;

@@ -23,6 +23,7 @@ test("V15.4 task telemetry stores operational metrics without raw task text", as
     const summary = summarizeTaskTelemetryRows(rows)
     assert.equal(summary.runs, 1)
     assert.equal(summary.averageTotalTokens, 140)
+    assert.equal(summary.byScope["specialist-run"].runs, 1)
     const raw = await readFile(path.join(root, ".ues-learning", "task-telemetry-v1.jsonl"), "utf8")
     assert.doesNotMatch(raw, /fix checkout/)
   } finally { await rm(root, { recursive:true, force:true }) }
@@ -72,6 +73,7 @@ test("V15.4 MarkItDown path is async and reuses identical content after rename",
   try {
     await writeFile(path.join(root, "a.pdf"), Buffer.from("PDF-A"))
     const first = await ingestDocument(root, "a.pdf", { markitdownRunner:runner })
+    assert.equal(first.schemaVersion, 1)
     assert.equal(first.cacheHit, false); assert.equal(calls, 1)
     await rename(path.join(root, "a.pdf"), path.join(root, "renamed.pdf"))
     const renamed = await ingestDocument(root, "renamed.pdf", { markitdownRunner:runner })

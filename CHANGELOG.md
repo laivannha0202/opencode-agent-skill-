@@ -10,7 +10,7 @@ The project follows Semantic Versioning.
 
 ### Added
 
-- **Task-level operational telemetry** under ignored `.ues-learning/` state. Specialist runs record bounded wall/context/model/hygiene timings, tool counts, provider recovery, cache hits and provider token usage when it actually exists; unavailable provider metrics remain `null`.
+- **Task-level operational telemetry** under ignored `.ues-learning/` state. Top-level controller runs record true end-to-end wall time separately from specialist runs; specialist rows retain bounded context/agent/hygiene timings, tool counts, provider recovery, cache hits and provider token usage when it actually exists. Unavailable provider/model/tool-only timing remains `null` instead of being inferred.
 - **Compaction Recall Analytics** for reversible context and command-aware output, attributing later expand/search requests back to the original Evidence Store ref.
 - **Conservative permission preflight** for specialist tool exposure. Only deterministic action-wide denies are hidden; path/command-dependent rules stay visible and runtime resource checks remain authoritative.
 - **Mutation-shape detection** for custom/renamed write tools, including edit-permission classification and local-env/temp-path safety for concrete mutation-shaped calls.
@@ -29,6 +29,7 @@ The project follows Semantic Versioning.
 - Telemetry persists hashes/operational metrics rather than raw task prompt text and uses the existing bounded runtime-event journal.
 - MarkItDown remains optional and is never auto-installed.
 - Real-model quality A/B remains explicitly unmeasured in repository CI when provider credentials are unavailable; deterministic gates are not presented as a substitute.
+- Public reversible-context and document-ingestion response schema numbers remain compatible with V15.3; only internal cache/event schemas advance independently.
 
 ## [15.3.0] - 2026-09-30
 
