@@ -2,7 +2,16 @@
 
 Repository này hiện đóng gói UES cho **Pi Agent**.
 
-**Current package runtime:** 15.9.0 — Adaptive Agent Intelligence. V15.9 compiles model-specific ACI/tool/skill/context surfaces from measured or configured evidence, deterministically rehydrates durable state after compaction, routes bounded non-write tool output through reversible Evidence Store reduction, compiles policy visibility before tool exposure, enables risk-gated verifier diversity, and adds measured skill/context/replay observability. V15.8 measured hardening, V15.7 efficiency intelligence and V15.6 durable journal/checkpoint/recovery remain intact; thinking, safety and verifier requirements are not lowered.
+**Current package runtime:** 16.0.0 — Deterministic Trust & Correctness Hardening. V16 fail-closes Turbo deterministic PASS on incomplete static diagnostics for supported changed source files, protects active durable Evidence Store refs from GC, audits resume evidence integrity, preserves external/MCP provenance as non-authoritative data, retries transient Windows cleanup locks, and makes measured model routing retry/token-cost aware. V15.9 Adaptive Agent Intelligence remains the underlying ACI/context/runtime architecture; thinking, safety and independent verifier requirements are not lowered.
+
+## V16 Deterministic Trust & Correctness Hardening
+
+- Turbo FAST deterministic verification requires fresh behavioral evidence **and**, when a supported changed source file is present, complete error-free static diagnostics. Timeout/incomplete diagnostics fall back to the independent verifier rather than producing deterministic PASS.
+- Active `.ues-work` evidence references are protected during Evidence Store GC. Checkpoints retain concrete evidence refs and the compaction resume guard reports `OK`, `DEGRADED`, or `NOT_APPLICABLE` evidence integrity.
+- External/MCP results carry `trustClass=external-data` and `instructionAuthority=none`; heuristic prompt-injection detection remains an additional signal, not the authority boundary itself.
+- Worktree and workspace cleanup share bounded retry/backoff for transient Windows `EBUSY` / `EPERM` / `ENOTEMPTY`-class failures.
+- Empirical model routing adds retry-amplified token economics only after the existing minimum sample floor, preserving correctness-first routing.
+- V16 does **not** claim full model/Pi-session container isolation. Existing container isolation remains a deterministic verification boundary.
 
 ## V15.9 Adaptive Agent Intelligence
 
