@@ -50,6 +50,7 @@ import { routeToolContent } from "../../lib/content-router-v2.mjs";
 import { cacheAwareVisibleBudget } from "../../lib/provider-cache-stability.mjs";
 import { recordEfficiencyEvent } from "../../lib/efficiency-ledger.mjs";
 import { analyzeShellCommand, boundedVerificationTimeout } from "../../lib/command-intelligence.mjs";
+import { assertExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
 import { createWriteCheckpoint, finalizeWriteCheckpoint } from "../../lib/write-checkpoints.mjs";
 import {
@@ -82,6 +83,9 @@ const toolExecutionState = new Map<string, {
 
 const CHILD_RUN_ID = String(process.env.UES_CHILD_RUN_ID || "").trim();
 const CHILD_JOURNAL_ROOT = String(process.env.UES_CHILD_JOURNAL_ROOT || "").trim();
+const CHILD_RUNTIME_EPOCH_ID = String(process.env.UES_CHILD_RUNTIME_EPOCH_ID || "").trim();
+const CHILD_EXECUTION_OWNER_TOKEN = String(process.env.UES_CHILD_EXECUTION_OWNER_TOKEN || "").trim();
+const CHILD_OWNERSHIP_ROOT = String(process.env.UES_CHILD_OWNERSHIP_ROOT || "").trim();
 const TOOL_SCHEDULER = new ToolScheduler({
   maxParallelReads: Number(process.env.UES_CHILD_MAX_PARALLEL_READS || 4),
   maxQueueMs: Number(process.env.UES_CHILD_TOOL_QUEUE_TIMEOUT_MS || 30_000),
@@ -133,6 +137,33 @@ async function journalChildEvent(ctx: any, type: string, data: any = {}) {
   if (!CHILD_RUN_ID) return null;
   const root = CHILD_JOURNAL_ROOT || String(ctx?.cwd || process.cwd());
   return appendRunJournalEvent(root, CHILD_RUN_ID, type, data).catch(() => null);
+}
+
+async function executionOwnershipBlock(ctx: any, toolName: string, owner: string) {
+  if (!CHILD_EXECUTION_OWNER_TOKEN || !CHILD_RUNTIME_EPOCH_ID) return null;
+  const root = CHILD_OWNERSHIP_ROOT || CHILD_JOURNAL_ROOT || String(ctx?.cwd || process.cwd());
+  try {
+    await assertExecutionOwnership(
+      root,
+      CHILD_RUNTIME_EPOCH_ID,
+      CHILD_EXECUTION_OWNER_TOKEN,
+      { runtimeEpochId: CHILD_RUNTIME_EPOCH_ID },
+    );
+    return null;
+  } catch (error) {
+    const code = String((error as any)?.code || "UES_EXECUTION_OWNERSHIP_STALE");
+    await journalChildEvent(ctx, "tool.blocked", {
+      toolCallId: owner,
+      tool: toolName,
+      reason: "stale-execution-owner",
+      ownershipError: code,
+      runtimeEpochId: CHILD_RUNTIME_EPOCH_ID,
+    });
+    return {
+      block: true,
+      reason: "UES stale execution owner blocked this tool call (" + code + "). The parent runtime was replaced, expired, or lost ownership; resume through the current UES controller instead of continuing this child.",
+    };
+  }
 }
 
 async function releaseScheduledTool(event: any, ctx: any, type: string) {
@@ -243,6 +274,8 @@ export default function (pi: ExtensionAPI) {
     const toolName = String(event.toolName || "");
     const input: any = event.input || {};
     const owner = schedulerOwner(event, toolName);
+    const staleOwnership = await executionOwnershipBlock(ctx, toolName, owner);
+    if (staleOwnership) return staleOwnership;
     let schedulerLease: any;
     try {
       if (HOST_SEQUENTIAL_TOOLS.has(toolName)) {
