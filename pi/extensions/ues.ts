@@ -2591,7 +2591,7 @@ async function runRoutedAgent(
 }
 
 async function recordRuntimeOutcome(result: RunResult, task: string, passed: boolean, retries: number) {
-  const performanceModel = result.modelSelection?.model || result.model;
+  const performanceModel = result.modelSelection?.diversitySelectedModel || result.modelSelection?.model || result.model;
   if (!performanceModel) return;
   try {
     const aggregateUsage = aggregateUsageSamples(result.usageSamples);
