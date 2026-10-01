@@ -12,6 +12,7 @@ import {
   createRunJournal,
   readRunJournal,
   recoverRunJournal,
+  runJournalFile,
   summarizeRunJournalRows,
 } from "../lib/run-journal.mjs"
 import { adaptiveCompactionBudgetFromSummary } from "../lib/adaptive-compaction.mjs"
@@ -160,6 +161,36 @@ test("V15.6 durable journal admission is idempotent and crash recovery never rep
 
     await assert.rejects(
       createRunJournal(root, { ...input, taskHash: "different" }),
+      /idempotency conflict/i,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15.6 durable admission survives bounded journal history loss", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v156-admission-sidecar-"))
+  try {
+    const input = {
+      runId: "run-sidecar",
+      taskHash: "task-hash",
+      workspaceFingerprint: "workspace",
+      executionProfile: "standard",
+      risk: "medium",
+    }
+    const first = await createRunJournal(root, input)
+    assert.equal(first.admitted, true)
+
+    // Model the bounded runtime-event compactor having removed the oldest
+    // admission row. The dedicated sidecar must keep run identity durable.
+    await writeFile(runJournalFile(root, input.runId), "")
+    const resumed = await createRunJournal(root, input)
+    assert.equal(resumed.admitted, false)
+    assert.equal(resumed.idempotent, true)
+    assert.equal(resumed.event.restoredFromSidecar, true)
+
+    await assert.rejects(
+      createRunJournal(root, { ...input, taskHash: "different-after-compaction" }),
       /idempotency conflict/i,
     )
   } finally {
