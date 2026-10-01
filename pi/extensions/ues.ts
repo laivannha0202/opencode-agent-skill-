@@ -6408,6 +6408,7 @@ export default function (pi: ExtensionAPI) {
         "V16 static completeness gate: on (FAST deterministic PASS fails closed on incomplete/error diagnostics)",
         "V16 durable evidence integrity: on (active-work refs pinned during GC + resume ref audit)",
         "V16 external data provenance: on (external-data; instruction-authority=none; flagged output remains governed)",
+        "V16 capability exfiltration guard: on (secret source + outbound payload transfer fails closed)",
         "V16 Windows cleanup barrier: on (bounded EBUSY/EPERM/ENOTEMPTY retry)",
         "V16 cost-aware model routing: on (retry-amplified token economics after evidence floor)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
