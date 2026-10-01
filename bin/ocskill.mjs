@@ -80,6 +80,8 @@ import { createGeometryReceipt, responsiveViewportMatrix, validateVisualSpec } f
 import { planDynamicWorkflow } from "../lib/dynamic-workflow.mjs"
 import { lintSkillCatalog } from "../lib/skill-quality.mjs"
 import { designTokenEvidence, extractDesignTokens, inspectResponsiveLayout } from "../lib/ui-inspector.mjs"
+import { listWriteCheckpoints, rollbackWriteCheckpoint } from "../lib/write-checkpoints.mjs"
+import { compareRunInspections, inspectRun, listRunJournals } from "../lib/run-inspector.mjs"
 import {
   cliErrorPayload,
   clipOutput,
@@ -132,6 +134,9 @@ Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill 
   ocskill aci <search|refs|view|text> ...
                               Bounded evidence-first code search/view interface
   ocskill trace <show|append> ... Inspect or append redacted operational trajectory events
+  ues run-inspect [run-id|last] [dir] [--compare <run-id|previous>]
+                              Inspect V15.6 durable run journal and bounded artifacts
+  ues checkpoint <list|rollback> ...  List or hash-guard rollback V15.6 write checkpoints
   ocskill review-scope [base] [dir]
                               Enumerate changed files, review coverage and risk
   ocskill verification-plan [dir]
@@ -233,6 +238,14 @@ function printCommandHelp(commandName, subcommand) {
   }
   if (commandName === "sandbox") {
     console.log("Usage: ocskill sandbox <capability|exec|list|create|integrate|rollback|remove> ...\n")
+    return
+  }
+  if (commandName === "checkpoint") {
+    console.log("Usage: ues checkpoint list [dir] [--run <run-id>] [--limit N]\n       ues checkpoint rollback <run-id> <checkpoint-id> [dir]\n")
+    return
+  }
+  if (commandName === "run-inspect") {
+    console.log("Usage: ues run-inspect [run-id|last] [dir] [--compare <run-id|previous>]\n")
     return
   }
   if (commandName === "diff") {
@@ -609,6 +622,66 @@ async function traceControl() {
       return
     }
     throw new Error("Usage: ocskill trace <show|append> ...")
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
+async function checkpointControl() {
+  const action = args[1] || "list"
+  try {
+    if (action === "list") {
+      const root = positionalArg(args, 2) || process.cwd()
+      printJson(await listWriteCheckpoints(root, {
+        runId: optionValue(args, "--run") || undefined,
+        limit: optionInt(args, "--limit", 50),
+      }))
+      return
+    }
+    if (action === "rollback") {
+      const runId = args[2]
+      const checkpointId = args[3]
+      const root = positionalArg(args, 4) || process.cwd()
+      if (!runId || !checkpointId) {
+        throw new Error("Usage: ues checkpoint rollback <run-id> <checkpoint-id> [dir]")
+      }
+      const result = await rollbackWriteCheckpoint(root, runId, checkpointId)
+      printJson(result)
+      if (result.restored !== true) process.exitCode = 1
+      return
+    }
+    throw new Error("Usage: ues checkpoint <list|rollback> ...")
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
+async function runInspectorControl() {
+  try {
+    const requested = args[1] || "last"
+    const root = positionalArg(args, 2) || process.cwd()
+    const recent = await listRunJournals(root, { limit: 100 })
+    const runId = requested === "last" ? recent[0]?.runId : requested
+    if (!runId) throw new Error("No UES run journal found.")
+    const current = await inspectRun(root, runId)
+    const compareRequested = optionValue(args, "--compare")
+    if (!compareRequested) {
+      printJson(current)
+      return
+    }
+    let compareId = compareRequested
+    if (compareId === "previous") {
+      const index = recent.findIndex((row) => row.runId === runId)
+      compareId = recent[index + 1]?.runId
+    }
+    if (!compareId) throw new Error("No comparison UES run journal found.")
+    const base = await inspectRun(root, compareId)
+    printJson({
+      schemaVersion: 1,
+      current,
+      comparisonBase: base,
+      comparison: compareRunInspections(base, current),
+    })
   } catch (error) {
     printCliError(error)
   }
@@ -1889,6 +1962,12 @@ async function main() {
     break
   case "trace":
     await traceControl()
+    break
+  case "checkpoint":
+    await checkpointControl()
+    break
+  case "run-inspect":
+    await runInspectorControl()
     break
   case "review-scope":
     await inspectReviewScope()
