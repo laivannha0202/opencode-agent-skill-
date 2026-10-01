@@ -1,5 +1,31 @@
 # Changelog
 
+## [15.7.0] - 2026-10-01
+
+### Added
+
+- **Command Intelligence V3.** Child shell preflight now identifies verification commands, likely foreground services and output-hiding pipelines. Verification timeouts are policy-clamped even when a model supplied a larger value; a command such as `npm test | grep | tail` can no longer request a multi-hour timeout and bypass the bounded verifier policy.
+- **Provider Cache Stability V1.** Recent provider-reported cache usage selects a conservative `neutral/cache/balanced/token` presentation policy. Missing telemetry stays `NOT_MEASURED`. Cache policy participates in Runtime Epoch identity so warm workers do not cross an incompatible policy boundary.
+- **Content Router V2.** New tool output is classified as diff/JSON/test/diagnostics/log/code/search/text and combined with execution phase before choosing the bounded live-zone visible budget.
+- **Efficiency Ledger V2.** Bounded `.ues-learning/efficiency-ledger-v2.jsonl` observations separate directly measured, derived-from-measured and unavailable metrics. Task telemetry feeds provider/cache/tool/wall-time observations; reversible tool compaction records exact before/after character counts.
+- **Runtime Waste Learner.** `ues optimize-report` summarizes measured repeated tool signatures, queue pressure, interrupted/dangling tools, compaction recall demand and provider recovery. Metrics that are not observable remain explicitly unavailable.
+- **Solution Economy Gate.** Writer roles prefer existing repository patterns, standard library, native platform primitives and already-installed dependencies before adding the smallest complete new implementation. Correctness, security, validation, accessibility, explicit requirements and verification are never traded for fewer lines.
+- **One-command real-model trial.** `ues trial` wraps the existing Pi baseline-vs-UES evaluator with live/both/3-trial/keep defaults.
+- Added `npm run eval:v15.7` and V15.7 documentation.
+
+### Changed
+
+- V15.6 recall-driven compaction now composes with content routing and cache-stability policy while exact raw Evidence Store payload remains authoritative.
+- Verification/test commands with explicit overlong timeouts are clamped instead of only receiving a timeout when the field is absent.
+- Runtime Epoch includes `cachePolicyHash`.
+- `release:verify` now includes `eval:v15.7`.
+
+### Safety / quality invariants
+
+- Selected thinking level is unchanged.
+- Independent verifier, integration/visual gates, Evidence Store, dirty-work and local-env guards, workspace containment, hash-guarded checkpoints, fail-closed diagnostics, Repo Map V3, Semantic Index V3 and Holdout D are unchanged.
+- Efficiency evidence never establishes correctness and deterministic tests are not promoted to real-model performance claims.
+
 All notable changes to this project are documented here.
 
 The project follows Semantic Versioning.
