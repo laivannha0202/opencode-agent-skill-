@@ -947,7 +947,9 @@ const CONTRACTS = [
       "looksLikeLongRunningServiceCommand",
       "terminateProcessTree",
       'kind: "service-log"',
-    , "analyzeShellCommand", "shouldUseManagedService"],
+      "analyzeShellCommand",
+      "shouldUseManagedService",
+    ],
   },
   {
     file: "test/runtime-artifacts.test.mjs",
