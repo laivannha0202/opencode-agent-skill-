@@ -42,6 +42,7 @@ for (const required of [
   "lib/process-supervisor.mjs",
   "lib/fast-static-verification.mjs",
   "lib/fs-cleanup.mjs",
+  "lib/execution-capability.mjs",
   "lib/executable-probe.mjs",
   "lib/code-intelligence/lsp-pool.mjs",
   "lib/pi-rpc-pool.mjs",
