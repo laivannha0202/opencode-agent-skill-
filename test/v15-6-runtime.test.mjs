@@ -18,6 +18,7 @@ import { adaptiveCompactionBudgetFromSummary } from "../lib/adaptive-compaction.
 import {
   createWriteCheckpoint,
   finalizeWriteCheckpoint,
+  listWriteCheckpoints,
   rollbackWriteCheckpoint,
 } from "../lib/write-checkpoints.mjs"
 import {
@@ -57,6 +58,8 @@ test("V15.6 compact model profiles reduce tool-choice noise without lowering thi
   assert.equal(compact.surface, MODEL_RUNTIME_SURFACE.COMPACT)
   assert.equal(compact.preservesThinkingLevel, true)
   assert.equal(compact.editPipeline, "architect-editor")
+  assert.equal(compact.contextBudgetRatio, 1)
+  assert.equal(compact.contextBudgetPolicy, "measurement-gated")
   const tools = Array.from({ length: 20 }, (_, index) => "tool_" + index)
   tools.push("ues_code")
   const selected = applyModelToolBudget(tools, compact, ["ues_code"])
@@ -128,10 +131,12 @@ test("V15.6 durable journal admission is idempotent and crash recovery never rep
       executionProfile: "standard",
       risk: "medium",
     }
-    const first = await createRunJournal(root, input)
-    const second = await createRunJournal(root, input)
-    assert.equal(first.admitted, true)
-    assert.equal(second.idempotent, true)
+    const [first, second] = await Promise.all([
+      createRunJournal(root, input),
+      createRunJournal(root, input),
+    ])
+    assert.equal([first, second].filter((row) => row.admitted === true).length, 1)
+    assert.equal([first, second].filter((row) => row.idempotent === true).length, 1)
 
     await appendRunJournalEvent(root, "run-1", "tool.started", {
       toolCallId: "tool-1",
@@ -212,6 +217,11 @@ test("V15.6 bounded write checkpoints restore exact bytes and refuse diverged ro
     })
     await writeFile(file, "after\n")
     await finalizeWriteCheckpoint(root, "run", checkpoint.checkpointId)
+    const listed = await listWriteCheckpoints(root, { runId: "run" })
+    assert.equal(listed.length, 1)
+    assert.equal(listed[0].checkpointId, checkpoint.checkpointId)
+    assert.equal("beforeBase64" in listed[0], false)
+    assert.equal("beforeBase64" in listed[0].files[0], false)
     const restored = await rollbackWriteCheckpoint(root, "run", checkpoint.checkpointId)
     assert.equal(restored.restored, true)
     assert.equal(await readFile(file, "utf8"), "before\n")
