@@ -106,14 +106,14 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     const readmeVersion = versionMatches[0]?.[1] || null
     if (!readmeVersion) errors.push("README.md: could not find current package version")
     else if (readmeVersion !== version) errors.push(`README.md: current version says ${readmeVersion}, expected ${version}`)
-    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime", "**15.6.0:** Measured Runtime & Durable Execution", "**15.7.0:** Adaptive Efficiency Intelligence", "**15.8.0:** Measured Hardening", "**15.9.0:** Adaptive Agent Intelligence", "ues optimize-report", "ues context-report", "ues replay", "ues trial", "--require-promotion", "npm view opencode-agent-skill version --registry=https://registry.npmjs.org/"]) {
+    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime", "**15.6.0:** Measured Runtime & Durable Execution", "**15.7.0:** Adaptive Efficiency Intelligence", "**15.8.0:** Measured Hardening", "**15.9.0:** Adaptive Agent Intelligence", "**16.0.0:** Deterministic Trust & Correctness Hardening", "ues optimize-report", "ues context-report", "ues replay", "ues trial", "--require-promotion", "npm view opencode-agent-skill version --registry=https://registry.npmjs.org/"]) {
       if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
     }
   }
 
   const piCompat = requireText(errors, readText(root, path.join("docs", "PI-COMPAT.md")), "docs/PI-COMPAT.md")
   if (piCompat) {
-    for (const marker of ["# Pi Agent runtime", "Current package runtime:** 15.9.0", "V15.9 Adaptive Agent Intelligence", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime", "V15.1 deterministic admission and managed services", "V15.2 Turbo Fast Path", "V15.3 DEEP Speed", "V15.4 ACP-safe child runtime", "V15.5 Per-Leaf Turbo", "V15.6 Fast Planning", "V15.7 Lightweight Sandbox Cleanup", "V15.8 Measured Hardening", "V15.8 Plan Gate Recovery", "V15.9 Runtime Artifact Isolation", "V15.10 Adaptive Stability Runtime", "V15.11 Session Identity Sync", "V15.12 Safe Autopilot + Disk Hygiene", "V15.13 Read-Only Completion Semantics", "V15.14 Deterministic Read-Only Fast Path", "V15.15 Execution Contracts + Phase Gates", "V15.16 Portable Cross-Tool Temp Paths", "V15.17 Zero-Friction Autopilot Admission", "V15.18 Three-Tier Zero-Friction Routing", "V15.19 Finalization Hardening", "ues_service"]) {
+    for (const marker of ["# Pi Agent runtime", "Current package runtime:** 16.0.0", "V16 Deterministic Trust & Correctness Hardening", "V15.9 Adaptive Agent Intelligence", "ues_execute", "ues_dispatch", "ues_cli", "manifest is Pi-only", "V14.2 Turbo Weak-Model Runtime", "V15.1 deterministic admission and managed services", "V15.2 Turbo Fast Path", "V15.3 DEEP Speed", "V15.4 ACP-safe child runtime", "V15.5 Per-Leaf Turbo", "V15.6 Fast Planning", "V15.7 Lightweight Sandbox Cleanup", "V15.8 Measured Hardening", "V15.8 Plan Gate Recovery", "V15.9 Runtime Artifact Isolation", "V15.10 Adaptive Stability Runtime", "V15.11 Session Identity Sync", "V15.12 Safe Autopilot + Disk Hygiene", "V15.13 Read-Only Completion Semantics", "V15.14 Deterministic Read-Only Fast Path", "V15.15 Execution Contracts + Phase Gates", "V15.16 Portable Cross-Tool Temp Paths", "V15.17 Zero-Friction Autopilot Admission", "V15.18 Three-Tier Zero-Friction Routing", "V15.19 Finalization Hardening", "ues_service"]) {
       if (!piCompat.includes(marker)) errors.push(`docs/PI-COMPAT.md: missing current Pi contract marker ${marker}`)
     }
   }
@@ -290,6 +290,30 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     }
     if (!pkg.files.includes("docs/V15.9-ADAPTIVE-AGENT-INTELLIGENCE.md")) {
       errors.push("package.json: V15.9 runtime documentation must be packed")
+    }
+    const focusedV16 = String(scripts["eval:v16"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV16Tests = [
+      "test/fast-verification-gate.test.mjs",
+      "test/fast-static-verification-v16.test.mjs",
+      "test/evidence-store-active-work-v16.test.mjs",
+      "test/fs-cleanup-v16.test.mjs",
+      "test/untrusted-output.test.mjs",
+      "test/model-performance-v12.test.mjs",
+      "test/compaction-resume-guard.test.mjs",
+      "test/v15-9-runtime.test.mjs",
+    ]
+    if (
+      focusedV16[0] !== "node" ||
+      focusedV16[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV16Tests.every((file) => focusedV16.includes(file))
+    ) {
+      errors.push("package.json: eval:v16 must use the bounded runner and include V16 correctness/security/reliability/efficiency regressions")
+    }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16")) {
+      errors.push("package.json: release:verify must include eval:v16")
+    }
+    if (!pkg.files.includes("docs/V16-DETERMINISTIC-HARDENING.md")) {
+      errors.push("package.json: V16 runtime documentation must be packed")
     }
   }
 
