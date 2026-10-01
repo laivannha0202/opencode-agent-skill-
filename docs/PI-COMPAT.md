@@ -2,6 +2,8 @@
 
 Repository này hiện đóng gói UES cho **Pi Agent**.
 
+**Current package runtime:** 15.7.0 — Adaptive Efficiency Intelligence. V15.7 adds bounded verification-command intelligence, measurement-gated provider-cache stability, live-zone content routing, an efficiency ledger/runtime waste report, Solution Economy for writer roles, and the paired `ues trial` surface. It retains V15.6 durable journal/checkpoint/recovery and does not lower thinking or verifier requirements.
+
 ## Requirements
 
 - Node.js 22.19+
