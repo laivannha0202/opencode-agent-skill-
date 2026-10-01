@@ -47,6 +47,20 @@ test("V16 durable evidence GC and resume integrity remain wired", async () => {
   assert.match(task, /evidenceRefsIn/)
 })
 
+test("V16 runtime status exposes the active hardening contracts", async () => {
+  const text = await source("pi/extensions/ues.ts")
+  for (const marker of [
+    "V16 static completeness gate: on",
+    "V16 durable evidence integrity: on",
+    "V16 external data provenance: on",
+    "V16 Windows cleanup barrier: on",
+    "V16 cost-aware model routing: on",
+  ]) {
+    assert.ok(text.includes(marker), "missing runtime status marker: " + marker)
+  }
+  assert.match(text, /statusSchemaVersion:\s*7/)
+})
+
 test("V16 cleanup call sites use the bounded filesystem primitive", async () => {
   const [worktree, hygiene] = await Promise.all([
     source("lib/worktree-sandbox.mjs"),
