@@ -12,6 +12,7 @@
 - **Runtime Waste Learner.** `ues optimize-report` summarizes measured repeated tool signatures, queue pressure, interrupted/dangling tools, compaction recall demand and provider recovery. Metrics that are not observable remain explicitly unavailable.
 - **Solution Economy Gate.** Writer roles prefer existing repository patterns, standard library, native platform primitives and already-installed dependencies before adding the smallest complete new implementation. Correctness, security, validation, accessibility, explicit requirements and verification are never traded for fewer lines.
 - **One-command real-model trial.** `ues trial` wraps the existing Pi baseline-vs-UES evaluator with live/both/3-trial/keep defaults.
+- **Durable execution ownership fencing.** Parent CLI/RPC launches heartbeat a Runtime Epoch lease and child Pi checks the owner before every tool call. Expired/abandoned parent ownership can be taken over; stale owner tokens fail closed before another side effect. Explicit same-session provider recovery now preserves the prior effective Runtime Epoch so the RPC pool actually addresses the existing worker/session.
 - Added `npm run eval:v15.7` and V15.7 documentation.
 
 ### Changed
