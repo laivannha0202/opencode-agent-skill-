@@ -415,7 +415,7 @@ const CONTRACTS = [
   {
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
-    startsWith: "const VERIFY",
+    startsWith: "const DIRECT_VERIFY",
     required: ["analyzeShellCommand", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
