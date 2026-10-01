@@ -20,6 +20,7 @@ import {
 } from "../lib/execution-ownership.mjs"
 import { assertExecutionOwnership, claimExecutionOwnership, pruneExecutionOwnership, releaseExecutionOwnership } from "../lib/execution-ownership.mjs"
 import { inspectRunRows } from "../lib/run-inspector.mjs"
+import { reduceCommandOutput } from "../lib/performance-fabric.mjs"
 
 test("V15.7 command intelligence detects hidden verification progress", () => {
   const analysis = analyzeShellCommand("npm test 2>&1 | grep -v progress | tail -45", {
@@ -84,6 +85,12 @@ test("V15.7 package-manager verification families drive content routing", () => 
     command: "yarn run build",
     phase: "verify",
   }).contentType, "build")
+
+  const reduced = reduceCommandOutput("PASS api\nTests: 12 passed, 12 total\nTime: 1.2s", {
+    command: "npm --filter @agrimarket/api test",
+  })
+  assert.equal(reduced.family, "npm-test")
+  assert.ok(reduced.rows.some((row) => /Tests:/i.test(row)))
 })
 
 test("V15.7 content router preserves more semantic diff evidence than noisy JSON", () => {
