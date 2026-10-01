@@ -164,17 +164,20 @@ const EXECUTION_OWNERSHIP_HEARTBEAT_MS = Math.max(
   Math.min(CHILD_HEARTBEAT_MS, Math.trunc(EXECUTION_OWNERSHIP_TTL_MS / 3)),
 );
 
-async function acquireRuntimeExecutionOwnership(root: string, runtimeEpochId: string) {
+async function acquireRuntimeExecutionOwnership(root: string, runtimeEpochId: string, runId = "") {
   const ownershipRoot = path.resolve(root || process.cwd());
-  const ownerToken = executionOwnerToken(runtimeEpochId);
-  await claimExecutionOwnership(ownershipRoot, runtimeEpochId, ownerToken, {
+  const ownershipScope = runId
+    ? runtimeEpochId + "::run::" + String(runId)
+    : runtimeEpochId;
+  const ownerToken = executionOwnerToken(ownershipScope);
+  await claimExecutionOwnership(ownershipRoot, ownershipScope, ownerToken, {
     ttlMs: EXECUTION_OWNERSHIP_TTL_MS,
     ownerPid: process.pid,
     runtimeEpochId,
   });
   let released = false;
   const timer = setInterval(() => {
-    void renewExecutionOwnership(ownershipRoot, runtimeEpochId, ownerToken, {
+    void renewExecutionOwnership(ownershipRoot, ownershipScope, ownerToken, {
       ttlMs: EXECUTION_OWNERSHIP_TTL_MS,
       ownerPid: process.pid,
       runtimeEpochId,
@@ -183,13 +186,14 @@ async function acquireRuntimeExecutionOwnership(root: string, runtimeEpochId: st
   timer.unref?.();
   return {
     ownershipRoot,
+    ownershipScope,
     ownerToken,
     runtimeEpochId,
     async release() {
       if (released) return;
       released = true;
       clearInterval(timer);
-      await releaseExecutionOwnership(ownershipRoot, runtimeEpochId, ownerToken).catch(() => null);
+      await releaseExecutionOwnership(ownershipRoot, ownershipScope, ownerToken).catch(() => null);
     },
   };
 }
@@ -875,6 +879,7 @@ async function runAgentCli(
   const executionOwnership = await acquireRuntimeExecutionOwnership(
     runtimeOptions.journalRoot || cwd,
     runtimeEpoch.id,
+    runtimeOptions.runId || "",
   );
 
   let output = "";
@@ -900,6 +905,7 @@ async function runAgentCli(
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
           UES_CHILD_RUNTIME_EPOCH_ID: runtimeEpoch.id,
           UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
+          UES_CHILD_EXECUTION_OWNER_SCOPE: executionOwnership.ownershipScope,
           UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
           UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
@@ -1356,6 +1362,7 @@ async function runAgentRpc(
   const executionOwnership = await acquireRuntimeExecutionOwnership(
     runtimeOptions.journalRoot || cwd,
     effectiveRuntimeEpochId,
+    runtimeOptions.runId || "",
   );
 
   const progressTimer = setInterval(() => {
@@ -1388,6 +1395,7 @@ async function runAgentRpc(
           UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
           UES_CHILD_RUNTIME_EPOCH_ID: effectiveRuntimeEpochId,
           UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
+          UES_CHILD_EXECUTION_OWNER_SCOPE: executionOwnership.ownershipScope,
           UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
           UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
