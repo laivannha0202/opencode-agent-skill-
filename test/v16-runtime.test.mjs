@@ -28,6 +28,8 @@ test("V16 external outputs keep an explicit non-authoritative provenance boundar
   ])
   assert.match(runtime, /trustClass:\s*"external-data"/)
   assert.match(runtime, /always:\s*true/)
+  assert.doesNotMatch(runtime, /if\s*\(analysis\.flagged\)\s*\{/)
+  assert.match(runtime, /governToolOutput\(ctx\.cwd, rawText/)
   assert.match(boundary, /instructionAuthority:\s*"none"/)
   assert.match(boundary, /UES EXTERNAL DATA BOUNDARY/)
 })
