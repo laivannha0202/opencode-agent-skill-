@@ -28,6 +28,10 @@
 
 ### Hardened before release
 
+- **Executable-head shell classification.** Command Intelligence now classifies each simple shell segment from its actual executable head instead of matching package-manager/test words anywhere in the command. This prevents false positives such as `echo npm test` and `npm exec echo test`, while preserving workspace/filter scripts and Windows executable paths.
+- **Managed-service routing is enforced across call sites.** Monorepo forms such as `npm --filter ... start`, `pnpm --filter ... dev` and `yarn workspace ... serve` now share the same Command Intelligence detector in the service manager and child preflight, so they are blocked before foreground shell execution and redirected to `ues_service`.
+- **Tool-kind-aware Content Router.** Search-tool identity (`grep`/`find`/`ls`) remains part of the routing hint even when the tool input is a pattern rather than a literal shell command, preventing search output from falling back to generic text reduction.
+
 - **Telemetry provenance stays per-field.** Missing provider cache/input/output buckets remain `null` in Efficiency Ledger summaries instead of becoming false zeroes. Provider Cache Stability requires complete disjoint `input/cacheRead/cacheWrite` samples before changing cache mode; partial samples are observational only.
 - **Cross-process task telemetry serialization.** Concurrent Pi processes now serialize task-telemetry append/compaction with a bounded filesystem lock so cache-learning evidence is not corrupted by multi-session writes.
 - **Monorepo service routing.** Workspace/filter service commands such as `npm --filter ... run start`, `pnpm --filter ... dev` and `yarn workspace ... serve` are recognized as long-running services and stay on the managed-service lane.
