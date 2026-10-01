@@ -52,6 +52,11 @@ secret/network/system actions.
 This complements heuristic injection detection; it does not claim semantic prompt
 injection is solved by regex.
 
+A narrow capability-level exfiltration guard also blocks shell/service commands only
+when all three facts are present together: an outbound network-transfer primitive, an
+explicit credential/secret source, and an outbound payload operation. Ordinary public
+network reads and ordinary local reads are not denied by this guard.
+
 ## 4. Windows-safe Cleanup Barrier
 
 A shared `safeRemovePath` primitive retries bounded transient filesystem failures
