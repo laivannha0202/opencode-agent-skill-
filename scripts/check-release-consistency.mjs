@@ -106,7 +106,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     const readmeVersion = versionMatches[0]?.[1] || null
     if (!readmeVersion) errors.push("README.md: could not find current package version")
     else if (readmeVersion !== version) errors.push(`README.md: current version says ${readmeVersion}, expected ${version}`)
-    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime", "**15.6.0:** Measured Runtime & Durable Execution", "npm view opencode-agent-skill version --registry=https://registry.npmjs.org/"]) {
+    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime", "**15.6.0:** Measured Runtime & Durable Execution", "**15.7.0:** Adaptive Efficiency Intelligence", "ues optimize-report", "ues trial", "npm view opencode-agent-skill version --registry=https://registry.npmjs.org/"]) {
       if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
     }
   }
@@ -215,6 +215,33 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     }
     if (!pkg.files.includes("docs/V15.6-MEASURED-DURABLE-RUNTIME.md")) {
       errors.push("package.json: V15.6 runtime documentation must be packed")
+    }
+    const focusedV157 = String(scripts["eval:v15.7"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV157Tests = [
+      "test/v15-7-runtime.test.mjs",
+      "test/v15-6-runtime.test.mjs",
+      "test/v15-5-runtime.test.mjs",
+      "test/runtime-events.test.mjs",
+      "test/compaction-resume-guard.test.mjs",
+    ]
+    if (
+      focusedV157[0] !== "node" ||
+      focusedV157[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV157Tests.every((file) => focusedV157.includes(file))
+    ) {
+      errors.push("package.json: eval:v15.7 must use the bounded runner and include adaptive-efficiency plus durable/runtime regressions")
+    }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v15.7")) {
+      errors.push("package.json: release:verify must include eval:v15.7")
+    }
+    if (scripts.trial !== "node scripts/ues-trial.mjs") {
+      errors.push("package.json: missing v15.7 trial command")
+    }
+    if (scripts["optimize:report"] !== "node scripts/runtime-waste-report.mjs") {
+      errors.push("package.json: missing v15.7 optimize:report command")
+    }
+    if (!pkg.files.includes("docs/V15.7-ADAPTIVE-EFFICIENCY-INTELLIGENCE.md")) {
+      errors.push("package.json: V15.7 runtime documentation must be packed")
     }
   }
 
