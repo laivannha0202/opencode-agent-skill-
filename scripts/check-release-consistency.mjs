@@ -303,6 +303,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
       "test/fast-static-verification-v16.test.mjs",
       "test/evidence-store-active-work-v16.test.mjs",
       "test/fs-cleanup-v16.test.mjs",
+      "test/execution-capability-v16.test.mjs",
       "test/untrusted-output.test.mjs",
       "test/model-performance-v12.test.mjs",
       "test/compaction-resume-guard.test.mjs",
