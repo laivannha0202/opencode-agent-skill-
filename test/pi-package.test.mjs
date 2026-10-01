@@ -176,7 +176,7 @@ test("Pi adapter and prompt resources are packaged", () => {
   assert.match(childRuntimeSource, /ues-code-result/)
   assert.match(childRuntimeSource, /full result preserved; use ues_code context-expand with contextRef/)
   assert.match(childRuntimeSource, /tool_result/)
-  assert.match(childRuntimeSource, /compactReversibleOutput/)
+  assert.match(childRuntimeSource, /governToolOutput/)\n  assert.match(childRuntimeSource, /uesOutputGovernor/)
   assert.match(childRuntimeSource, /recordVerification/)
   assert.match(childRuntimeSource, /canonicalVerificationCommand/)
   assert.match(childRuntimeSource, /runtimeWorkspaceFingerprint/)
