@@ -681,15 +681,25 @@ export default function (pi: ExtensionAPI) {
     const externalBoundary =
       EXTERNAL_TOOL_NAMES.has(toolName) ||
       externalPolicy.externalEvidenceBoundary === true;
+    let trustBoundaryText = "";
+    let trustBoundaryAnalysis: any = null;
     if (externalBoundary && shownText) {
-      const analysis = analyzeUntrustedOutput(shownText, { source: toolName });
+      const analysis = analyzeUntrustedOutput(shownText, {
+        source: toolName,
+        trustClass: "external-data",
+      });
+      trustBoundaryAnalysis = analysis;
+      trustBoundaryText = renderUntrustedOutputWarning(analysis, {
+        source: toolName,
+        always: true,
+      });
       if (analysis.flagged) {
         const originalContent = Array.isArray(event.content)
           ? event.content
           : [{ type: "text", text: shownText }];
         return {
           content: [
-            { type: "text", text: renderUntrustedOutputWarning(analysis, { source: toolName }) },
+            { type: "text", text: trustBoundaryText },
             ...(postWrite?.content || originalContent),
           ],
           details: {
@@ -706,7 +716,22 @@ export default function (pi: ExtensionAPI) {
     const compactableTool = ![
       "edit", "write", "ues_code_edit", "ues_evidence_get",
     ].includes(toolName.toLowerCase());
-    if (!compactableTool) return postWrite;
+    if (!compactableTool) {
+      if (!trustBoundaryText) return postWrite;
+      const originalContent = Array.isArray(postWrite?.content)
+        ? postWrite.content
+        : (Array.isArray(event.content) ? event.content : [{ type: "text", text: shownText }]);
+      return {
+        content: [{ type: "text", text: trustBoundaryText }, ...originalContent],
+        details: {
+          ...(event.details && typeof event.details === "object" ? event.details : {}),
+          ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
+          uesUntrustedOutputBoundary: trustBoundaryAnalysis,
+        },
+        isError: event.isError,
+        usage: event.usage,
+      };
+    }
 
     const effectiveContent = Array.isArray(postWrite?.content)
       ? postWrite.content
@@ -756,7 +781,24 @@ export default function (pi: ExtensionAPI) {
     }
     toolExecutionState.delete(String(event.toolCallId || ""));
 
-    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return postWrite;
+    if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") {
+      if (!trustBoundaryText) return postWrite;
+      return {
+        content: [
+          { type: "text", text: trustBoundaryText },
+          ...(Array.isArray(postWrite?.content)
+            ? postWrite.content
+            : (Array.isArray(event.content) ? event.content : [])),
+        ],
+        details: {
+          ...(event.details && typeof event.details === "object" ? event.details : {}),
+          ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
+          uesUntrustedOutputBoundary: trustBoundaryAnalysis,
+        },
+        isError: event.isError,
+        usage: event.usage,
+      };
+    }
     const phase = looksLikeVerificationCommand(commandHint) ? "verify" : "execute";
     const governed = await governToolOutput(ctx.cwd, rawText, {
       baseMaxChars: configuredLimit(),
@@ -774,10 +816,15 @@ export default function (pi: ExtensionAPI) {
     if (!governed?.compacted) return postWrite;
 
     return {
-      content: [{ type: "text", text: governed.text }, ...images],
+      content: [
+        ...(trustBoundaryText ? [{ type: "text", text: trustBoundaryText }] : []),
+        { type: "text", text: governed.text },
+        ...images,
+      ],
       details: {
         ...(event.details && typeof event.details === "object" ? event.details : {}),
         ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
+        ...(trustBoundaryAnalysis ? { uesUntrustedOutputBoundary: trustBoundaryAnalysis } : {}),
         uesOutputGovernor: {
           schemaVersion: governed.schemaVersion,
           strategy: governed.strategy,
