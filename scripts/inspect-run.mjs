@@ -75,6 +75,11 @@ if (hasArg("--json")) {
     Number(current.repeatedReadSignatures?.length || 0) + "/" +
     Number(current.repeatedSearchSignatures?.length || 0) + "/" +
     Number(current.repeatedMutationSignatures?.length || 0))
+  console.log("repeated tool/read/search/mutation extra calls: " +
+    Number(current.repeatedToolCalls || 0) + "/" +
+    Number(current.repeatedReadCalls || 0) + "/" +
+    Number(current.repeatedSearchCalls || 0) + "/" +
+    Number(current.repeatedMutationCalls || 0))
   console.log("blocked/interrupted/failed tools: " +
     Number(current.blockedTools || 0) + "/" +
     Number(current.interruptedTools || 0) + "/" +
