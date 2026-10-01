@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.5.0",
+  "version": "15.6.0",
   "description": "Pi-native UES coding-agent runtime with adaptive stability, Turbo Fast Path, durable verification, managed services, and weak-model orchestration",
   "type": "module",
   "bin": {
@@ -28,6 +28,7 @@
     "docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md",
     "docs/V15-MANAGED-RUNTIME.md",
     "docs/V15.5-DIAGNOSTICS-RUNTIME.md",
+    "docs/V15.6-MEASURED-DURABLE-RUNTIME.md",
     "docs/PI-COMPAT.md",
     "docs/OPENCODE-COMPAT.md",
     "README.md",
@@ -43,14 +44,14 @@
     "smoke:package": "node scripts/smoke-package-closure.mjs",
     "eval:pi": "node scripts/eval-pi.mjs",
     "ci": "npm run integrity && npm run runtime:exports && npm run syntax && npm test && npm run docs:check && npm pack --dry-run && npm run smoke:pi && npm run smoke:package && npm run smoke:packed && npm run accept:fresh-pi",
-    "prepublishOnly": "npm run ci",
+    "prepublishOnly": "npm run release:verify",
     "smoke:packed": "node scripts/smoke-packed-install.mjs",
     "accept:fresh-pi": "node scripts/acceptance-fresh-pi.mjs",
     "eval:v14": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/capability-fabric-v14.test.mjs test/hierarchical-context-v14.test.mjs test/memory-engine-v14.test.mjs test/context-engine-v14.test.mjs test/task-engine-v14-context.test.mjs test/cli-v14.test.mjs test/v14-contract.test.mjs test/performance-fabric-v14.test.mjs test/browser-mcp-routing-v14.test.mjs test/process-hang-detector-v14.test.mjs test/v14.2-runtime.test.mjs test/benchmark-confidence.test.mjs test/v14.3-intelligence.test.mjs",
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
-    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5",
+    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6",
     "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
     "bench:code": "node scripts/benchmark-code-intelligence.mjs",
     "bench:write-feedback": "node scripts/bench-write-feedback.mjs",
@@ -63,7 +64,9 @@
     "test:node": "node --test",
     "bench:holdout-d": "node scripts/bench-holdout-d.mjs",
     "eval:v15.4": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-4-foundation.test.mjs test/permission-policy.test.mjs test/performance-fabric-v2.test.mjs test/performance-fabric-v14.test.mjs",
-    "eval:v15.5": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-5-runtime.test.mjs test/lsp-pool-v2.test.mjs test/v15-4-foundation.test.mjs"
+    "eval:v15.5": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-5-runtime.test.mjs test/lsp-pool-v2.test.mjs test/v15-4-foundation.test.mjs",
+    "inspect:run": "node scripts/inspect-run.mjs",
+    "eval:v15.6": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-6-runtime.test.mjs test/v15-5-runtime.test.mjs test/runtime-events.test.mjs test/compaction-resume-guard.test.mjs"
   },
   "keywords": [
     "pi-package",
