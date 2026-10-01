@@ -394,6 +394,7 @@ type RunResult = {
   durationMs?: number;
   usage?: any;
   firstUsage?: any;
+  usageSamples?: any[];
   toolCalls?: number;
   toolQueueMs?: number;
   toolNames?: string[];
@@ -891,9 +892,11 @@ async function runAgentCli(
   let seenModel: string | undefined;
   let usage: any = undefined;
   let firstUsage: any = undefined;
+  const usageSamples: any[] = [];
   let toolCalls = 0;
   let toolQueueMs = 0;
   let firstUsage: any = undefined;
+  const usageSamples: any[] = [];
   const toolNames = new Set<string>();
 
   try {
@@ -1138,7 +1141,10 @@ async function runAgentCli(
               seenModel = event.message.model || seenModel;
               stopReason = event.message.stopReason || stopReason;
               errorMessage = event.message.errorMessage || errorMessage;
-              if (firstUsage === undefined && event.message.usage) firstUsage = event.message.usage;
+              if (event.message.usage) {
+                if (firstUsage === undefined) firstUsage = event.message.usage;
+                usageSamples.push(event.message.usage);
+              }
               usage = event.message.usage || usage;
             }
           }
@@ -1202,6 +1208,7 @@ async function runAgentCli(
     errorMessage,
     usage,
     firstUsage: firstUsage || usage,
+    usageSamples: usageSamples.length ? usageSamples : (usage ? [usage] : []),
     toolCalls,
     toolQueueMs,
     toolNames: [...toolNames],
@@ -1426,12 +1433,12 @@ async function runAgentRpc(
         onEvent: (event: any) => {
           lastActivityAt = Date.now();
           if (
-            firstUsage === undefined &&
             event.type === "message_end" &&
             event.message?.role === "assistant" &&
             event.message?.usage
           ) {
-            firstUsage = event.message.usage;
+            if (firstUsage === undefined) firstUsage = event.message.usage;
+            usageSamples.push(event.message.usage);
           }
           if (event.type === "tool_execution_start") {
             toolCalls += 1;
@@ -1492,6 +1499,7 @@ async function runAgentRpc(
       errorMessage: message?.errorMessage,
       usage: message?.usage,
       firstUsage: firstUsage || message?.usage,
+      usageSamples: usageSamples.length ? usageSamples : (message?.usage ? [message.usage] : []),
       toolCalls: rpc.toolCalls ?? toolCalls,
       toolQueueMs,
       toolNames: rpc.toolNames?.length ? rpc.toolNames : [...toolNames],
@@ -1689,6 +1697,10 @@ async function runAgent(
         ...resumed,
         task,
         firstUsage: result.firstUsage || resumed.firstUsage,
+        usageSamples: [
+          ...(Array.isArray(result.usageSamples) ? result.usageSamples : (result.usage ? [result.usage] : [])),
+          ...(Array.isArray(resumed.usageSamples) ? resumed.usageSamples : (resumed.usage ? [resumed.usage] : [])),
+        ],
         toolCalls: priorToolCalls + Number(resumed.toolCalls || 0),
         toolNames: [...new Set([...priorToolNames, ...(resumed.toolNames || [])])],
       };
@@ -1723,8 +1735,18 @@ async function runAgent(
     });
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
     const priorFirstUsage = result.firstUsage;
+    const priorUsageSamples = Array.isArray(result.usageSamples)
+      ? result.usageSamples
+      : (result.usage ? [result.usage] : []);
     result = await runOnce();
-    if (priorFirstUsage) result = { ...result, firstUsage: priorFirstUsage };
+    result = {
+      ...result,
+      ...(priorFirstUsage ? { firstUsage: priorFirstUsage } : {}),
+      usageSamples: [
+        ...priorUsageSamples,
+        ...(Array.isArray(result.usageSamples) ? result.usageSamples : (result.usage ? [result.usage] : [])),
+      ],
+    };
     providerDecision = classifyProviderFailure(result);
   }
 
@@ -6439,6 +6461,7 @@ export default function (pi: ExtensionAPI) {
                   optimizations: step?.optimizations || null,
                   usage: step?.usage || null,
                   firstUsage: step?.firstUsage || null,
+                  usageSamples: Array.isArray(step?.usageSamples) ? step.usageSamples : [],
                   toolCalls: Number(step?.toolCalls || 0),
                   toolQueueMs: Number(step?.toolQueueMs || 0),
                   toolNames: Array.isArray(step?.toolNames) ? step.toolNames : [],
