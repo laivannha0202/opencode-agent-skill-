@@ -245,8 +245,8 @@ const CONTRACTS = [
       "cacheAwareVisibleBudget",
       "recordEfficiencyEvent",
       "UES_CHILD_CACHE_MODE",
-      "requested > configured",
-      "(event.input as any).timeout = configured",
+      "boundedVerificationTimeout",
+      "(event.input as any).timeout = boundedTimeout",
     ],
   },
   {
@@ -416,7 +416,7 @@ const CONTRACTS = [
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
     startsWith: "const DIRECT_VERIFY",
-    required: ["analyzeShellCommand", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
+    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
     file: "lib/solution-economy.mjs",
@@ -440,7 +440,7 @@ const CONTRACTS = [
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["hidden verification progress", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["hidden verification progress", "5400s hang case", "cache policy is measurement gated", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "runtime waste learner reports only observed evidence", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
