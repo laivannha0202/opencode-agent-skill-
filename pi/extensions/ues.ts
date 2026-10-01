@@ -1906,6 +1906,14 @@ async function runRoutedAgent(
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
 
   let enrichedTask = task;
+  if (modelProfile.editPipeline === "architect-editor" && role === "executor") {
+    enrichedTask = [
+      enrichedTask,
+      "",
+      "## UES weak-model edit contract",
+      "Treat the approved/current plan and scoped evidence as the edit contract. Do not reopen broad architecture unless fresh repository evidence invalidates that plan. Make the smallest complete implementation, then rely on post-write diagnostics and independent verification.",
+    ].join("\n");
+  }
   let contextQuality: any = null;
   let contextError: string | undefined;
   let microSkills: any = null;
@@ -5860,7 +5868,7 @@ export default function (pi: ExtensionAPI) {
         "V15.4 document ingestion: async supervised MarkItDown + content-addressed bounded cache",
         "V15.6 durable run journal: on (idempotent admission + interrupted side effects are never blindly replayed)",
         "V15.6 runtime epoch: on (policy/context/tool/model surfaces fence warm reuse)",
-        "V15.6 model runtime profiles: on (bounded tool/context surface; thinking level preserved)",
+        "V15.6 model runtime profiles: on (bounded mandatory-safe tool surface; context tuning measurement-gated; thinking level preserved)",
         "V15.6 adaptive tool scheduler: on in specialist children (parallel-safe reads; writes/process/unknown fail serial)",
         "V15.6 adaptive compaction: on (command-aware reducers tuned by observed recall demand)",
         "V15.6 bounded write checkpoints: on (hash-guarded reversible small-file snapshots)",
