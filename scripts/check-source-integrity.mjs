@@ -412,7 +412,7 @@ const CONTRACTS = [
     file: "scripts/inspect-run.mjs",
     minBytes: 1_500,
     startsWith: "#!/usr/bin/env node",
-    required: ["UES run inspector", "compareRunInspections", "listRunJournals", "--compare", "repeated read/search/mutation signatures", "blocked/interrupted/failed tools", "hidden-output verification pipelines"],
+    required: ["UES run inspector", "compareRunInspections", "listRunJournals", "--compare", "repeated read/search/mutation signatures", "repeated tool/read/search/mutation extra calls", "blocked/interrupted/failed tools", "hidden-output verification pipelines"],
   },
   {
     file: "lib/execution-ownership.mjs",
