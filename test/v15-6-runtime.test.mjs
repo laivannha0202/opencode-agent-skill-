@@ -100,6 +100,24 @@ test("V15.6 tool scheduler runs bounded reads together and serializes writes", a
   assert.equal(scheduler.snapshot().metrics.released, 4)
 })
 
+test("V15.6 preflight admission never waits behind sibling tools", async () => {
+  const scheduler = new ToolScheduler({ maxParallelReads: 2, maxQueueMs: 2_000 })
+  const readA = scheduler.tryAcquire("read-a", "read", { path: "src/a.ts" })
+  const readB = scheduler.tryAcquire("read-b", "grep", { pattern: "value" })
+  assert.ok(readA)
+  assert.ok(readB)
+  const blockedWrite = scheduler.tryAcquire("write-a", "edit", { path: "src/a.ts" })
+  assert.equal(blockedWrite, null)
+  assert.equal(scheduler.snapshot().queued.length, 0)
+  readA.release()
+  readB.release()
+
+  const evidence = scheduler.tryAcquire("evidence", "ues_evidence_get", { ref: "sha256:abc" })
+  assert.ok(evidence)
+  assert.equal(evidence.contract.parallelSafe, true)
+  evidence.release()
+})
+
 test("V15.6 durable journal admission is idempotent and crash recovery never replays side effects", async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), "ues-v156-journal-"))
   try {
