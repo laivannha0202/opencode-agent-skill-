@@ -2446,15 +2446,17 @@ async function runRoutedAgent(
     attempt,
     taskClass: taskPolicy.executionProfile,
     provider: selectedProvider,
+    model: selectedModel,
   }).catch(() => null);
   return enrichedResult;
 }
 
 async function recordRuntimeOutcome(result: RunResult, task: string, passed: boolean, retries: number) {
-  if (!result.model) return;
+  const performanceModel = result.modelSelection?.model || result.model;
+  if (!performanceModel) return;
   try {
     await recordModelPerformance(getUesConfigDir(), {
-      model: result.model,
+      model: performanceModel,
       text: task,
       passed,
       retries,
