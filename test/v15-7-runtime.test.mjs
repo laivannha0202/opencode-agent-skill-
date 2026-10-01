@@ -40,6 +40,10 @@ test("V15.7 command intelligence ignores pipe text inside quotes", () => {
   assert.equal(analysis.verificationLike, true)
   assert.equal(analysis.hidesProgress, false)
   assert.equal(analysis.finding, null)
+
+  const quotedOnly = analyzeShellCommand('echo "pytest | tail -20"')
+  assert.equal(quotedOnly.verificationLike, false)
+  assert.equal(quotedOnly.hidesProgress, false)
 })
 
 test("V15.7 command intelligence catches workspace-filtered test pipelines", () => {
