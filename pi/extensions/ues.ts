@@ -1229,6 +1229,9 @@ async function runAgentCli(
     childRuntime: "cli",
     workerReused: false,
     runtimeEpochId: runtimeEpoch.id,
+    policySnapshotId: policySnapshot.id,
+    allowedTools: [...allowedTools],
+    toolExposure,
     modelRuntimeProfile: modelProfile,
   };
 }
@@ -1522,6 +1525,9 @@ async function runAgentRpc(
       childRuntime: "rpc",
       workerReused: rpc.workerReused === true,
       runtimeEpochId: effectiveRuntimeEpochId,
+      policySnapshotId: policySnapshot.id,
+      allowedTools: [...allowedTools],
+      toolExposure,
       modelRuntimeProfile: modelProfile,
     };
     const providerDecision = classifyProviderFailure(baseResult);
@@ -1566,6 +1572,9 @@ async function runAgentRpc(
         childRuntime: "rpc",
         workerReused: false,
         runtimeEpochId: effectiveRuntimeEpochId,
+        policySnapshotId: policySnapshot.id,
+        allowedTools: [...allowedTools],
+        toolExposure,
         modelRuntimeProfile: modelProfile,
       };
     }
@@ -1576,7 +1585,8 @@ async function runAgentRpc(
         firstUsage: recoveredFirstUsage, usageSamples: recoveredUsageSamples,
         toolCalls, toolQueueMs, toolNames: [...toolNames], browserTools: [...extraTools],
         childRuntime: "rpc", workerReused: false,
-        runtimeEpochId: effectiveRuntimeEpochId, modelRuntimeProfile: modelProfile,
+        runtimeEpochId: effectiveRuntimeEpochId, policySnapshotId: policySnapshot.id,
+        allowedTools: [...allowedTools], toolExposure, modelRuntimeProfile: modelProfile,
       };
     }
     if ((error as any)?.uesRpcPhase === "runtime") {
@@ -1605,6 +1615,9 @@ async function runAgentRpc(
         childRuntime: "rpc",
         workerReused: false,
         runtimeEpochId: effectiveRuntimeEpochId,
+        policySnapshotId: policySnapshot.id,
+        allowedTools: [...allowedTools],
+        toolExposure,
         modelRuntimeProfile: modelProfile,
       };
     }
@@ -2492,6 +2505,34 @@ async function runRoutedAgent(
   }
 
   const hygieneMs = Date.now() - hygieneStartedAt;
+  if (traceID) {
+    const selectedSkillIds = Array.isArray(microSkills?.loaded)
+      ? microSkills.loaded.map((item: any) => String(item?.name || item || "")).filter(Boolean)
+      : [];
+    const exactDecision = decisionPointFingerprint({
+      model: selectedModel,
+      provider: selectedProvider,
+      thinking,
+      runtimeProfileId: modelProfile.id,
+      policySnapshotId: (result as any)?.policySnapshotId || null,
+      toolSurface: Array.isArray((result as any)?.allowedTools) ? (result as any).allowedTools : [],
+      skillIds: selectedSkillIds,
+      repoMapIds: [],
+      evidenceRefs: [],
+      compactionEpoch: (result as any)?.runtimeEpochId || null,
+      reducer: CHILD_TOOL_COMPACTION_ENABLED ? "universal-tool-output-governor" : null,
+    });
+    await appendTrajectoryEvent(traceRoot, traceID, "decision.surface-compiled", {
+      decisionPointId: exactDecision.id,
+      modelRuntimeProfile: modelProfile,
+      modelAciProfile,
+      policySnapshotId: (result as any)?.policySnapshotId || null,
+      runtimeEpochId: (result as any)?.runtimeEpochId || null,
+      allowedTools: Array.isArray((result as any)?.allowedTools) ? (result as any).allowedTools : [],
+      selectedSkills: selectedSkillIds,
+      toolExposure: (result as any)?.toolExposure || null,
+    }).catch(() => {});
+  }
     const finalizedChildArtifact = childArtifact?.handle
     ? await finalizeSubagentArtifact(artifactRoot, childArtifact.handle, {
         ...result,
