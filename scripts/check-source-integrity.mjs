@@ -443,7 +443,7 @@ const CONTRACTS = [
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
     startsWith: "const VERIFY_SCRIPT",
-    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "packageManagerLongRunningService", "simpleShellSegments", "executableWords", "executableSegments", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
+    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "packageManagerLongRunningService", "packageManagerScript", "simpleShellSegments", "executableWords", "executableSegments", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
     file: "lib/solution-economy.mjs",
