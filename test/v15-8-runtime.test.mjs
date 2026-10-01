@@ -86,6 +86,32 @@ test("V15.8 cache learning is provider scoped", () => {
   assert.equal(providerB.cacheReadRatio, 0)
 })
 
+test("V15.8 cache learning rejects legacy or incompatible accounting schemas", () => {
+  const compatible = Array.from({ length: 6 }, () => cacheRow("provider-a", 1000, 0))
+  const legacy = Array.from({ length: 6 }, () => {
+    const row = cacheRow("provider-a", 100, 900)
+    delete row.metrics.usageAccounting
+    return row
+  })
+  const incompatible = Array.from({ length: 6 }, () => ({
+    ...cacheRow("provider-a", 100, 900),
+    metrics: {
+      ...cacheRow("provider-a", 100, 900).metrics,
+      usageAccounting: "legacy-overlapping-cache",
+    },
+  }))
+  const policy = cacheStabilityFromRows([...compatible, ...legacy, ...incompatible], {
+    provider: "provider-a",
+    model: "same/model",
+    minSamples: 6,
+    stableSamples: 6,
+    usageAccounting: "pi-normalized-disjoint",
+  })
+  assert.equal(policy.samples, 6)
+  assert.equal(policy.cacheReadRatio, 0)
+  assert.equal(policy.mode, "token")
+})
+
 test("V15.8 cache policy uses bounded hysteresis after measured evidence", () => {
   const rows = Array.from({ length: 6 }, () => cacheRow("provider-a", 650, 350))
   const cold = cacheStabilityFromRows(rows, {
