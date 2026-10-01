@@ -1,4 +1,4 @@
-// Fresh-Pi acceptance for UES 15.3 (A-G).
+// Fresh-Pi acceptance for the current UES runtime (A-G).
 //
 //   node scripts/acceptance-fresh-pi.mjs [--json]
 //
@@ -56,7 +56,7 @@ async function loadPiSdk() {
     const loaded = await importSdkFromDir(String(globalRoot.stdout || "").trim())
     if (loaded) return { ...loaded, tempDir: null }
   }
-  const tempDir = await mkdtemp(path.join(os.tmpdir(), "ues-v153-accept-sdk-"))
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "ues-accept-sdk-"))
   const installed = run("npm", [
     "install", "--ignore-scripts", "--no-package-lock", "--no-save",
     "@earendil-works/pi-coding-agent@0.87.1", "typebox@1.3.27",
@@ -123,7 +123,7 @@ async function childHarness() {
     pathToFileURL(path.join(ROOT, "lib/code-intelligence/lsp-pool.mjs")).href
   )
 
-  const workspace = await mkdtemp(path.join(os.tmpdir(), "ues-v153-accept-ws-"))
+  const workspace = await mkdtemp(path.join(os.tmpdir(), "ues-accept-ws-"))
   const agentDir = path.join(workspace, ".pi-agent")
   const store = path.join(workspace, "content-store")
   const checkout = path.join(workspace, "sandbox")
@@ -258,7 +258,7 @@ async function childHarness() {
   record("A-no-lsp-session-precreated", (poolBefore.sessionCount ?? 0) === 0, {
     sessionCount: poolBefore.sessionCount ?? 0,
   })
-  record("A-status-schema-bumped", details.statusSchemaVersion === 3, { statusSchemaVersion: details.statusSchemaVersion })
+  record("A-status-schema-current", details.statusSchemaVersion === 4, { statusSchemaVersion: details.statusSchemaVersion })
   record("A-status-advertises-v15-3",
     String(status?.content || "").includes("V15.3 incremental write intelligence")
     && String(status?.content || "").includes("V15.3 content-addressed semantic index")
@@ -271,13 +271,22 @@ async function childHarness() {
     && String(status?.content || "").includes("V15.4 mutation-shape write detection")
     && String(status?.content || "").includes("V15.4 document ingestion"),
   { contentHead: String(status?.content || "").split("\n").slice(0, 3).join(" | ") })
-  record("A-status-v15-4-details",
+  record("A-status-telemetry-details",
     details.taskTelemetry?.schemaVersion === 1
     && details.compactionRecall?.schemaVersion === 1,
   {
     taskTelemetrySchemaVersion: details.taskTelemetry?.schemaVersion ?? null,
     compactionRecallSchemaVersion: details.compactionRecall?.schemaVersion ?? null,
   })
+  record("A-status-advertises-v15-6",
+    String(status?.content || "").includes("V15.6 durable run journal")
+    && String(status?.content || "").includes("V15.6 runtime epoch")
+    && String(status?.content || "").includes("V15.6 model runtime profiles")
+    && String(status?.content || "").includes("V15.6 adaptive tool scheduler")
+    && String(status?.content || "").includes("V15.6 adaptive compaction")
+    && String(status?.content || "").includes("V15.6 bounded write checkpoints")
+    && String(status?.content || "").includes("V15.6 run artifacts + inspector"),
+  { contentHead: String(status?.content || "").split("\n").slice(0, 4).join(" | ") })
   record("A-status-reports-coverage",
     Array.isArray(details.incrementalWrite?.coverage?.supportedWriteTools)
     && details.incrementalWrite.coverage.supportedWriteTools.includes("edit"),
@@ -522,7 +531,7 @@ if (process.argv.includes(CHILD_FLAG)) {
   if (receipt.workspace) await rm(receipt.workspace, { recursive: true, force: true }).catch(() => {})
   const output = {
     schemaVersion: 1,
-    kind: "ues-v15-4-fresh-pi-acceptance",
+    kind: "ues-fresh-pi-acceptance",
     node: process.version,
     childExit: child.status,
     // Variable NAMES only. A value in this environment may be a credential.
