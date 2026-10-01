@@ -788,9 +788,14 @@ async function runAgentCli(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
-  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, [
-    "ues_code", "ues_code_edit", "ues_service", "ues_evidence_get",
-  ]);
+  const mandatoryTools = [
+    "read", "grep", "bash", "powershell",
+    ...(WRITE_AGENTS.has(agent) ? ["edit", "write", "ues_code_edit"] : []),
+    "ues_code", "ues_service",
+    ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
+    ...extraTools,
+  ];
+  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, mandatoryTools);
   const toolExposure = await resolveChildToolExposure(agent, budgetedTools);
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
@@ -1224,9 +1229,14 @@ async function runAgentRpc(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
-  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, [
-    "ues_code", "ues_code_edit", "ues_service", "ues_evidence_get",
-  ]);
+  const mandatoryTools = [
+    "read", "grep", "bash", "powershell",
+    ...(WRITE_AGENTS.has(agent) ? ["edit", "write", "ues_code_edit"] : []),
+    "ues_code", "ues_service",
+    ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
+    ...extraTools,
+  ];
+  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, mandatoryTools);
   const toolExposure = await resolveChildToolExposure(agent, budgetedTools);
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
