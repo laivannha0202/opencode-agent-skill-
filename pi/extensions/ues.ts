@@ -393,6 +393,7 @@ type RunResult = {
   verdict?: string | null;
   durationMs?: number;
   usage?: any;
+  firstUsage?: any;
   toolCalls?: number;
   toolQueueMs?: number;
   toolNames?: string[];
@@ -889,8 +890,10 @@ async function runAgentCli(
   let errorMessage: string | undefined;
   let seenModel: string | undefined;
   let usage: any = undefined;
+  let firstUsage: any = undefined;
   let toolCalls = 0;
   let toolQueueMs = 0;
+  let firstUsage: any = undefined;
   const toolNames = new Set<string>();
 
   try {
@@ -1135,6 +1138,7 @@ async function runAgentCli(
               seenModel = event.message.model || seenModel;
               stopReason = event.message.stopReason || stopReason;
               errorMessage = event.message.errorMessage || errorMessage;
+              if (firstUsage === undefined && event.message.usage) firstUsage = event.message.usage;
               usage = event.message.usage || usage;
             }
           }
@@ -1197,6 +1201,7 @@ async function runAgentCli(
     stopReason,
     errorMessage,
     usage,
+    firstUsage: firstUsage || usage,
     toolCalls,
     toolQueueMs,
     toolNames: [...toolNames],
@@ -1420,6 +1425,14 @@ async function runAgentRpc(
         reuseSession: runtimeOptions.reuseRpcSession === true,
         onEvent: (event: any) => {
           lastActivityAt = Date.now();
+          if (
+            firstUsage === undefined &&
+            event.type === "message_end" &&
+            event.message?.role === "assistant" &&
+            event.message?.usage
+          ) {
+            firstUsage = event.message.usage;
+          }
           if (event.type === "tool_execution_start") {
             toolCalls += 1;
             const toolName = String(event.toolName || "");
@@ -1478,6 +1491,7 @@ async function runAgentRpc(
       stopReason: message?.stopReason,
       errorMessage: message?.errorMessage,
       usage: message?.usage,
+      firstUsage: firstUsage || message?.usage,
       toolCalls: rpc.toolCalls ?? toolCalls,
       toolQueueMs,
       toolNames: rpc.toolNames?.length ? rpc.toolNames : [...toolNames],
@@ -1674,6 +1688,7 @@ async function runAgent(
       result = {
         ...resumed,
         task,
+        firstUsage: result.firstUsage || resumed.firstUsage,
         toolCalls: priorToolCalls + Number(resumed.toolCalls || 0),
         toolNames: [...new Set([...priorToolNames, ...(resumed.toolNames || [])])],
       };
@@ -1707,7 +1722,9 @@ async function runAgent(
       baseMs: PROVIDER_RECOVERY_BASE_DELAY_MS, maxMs: 2_000,
     });
     if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    const priorFirstUsage = result.firstUsage;
     result = await runOnce();
+    if (priorFirstUsage) result = { ...result, firstUsage: priorFirstUsage };
     providerDecision = classifyProviderFailure(result);
   }
 
