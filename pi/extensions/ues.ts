@@ -6035,6 +6035,10 @@ export default function (pi: ExtensionAPI) {
         "V15.7 trajectory intelligence: on (repeated read/search/mutation + blocked/interrupted/failed tool evidence)",
         "V15.7 durable execution ownership: on (Runtime Epoch + run-scoped lease; stale child side effects fail closed)",
         "V15.7 runtime waste learner: on (measured stage/tool/cache/retry pressure; unavailable metrics stay explicit)",
+        "V15.8 command intelligence: on (shell-wrapper unwrapping + Bun + nested hidden-pipeline detection)",
+        "V15.8 real-model promotion telemetry: on (first usage measured; missing efficiency evidence fails closed when required)",
+        "V15.8 provider cache stability: on (provider + model scoped; hysteresis bounded)",
+        "V15.8 model runtime profiles: on (measured performance > configured capabilities > name heuristic)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -6068,8 +6072,8 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V5 adds V15.7 efficiency/cache intelligence while retaining earlier counters.
-          statusSchemaVersion: 5,
+          // Status schema V6 adds V15.8 measured-hardening contracts while retaining earlier counters.
+          statusSchemaVersion: 6,
           incrementalWrite: {
             ...writeFeedbackStats,
             coverage: {
