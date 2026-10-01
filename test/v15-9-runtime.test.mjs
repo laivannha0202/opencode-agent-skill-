@@ -152,7 +152,8 @@ test("V15.9 context observatory and decision replay are side-effect free", () =>
   const trajectory = {
     traceID: "trace-1",
     events: [
-      { type: "decision.profile-compiled", id: "e1", at: "now", payload: { decisionPointId: decision.id, modelRuntimeProfile: { id: "p1" }, modelAciProfile: { id: "a1" } } },
+      { type: "decision.profile-compiled", id: "e1", at: "earlier", payload: { decisionPointId: decision.id, modelRuntimeProfile: { id: "p1" }, modelAciProfile: { id: "a1" } } },
+      { type: "decision.surface-compiled", id: "e2", at: "now", payload: { decisionPointId: decision.id, modelRuntimeProfile: { id: "p1" }, modelAciProfile: { id: "a1" }, policySnapshotId: "policy:1", runtimeEpochId: "epoch:1", allowedTools: ["read"], selectedSkills: ["repo-explorer"] } },
       { type: "context.observatory", payload: report },
     ],
   }
@@ -160,6 +161,10 @@ test("V15.9 context observatory and decision replay are side-effect free", () =>
   assert.equal(replay.found, true)
   assert.equal(replay.sideEffectsAllowed, false)
   assert.equal(replay.toolExecutionAllowed, false)
+  assert.equal(replay.surfaceExact, true)
+  assert.deepEqual(replay.allowedTools, ["read"])
+  assert.deepEqual(replay.selectedSkills, ["repo-explorer"])
+  assert.equal(report.measured, false)
   assert.equal(contextReportFromTrajectory(trajectory).estimatedTokens, report.estimatedTokens)
 })
 
