@@ -5,7 +5,7 @@ import path from "node:path"
 import test from "node:test"
 import { buildTaskTelemetry, readTaskTelemetry, recordTaskTelemetry, summarizeTaskTelemetryRows } from "../lib/run-telemetry.mjs"
 import { recordCompaction, recordCompactionRecall, summarizeCompactionRecall } from "../lib/compaction-recall.mjs"
-import { evaluatePermissionRules, preflightToolExposure } from "../lib/permission-policy.mjs"
+import { evaluatePermissionRules, preflightToolExposure, toolPermissionRequest } from "../lib/permission-policy.mjs"
 import { detectMutationShape } from "../lib/mutation-shape.mjs"
 import { ingestDocument } from "../lib/document-ingestion.mjs"
 
@@ -51,6 +51,8 @@ test("V15.4 preflight hides only deterministic action-wide deny", () => {
   const resourceSpecific = preflightToolExposure([{ action:"edit", resource:"*", effect:"deny" }, { action:"edit", resource:"src/*.ts", effect:"allow" }], ["edit"], { defaultEffect:"allow" })
   assert.deepEqual(resourceSpecific.tools, ["edit"])
   assert.equal(evaluatePermissionRules(rules, { action:"shell", resource:"git push origin main" }).effect, "deny")
+  assert.deepEqual(toolPermissionRequest("str_replace", { path:"src/a.ts", replacement:"x" }), { action:"edit", resources:["src/a.ts"] })
+  assert.deepEqual(toolPermissionRequest("custom_mutator", { path:"src/a.ts", replacement:"x" }), { action:"edit", resources:["src/a.ts"] })
 })
 
 test("V15.4 mutation-shape detects custom writers but not known reads", () => {
@@ -77,5 +79,34 @@ test("V15.4 MarkItDown path is async and reuses identical content after rename",
     await writeFile(path.join(root, "renamed.pdf"), Buffer.from("PDF-B"))
     const changed = await ingestDocument(root, "renamed.pdf", { markitdownRunner:runner })
     assert.equal(changed.cacheHit, false); assert.equal(calls, 2); assert.notEqual(changed.contentSha256, first.contentSha256)
+
+    await writeFile(path.join(root, "same.pdf"), Buffer.from("PDF-C"))
+    let release
+    const wait = new Promise((resolve) => { release = resolve })
+    let coalescedCalls = 0
+    const coalescedRunner = async () => { coalescedCalls += 1; await wait; return { provider:"fake-markitdown", markdown:"# shared\n", durationMs:5 } }
+    const p1 = ingestDocument(root, "same.pdf", { markitdownRunner:coalescedRunner, converterIdentity:"coalesce-test" })
+    const p2 = ingestDocument(root, "same.pdf", { markitdownRunner:coalescedRunner, converterIdentity:"coalesce-test" })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.equal(coalescedCalls, 1)
+    release()
+    await Promise.all([p1, p2])
+
+    await writeFile(path.join(root, "abort.pdf"), Buffer.from("PDF-D"))
+    const abort = new AbortController()
+    let sawAbort = false
+    const abortRunner = async (_file, options) => await new Promise((resolve, reject) => {
+      options.signal.addEventListener("abort", () => {
+        sawAbort = true
+        const error = new Error("aborted")
+        error.code = "ABORT_ERR"
+        reject(error)
+      }, { once:true })
+    })
+    const aborted = ingestDocument(root, "abort.pdf", { markitdownRunner:abortRunner, converterIdentity:"abort-test", signal:abort.signal })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    abort.abort()
+    await assert.rejects(aborted, /aborted/)
+    assert.equal(sawAbort, true)
   } finally { await rm(root, { recursive:true, force:true }) }
 })

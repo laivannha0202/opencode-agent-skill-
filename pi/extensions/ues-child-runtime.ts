@@ -9,6 +9,7 @@ import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs
 import { destructiveShellRisk } from "../../lib/safety.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { crossToolTempPathRisk, isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
@@ -161,28 +162,33 @@ export default function (pi: ExtensionAPI) {
       };
     }
     const localEnvAllowed = String(process.env.UES_CHILD_ALLOW_LOCAL_ENV_WRITE || "") === "1";
-    const writeTool = ["edit", "write", "write_file", "apply_patch", "ues_code_edit"].includes(toolName);
-    const fileTool = ["read", "edit", "write", "write_file", "apply_patch", "ues_code", "ues_code_edit"].includes(toolName);
-    const fileCandidate = String(input.file || input.path || input.filePath || input.target || "");
-    const tempPathRisk = crossToolTempPathRisk(fileCandidate);
-    if (fileTool && tempPathRisk.risky) {
-      toolExecutionState.delete(String(event.toolCallId || ""));
-      return {
-        block: true,
-        reason:
-          "UES portable temp-path guard blocked " + fileCandidate +
-          ". On Windows, /tmp and /var/tmp may resolve differently between Pi file tools and bash/MSYS. " +
-          "For transient transforms, keep creation/read in one shell pipeline; for cross-tool scratch use a repository-local ignored UES path such as .ues-cache/tmp after creating it.",
-      };
-    }
-    if (writeTool && isLocalEnvPath(fileCandidate) && !localEnvAllowed) {
-      toolExecutionState.delete(String(event.toolCallId || ""));
-      return {
-        block: true,
-        reason:
-          "UES local-env guard blocked a write to " + fileCandidate +
-          ". .env/.env.* are local runtime inputs; update an example/template or report NEEDS_USER_ENV unless the user explicitly authorized this local env mutation.",
-      };
+    const mutation = detectMutationShape(toolName, input);
+    const writeTool = mutation.mutation === "yes";
+    const knownFileTool = ["read", "edit", "write", "write_file", "apply_patch", "ues_code", "ues_code_edit"].includes(toolName);
+    const fallbackFile = String(input.file || input.path || input.filePath || input.target || "");
+    const fileCandidates = mutation.files.length ? mutation.files : (fallbackFile ? [fallbackFile] : []);
+    const fileTool = knownFileTool || writeTool;
+    for (const fileCandidate of fileCandidates) {
+      const tempPathRisk = crossToolTempPathRisk(fileCandidate);
+      if (fileTool && tempPathRisk.risky) {
+        toolExecutionState.delete(String(event.toolCallId || ""));
+        return {
+          block: true,
+          reason:
+            "UES portable temp-path guard blocked " + fileCandidate +
+            ". On Windows, /tmp and /var/tmp may resolve differently between Pi file tools and bash/MSYS. " +
+            "For transient transforms, keep creation/read in one shell pipeline; for cross-tool scratch use a repository-local ignored UES path such as .ues-cache/tmp after creating it.",
+        };
+      }
+      if (writeTool && isLocalEnvPath(fileCandidate) && !localEnvAllowed) {
+        toolExecutionState.delete(String(event.toolCallId || ""));
+        return {
+          block: true,
+          reason:
+            "UES local-env guard blocked a write to " + fileCandidate +
+            ". .env/.env.* are local runtime inputs; update an example/template or report NEEDS_USER_ENV unless the user explicitly authorized this local env mutation.",
+        };
+      }
     }
 
     if (!["bash", "powershell"].includes(toolName)) return undefined;
@@ -283,12 +289,16 @@ export default function (pi: ExtensionAPI) {
     // "pending" with nothing behind it.
     const owed = controller.drain().filter((item: any) => item?.text);
     let feedback: any = null;
-    if (WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase())) {
-      const input = event && typeof event.input === "object" && event.input ? event.input : {};
-      const relative = extractWrittenFiles(toolName, input)[0];
-      if (relative) {
+    const input = event && typeof event.input === "object" && event.input ? event.input : {};
+    const knownWrite = WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase());
+    const mutation = detectMutationShape(toolName, input);
+    if (knownWrite || mutation.mutation === "yes") {
+      const files = knownWrite ? extractWrittenFiles(toolName, input) : mutation.files;
+      if (files.length) {
         try {
-          feedback = await controller.noteWrite({ toolName, input, relative });
+          feedback = files.length > 1
+            ? await controller.noteMultiFile({ toolName, files, input })
+            : await controller.noteWrite({ toolName, input, relative: files[0] });
         } catch {
           return undefined;
         }
