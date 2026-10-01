@@ -211,7 +211,7 @@ function parsePiTelemetry(stdout) {
         turbo.baseContextChars += Number(optimization.baseContextBudget || 0)
       }
       if (step?.usage) {
-        if (firstUsage === null) firstUsage = usageSample(step.usage)
+        if (firstUsage === null) firstUsage = usageSample(step.firstUsage || step.usage)
         addUsage(childUsage, step.usage)
         childUsageSamples += 1
       }
