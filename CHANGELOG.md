@@ -26,6 +26,14 @@ The project follows Semantic Versioning.
 - `release:verify` includes `eval:v15.6`; `prepublishOnly` now runs the full release verification gate.
 - Stable npm text in README is no longer hard-coded to an old version; the registry query is the source of truth.
 
+### Hardened before release
+
+- **Pi-native mixed-batch scheduling.** Built-in write/process tools use Pi's native sequential execution mode; preflight scheduler admission is non-blocking, preventing a sibling read/write batch from deadlocking before execution starts. Read/search/evidence recovery remains parallel-safe where explicitly classified.
+- **Cross-process journal serialization.** Parent and child Pi processes share a bounded filesystem lock and re-read persisted sequence state while locked, preventing duplicate `eventSeq` values and duplicate run admission under concurrent writers.
+- **Runtime Epoch skill binding.** The selected micro-skill names now participate in `skillSurfaceHash`, so warm reuse is fenced when the effective skill surface changes.
+- **Checkpoint containment.** Checkpoint capture/finalization/rollback refuses symlink traversal and never follows an in-workspace link to an external target.
+- **Security workflow.** CodeQL workflow actions are updated to major v4.
+
 ### Safety / quality invariants
 
 - No verifier, integration/visual evidence requirement, Evidence Store semantics, dirty-work guard, local `.env` guard, destructive-command policy, Repo Map V3 ranking, Semantic Index V3, LSP Diagnostics V2, Holdout D or thinking policy is weakened.
