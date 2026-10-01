@@ -1,7 +1,7 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.9.0",
-  "description": "Pi-native UES coding-agent runtime with adaptive model-specific ACI, deterministic rehydration, universal reversible tool output, policy visibility compilation, diverse verification, and measured skill/context intelligence",
+  "version": "16.0.0",
+  "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
     "ocskill": "bin/ocskill.mjs",
@@ -32,6 +32,7 @@
     "docs/V15.7-ADAPTIVE-EFFICIENCY-INTELLIGENCE.md",
     "docs/V15.8-MEASURED-HARDENING.md",
     "docs/V15.9-ADAPTIVE-AGENT-INTELLIGENCE.md",
+    "docs/V16-DETERMINISTIC-HARDENING.md",
     "docs/PI-COMPAT.md",
     "docs/OPENCODE-COMPAT.md",
     "README.md",
@@ -54,7 +55,7 @@
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
-    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9",
+    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16",
     "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
     "bench:code": "node scripts/benchmark-code-intelligence.mjs",
     "bench:write-feedback": "node scripts/bench-write-feedback.mjs",
@@ -76,7 +77,8 @@
     "trial:gate": "node scripts/ues-trial.mjs --require-promotion",
     "eval:v15.8": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-8-runtime.test.mjs test/v15-7-runtime.test.mjs test/benchmark-confidence.test.mjs test/runtime-events.test.mjs test/compaction-resume-guard.test.mjs",
     "eval:skills:v15.9": "node scripts/eval-skills-v15-9.mjs",
-    "eval:v15.9": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-9-runtime.test.mjs test/v15-8-runtime.test.mjs test/permission-policy.test.mjs test/compaction-resume-guard.test.mjs test/runtime-events.test.mjs && npm run eval:skills:v15.9"
+    "eval:v15.9": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-9-runtime.test.mjs test/v15-8-runtime.test.mjs test/permission-policy.test.mjs test/compaction-resume-guard.test.mjs test/runtime-events.test.mjs && npm run eval:skills:v15.9",
+    "eval:v16": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/fast-verification-gate.test.mjs test/fast-static-verification-v16.test.mjs test/evidence-store-active-work-v16.test.mjs test/fs-cleanup-v16.test.mjs test/untrusted-output.test.mjs test/model-performance-v12.test.mjs test/compaction-resume-guard.test.mjs test/v15-9-runtime.test.mjs"
   },
   "keywords": [
     "pi-package",
