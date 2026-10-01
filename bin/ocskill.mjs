@@ -29,6 +29,7 @@ import { buildRepoGraph } from "../lib/repo-graph.mjs"
 import { buildSemanticIndex, semanticIndexStatus } from "../lib/semantic-index.mjs"
 import { aciReferences, aciSearch, aciTextSearch, aciView } from "../lib/aci.mjs"
 import { appendTrajectoryEvent, readTrajectory } from "../lib/trajectory.mjs"
+import { buildDecisionReplayPacket, contextReportFromTrajectory } from "../lib/context-observatory.mjs"
 import { containerSandboxCapability, runContainerSandbox } from "../lib/container-sandbox.mjs"
 import { analyzePlan } from "../lib/task-graph.mjs"
 import {
@@ -136,6 +137,8 @@ Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill 
   ocskill aci <search|refs|view|text> ...
                               Bounded evidence-first code search/view interface
   ocskill trace <show|append> ... Inspect or append redacted operational trajectory events
+  ues context-report <trace-id> [dir]  Show V15.9 model-visible context budget/waste report
+  ues replay <trace-id> [dir] [--decision <id>]  Build a side-effect-free decision replay packet
   ues run-inspect [run-id|last] [dir] [--compare <run-id|previous>]
                               Inspect V15.6 durable run journal and bounded artifacts
   ues checkpoint <list|rollback> ...  List or hash-guard rollback V15.6 write checkpoints
@@ -648,6 +651,32 @@ async function traceControl() {
       return
     }
     throw new Error("Usage: ocskill trace <show|append> ...")
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
+async function contextReportControl() {
+  try {
+    const traceID = args[1]
+    const root = positionalArg(args, 2) || process.cwd()
+    if (!traceID) throw new Error("Usage: ues context-report <trace-id> [dir]")
+    const trajectory = await readTrajectory(root, traceID, { limit: optionInt(args, "--limit", 2000) })
+    printJson(contextReportFromTrajectory(trajectory))
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
+async function replayControl() {
+  try {
+    const traceID = args[1]
+    const root = positionalArg(args, 2) || process.cwd()
+    if (!traceID) throw new Error("Usage: ues replay <trace-id> [dir] [--decision <decision-id>]")
+    const trajectory = await readTrajectory(root, traceID, { limit: optionInt(args, "--limit", 2000) })
+    const packet = buildDecisionReplayPacket(trajectory, optionValue(args, "--decision"))
+    printJson(packet)
+    if (!packet.found) process.exitCode = 1
   } catch (error) {
     printCliError(error)
   }
@@ -1995,6 +2024,12 @@ async function main() {
     break
   case "trace":
     await traceControl()
+    break
+  case "context-report":
+    await contextReportControl()
+    break
+  case "replay":
+    await replayControl()
     break
   case "checkpoint":
     await checkpointControl()
