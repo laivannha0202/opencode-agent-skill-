@@ -258,12 +258,26 @@ async function childHarness() {
   record("A-no-lsp-session-precreated", (poolBefore.sessionCount ?? 0) === 0, {
     sessionCount: poolBefore.sessionCount ?? 0,
   })
-  record("A-status-schema-bumped", details.statusSchemaVersion === 2, { statusSchemaVersion: details.statusSchemaVersion })
+  record("A-status-schema-bumped", details.statusSchemaVersion === 3, { statusSchemaVersion: details.statusSchemaVersion })
   record("A-status-advertises-v15-3",
     String(status?.content || "").includes("V15.3 incremental write intelligence")
     && String(status?.content || "").includes("V15.3 content-addressed semantic index")
     && String(status?.content || "").includes("V15.3 graph-ranked repo map"),
   { contentHead: String(status?.content || "").split("\n").slice(0, 2).join(" | ") })
+  record("A-status-advertises-v15-4",
+    String(status?.content || "").includes("V15.4 permission preflight")
+    && String(status?.content || "").includes("V15.4 task telemetry")
+    && String(status?.content || "").includes("V15.4 compaction recall analytics")
+    && String(status?.content || "").includes("V15.4 mutation-shape write detection")
+    && String(status?.content || "").includes("V15.4 document ingestion"),
+  { contentHead: String(status?.content || "").split("\n").slice(0, 3).join(" | ") })
+  record("A-status-v15-4-details",
+    details.taskTelemetry?.schemaVersion === 1
+    && details.compactionRecall?.schemaVersion === 1,
+  {
+    taskTelemetrySchemaVersion: details.taskTelemetry?.schemaVersion ?? null,
+    compactionRecallSchemaVersion: details.compactionRecall?.schemaVersion ?? null,
+  })
   record("A-status-reports-coverage",
     Array.isArray(details.incrementalWrite?.coverage?.supportedWriteTools)
     && details.incrementalWrite.coverage.supportedWriteTools.includes("edit"),
@@ -508,7 +522,7 @@ if (process.argv.includes(CHILD_FLAG)) {
   if (receipt.workspace) await rm(receipt.workspace, { recursive: true, force: true }).catch(() => {})
   const output = {
     schemaVersion: 1,
-    kind: "ues-v15-3-fresh-pi-acceptance",
+    kind: "ues-v15-4-fresh-pi-acceptance",
     node: process.version,
     childExit: child.status,
     // Variable NAMES only. A value in this environment may be a credential.
