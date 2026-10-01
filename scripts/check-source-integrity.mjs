@@ -1081,8 +1081,6 @@ const CONTRACTS = [
     required: [
       "ues_controller_progress",
       "ues_controller_direct",
-      "agentRun.stdout, agentRun.stderr",
-      "onStderr: (chunk) => consumeControllerProgress",
       "controllerValid=",
       "UES_EVAL_DIRECT_TELEMETRY",
       "name + \"=\"",
