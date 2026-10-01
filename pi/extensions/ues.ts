@@ -312,6 +312,9 @@ async function resolveChildToolExposure(agent: string, candidateTools: string[])
   const hookTools = Array.isArray((exposureHook as any)?.payload?.tools)
     ? [...new Set((exposureHook as any).payload.tools.map((item: any) => String(item || "").trim()).filter(Boolean))]
     : unique;
+  if ((exposureHook as any)?.decision === "deny") {
+    throw new Error("UES V15.9 tool.before-expose lifecycle hook denied tool exposure for " + agent + ": " + String((exposureHook as any)?.reason || "policy hook deny"));
+  }
   const loaded: any = await PERMISSION_POLICY.load().catch((error) => ({
     configured: true,
     error: error instanceof Error ? error.message : String(error),
