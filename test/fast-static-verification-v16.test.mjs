@@ -12,9 +12,9 @@ test("V16 fast static candidate selection keeps one typed source target", () => 
 test("V16 fast static candidate selection ignores non-code artifacts", () => {
   assert.deepEqual(
     fastStaticVerificationCandidates({
-      changedFiles: ["README.md", ".ues-cache/fast-acceptance.test.mjs"],
+      changedFiles: ["README.md", "docs/notes.txt"],
     }),
-    [".ues-cache/fast-acceptance.test.mjs"],
+    [],
   )
 })
 
