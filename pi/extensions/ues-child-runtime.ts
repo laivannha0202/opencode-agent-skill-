@@ -18,6 +18,7 @@ import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
 import { destructiveShellRisk } from "../../lib/safety.mjs";
+import { sensitiveExecutionRisk } from "../../lib/execution-capability.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
@@ -468,6 +469,23 @@ export default function (pi: ExtensionAPI) {
         reason:
           `UES child safety blocked ${risk.id || "destructive"} shell operation` +
           (risk.segment ? `: ${risk.segment}` : ""),
+      };
+    }
+    const sensitiveRisk = sensitiveExecutionRisk(command);
+    if (sensitiveRisk.risky) {
+      toolExecutionState.delete(String(event.toolCallId || ""));
+      await journalChildEvent(ctx, "tool.blocked", {
+        toolCallId: owner,
+        tool: toolName,
+        reason: sensitiveRisk.id,
+        capabilities: sensitiveRisk.capabilities,
+        inputHash: toolInputHash(input),
+      });
+      await releaseScheduledTool(event, ctx, "tool.blocked");
+      return {
+        block: true,
+        reason:
+          "UES V16 capability guard blocked a command that combines credential/secret material with an outbound payload transfer.",
       };
     }
 
@@ -1113,6 +1131,10 @@ export default function (pi: ExtensionAPI) {
           const riskText = [params.command, ...(params.args || [])].join(" ");
           const risk = destructiveShellRisk(riskText);
           if (risk.risky) throw new Error(`UES service safety blocked ${risk.id || "destructive"} command`);
+          const sensitiveRisk = sensitiveExecutionRisk(riskText);
+          if (sensitiveRisk.risky) {
+            throw new Error("UES V16 capability guard blocked service start because it combines credential/secret material with an outbound payload transfer");
+          }
           result = await startService(ctx.cwd, {
             name: params.name,
             command: params.command,
