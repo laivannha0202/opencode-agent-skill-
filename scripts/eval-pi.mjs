@@ -125,6 +125,31 @@ function zeroUsage() {
   }
 }
 
+function usageNumber(usage, ...keys) {
+  for (const key of keys) {
+    const value = usage?.[key]
+    if (value == null || value === "") continue
+    const number = Number(value)
+    if (Number.isFinite(number)) return number
+  }
+  return null
+}
+
+function usageSample(usage = {}) {
+  const input = usageNumber(usage, "input", "inputTokens", "input_tokens", "promptTokens", "prompt_tokens")
+  const output = usageNumber(usage, "output", "outputTokens", "output_tokens", "completionTokens", "completion_tokens")
+  const cacheRead = usageNumber(usage, "cacheRead", "cacheReadTokens", "cache_read_tokens", "cachedInputTokens", "cached_input_tokens")
+  const cacheWrite = usageNumber(usage, "cacheWrite", "cacheWriteTokens", "cache_write_tokens")
+  const explicitTotal = usageNumber(usage, "totalTokens", "total_tokens")
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    totalTokens: explicitTotal ?? (input != null && output != null ? input + output : null),
+  }
+}
+
 function addUsage(target, usage) {
   if (!usage || typeof usage !== "object") return target
   for (const key of ["input", "output", "cacheRead", "cacheWrite", "totalTokens"]) {
@@ -146,6 +171,7 @@ function parsePiTelemetry(stdout) {
   let parentToolCalls = 0
   let childToolCalls = 0
   let childToolQueueMs = 0
+  let firstUsage = null
   let controllerUsed = false
   let controllerPass = false
   let finalAssistant = ""
@@ -182,6 +208,7 @@ function parsePiTelemetry(stdout) {
         turbo.baseContextChars += Number(optimization.baseContextBudget || 0)
       }
       if (step?.usage) {
+        if (firstUsage === null) firstUsage = usageSample(step.usage)
         addUsage(childUsage, step.usage)
         childUsageSamples += 1
       }
@@ -213,6 +240,7 @@ function parsePiTelemetry(stdout) {
 
     if (event.type === "message_end" && event.message?.role === "assistant") {
       if (event.message.usage) {
+        if (firstUsage === null) firstUsage = usageSample(event.message.usage)
         addUsage(parentUsage, event.message.usage)
         parentUsageSamples += 1
       }
@@ -257,6 +285,7 @@ function parsePiTelemetry(stdout) {
     toolQueueMs: childToolQueueMs,
     toolNames,
     usageSamples: parentUsageSamples + childUsageSamples,
+    firstUsage,
     parentUsageSamples,
     childUsageSamples,
     tokens: {
@@ -505,6 +534,7 @@ try {
         maxDurationRatio: Number(argValue("--max-duration-ratio", "1.75")),
         maxInitialInputRatio: Number(argValue("--max-initial-input-ratio", "1.5")),
         maxTokenRatio: Number(argValue("--max-token-ratio", "1.75")),
+        requireMeasuredEfficiency: true,
       })
     : null
   const payload = {
