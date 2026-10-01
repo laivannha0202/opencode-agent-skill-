@@ -49,7 +49,7 @@ import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } 
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
 import { applyModelToolBudget, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
-import { appendRunJournalEvent, closeRunJournal, createRunJournal } from "../../lib/run-journal.mjs";
+import { appendRunJournalEvent, closeRunJournal, createRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
 import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
@@ -4499,13 +4499,16 @@ export default function (pi: ExtensionAPI) {
       const controllerWorkspaceFingerprint = String(
         runtimeWorkspaceSnapshot(cwd, { workspaceState: controllerWorkspaceState }).fingerprint || "unknown",
       );
-      await createRunJournal(cwd, {
+      const journalAdmission = await createRunJournal(cwd, {
         runId: traceID,
         taskHash: executionContract.taskHash,
         workspaceFingerprint: controllerWorkspaceFingerprint,
         executionProfile: policy.executionProfile,
         risk: policy.risk,
       }).catch(() => null);
+      if (journalAdmission?.idempotent === true) {
+        await recoverRunJournal(cwd, traceID, { markInterrupted: true }).catch(() => null);
+      }
       await initializeRunArtifacts(cwd, {
         runId: traceID,
         taskHash: executionContract.taskHash,
