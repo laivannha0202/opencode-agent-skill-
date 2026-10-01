@@ -47,6 +47,11 @@ test("V15.6 runtime epochs are deterministic and fence incompatible warm reuse",
   const compatibility = runtimeEpochCompatibility(left, changed)
   assert.equal(compatibility.compatible, false)
   assert.ok(compatibility.reasons.includes("contextSnapshotId-changed"))
+
+  const skillChanged = buildRuntimeEpoch({ ...input, skills: ["typescript", "test-verification"] })
+  const skillCompatibility = runtimeEpochCompatibility(left, skillChanged)
+  assert.equal(skillCompatibility.compatible, false)
+  assert.ok(skillCompatibility.reasons.includes("skillSurfaceHash-changed"))
 })
 
 test("V15.6 compact model profiles reduce tool-choice noise without lowering thinking", () => {
@@ -241,6 +246,45 @@ test("V15.6 bounded write checkpoints restore exact bytes and refuse diverged ro
     assert.equal(await readFile(file, "utf8"), "user-diverged\n")
   } finally {
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test("V15.6 checkpoints never follow symlink paths during capture or rollback", async (t) => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "ues-v156-checkpoint-link-"))
+  const outside = await mkdtemp(path.join(os.tmpdir(), "ues-v156-checkpoint-outside-"))
+  try {
+    const outsideFile = path.join(outside, "outside.txt")
+    await writeFile(outsideFile, "outside-before\n")
+    const link = path.join(root, "linked.txt")
+    try {
+      const { symlink } = await import("node:fs/promises")
+      await symlink(outsideFile, link, "file")
+    } catch (error) {
+      if (["EPERM", "EACCES", "ENOSYS"].includes(String(error?.code || ""))) {
+        t.skip("symlink creation is unavailable on this host")
+        return
+      }
+      throw error
+    }
+
+    const checkpoint = await createWriteCheckpoint(root, {
+      runId: "run-link",
+      toolCallId: "tool-link",
+      tool: "edit",
+      files: ["linked.txt"],
+    })
+    assert.equal(checkpoint.files[0].captured, false)
+    assert.equal(checkpoint.files[0].reason, "symlink-traversal")
+    await writeFile(outsideFile, "outside-after\n")
+    const finalized = await finalizeWriteCheckpoint(root, "run-link", checkpoint.checkpointId)
+    assert.equal(finalized.files[0].restorable, false)
+    const restored = await rollbackWriteCheckpoint(root, "run-link", checkpoint.checkpointId)
+    assert.equal(restored.restored, true)
+    assert.deepEqual(restored.files, [])
+    assert.equal(await readFile(outsideFile, "utf8"), "outside-after\n")
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
   }
 })
 
