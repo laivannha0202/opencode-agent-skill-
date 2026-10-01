@@ -106,7 +106,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     const readmeVersion = versionMatches[0]?.[1] || null
     if (!readmeVersion) errors.push("README.md: could not find current package version")
     else if (readmeVersion !== version) errors.push(`README.md: current version says ${readmeVersion}, expected ${version}`)
-    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime"]) {
+    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime", "**15.6.0:** Measured Runtime & Durable Execution", "npm view opencode-agent-skill version --registry=https://registry.npmjs.org/"]) {
       if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
     }
   }
@@ -190,6 +190,32 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (!pkg.files.includes("docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md")) errors.push("package.json: V14.2 runtime documentation must be packed")
     if (!pkg.files.includes("docs/V15-MANAGED-RUNTIME.md")) errors.push("package.json: V15 managed-runtime documentation must be packed")
     if (scripts["smoke:packed"] !== "node scripts/smoke-packed-install.mjs") errors.push("package.json: missing smoke:packed integration script")
+    const focusedV156 = String(scripts["eval:v15.6"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV156Tests = [
+      "test/v15-6-runtime.test.mjs",
+      "test/v15-5-runtime.test.mjs",
+      "test/runtime-events.test.mjs",
+      "test/compaction-resume-guard.test.mjs",
+    ]
+    if (
+      focusedV156[0] !== "node" ||
+      focusedV156[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV156Tests.every((file) => focusedV156.includes(file))
+    ) {
+      errors.push("package.json: eval:v15.6 must use the bounded runner and include durable/runtime regression coverage")
+    }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v15.6")) {
+      errors.push("package.json: release:verify must include eval:v15.6")
+    }
+    if (scripts.prepublishOnly !== "npm run release:verify") {
+      errors.push("package.json: prepublishOnly must run the full release:verify gate")
+    }
+    if (scripts["inspect:run"] !== "node scripts/inspect-run.mjs") {
+      errors.push("package.json: missing v15.6 inspect:run command")
+    }
+    if (!pkg.files.includes("docs/V15.6-MEASURED-DURABLE-RUNTIME.md")) {
+      errors.push("package.json: V15.6 runtime documentation must be packed")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)
