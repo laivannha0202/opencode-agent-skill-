@@ -46,6 +46,9 @@ import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
+import { detectMutationShape } from "../../lib/mutation-shape.mjs";
+import { recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
+import { summarizeCompactionRecall } from "../../lib/compaction-recall.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
@@ -242,6 +245,19 @@ const MCP_HEALTH = new McpHealthTracker({
 const PERMISSION_POLICY = new PermissionPolicyStore(
   path.join(getUesConfigDir(), ".ues", "permissions.json"),
 );
+
+async function resolveChildToolExposure(agent: string, candidateTools: string[]) {
+  const unique = [...new Set(candidateTools.map((item) => String(item || "").trim()).filter(Boolean))];
+  const result: any = await PERMISSION_POLICY.preflightTools(unique, { agent }).catch((error) => ({
+    configured: true,
+    error: error instanceof Error ? error.message : String(error),
+    plan: null,
+  }));
+  if (result?.error || !result?.plan) return { tools: unique, hidden: [], degraded: result?.error || "preflight-unavailable" };
+  const tools = Array.isArray(result.plan.tools) ? result.plan.tools : unique;
+  if (!tools.length && unique.length) throw new Error("UES permission preflight denied every tool for " + agent + "; refusing to launch a tool-less specialist.");
+  return { ...result.plan, tools, configured: result.configured === true };
+}
 
 function abortActiveCliChildren() {
   let aborted = 0;
@@ -745,13 +761,15 @@ async function runAgentCli(
   const codeIntelligenceTools = WRITE_AGENTS.has(agent)
     ? ["ues_code", "ues_code_edit"]
     : ["ues_code"];
-  const allowedTools = [...new Set([
+  const candidateTools = [...new Set([
     ...config.tools,
     ...codeIntelligenceTools,
     "ues_service",
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
+  const toolExposure = await resolveChildToolExposure(agent, candidateTools);
+  const allowedTools = toolExposure.tools;
   args.push("--tools", allowedTools.join(","));
 
   const tempDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), "ues-pi-"));
@@ -1135,13 +1153,15 @@ async function runAgentRpc(
   const codeIntelligenceTools = WRITE_AGENTS.has(agent)
     ? ["ues_code", "ues_code_edit"]
     : ["ues_code"];
-  const allowedTools = [...new Set([
+  const candidateTools = [...new Set([
     ...config.tools,
     ...codeIntelligenceTools,
     "ues_service",
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
+  const toolExposure = await resolveChildToolExposure(agent, candidateTools);
+  const allowedTools = toolExposure.tools;
   args.push("--tools", allowedTools.join(","));
   args.push("--append-system-prompt", rpcPromptPath(agent));
 
@@ -2139,6 +2159,7 @@ async function runRoutedAgent(
       browserTools,
     }).catch(() => {});
   }
+  await recordTaskTelemetry(artifactRoot, enrichedResult, { task, traceID, agent, role, attempt, taskClass: taskPolicy.executionProfile }).catch(() => null);
   return enrichedResult;
 }
 
@@ -3684,30 +3705,26 @@ export default function (pi: ExtensionAPI) {
     // end its turn holding a promise the runtime has already broken.
     const owed = controller.drain().filter((item: any) => item?.text);
     let feedback: any = null;
-    if (WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase()) && event?.isError !== true) {
+    if (event?.isError !== true) {
       const input = (event && typeof event.input === "object" && event.input ? event.input : {}) as Record<string, unknown>;
-      const discovered = extractWrittenFiles(toolName, input);
-      const relative = discovered[0];
-      if (!relative) {
-        if (!writeFeedbackCoverage.unsupportedSurfaces.includes(toolName)) {
-          writeFeedbackCoverage.unsupportedSurfaces.push(toolName);
+      const knownWrite = WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase());
+      const mutation = detectMutationShape(toolName, input);
+      if (knownWrite || mutation.mutation === "yes") {
+        const discovered = knownWrite ? extractWrittenFiles(toolName, input) : mutation.files;
+        if (!discovered.length) {
+          if (!writeFeedbackCoverage.unsupportedSurfaces.includes(toolName)) writeFeedbackCoverage.unsupportedSurfaces.push(toolName);
+        } else {
+          if (!writeFeedbackCoverage.instrumentedWriteTools.includes(toolName)) writeFeedbackCoverage.instrumentedWriteTools.push(toolName);
+          writeFeedbackInHandler = true;
+          try {
+            feedback = discovered.length > 1
+              ? await controller.noteMultiFile({ toolName, files: discovered, input })
+              : await controller.noteWrite({ toolName, input, relative: discovered[0] });
+          } catch { feedback = null } finally { writeFeedbackInHandler = false }
+          if (feedback?.text && !writeFeedbackCoverage.observedWriteTools.includes(toolName)) writeFeedbackCoverage.observedWriteTools.push(toolName);
         }
-      } else {
-        if (!writeFeedbackCoverage.instrumentedWriteTools.includes(toolName)) {
-          writeFeedbackCoverage.instrumentedWriteTools.push(toolName);
-        }
-        writeFeedbackInHandler = true;
-        try {
-          feedback = await controller.noteWrite({ toolName, input, relative });
-        } catch {
-          // A failure to observe the write must never surface as a failed write.
-          feedback = null;
-        } finally {
-          writeFeedbackInHandler = false;
-        }
-        if (feedback?.text && !writeFeedbackCoverage.observedWriteTools.includes(toolName)) {
-          writeFeedbackCoverage.observedWriteTools.push(toolName);
-        }
+      } else if (mutation.mutation === "possible" && !writeFeedbackCoverage.unsupportedSurfaces.includes(toolName)) {
+        writeFeedbackCoverage.unsupportedSurfaces.push(toolName);
       }
     }
 
@@ -5671,6 +5688,7 @@ export default function (pi: ExtensionAPI) {
         "Parent Code Intelligence Lite: on (always-on read-only ues_code; no controller/child)",
         "Native Pi RPC session control: on (state/steer/follow-up/abort/model/thinking/compact/wait)",
         "Permission deny-and-continue recovery: on",
+        "V15.4 permission preflight: on (only deterministic action-wide denies are hidden; runtime resource checks remain authoritative)",
         "Provider empty-response recovery: on (per-incident parent retry + bounded total + child RPC recovery; no blind replay after tools)",
         "Zero-friction engineering admission: " + (AUTO_ADMISSION_ENABLED ? "on (native / auto / high-risk + safe continuation)" : "off"),
         "Git-root artifact guard: on",
@@ -5682,6 +5700,10 @@ export default function (pi: ExtensionAPI) {
         "V15.3 incremental write intelligence: on (post-edit diagnostics feedback; never reports clean from an incomplete analysis)",
         "V15.3 content-addressed semantic index: on (sha256 identity, shared across worktrees; git blob fast path opt-in)",
         "V15.3 graph-ranked repo map: on (ues_code repo-map; budgeted, ranked, reasoned)",
+        "V15.4 task telemetry: on (bounded operational metrics; missing provider data stays null)",
+        "V15.4 compaction recall analytics: on (tracks later evidence expansion/search by ref)",
+        "V15.4 mutation-shape write detection: on (custom write surfaces + correct multi-file coverage)",
+        "V15.4 document ingestion: async supervised MarkItDown + content-addressed bounded cache",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -5693,6 +5715,8 @@ export default function (pi: ExtensionAPI) {
       // numbers remain machine-readable. The readable tail is a one-line digest.
       const writeFeedbackStats = writeFeedbackMetrics();
       const contentArtifacts = contentArtifactDigest();
+      const telemetry = await taskTelemetrySummary(ctx.cwd || process.cwd()).catch(() => null);
+      const compactionRecall = await summarizeCompactionRecall(ctx.cwd || process.cwd()).catch(() => null);
       const digest = [
         "post-write checks/complete/incomplete: " + writeFeedbackStats.postWriteChecks + "/" + writeFeedbackStats.postWriteComplete + "/" + writeFeedbackStats.postWriteIncomplete,
         "post-write errors/coalesced/stale-discarded: " + writeFeedbackStats.postWriteErrors + "/" + writeFeedbackStats.postWriteCoalesced + "/" + writeFeedbackStats.postWriteStaleDiscarded,
@@ -5700,6 +5724,8 @@ export default function (pi: ExtensionAPI) {
         "content hashes git-blob/sha256: " + (contentArtifacts?.contentHashSource?.["git-blob"] ?? 0) + "/" + (contentArtifacts?.contentHashSource?.sha256 ?? 0),
         "files reparsed / bytes read: " + (contentArtifacts?.filesReparsed ?? 0) + "/" + (contentArtifacts?.bytesRead ?? 0),
         "repo map queries/selected/context chars: " + repoMapStats().queries + "/" + repoMapStats().selected + "/" + repoMapStats().contextChars,
+        "task telemetry runs/pass-rate/retries: " + (telemetry?.runs ?? 0) + "/" + (telemetry?.passRate == null ? "n/a" : telemetry.passRate.toFixed(3)) + "/" + (telemetry?.providerRetries ?? 0),
+        "compaction recalled/created: " + (compactionRecall?.recalledRefs ?? 0) + "/" + (compactionRecall?.compactedRefs ?? 0),
       ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",
@@ -5709,10 +5735,8 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V2: the human-readable block above is unchanged, and
-          // the V15.3 counters are additive. `statusSchemaVersion` lets a
-          // consumer detect the new fields without guessing.
-          statusSchemaVersion: 2,
+          // Status schema V3 adds V15.4 operational telemetry and recall summaries without removing V15.3 counters.
+          statusSchemaVersion: 3,
           incrementalWrite: {
             ...writeFeedbackStats,
             coverage: {
@@ -5729,6 +5753,8 @@ export default function (pi: ExtensionAPI) {
           },
           contentArtifacts: contentArtifacts,
           repoMap: repoMapStats(),
+          taskTelemetry: telemetry,
+          compactionRecall,
           // Turns that ended on a post-write verdict the model never saw. A
           // non-empty list means some write was left unverified at the boundary.
           finalWriteVerdictsNotSeen: writeFeedbackFinalVerdicts.map((row) => ({

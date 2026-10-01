@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "15.3.0",
+  "version": "15.4.0",
   "description": "Pi-native UES coding-agent runtime with adaptive stability, Turbo Fast Path, durable verification, managed services, and weak-model orchestration",
   "type": "module",
   "bin": {
@@ -49,7 +49,7 @@
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
-    "release:verify": "npm run ci && npm run eval:v15",
+    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4",
     "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
     "bench:code": "node scripts/benchmark-code-intelligence.mjs",
     "bench:write-feedback": "node scripts/bench-write-feedback.mjs",
@@ -60,7 +60,8 @@
     "bench:gc": "node --test test/content-artifact-gc-volume-v15-3.stress.mjs",
     "bench:task-ab": "node scripts/bench-task-ab.mjs",
     "test:node": "node --test",
-    "bench:holdout-d": "node scripts/bench-holdout-d.mjs"
+    "bench:holdout-d": "node scripts/bench-holdout-d.mjs",
+    "eval:v15.4": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-4-foundation.test.mjs test/permission-policy.test.mjs test/performance-fabric-v2.test.mjs test/performance-fabric-v14.test.mjs"
   },
   "keywords": [
     "pi-package",

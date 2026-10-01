@@ -6,6 +6,30 @@ The project follows Semantic Versioning.
 
 ## [Unreleased]
 
+## [15.4.0] - 2026-10-01
+
+### Added
+
+- **Task-level operational telemetry** under ignored `.ues-learning/` state. Specialist runs record bounded wall/context/model/hygiene timings, tool counts, provider recovery, cache hits and provider token usage when it actually exists; unavailable provider metrics remain `null`.
+- **Compaction Recall Analytics** for reversible context and command-aware output, attributing later expand/search requests back to the original Evidence Store ref.
+- **Conservative permission preflight** for specialist tool exposure. Only deterministic action-wide denies are hidden; path/command-dependent rules stay visible and runtime resource checks remain authoritative.
+- **Mutation-shape detection** for custom/renamed write tools.
+- `npm run eval:v15.4` focused regression gate.
+
+### Changed
+
+- Multi-file post-write feedback now checks every discovered path instead of collapsing a multi-file mutation to the first file.
+- Office/PDF ingestion is now **async and supervised** instead of `spawnSync`, with hard/idle timeout, bounded output, process-tree cleanup, content-addressed cache and same-content request coalescing.
+- `/ues-status` schema V3 exposes task telemetry and compaction recall summaries while preserving V15.3 counters.
+- `release:verify` includes the V15.4 focused regression suite.
+
+### Safety
+
+- V15.4 does not change Repo Map V3 weights, semantic-index identity, historical holdouts, verifier requirements, thinking level, or destructive-command policy.
+- Telemetry persists hashes/operational metrics rather than raw task prompt text and uses the existing bounded runtime-event journal.
+- MarkItDown remains optional and is never auto-installed.
+- Real-model quality A/B remains explicitly unmeasured in repository CI when provider credentials are unavailable; deterministic gates are not presented as a substitute.
+
 ## [15.3.0] - 2026-09-30
 
 ### Added
