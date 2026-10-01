@@ -48,7 +48,7 @@ import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
-import { claimExecutionOwnership, executionOwnerToken, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
+import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { applyModelToolBudget, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
 import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
@@ -6005,6 +6005,9 @@ export default function (pi: ExtensionAPI) {
         "V15.7 content router: on (command + content type + phase + recall-aware visible budget)",
         "V15.7 efficiency ledger: on (MEASURED / DERIVED_FROM_MEASURED / NOT_MEASURED provenance)",
         "V15.7 solution economy: on for writer roles (reuse/native/stdlib first; safety and verification preserved)",
+        "V15.7 trajectory intelligence: on (repeated read/search/mutation + blocked/interrupted/failed tool evidence)",
+        "V15.7 durable execution ownership: on (Runtime Epoch + run-scoped lease; stale child side effects fail closed)",
+        "V15.7 runtime waste learner: on (measured stage/tool/cache/retry pressure; unavailable metrics stay explicit)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -6105,6 +6108,13 @@ export default function (pi: ExtensionAPI) {
         sidecarsRemoved: [],
         error: error instanceof Error ? error.message : String(error),
       }));
+      const executionOwnershipGc = await pruneExecutionOwnership(workspaceRoot).catch((error) => ({
+        removed: [],
+        removedCount: 0,
+        active: 0,
+        retained: 0,
+        error: error instanceof Error ? error.message : String(error),
+      }));
       const removed = Number(cleanup?.removed?.length || 0);
       const sidecars = Number(cleanup?.sidecarsRemoved?.length || 0);
       const skipped = Number(cleanup?.skipped?.length || 0);
@@ -6159,6 +6169,7 @@ export default function (pi: ExtensionAPI) {
         "UES cleanup complete.",
         "Removed sandboxes: " + removed,
         "Removed orphan metadata: " + sidecars,
+        "Pruned stale execution ownership leases: " + Number(executionOwnershipGc?.removedCount || 0),
         "Removed transient runtime dirs: " + (removedRuntimeDirs.join(", ") || "none"),
         "Removed rebuildable cache entries: " + (removedCacheEntries.length || 0),
         "Pruned evidence blobs: " + Number(evidenceGc?.removedCount || 0),
@@ -6172,12 +6183,12 @@ export default function (pi: ExtensionAPI) {
         customType: "ues-cleanup-result",
         content: text,
         display: true,
-        details: { ...cleanup, removedRuntimeDirs, removedCacheEntries, evidenceGc },
+        details: { ...cleanup, executionOwnershipGc, removedRuntimeDirs, removedCacheEntries, evidenceGc },
       }, { triggerTurn: false });
       try {
         ctx.ui.notify(
           "UES cleanup removed/pruned " +
-            (removed + sidecars + removedRuntimeDirs.length + removedCacheEntries.length + Number(evidenceGc?.removedCount || 0)) +
+            (removed + sidecars + Number(executionOwnershipGc?.removedCount || 0) + removedRuntimeDirs.length + removedCacheEntries.length + Number(evidenceGc?.removedCount || 0)) +
             " stale/transient artifact(s)",
           "info",
         );
