@@ -3357,6 +3357,16 @@ async function executeStructuredPlan(input: {
                 exitCode: 0,
                 output: [
                   "Per-leaf Turbo verification reused fresh behavioral evidence captured after this leaf implementation.",
+                  ...(leafFastGate.staticEvidence?.required
+                    ? [
+                        "Static diagnostics: " +
+                        String(leafFastGate.staticEvidence.file || "unknown") +
+                        " source=" + String(leafFastGate.staticEvidence.source || "unknown") +
+                        " complete=" + String(leafFastGate.staticEvidence.complete === true) +
+                        " errors=" + String(leafFastGate.staticEvidence.errorCount || 0) +
+                        " fingerprint=" + String(leafFastGate.staticEvidence.fingerprint || "none"),
+                      ]
+                    : []),
                   ...leafFastGate.behavioralReceipts.map((entry: any) => "- " + entry.command),
                   "",
                   "UES_VERDICT: PASS",
@@ -3371,14 +3381,20 @@ async function executeStructuredPlan(input: {
                   valid: true,
                   verdict: "PASS",
                   sections: {
-                    "checks-run": leafFastGate.behavioralReceipts.map((entry: any) => entry.command).join("\n"),
-                    "acceptance-criteria-proven": "Fresh behavioral receipt(s) exist at the post-implementation workspace fingerprint.",
+                    "checks-run": [
+                      ...(leafFastGate.staticEvidence?.required
+                        ? ["static diagnostics: " + String(leafFastGate.staticEvidence.file || "unknown") + " via " + String(leafFastGate.staticEvidence.source || "unknown")]
+                        : []),
+                      ...leafFastGate.behavioralReceipts.map((entry: any) => entry.command),
+                    ].join("\n"),
+                    "acceptance-criteria-proven": "VERIFIED: Fresh behavioral receipt(s) and required static completeness evidence exist at the post-implementation workspace fingerprint.",
                     "completion-evidence": "Deterministic per-leaf PASS after this implementation attempt.",
                   },
                 },
                 optimizations: {
                   perLeafTurbo: true,
                   behavioralReceiptCount: leafFastGate.behavioralReceipts.length,
+                  staticEvidence: leafFastGate.staticEvidence,
                 },
               };
               input.onUpdate?.({
@@ -6047,10 +6063,43 @@ export default function (pi: ExtensionAPI) {
         if (fastGate?.passed === true) {
           verification = {
             agent: "ues-deterministic-verifier", task: params.task, cwd, exitCode: 0,
-            output: ["FAST bounded verification reused fresh behavioral evidence captured at the tool boundary.", ...fastGate.behavioralReceipts.map((item: any) => "- " + item.command), "", "UES_VERDICT: PASS"].join("\n"),
+            output: [
+              "FAST bounded verification reused fresh behavioral evidence captured at the tool boundary.",
+              ...(fastGate.staticEvidence?.required
+                ? [
+                    "Static diagnostics: " +
+                    String(fastGate.staticEvidence.file || "unknown") +
+                    " source=" + String(fastGate.staticEvidence.source || "unknown") +
+                    " complete=" + String(fastGate.staticEvidence.complete === true) +
+                    " errors=" + String(fastGate.staticEvidence.errorCount || 0) +
+                    " fingerprint=" + String(fastGate.staticEvidence.fingerprint || "none"),
+                  ]
+                : []),
+              ...fastGate.behavioralReceipts.map((item: any) => "- " + item.command),
+              "",
+              "UES_VERDICT: PASS",
+            ].join("\n"),
             stderr: "", verdict: "PASS", durationMs: 0, toolCalls: 0, toolNames: [],
-            report: { schemaVersion: 1, valid: true, verdict: "PASS", sections: { "checks-run": fastGate.behavioralReceipts.map((item: any) => item.command).join("\n"), "acceptance-criteria-proven": "VERIFIED: Fresh behavioral verification receipt(s) exist at the post-implementation workspace fingerprint.", "completion-evidence": "Deterministic PASS receipt captured after this implementation attempt." } },
-            optimizations: { fastDeterministicVerification: true, behavioralReceiptCount: fastGate.behavioralReceipts.length },
+            report: {
+              schemaVersion: 1,
+              valid: true,
+              verdict: "PASS",
+              sections: {
+                "checks-run": [
+                  ...(fastGate.staticEvidence?.required
+                    ? ["static diagnostics: " + String(fastGate.staticEvidence.file || "unknown") + " via " + String(fastGate.staticEvidence.source || "unknown")]
+                    : []),
+                  ...fastGate.behavioralReceipts.map((item: any) => item.command),
+                ].join("\n"),
+                "acceptance-criteria-proven": "VERIFIED: Fresh behavioral receipt(s) and required static completeness evidence exist at the post-implementation workspace fingerprint.",
+                "completion-evidence": "Deterministic PASS receipt captured after this implementation attempt.",
+              },
+            },
+            optimizations: {
+              fastDeterministicVerification: true,
+              behavioralReceiptCount: fastGate.behavioralReceipts.length,
+              staticEvidence: fastGate.staticEvidence,
+            },
           };
           steps.push(verification);
           onUpdate?.({
