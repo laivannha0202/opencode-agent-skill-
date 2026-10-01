@@ -98,7 +98,6 @@ test("V15.7 efficiency ledger labels measured and derived evidence honestly", ()
     inputTokens: 1000,
     cacheReadTokens: 600,
     cacheWriteTokens: 100,
-    uncachedInputTokens: 1000,
     usageAccounting: "pi-normalized-disjoint",
     outputTokens: 50,
     beforeChars: 20000,
