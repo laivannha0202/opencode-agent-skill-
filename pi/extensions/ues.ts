@@ -56,6 +56,7 @@ import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-arti
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
 import { summarizeCompactionRecall } from "../../lib/compaction-recall.mjs";
+import { efficiencySummary } from "../../lib/efficiency-ledger.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
@@ -5919,6 +5920,11 @@ export default function (pi: ExtensionAPI) {
         "V15.6 adaptive compaction: on (command-aware reducers tuned by observed recall demand)",
         "V15.6 bounded write checkpoints: on (hash-guarded reversible small-file snapshots)",
         "V15.6 run artifacts + inspector: on (.ues-work evidence bundle; no raw task text in RUN metadata)",
+        "V15.7 command intelligence: on (verification timeout clamp + hidden-output pipeline detection)",
+        "V15.7 provider cache stability: on (measurement-gated stable-prefix/live-zone policy)",
+        "V15.7 content router: on (command + content type + phase + recall-aware visible budget)",
+        "V15.7 efficiency ledger: on (MEASURED / DERIVED_FROM_MEASURED / NOT_MEASURED provenance)",
+        "V15.7 solution economy: on for writer roles (reuse/native/stdlib first; safety and verification preserved)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -5932,6 +5938,7 @@ export default function (pi: ExtensionAPI) {
       const contentArtifacts = contentArtifactDigest();
       const telemetry = await taskTelemetrySummary(ctx.cwd || process.cwd()).catch(() => null);
       const compactionRecall = await summarizeCompactionRecall(ctx.cwd || process.cwd()).catch(() => null);
+      const efficiency = await efficiencySummary(ctx.cwd || process.cwd(), { limit: 1000 }).catch(() => null);
       const digest = [
         "post-write checks/complete/incomplete: " + writeFeedbackStats.postWriteChecks + "/" + writeFeedbackStats.postWriteComplete + "/" + writeFeedbackStats.postWriteIncomplete,
         "post-write errors/coalesced/stale-discarded: " + writeFeedbackStats.postWriteErrors + "/" + writeFeedbackStats.postWriteCoalesced + "/" + writeFeedbackStats.postWriteStaleDiscarded,
@@ -5941,6 +5948,7 @@ export default function (pi: ExtensionAPI) {
         "repo map queries/selected/context chars: " + repoMapStats().queries + "/" + repoMapStats().selected + "/" + repoMapStats().contextChars,
         "task telemetry controller-runs/pass-rate/retries: " + (telemetry?.byScope?.["controller-run"]?.runs ?? 0) + "/" + (telemetry?.byScope?.["controller-run"]?.passRate == null ? "n/a" : telemetry.byScope["controller-run"].passRate.toFixed(3)) + "/" + (telemetry?.byScope?.["controller-run"]?.providerRetries ?? 0),
         "compaction recalled/created: " + (compactionRecall?.recalledRefs ?? 0) + "/" + (compactionRecall?.compactedRefs ?? 0),
+        "efficiency observations/provider-token rows: " + (efficiency?.observations ?? 0) + "/" + (efficiency?.measuredProviderTokenRows ?? 0),
       ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",
@@ -5950,8 +5958,8 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V4 adds V15.6 durable/measured runtime contracts while retaining earlier telemetry counters.
-          statusSchemaVersion: 4,
+          // Status schema V5 adds V15.7 efficiency/cache intelligence while retaining earlier counters.
+          statusSchemaVersion: 5,
           incrementalWrite: {
             ...writeFeedbackStats,
             coverage: {
@@ -5970,6 +5978,7 @@ export default function (pi: ExtensionAPI) {
           repoMap: repoMapStats(),
           taskTelemetry: telemetry,
           compactionRecall,
+          efficiency,
           // Turns that ended on a post-write verdict the model never saw. A
           // non-empty list means some write was left unverified at the boundary.
           finalWriteVerdictsNotSeen: writeFeedbackFinalVerdicts.map((row) => ({
