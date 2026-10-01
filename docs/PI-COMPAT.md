@@ -8,7 +8,7 @@ Repository này hiện đóng gói UES cho **Pi Agent**.
 
 - Turbo FAST deterministic verification requires fresh behavioral evidence **and**, when a supported changed source file is present, complete error-free static diagnostics. Timeout/incomplete diagnostics fall back to the independent verifier rather than producing deterministic PASS.
 - Active `.ues-work` evidence references are protected during Evidence Store GC. Checkpoints retain concrete evidence refs and the compaction resume guard reports `OK`, `DEGRADED`, or `NOT_APPLICABLE` evidence integrity.
-- External/MCP results carry `trustClass=external-data` and `instructionAuthority=none`; heuristic prompt-injection detection remains an additional signal, not the authority boundary itself.
+- External/MCP results carry `trustClass=external-data` and `instructionAuthority=none`; heuristic prompt-injection detection remains an additional signal, not the authority boundary itself. Shell and managed-service preflight also block the narrow combination of explicit credential/secret material plus outbound payload transfer.
 - Worktree and workspace cleanup share bounded retry/backoff for transient Windows `EBUSY` / `EPERM` / `ENOTEMPTY`-class failures.
 - Empirical model routing adds retry-amplified token economics only after the existing minimum sample floor, preserving correctness-first routing.
 - V16 does **not** claim full model/Pi-session container isolation. Existing container isolation remains a deterministic verification boundary.
