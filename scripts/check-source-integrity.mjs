@@ -7,6 +7,18 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
 const CONTRACTS = [
   {
+    file: ".github/workflows/security.yml",
+    minBytes: 1_200,
+    startsWith: "name: Security",
+    required: ["github/codeql-action/init@v4", "github/codeql-action/analyze@v4", "dependency-review-action@v4", "Security Gate"],
+  },
+  {
+    file: ".github/workflows/publish.yml",
+    minBytes: 1_300,
+    startsWith: "name: Publish npm",
+    required: ["npm run release:verify", "npm run release:check-tag", "npm publish --ignore-scripts --access public --provenance", "Check registry for this exact version"],
+  },
+  {
     file: "pi/extensions/ues.ts",
     minBytes: 80_000,
     startsWith: "import { spawn }",
@@ -172,6 +184,9 @@ const CONTRACTS = [
       "skills: Array.isArray(microSkills?.loaded)",
       "V15.6 durable run journal",
       "V15.6 adaptive tool scheduler",
+      "recoverRunJournal",
+      "journalAdmission?.idempotent === true",
+      "modelRuntimeProfile: modelProfile",
     ],
   },
   {
