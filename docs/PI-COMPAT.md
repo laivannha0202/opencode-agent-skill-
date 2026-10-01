@@ -2,7 +2,15 @@
 
 Repository này hiện đóng gói UES cho **Pi Agent**.
 
-**Current package runtime:** 15.7.0 — Adaptive Efficiency Intelligence. V15.7 adds bounded verification-command intelligence, measurement-gated provider-cache stability, live-zone content routing, an efficiency ledger/runtime waste report, Solution Economy for writer roles, and the paired `ues trial` surface. It retains V15.6 durable journal/checkpoint/recovery and does not lower thinking or verifier requirements.
+**Current package runtime:** 15.8.0 — Measured Hardening. V15.8 unwraps Windows/POSIX shell launchers before command policy, adds Bun coverage, activates first-turn A/B usage measurement and a fail-closed promotion gate, scopes cache learning by provider + model with hysteresis, and makes measured/configured model evidence outrank name heuristics. V15.7 efficiency intelligence and V15.6 durable journal/checkpoint/recovery remain intact; thinking and verifier requirements are not lowered.
+
+## V15.8 Measured Hardening
+
+- Command Intelligence V4 unwraps `cmd /c`, PowerShell/pwsh `-Command`, PowerShell `&`, and POSIX shell wrappers before verification/service routing.
+- Bun verification and dev-server scripts use the same bounded lanes as npm/pnpm/yarn.
+- Real Pi A/B captures first usage; `ues trial --require-promotion` fails closed when paired efficiency evidence is missing.
+- Provider Cache Stability is provider+model scoped and hysteresis-bounded.
+- Model Runtime Profile V2 prioritizes measured performance, then configured capabilities, then name heuristics.
 
 ## Requirements
 
