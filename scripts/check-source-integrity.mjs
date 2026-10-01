@@ -1140,10 +1140,12 @@ const CONTRACTS = [
   {
     file: "scripts/acceptance-fresh-pi.mjs",
     minBytes: 8_000,
-    startsWith: "// Fresh-Pi acceptance for UES 15.3",
+    startsWith: "// Fresh-Pi acceptance for the current UES runtime",
     required: [
       "A-status-metrics-zero",
       "A-no-lsp-session-precreated",
+      "A-status-schema-current",
+      "A-status-advertises-v15-6",
       "B-repo-map-ranks-target",
       "B-repo-map-bounded",
       "C-post-write-arrives",
