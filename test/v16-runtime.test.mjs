@@ -17,6 +17,8 @@ test("V16 parent FAST lanes are wired to static completeness evidence", async ()
     (text.match(/staticEvidence,/g) || []).length >= 2,
     "both structured-leaf and direct FAST lanes must pass static evidence to the gate",
   )
+  assert.match(text, /staticEvidence:\s*leafFastGate\.staticEvidence/)
+  assert.match(text, /staticEvidence:\s*fastGate\.staticEvidence/)
 })
 
 test("V16 external outputs keep an explicit non-authoritative provenance boundary", async () => {
