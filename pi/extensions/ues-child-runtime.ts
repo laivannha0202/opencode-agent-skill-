@@ -1,5 +1,6 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
@@ -31,6 +32,11 @@ import {
 } from "../../lib/code-intelligence/index.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
+import { ToolScheduler } from "../../lib/tool-scheduler.mjs";
+import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
+import { adaptiveCompactionBudget } from "../../lib/adaptive-compaction.mjs";
+import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
+import { createWriteCheckpoint, finalizeWriteCheckpoint } from "../../lib/write-checkpoints.mjs";
 import {
   looksLikeLongRunningServiceCommand,
   restartService,
@@ -58,6 +64,55 @@ const toolExecutionState = new Map<string, {
   reusableCandidate: boolean;
   canonicalVerification?: { command: string; args: string[]; raw: string } | null;
 }>();
+
+const CHILD_RUN_ID = String(process.env.UES_CHILD_RUN_ID || "").trim();
+const CHILD_JOURNAL_ROOT = String(process.env.UES_CHILD_JOURNAL_ROOT || "").trim();
+const TOOL_SCHEDULER = new ToolScheduler({
+  maxParallelReads: Number(process.env.UES_CHILD_MAX_PARALLEL_READS || 4),
+  maxQueueMs: Number(process.env.UES_CHILD_TOOL_QUEUE_TIMEOUT_MS || 30_000),
+});
+const RUNTIME_HOOKS = new RuntimeHookBus();
+const scheduledToolLeases = new Map<string, any>();
+const toolCheckpointState = new Map<string, { checkpointId: string; runId: string }>();
+
+function schedulerOwner(event: any, toolName = "") {
+  return String(event?.toolCallId || "").trim() || (String(toolName || "tool") + ":anonymous");
+}
+
+function toolInputHash(input: any) {
+  return createHash("sha256").update(JSON.stringify(input || {})).digest("hex");
+}
+
+async function journalChildEvent(ctx: any, type: string, data: any = {}) {
+  if (!CHILD_RUN_ID) return null;
+  const root = CHILD_JOURNAL_ROOT || String(ctx?.cwd || process.cwd());
+  return appendRunJournalEvent(root, CHILD_RUN_ID, type, data).catch(() => null);
+}
+
+async function releaseScheduledTool(event: any, ctx: any, type: string) {
+  const toolName = String(event?.toolName || "");
+  const owner = schedulerOwner(event, toolName);
+  const lease = scheduledToolLeases.get(owner);
+  if (lease) {
+    lease.release?.();
+    scheduledToolLeases.delete(owner);
+  }
+  await RUNTIME_HOOKS.emit("tool.after", {
+    toolCallId: owner,
+    toolName,
+    isError: event?.isError === true,
+    queuedMs: Number(lease?.queuedMs || 0),
+    contract: lease?.contract || null,
+  }, { cwd: ctx?.cwd }).catch(() => null);
+  await journalChildEvent(ctx, type, {
+    toolCallId: owner,
+    tool: toolName,
+    queuedMs: Number(lease?.queuedMs || 0),
+    concurrencyClass: lease?.contract?.class || null,
+    parallelSafe: lease?.contract?.parallelSafe === true,
+  });
+  return lease || null;
+}
 
 function configuredLimit() {
   const raw = Number(process.env.UES_CHILD_TOOL_OUTPUT_LIMIT || 24 * 1024);
@@ -118,7 +173,12 @@ export default function (pi: ExtensionAPI) {
   // Parent launch paths set UES_CHILD_PROCESS=1 for both CLI and RPC workers.
   if (process.env.UES_CHILD_PROCESS !== "1") return;
 
-  const clearExecutionState = () => toolExecutionState.clear();
+  const clearExecutionState = () => {
+    toolExecutionState.clear();
+    toolCheckpointState.clear();
+    scheduledToolLeases.clear();
+    TOOL_SCHEDULER.reset("session-boundary");
+  };
   pi.on("session_start", clearExecutionState);
   pi.on("session_shutdown", async (_event, ctx) => {
     clearExecutionState();
@@ -131,6 +191,42 @@ export default function (pi: ExtensionAPI) {
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
     const input: any = event.input || {};
+    const owner = schedulerOwner(event, toolName);
+    let schedulerLease: any;
+    try {
+      schedulerLease = await TOOL_SCHEDULER.acquire(owner, toolName, input);
+      scheduledToolLeases.set(owner, schedulerLease);
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      await journalChildEvent(ctx, "tool.blocked", {
+        toolCallId: owner,
+        tool: toolName,
+        reason: "scheduler: " + reason,
+      });
+      return { block: true, reason };
+    }
+    const beforeHook = await RUNTIME_HOOKS.emit("tool.before", {
+      toolCallId: owner,
+      toolName,
+      input,
+      inputHash: toolInputHash(input),
+      queuedMs: Number(schedulerLease.queuedMs || 0),
+      contract: schedulerLease.contract,
+    }, { cwd: ctx.cwd });
+    if (beforeHook.decision === "deny") {
+      await releaseScheduledTool(event, ctx, "tool.blocked");
+      return { block: true, reason: beforeHook.reason || "UES runtime hook denied tool execution" };
+    }
+    await journalChildEvent(ctx, "tool.started", {
+      toolCallId: owner,
+      tool: toolName,
+      inputHash: toolInputHash(input),
+      queuedMs: Number(schedulerLease.queuedMs || 0),
+      concurrencyClass: schedulerLease.contract?.class || null,
+      parallelSafe: schedulerLease.contract?.parallelSafe === true,
+      policySnapshotId: process.env.UES_CHILD_POLICY_SNAPSHOT_ID || null,
+      runtimeEpochId: process.env.UES_CHILD_RUNTIME_EPOCH_ID || null,
+    });
     const permissionRequest = toolPermissionRequest(toolName, input);
     const configuredPermission: any = await PERMISSION_POLICY.evaluate(
       permissionRequest,
@@ -142,6 +238,7 @@ export default function (pi: ExtensionAPI) {
     }));
     if (configuredPermission.error) {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
         reason: "UES permission policy is invalid: " + configuredPermission.error,
@@ -149,6 +246,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (configuredPermission?.decision?.effect === "deny") {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
         reason: permissionRecoveryHint(permissionRequest, configuredPermission.decision, { effect: "deny" }),
@@ -156,6 +254,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (configuredPermission?.decision?.effect === "ask") {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
         reason: permissionRecoveryHint(permissionRequest, configuredPermission.decision, { effect: "ask" }),
@@ -172,6 +271,7 @@ export default function (pi: ExtensionAPI) {
       const tempPathRisk = crossToolTempPathRisk(fileCandidate);
       if (fileTool && tempPathRisk.risky) {
         toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
         return {
           block: true,
           reason:
@@ -182,6 +282,7 @@ export default function (pi: ExtensionAPI) {
       }
       if (writeTool && isLocalEnvPath(fileCandidate) && !localEnvAllowed) {
         toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
         return {
           block: true,
           reason:
@@ -191,12 +292,39 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
+    const checkpointEnabled = !["0", "false", "off"].includes(
+      String(process.env.UES_WRITE_CHECKPOINTS || "1").trim().toLowerCase(),
+    );
+    if (checkpointEnabled && writeTool && fileCandidates.length) {
+      try {
+        const checkpoint = await createWriteCheckpoint(ctx.cwd, {
+          runId: CHILD_RUN_ID || "child",
+          toolCallId: owner,
+          tool: toolName,
+          files: fileCandidates,
+        });
+        toolCheckpointState.set(owner, {
+          checkpointId: checkpoint.checkpointId,
+          runId: checkpoint.runId,
+        });
+        await journalChildEvent(ctx, "checkpoint.created", {
+          toolCallId: owner,
+          tool: toolName,
+          checkpointId: checkpoint.checkpointId,
+          files: checkpoint.files.map((row: any) => row.path),
+        });
+      } catch {
+        // Checkpointing is bounded recovery metadata; it must never block the write.
+      }
+    }
+
     if (!["bash", "powershell"].includes(toolName)) return undefined;
 
     const command = String(input.command || "");
     const envRisk = localEnvWriteRisk(command);
     if (envRisk.risky && !localEnvAllowed) {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
         reason:
@@ -205,6 +333,7 @@ export default function (pi: ExtensionAPI) {
     }
     if (looksLikeLongRunningServiceCommand(command)) {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
         reason:
@@ -215,6 +344,7 @@ export default function (pi: ExtensionAPI) {
     const risk = destructiveShellRisk(command);
     if (risk.risky) {
       toolExecutionState.delete(String(event.toolCallId || ""));
+      await releaseScheduledTool(event, ctx, "tool.blocked");
       return {
         block: true,
         reason:
@@ -331,6 +461,44 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_result", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    const owner = schedulerOwner(event, toolName);
+    const checkpointState = toolCheckpointState.get(owner);
+    if (checkpointState) {
+      try {
+        const finalized = await finalizeWriteCheckpoint(
+          ctx.cwd,
+          checkpointState.runId,
+          checkpointState.checkpointId,
+        );
+        if (!event.details || typeof event.details !== "object") (event as any).details = {};
+        (event.details as any).uesCheckpoint = {
+          checkpointId: finalized.checkpointId,
+          runId: finalized.runId,
+          restorableFiles: finalized.files.filter((row: any) => row.restorable === true).map((row: any) => row.path),
+        };
+        await journalChildEvent(ctx, "checkpoint.finalized", {
+          toolCallId: owner,
+          tool: toolName,
+          checkpointId: finalized.checkpointId,
+          restorableFiles: finalized.files.filter((row: any) => row.restorable === true).map((row: any) => row.path),
+        });
+      } catch {
+        // Keep the original tool result authoritative if checkpoint finalization fails.
+      } finally {
+        toolCheckpointState.delete(owner);
+      }
+    }
+    const schedulerLease = await releaseScheduledTool(
+      event,
+      ctx,
+      event.isError === true ? "tool.failed" : "tool.completed",
+    );
+    if (!event.details || typeof event.details !== "object") (event as any).details = {};
+    (event.details as any).uesScheduler = {
+      queuedMs: Number(schedulerLease?.queuedMs || 0),
+      concurrencyClass: schedulerLease?.contract?.class || null,
+      parallelSafe: schedulerLease?.contract?.parallelSafe === true,
+    };
     const postWrite = await childPostWriteFeedback(event as any, ctx as any, toolName);
     const shownText = visibleText(event);
     const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
@@ -405,7 +573,18 @@ export default function (pi: ExtensionAPI) {
     toolExecutionState.delete(String(event.toolCallId || ""));
 
     if (String(process.env.UES_CHILD_TOOL_COMPACTION || "") !== "1") return undefined;
-    const maxChars = configuredLimit();
+    const baseMaxChars = configuredLimit();
+    const compactionBudget = await adaptiveCompactionBudget(ctx.cwd, commandHint, baseMaxChars).catch(() => ({
+      schemaVersion: 1,
+      family: null,
+      samples: 0,
+      recallRate: null,
+      baseMaxChars,
+      maxChars: baseMaxChars,
+      multiplier: 1,
+      reason: "adaptive-budget-unavailable",
+    }));
+    const maxChars = Number(compactionBudget.maxChars || baseMaxChars);
     if (!rawText || rawText.length <= maxChars) return undefined;
 
     const compacted = await compactReversibleOutput(ctx.cwd, rawText, {
@@ -429,6 +608,7 @@ export default function (pi: ExtensionAPI) {
           evidenceRef: compacted.evidenceRef,
           rawCapture: capture.full ? "full-output-path" : "tool-result",
           recoveryTool: "ues_evidence_get",
+          adaptiveBudget: compactionBudget,
         },
       },
       isError: event.isError,
