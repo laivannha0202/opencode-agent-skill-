@@ -813,7 +813,24 @@ export default function (pi: ExtensionAPI) {
         ? `Full Pi tool output captured from ${capture.sourcePath} before V15.9 model-visible reduction`
         : "Captured Pi tool output preserved before V15.9 model-visible reduction",
     }).catch(() => null);
-    if (!governed?.compacted) return postWrite;
+    if (!governed?.compacted) {
+      if (!trustBoundaryText) return postWrite;
+      return {
+        content: [
+          { type: "text", text: trustBoundaryText },
+          ...(Array.isArray(postWrite?.content)
+            ? postWrite.content
+            : (Array.isArray(event.content) ? event.content : [])),
+        ],
+        details: {
+          ...(event.details && typeof event.details === "object" ? event.details : {}),
+          ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
+          uesUntrustedOutputBoundary: trustBoundaryAnalysis,
+        },
+        isError: event.isError,
+        usage: event.usage,
+      };
+    }
 
     return {
       content: [
