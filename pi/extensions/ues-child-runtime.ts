@@ -693,24 +693,6 @@ export default function (pi: ExtensionAPI) {
         source: toolName,
         always: true,
       });
-      if (analysis.flagged) {
-        const originalContent = Array.isArray(event.content)
-          ? event.content
-          : [{ type: "text", text: shownText }];
-        return {
-          content: [
-            { type: "text", text: trustBoundaryText },
-            ...(postWrite?.content || originalContent),
-          ],
-          details: {
-            ...(event.details && typeof event.details === "object" ? event.details : {}),
-            ...(postWrite?.details && typeof postWrite.details === "object" ? postWrite.details : {}),
-            uesUntrustedOutputBoundary: analysis,
-          },
-          isError: event.isError,
-          usage: event.usage,
-        };
-      }
     }
 
     const compactableTool = ![
