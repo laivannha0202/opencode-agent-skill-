@@ -1521,6 +1521,11 @@ async function runAgentRpc(
     return baseResult;
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
+    const partialUsage = (error as any)?.partialMessage?.usage;
+    const recoveredFirstUsage = firstUsage || partialUsage;
+    const recoveredUsageSamples = usageSamples.length
+      ? usageSamples
+      : (partialUsage ? [partialUsage] : []);
     if (detectedHang) {
       return {
         agent,
@@ -1537,6 +1542,8 @@ async function runAgentRpc(
         model,
         stopReason: "hung-tool",
         errorMessage: message,
+        firstUsage: recoveredFirstUsage,
+        usageSamples: recoveredUsageSamples,
         toolCalls,
         toolQueueMs,
         toolNames: [...toolNames],
@@ -1551,6 +1558,7 @@ async function runAgentRpc(
       return {
         agent, task, cwd, exitCode: 130, output: message, stderr: message,
         model, stopReason: "aborted", errorMessage: message,
+        firstUsage: recoveredFirstUsage, usageSamples: recoveredUsageSamples,
         toolCalls, toolQueueMs, toolNames: [...toolNames], browserTools: [...extraTools],
         childRuntime: "rpc", workerReused: false,
         runtimeEpochId: effectiveRuntimeEpochId, modelRuntimeProfile: modelProfile,
@@ -1573,6 +1581,8 @@ async function runAgentRpc(
         model,
         stopReason: timeout ? "timeout" : toolStall ? "tool-error-stall" : "rpc-runtime-error",
         errorMessage: message,
+        firstUsage: recoveredFirstUsage,
+        usageSamples: recoveredUsageSamples,
         toolCalls,
         toolQueueMs,
         toolNames: [...toolNames],
