@@ -1,4 +1,14 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import {
+  createBashToolDefinition,
+  createEditToolDefinition,
+  createFindToolDefinition,
+  createGrepToolDefinition,
+  createLsToolDefinition,
+  createPowerShellToolDefinition,
+  createReadToolDefinition,
+  createWriteToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
@@ -33,6 +43,7 @@ import {
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
 import { ToolScheduler } from "../../lib/tool-scheduler.mjs";
+import { toolConcurrencyContract } from "../../lib/tool-concurrency.mjs";
 import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { adaptiveCompactionBudget } from "../../lib/adaptive-compaction.mjs";
 import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
@@ -74,6 +85,37 @@ const TOOL_SCHEDULER = new ToolScheduler({
 const RUNTIME_HOOKS = new RuntimeHookBus();
 const scheduledToolLeases = new Map<string, any>();
 const toolCheckpointState = new Map<string, { checkpointId: string; runId: string }>();
+
+const HOST_SEQUENTIAL_TOOLS = new Set(["bash", "powershell", "edit", "write", "ues_code_edit", "ues_service"]);
+
+function hostManagedLease(owner: string, toolName: string, input: any) {
+  return {
+    schemaVersion: 1,
+    owner,
+    toolName,
+    contract: toolConcurrencyContract(toolName, input),
+    queuedMs: 0,
+    hostSequential: true,
+    release: () => true,
+  };
+}
+
+function registerBuiltInExecutionModes(pi: ExtensionAPI) {
+  const cwd = process.cwd();
+  const definitions = [
+    { tool: createReadToolDefinition(cwd), executionMode: "parallel" as const },
+    { tool: createGrepToolDefinition(cwd), executionMode: "parallel" as const },
+    { tool: createFindToolDefinition(cwd), executionMode: "parallel" as const },
+    { tool: createLsToolDefinition(cwd), executionMode: "parallel" as const },
+    { tool: createBashToolDefinition(cwd), executionMode: "sequential" as const },
+    { tool: createPowerShellToolDefinition(cwd), executionMode: "sequential" as const },
+    { tool: createEditToolDefinition(cwd), executionMode: "sequential" as const },
+    { tool: createWriteToolDefinition(cwd), executionMode: "sequential" as const },
+  ];
+  for (const entry of definitions) {
+    pi.registerTool({ ...entry.tool, executionMode: entry.executionMode });
+  }
+}
 
 function schedulerOwner(event: any, toolName = "") {
   return String(event?.toolCallId || "").trim() || (String(toolName || "tool") + ":anonymous");
@@ -173,6 +215,11 @@ export default function (pi: ExtensionAPI) {
   // Parent launch paths set UES_CHILD_PROCESS=1 for both CLI and RPC workers.
   if (process.env.UES_CHILD_PROCESS !== "1") return;
 
+  // Pi preflights sibling tool calls before executing them. Enforce serial
+  // execution through Pi's native per-tool executionMode instead of waiting
+  // on a lease inside tool_call, which can deadlock mixed read/write batches.
+  registerBuiltInExecutionModes(pi);
+
   const clearExecutionState = () => {
     toolExecutionState.clear();
     toolCheckpointState.clear();
@@ -194,7 +241,20 @@ export default function (pi: ExtensionAPI) {
     const owner = schedulerOwner(event, toolName);
     let schedulerLease: any;
     try {
-      schedulerLease = await TOOL_SCHEDULER.acquire(owner, toolName, input);
+      if (HOST_SEQUENTIAL_TOOLS.has(toolName)) {
+        schedulerLease = hostManagedLease(owner, toolName, input);
+      } else {
+        schedulerLease = TOOL_SCHEDULER.tryAcquire(owner, toolName, input);
+        if (!schedulerLease) {
+          const reason = "UES scheduler deferred a conflicting sibling tool call; retry after the current tool results settle";
+          await journalChildEvent(ctx, "tool.blocked", {
+            toolCallId: owner,
+            tool: toolName,
+            reason: "scheduler-preflight-conflict",
+          });
+          return { block: true, reason };
+        }
+      }
       scheduledToolLeases.set(owner, schedulerLease);
     } catch (error) {
       const reason = error instanceof Error ? error.message : String(error);
@@ -624,6 +684,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "ues_code",
+    executionMode: "parallel",
     label: "UES Code Intelligence",
     description:
       "Bounded code/document/context intelligence for weak models: semantic/AST search, hash-anchored reads, deterministic LSP definition/references/symbols/hover/rename-preview/call hierarchy, diagnostics, optional MarkItDown ingestion, and reversible context recovery.",
@@ -780,6 +841,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "ues_code_edit",
+    executionMode: "sequential",
     label: "UES Anchored Edit",
     description:
       "Apply fail-closed hash-anchored edits. A stale or mismatched anchor is rejected; re-read with ues_code instead of fuzzy retrying.",
@@ -852,6 +914,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "ues_service",
+    executionMode: "sequential",
     label: "UES Managed Service",
     description:
       "Manage long-running development servers/watchers without blocking the agent. Use start, wait-ready, status, logs, stop, or restart. For start/restart, command is the executable only (for example node or npm); put every argument in args. Services are bounded to the current workspace/runtime and are cleaned up on session shutdown.",
@@ -932,6 +995,7 @@ export default function (pi: ExtensionAPI) {
 
   pi.registerTool({
     name: "ues_evidence_get",
+    executionMode: "parallel",
     label: "UES Evidence Get",
     description:
       "Read an exact bounded slice or JSON selector from a UES Evidence Store reference when a compacted tool result says omitted raw evidence is available.",
