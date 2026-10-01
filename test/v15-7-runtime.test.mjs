@@ -47,6 +47,23 @@ test("V15.7 command intelligence detects hidden verification progress", () => {
   assert.equal(analysis.recommendedTimeoutSec, 300)
 })
 
+test("V15.7 command intelligence only classifies executable command heads", () => {
+  for (const command of [
+    "echo npm test",
+    "printf pytest",
+    "echo npm run dev",
+    'node -e "console.log(\'npm test\')"',
+  ]) {
+    const analysis = analyzeShellCommand(command)
+    assert.equal(analysis.verificationLike, false, command)
+    assert.equal(analysis.longRunningService, false, command)
+  }
+
+  assert.equal(analyzeShellCommand("cd apps/api && npm --filter @agrimarket/api test").verificationLike, true)
+  assert.equal(analyzeShellCommand("FOO=1 npm --filter @agrimarket/api run start").longRunningService, true)
+  assert.equal(analyzeShellCommand("env FOO=1 pnpm --filter web run typecheck").verificationFamily, "diagnostics")
+})
+
 test("V15.7 command intelligence ignores pipe text inside quotes", () => {
   const analysis = analyzeShellCommand(
     'npm test -- --testNamePattern="renders | tail literally"',
