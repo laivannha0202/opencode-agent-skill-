@@ -1993,6 +1993,9 @@ async function runRoutedAgent(
   }
 
   const selectedModel = selection.model || inheritedModel;
+  const selectedProvider = selectedModel && selectedModel.includes("/")
+    ? selectedModel.split("/", 1)[0]
+    : null;
   const thinking = selectedModel && inheritedModel && selectedModel !== inheritedModel
     ? undefined
     : inheritedThinking;
@@ -2005,11 +2008,14 @@ async function runRoutedAgent(
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
   const cachePolicy = await providerCacheStabilityPolicy(cwd, {
+    provider: selectedProvider,
     model: selectedModel,
-    minSamples: 4,
+    minSamples: 6,
+    stableSamples: 12,
     limit: 200,
   }).catch(() => ({
-    schemaVersion: 1,
+    schemaVersion: 2,
+    provider: selectedProvider,
     model: selectedModel || null,
     mode: "neutral",
     reason: "cache-policy-unavailable",
@@ -2419,7 +2425,15 @@ async function runRoutedAgent(
       browserTools,
     }).catch(() => {});
   }
-  await recordTaskTelemetry(artifactRoot, enrichedResult, { task, traceID, agent, role, attempt, taskClass: taskPolicy.executionProfile }).catch(() => null);
+  await recordTaskTelemetry(artifactRoot, enrichedResult, {
+    task,
+    traceID,
+    agent,
+    role,
+    attempt,
+    taskClass: taskPolicy.executionProfile,
+    provider: selectedProvider,
+  }).catch(() => null);
   return enrichedResult;
 }
 
@@ -6348,6 +6362,7 @@ export default function (pi: ExtensionAPI) {
       traceID: directTraceID,
       taskClass: result?.details?.policy?.executionProfile || admissionDecision?.policy?.executionProfile || null,
       thinking: ctx.thinkingLevel as string | undefined,
+      provider: ctx.model?.provider || null,
       passed: controllerPass,
     }).catch(() => null);
     const directDurationMs = Math.max(0, Date.now() - directStartedAt);
