@@ -2057,15 +2057,17 @@ async function runRoutedAgent(
   }
 
   let selectedModel = selection.model || inheritedModel;
+  let diversitySelection: any = null;
   const verifierRole = ["verifier", "integration-verifier", "visual-verifier"].includes(role);
   const highRiskVerification = ["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase());
-  if (verifierRole && highRiskVerification) {
-    const diverseCandidate = (selection.capabilitySelection?.candidates || [])
-      .filter((candidate: any) => candidate?.eligible && candidate?.id && candidate.id !== inheritedModel)
+  const executorBaselineModel = inheritedModel || selection.model || null;
+  if (verifierRole && highRiskVerification && executorBaselineModel) {
+    diversitySelection = (selection.capabilitySelection?.candidates || [])
+      .filter((candidate: any) => candidate?.eligible && candidate?.id && candidate.id !== executorBaselineModel)
       .sort((a: any, b: any) =>
         Number(b.adjustedScore ?? b.score ?? 0) - Number(a.adjustedScore ?? a.score ?? 0)
-      )[0];
-    if (diverseCandidate?.id) selectedModel = String(diverseCandidate.id);
+      )[0] || null;
+    if (diversitySelection?.id) selectedModel = String(diversitySelection.id);
   }
   const selectedProvider = selectedModel && selectedModel.includes("/")
     ? selectedModel.split("/", 1)[0]
@@ -2081,8 +2083,8 @@ async function runRoutedAgent(
     risk: taskPolicy.risk,
     attempt,
     taskChars: task.length,
-    executorModel: inheritedModel || selectedModel,
-    alternateModels: configuredModels,
+    executorModel: executorBaselineModel || selectedModel,
+    alternateModels: diversitySelection?.id ? [String(diversitySelection.id)] : configuredModels,
     capabilityProfile:
       selectedCapabilityCandidate?.capabilities ||
       (selectedModel ? modelPolicy.capabilities?.[selectedModel] : null) ||
@@ -2499,7 +2501,12 @@ async function runRoutedAgent(
     ...result,
     task,
     modelTier: selection.tier,
-    modelSelection: { ...selection, diversitySelectedModel: selectedModel || null },
+    modelSelection: {
+      ...selection,
+      diversitySelectedModel: diversitySelection?.id ? String(diversitySelection.id) : null,
+      diversitySelectedTier: diversitySelection?.tier || null,
+      diversityReason: diversitySelection?.id ? "high-risk-capability-eligible-alternate" : null,
+    },
     taskPolicy: {
       ...taskPolicy,
       runtimeContextBudget: budgetDecision,
