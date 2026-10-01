@@ -442,7 +442,7 @@ const CONTRACTS = [
     file: "lib/command-intelligence.mjs",
     minBytes: 1_000,
     startsWith: "const DIRECT_VERIFY",
-    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
+    required: ["analyzeShellCommand", "boundedVerificationTimeout", "verificationFamily", "packageManagerVerificationFamily", "packageManagerLongRunningService", "shellSyntaxView", "hidesProgressPipeline", "verification-output-hidden-by-pipeline", "long-running-service-command", "hidesProgress"],
   },
   {
     file: "lib/solution-economy.mjs",
@@ -466,7 +466,7 @@ const CONTRACTS = [
     file: "test/v15-7-runtime.test.mjs",
     minBytes: 6_000,
     startsWith: 'import assert from "node:assert/strict"',
-    required: ["hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
+    required: ["hidden verification progress", "5400s hang case", "package-manager verification families drive content routing", "routes workspace-filtered dev servers to managed service", "cache policy is measurement gated", "never fabricates a missing cache-write bucket", "cachePolicyHash-changed", "sameDecisionNewSample", "solution economy remains safety first", "efficiency summary keeps missing provider buckets null", "runtime waste learner reports only observed evidence", "trajectory intelligence separates repeated reads searches and mutations", "execution ownership fences stale runtimes", "stale execution ownership artifacts are bounded", "task telemetry feeds the efficiency ledger", "pi-normalized-disjoint"],
   },
   {
     file: "scripts/ues-trial.mjs",
