@@ -54,6 +54,28 @@ test("V15.7 verification timeout clamp bounds the former 5400s hang case", () =>
   assert.equal(boundedVerificationTimeout(ordinary, 5400, 300), 5400)
 })
 
+test("V15.7 package-manager verification families drive content routing", () => {
+  const npmTest = analyzeShellCommand("npm --filter @agrimarket/api test")
+  const pnpmTypecheck = analyzeShellCommand("pnpm --filter web run typecheck")
+  const yarnBuild = analyzeShellCommand("yarn run build")
+  assert.equal(npmTest.verificationFamily, "test")
+  assert.equal(pnpmTypecheck.verificationFamily, "diagnostics")
+  assert.equal(yarnBuild.verificationFamily, "build")
+
+  assert.equal(routeToolContent("Tests: 12 passed", {
+    command: "npm --filter @agrimarket/api test",
+    phase: "verify",
+  }).contentType, "test")
+  assert.equal(routeToolContent("Found 0 errors.", {
+    command: "pnpm --filter web run typecheck",
+    phase: "verify",
+  }).contentType, "diagnostics")
+  assert.equal(routeToolContent("compiled successfully", {
+    command: "yarn run build",
+    phase: "verify",
+  }).contentType, "build")
+})
+
 test("V15.7 content router preserves more semantic diff evidence than noisy JSON", () => {
   const diff = routeToolContent("diff --git a/a.ts b/a.ts\n+const x = 1", {
     command: "git diff",
