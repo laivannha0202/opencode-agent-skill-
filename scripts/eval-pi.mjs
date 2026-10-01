@@ -24,19 +24,27 @@ process.once("SIGINT", () => {
 
 function argValue(name, fallback = null) {
   const index = args.indexOf(name)
-  return index >= 0 && index + 1 < args.length ? args[index + 1] : fallback
+  if (index >= 0 && index + 1 < args.length) return args[index + 1]
+  const prefix = name + "="
+  const inline = args.find((value) => String(value).startsWith(prefix))
+  return inline == null ? fallback : String(inline).slice(prefix.length)
 }
 
 function hasArg(name) {
-  return args.includes(name)
+  return args.some((value) => value === name || String(value).startsWith(name + "="))
 }
 
 function argValues(name) {
   const values = []
+  const prefix = name + "="
   for (let index = 0; index < args.length; index += 1) {
     if (args[index] === name && index + 1 < args.length) {
       values.push(args[index + 1])
       index += 1
+      continue
+    }
+    if (String(args[index]).startsWith(prefix)) {
+      values.push(String(args[index]).slice(prefix.length))
     }
   }
   return values
