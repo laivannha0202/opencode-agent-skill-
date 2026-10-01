@@ -49,6 +49,8 @@ import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } 
 import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
 import { applyModelToolBudget, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
+import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
+import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
 import { appendRunJournalEvent, closeRunJournal, createRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
 import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
@@ -753,6 +755,7 @@ async function runAgentCli(
     executionProfile?: string;
     attempt?: number;
     modelProfile?: any;
+    cachePolicy?: any;
     skills?: string[];
   } = {},
 ): Promise<RunResult> {
@@ -815,6 +818,7 @@ async function runAgentCli(
     tools: allowedTools,
     skills: runtimeOptions.skills || [],
     modelProfile,
+    cachePolicy: runtimeOptions.cachePolicy || null,
     model,
     thinking: thinkingLevel,
   });
@@ -851,6 +855,7 @@ async function runAgentCli(
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
           UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
           UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
+          UES_CHILD_CACHE_MODE: String(runtimeOptions.cachePolicy?.mode || "neutral"),
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -1198,6 +1203,7 @@ async function runAgentRpc(
     executionProfile?: string;
     attempt?: number;
     modelProfile?: any;
+    cachePolicy?: any;
     skills?: string[];
   } = {},
 ): Promise<RunResult> {
@@ -1257,6 +1263,7 @@ async function runAgentRpc(
     tools: allowedTools,
     skills: runtimeOptions.skills || [],
     modelProfile,
+    cachePolicy: runtimeOptions.cachePolicy || null,
     model,
     thinking: thinkingLevel,
   });
@@ -1318,6 +1325,7 @@ async function runAgentRpc(
           UES_CHILD_RUN_ID: runtimeOptions.runId || "",
           UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
           UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
+          UES_CHILD_CACHE_MODE: String(runtimeOptions.cachePolicy?.mode || "neutral"),
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
@@ -1512,6 +1520,7 @@ async function runAgent(
     executionProfile?: string;
     attempt?: number;
     modelProfile?: any;
+    cachePolicy?: any;
     skills?: string[];
   } = {},
 ): Promise<RunResult> {
@@ -1914,6 +1923,21 @@ async function runRoutedAgent(
   });
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
+  const cachePolicy = await providerCacheStabilityPolicy(cwd, {
+    model: selectedModel,
+    minSamples: 4,
+    limit: 200,
+  }).catch(() => ({
+    schemaVersion: 1,
+    model: selectedModel || null,
+    mode: "neutral",
+    reason: "cache-policy-unavailable",
+    samples: 0,
+    cacheReadRatio: null,
+    preserveStablePrefix: true,
+    compactLiveZoneOnly: true,
+    evidence: "NOT_MEASURED",
+  }));
 
   let enrichedTask = task;
   if (modelProfile.editPipeline === "architect-editor" && role === "executor") {
@@ -2085,6 +2109,11 @@ async function runRoutedAgent(
         ].join("\n");
   }
 
+  const economy = solutionEconomyContract({ role, risk: taskPolicy.risk, task });
+  if (economy.active && !enrichedTask.includes("## UES Solution Economy Gate")) {
+    enrichedTask += "\n\n" + economy.text;
+  }
+
   const planningBudget = planningRuntimeBudget(role, attempt, {
     executionProfile: taskPolicy.executionProfile,
     risk: taskPolicy.risk,
@@ -2178,6 +2207,7 @@ async function runRoutedAgent(
       executionProfile: taskPolicy.executionProfile,
       attempt,
       modelProfile,
+      cachePolicy,
       skills: Array.isArray(microSkills?.loaded) ? microSkills.loaded : [],
       },
     );
@@ -2262,6 +2292,8 @@ async function runRoutedAgent(
       affectedTestInventorySource: affectedTests?.inventorySource || null,
       contextPerformance,
       modelRuntimeProfile: modelProfile,
+      providerCacheStability: cachePolicy,
+      solutionEconomyMode: economy.active ? economy.mode : null,
       runtimeEpochId: result.runtimeEpochId || null,
       latencyMs: {
         workspaceSnapshot: workspaceSnapshotMs,
