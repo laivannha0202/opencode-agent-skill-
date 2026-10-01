@@ -210,10 +210,15 @@ function parsePiTelemetry(stdout) {
         turbo.adaptiveContextChars += Number(optimization.runtimeContextBudget || 0)
         turbo.baseContextChars += Number(optimization.baseContextBudget || 0)
       }
-      if (step?.usage) {
-        if (firstUsage === null) firstUsage = usageSample(step.firstUsage || step.usage)
-        addUsage(childUsage, step.usage)
-        childUsageSamples += 1
+      const stepUsageSamples = Array.isArray(step?.usageSamples) && step.usageSamples.length
+        ? step.usageSamples
+        : (step?.usage ? [step.usage] : [])
+      if (stepUsageSamples.length) {
+        if (firstUsage === null) firstUsage = usageSample(step.firstUsage || stepUsageSamples[0])
+        for (const usage of stepUsageSamples) {
+          addUsage(childUsage, usage)
+          childUsageSamples += 1
+        }
       }
       childToolCalls += Number(step?.toolCalls || 0)
       childToolQueueMs += Number(step?.toolQueueMs || 0)
