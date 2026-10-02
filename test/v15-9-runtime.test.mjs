@@ -24,7 +24,7 @@ test("V15.9 model ACI compiler attenuates scaffolding by measured surface", () =
     performanceRecord: { samples: 12, passRate: 1, avgRetries: 0 },
     performanceMinSamples: 8,
   })
-  assert.equal(weak.schemaVersion, 3)
+  assert.equal(weak.schemaVersion, 4)
   assert.equal(weak.scaffoldLevel, "high")
   assert.equal(strong.scaffoldLevel, "low")
   assert.ok(weak.maxAdvertisedTools < strong.maxAdvertisedTools)
