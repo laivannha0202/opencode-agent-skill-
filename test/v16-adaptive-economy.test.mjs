@@ -10,6 +10,7 @@ import { compileAdaptiveStrategy, strategyPerformanceKey } from "../lib/adaptive
 import { modelRuntimeProfile } from "../lib/model-runtime-profile.mjs"
 import { normalizePerformanceHistory, recordStrategyPerformanceOutcome } from "../lib/model-performance.mjs"
 import { governToolOutput } from "../lib/tool-output-governor.mjs"
+import { getEvidence } from "../lib/evidence-store.mjs"
 import { pruneStaleFailedToolInputs } from "../lib/context-pruning.mjs"
 
 test("V16.2 execution surfaces are bounded by model x execution profile", () => {
@@ -195,13 +196,17 @@ test("V16.4 tool governor deduplicates only within the same reversible session s
     assert.equal(repeated.compacted, true)
     assert.equal(repeated.deduplicated, true)
     assert.equal(repeated.deltaState, "UNCHANGED")
-    assert.match(String(repeated.evidenceRef || ""), /^ues-store:/)
+    assert.match(String(repeated.evidenceRef || ""), /^evidence:sha256:[a-f0-9]{64}$/)
+    const repeatedEvidence = await getEvidence(root, repeated.evidenceRef)
+    assert.equal(repeatedEvidence.content, raw)
 
     const changedRaw = raw.replace("line 60: stable content", "line 60: changed content")
     const changed = await governToolOutput(root, changedRaw, options)
     assert.equal(changed.compacted, true)
     assert.equal(changed.deltaState, "CHANGED")
-    assert.match(String(changed.evidenceRef || ""), /^ues-store:/)
+    assert.match(String(changed.evidenceRef || ""), /^evidence:sha256:[a-f0-9]{64}$/)
+    const changedEvidence = await getEvidence(root, changed.evidenceRef)
+    assert.equal(changedEvidence.content, changedRaw)
   } finally {
     await rm(root, { recursive: true, force: true })
     resetSeenContextLedger("epoch:test")
