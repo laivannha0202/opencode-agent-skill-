@@ -5668,6 +5668,29 @@ export default function (pi: ExtensionAPI) {
           };
         }
         structuredPlan = finalPhaseGate.plan;
+        requirementPlanGate = validateRequirementPlanCoverage(
+          structuredPlan,
+          executionContract.requirementLedger,
+        );
+        if (requirementPlanGate.valid !== true) {
+          return {
+            content: [{
+              type: "text",
+              text:
+                "Plan revision lost V16.1 requirement coverage. UES will not execute a plan that omits or invents requirement mappings.\n\n" +
+                requirementPlanGate.errors.join("\n"),
+            }],
+            details: {
+              mode: "execute",
+              policy,
+              steps,
+              structuredPlan,
+              requirementPlanGate,
+              executionContract,
+            },
+            isError: true,
+          };
+        }
 
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
@@ -6456,6 +6479,7 @@ export default function (pi: ExtensionAPI) {
               `UES execution PASS after ${attempt} attempt(s).`,
               `Policy: ${policy.executionProfile}/${policy.risk}; model tier: ${implementation.modelTier || "default"}.`,
               verdictMatrix.source,
+              verdictMatrix.requirements,
               verdictMatrix.runtime,
               verdictMatrix.dbClean,
               verdictMatrix.device,
