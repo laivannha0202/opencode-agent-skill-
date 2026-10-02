@@ -807,6 +807,8 @@ export default function (pi: ExtensionAPI) {
       phase,
       cacheMode: String(process.env.UES_CHILD_CACHE_MODE || "neutral"),
       runId: CHILD_RUN_ID || null,
+      sessionId: String(process.env.UES_CHILD_RUNTIME_EPOCH_ID || CHILD_RUN_ID || ""),
+      failed: event.isError === true,
       kind: `child-${toolName}-output`,
       source: commandHint,
       summary: capture.full
@@ -852,6 +854,9 @@ export default function (pi: ExtensionAPI) {
           adaptiveBudget: { ...governed.adaptive, routedMaxChars: governed.maxChars },
           contentRoute: governed.route,
           cacheMode: governed.cacheMode,
+          deltaState: governed.deltaState || null,
+          deduplicated: governed.deduplicated === true,
+          deltaRatio: governed.deltaRatio ?? null,
           universalBoundary: true,
         },
       },
