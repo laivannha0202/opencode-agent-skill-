@@ -560,7 +560,10 @@ async function persistExecutionContractArtifacts(dir: string, contract: any) {
   );
   await fs.promises.writeFile(
     path.join(dir, "REQUIREMENTS.json"),
-    JSON.stringify(contract.requirementLedger || { schemaVersion: 1, requirements: [], total: 0 }, null, 2) + "\n",
+    JSON.stringify({
+      ...(contract.requirementLedger || { schemaVersion: 1, requirements: [], total: 0 }),
+      planCoverage: contract.requirementPlanCoverage || null,
+    }, null, 2) + "\n",
     "utf8",
   );
   await fs.promises.writeFile(
@@ -607,11 +610,14 @@ async function finalizeExecutionContractArtifacts(
   );
   await fs.promises.writeFile(
     path.join(dir, "REQUIREMENT_EVIDENCE.json"),
-    JSON.stringify(verdictMatrix?.requirementCoverage || {
-      schemaVersion: 1,
-      status: "REQUIREMENTS_NOT_VERIFIED",
-      coverage: 0,
-      requirements: [],
+    JSON.stringify({
+      ...(verdictMatrix?.requirementCoverage || {
+        schemaVersion: 1,
+        status: "REQUIREMENTS_NOT_VERIFIED",
+        coverage: 0,
+        requirements: [],
+      }),
+      planCoverage: contract.requirementPlanCoverage || null,
     }, null, 2) + "\n",
     "utf8",
   );
@@ -4976,6 +4982,20 @@ export default function (pi: ExtensionAPI) {
         workspaceState: controllerWorkspaceState,
       });
       const executionContract = buildExecutionContract(params.task, inheritedDirty);
+      const inlineRequirementIds = (executionContract.requirementLedger?.requirements || [])
+        .map((item: any) => String(item.id || ""))
+        .filter(Boolean);
+      executionContract.requirementPlanCoverage = {
+        schemaVersion: 1,
+        valid: true,
+        mappingMode: "inline-execution",
+        coverage: inlineRequirementIds.length ? 1 : 1,
+        covered: inlineRequirementIds.length,
+        total: inlineRequirementIds.length,
+        errors: [],
+        warnings: [],
+        mappings: Object.fromEntries(inlineRequirementIds.map((id: string) => [id, ["inline-execution"]])),
+      };
       const contractPrompt = executionContractPrompt(executionContract);
       const suppliedPolicy = (params as any).__taskPolicy;
       const basePolicy =
@@ -5691,6 +5711,10 @@ export default function (pi: ExtensionAPI) {
             isError: true,
           };
         }
+        executionContract.requirementPlanCoverage = {
+          ...requirementPlanGate,
+          mappingMode: "structured-plan",
+        };
 
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
