@@ -706,17 +706,53 @@ test("V16.3 the follow-up budget is bounded", async () => {
 // ---- DeepSeek browser session behaviour ----
 
 test("V16.3 the DeepSeek adapter reports needs-auth instead of attempting a login", async () => {
+  const actions = []
   const adapter = createDeepSeekWebAdapter({
     capability: { interactive: true, provider: "playwright-mcp" },
-    loginProbe: async () => ({ authenticated: false, url: "https://chat.deepseek.com/login" }),
-    invoke: async () => { throw new Error("must not be called") },
+    authProbe: async () => ({ state: "NEEDS_AUTH", url: "https://chat.deepseek.com/login", reason: "login-url-detected" }),
+    invoke: async (action) => {
+      actions.push(action)
+      // The entry page loads and lands on the login wall.
+      return { ok: true, afterUrl: "https://chat.deepseek.com/login" }
+    },
   })
   const capability = await adapter.capability()
   assert.equal(capability.state, "needs-auth")
+  assert.equal(capability.authState, "NEEDS_AUTH")
   assert.equal(capability.reason, DEEPSEEK_WEB_FAILURE.AUTH_REQUIRED)
   const session = await adapter.startSession({})
   assert.equal(session.state, "needs-auth")
   assert.equal(session.sessionId, null)
+  // The session opens the entry page, then stops. It never types and never submits.
+  assert.deepEqual(actions, ["navigate"])
+})
+
+test("V16.3 the DeepSeek adapter reports needs-auth when no probe is bound at all", async () => {
+  const adapter = createDeepSeekWebAdapter({
+    capability: { interactive: true, provider: "playwright-mcp" },
+    invoke: async () => ({ ok: true }),
+  })
+  const capability = await adapter.capability()
+  // An unobserved auth state is reported as an auth problem, never as UI drift.
+  assert.equal(capability.state, "needs-auth")
+  assert.equal(capability.authState, "UNKNOWN")
+  assert.equal(capability.reason, DEEPSEEK_WEB_FAILURE.AUTH_REQUIRED)
+  const session = await adapter.startSession({})
+  assert.equal(session.state, "needs-auth")
+  assert.equal(session.sessionId, null)
+})
+
+test("V16.3 the DeepSeek adapter reports UI_CHANGED only from an observation", async () => {
+  const adapter = createDeepSeekWebAdapter({
+    capability: { interactive: true, provider: "playwright-mcp" },
+    authProbe: async () => ({ state: "UI_CHANGED", url: "https://chat.deepseek.com/", reason: "page-loaded-but-no-known-composer-found" }),
+    invoke: async () => ({ ok: true, afterUrl: "https://chat.deepseek.com/" }),
+  })
+  const capability = await adapter.capability()
+  assert.equal(capability.authState, "UI_CHANGED")
+  assert.match(capability.reason, /ui-selector-changed/)
+  const session = await adapter.startSession({})
+  assert.equal(session.state, "ui-changed")
 })
 
 test("V16.3 the DeepSeek adapter refuses to consult when the browser lane cannot interact", async () => {

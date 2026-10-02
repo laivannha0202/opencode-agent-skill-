@@ -29,8 +29,27 @@ import {
   encodeWorkerRequest,
   encodeWorkerResponse,
 } from "../lib/browser-worker-protocol.mjs"
+import { AUTH_PROBE_STATE, authProbeScript, profileForMode } from "../lib/browser-profile.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
+
+// Assistant-message containers used only to COUNT regions during the read-only
+// auth probe. Counting is enough; the probe never reads their contents.
+const DEFAULT_ANSWER_SELECTORS = [
+  "[data-message-role='assistant']",
+  "[data-role='assistant']",
+  ".ds-markdown",
+  "[class*='assistant']",
+]
+
+// Live profile selection. `--live` with `--profile <name>` gets a persistent
+// browser profile under the UES config dir (outside the repository); everything
+// else -- including CI -- gets an ephemeral context.
+const argv = process.argv.slice(2)
+const liveFlag = argv.includes("--live")
+const profileName = (argv.find((entry) => entry.startsWith("--profile=")) || "").slice("--profile=".length) || ""
+const headedFlag = argv.includes("--headed")
+const profile = profileForMode({ live: liveFlag, profile: profileName })
 
 function boundedInt(value, fallback, min, max) {
   const parsed = Number(value)
@@ -82,6 +101,7 @@ function roleForElement(el) {
 async function main() {
   const playwright = loadPlaywright()
   let browser = null
+  let context = null
   let page = null
   const consoleErrors = []
   const networkFailures = []
@@ -90,12 +110,27 @@ async function main() {
   async function ensurePage() {
     if (page) return page
     if (!playwright) {
+      /** @type {any} */
       const error = new Error("Playwright is not installed in this project; add playwright or @playwright/test")
       error.code = BROWSER_WORKER_FAILURE.UNAVAILABLE
       throw error
     }
-    browser = await playwright.chromium.launch({ headless: true })
-    page = await browser.newPage({ viewport: { width: 1440, height: 900 } })
+    const headless = !headedFlag
+    if (profile.mode === "persistent" && profile.userDataDir) {
+      // A persistent context keeps cookies/storage on disk between runs, which is
+      // the whole point of the profile: the user logs in ONCE, and the live smoke
+      // reuses it. Nothing in this process ever reads those values back out.
+      context = await playwright.chromium.launchPersistentContext(profile.userDataDir, {
+        headless,
+        viewport: { width: 1440, height: 900 },
+        args: ["--disable-blink-features=AutomationControlled"],
+      })
+      page = context.pages()[0] || (await context.newPage());
+    } else {
+      browser = await playwright.chromium.launch({ headless })
+      context = await browser.newContext({ viewport: { width: 1440, height: 900 } })
+      page = await context.newPage()
+    }
     page.on("console", (message) => {
       if (["error", "warning"].includes(String(message.type() || ""))) {
         consoleErrors.push(String(message.text() || "").slice(0, 400))
@@ -153,17 +188,25 @@ async function main() {
     const { operation, payload } = encoded
 
     if (operation === BROWSER_WORKER_OPERATION.CAPABILITY) {
+      const capability = {
+        protocolVersion: BROWSER_WORKER_PROTOCOL_VERSION,
+        playwright: playwright ? "available" : "unavailable",
+        browserState: playwright ? "ready" : "unavailable",
+        interactive: Boolean(playwright),
+        inspectOnly: Boolean(playwright),
+        // Profile metadata for the caller. `userDataDir` is a PATH, never a
+        // credential: the worker reports where the profile is, not what is in it.
+        profileMode: profile.mode,
+        profileDir: profile.userDataDir || null,
+        profileReason: profile.reason,
+        profileExists: profile.exists === true,
+        headless: !headedFlag,
+      };
       return encodeWorkerResponse({
         ok: true,
         requestId: payload.requestId,
         operation,
-        payload: {
-          protocolVersion: BROWSER_WORKER_PROTOCOL_VERSION,
-          playwright: playwright ? "available" : "unavailable",
-          browserState: playwright ? "ready" : "unavailable",
-          interactive: Boolean(playwright),
-          inspectOnly: Boolean(playwright),
-        },
+        payload: capability,
       })
     }
 
@@ -189,7 +232,12 @@ async function main() {
           },
         })
       }
-      if ([BROWSER_WORKER_OPERATION.RELOAD, BROWSER_WORKER_OPERATION.BACK, BROWSER_WORKER_OPERATION.FORWARD].includes(operation)) {
+      const historyOps = [
+        BROWSER_WORKER_OPERATION.RELOAD,
+        BROWSER_WORKER_OPERATION.BACK,
+        BROWSER_WORKER_OPERATION.FORWARD,
+      ]
+      if (/** @type {string[]} */ (historyOps).includes(operation)) {
         if (operation === BROWSER_WORKER_OPERATION.RELOAD) await activePage.reload({ timeout })
         else if (operation === BROWSER_WORKER_OPERATION.BACK) await activePage.goBack({ timeout })
         else await activePage.goForward({ timeout })
@@ -294,6 +342,31 @@ async function main() {
       if (operation === BROWSER_WORKER_OPERATION.CLOSE) {
         return encodeWorkerResponse({ ok: true, requestId: payload.requestId, operation, payload: { ...base } })
       }
+      if (operation === "auth-probe") {
+        // READ-ONLY. Evaluates a fixed DOM snapshot in the page and returns it.
+        // It clicks nothing, submits nothing, and returns no cookie, token,
+        // storage entry, header or input value.
+        const observations = await activePage.evaluate(authProbeScript({
+          answerSelectors: payload.answerSelectors || DEFAULT_ANSWER_SELECTORS,
+          composerSelector: payload.composerSelector || "",
+        }));
+        return encodeWorkerResponse({
+          ok: true,
+          requestId: payload.requestId,
+          operation,
+          payload: {
+            ...base,
+            finalUrl: activePage.url(),
+            auth: {
+              url: observations.url,
+              title: observations.title,
+              text: observations.text,
+              composerVisible: observations.composerVisible,
+              answerRegions: observations.answerRegions,
+            },
+          },
+        });
+      }
       return encodeWorkerResponse({
         ok: false,
         requestId: payload.requestId,
@@ -320,7 +393,7 @@ async function main() {
   }
 
   async function shutdown() {
-    try { await page?.close() } catch {}
+    try { await context?.close() } catch {}
     try { await browser?.close() } catch {}
   }
 

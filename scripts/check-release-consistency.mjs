@@ -323,6 +323,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
       "test/browser-reliability-v16-3.test.mjs",
       "test/deepseek-web-bridge-v16-3.test.mjs",
       "test/v16-3-controller-integration.test.mjs",
+      "test/v16-3-live-deepseek.test.mjs",
     ]
     if (!requiredV163Tests.every((file) => focusedV16.includes(file))) {
       errors.push("package.json: eval:v16 must include the V16.3 browser-reliability and deepseek-web-bridge suites")
@@ -353,6 +354,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     for (const required of [
       "scripts/browser-worker-v16-3.mjs",
       "scripts/smoke-deepseek-web-v16-3.mjs",
+      "lib/browser-profile.mjs",
     ]) {
       if (!pkg.files.includes(required)) {
         errors.push(`package.json: V16.3 runtime integration file must be packed: ${required}`)
