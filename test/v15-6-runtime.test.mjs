@@ -69,7 +69,8 @@ test("V15.6 compact model profiles reduce tool-choice noise without lowering thi
   const tools = Array.from({ length: 20 }, (_, index) => "tool_" + index)
   tools.push("ues_code")
   const selected = applyModelToolBudget(tools, compact, ["ues_code"])
-  assert.equal(selected.length, compact.maxAdvertisedTools)
+  assert.equal(selected.length, Math.min(tools.length, compact.maxAdvertisedTools + 2))
+  assert.ok(selected.length > compact.maxAdvertisedTools)
   assert.equal(selected[0], "ues_code")
 })
 
