@@ -52,7 +52,9 @@ import { buildPolicySnapshot } from "../../lib/policy-snapshot.mjs";
 import { buildRuntimeEpoch } from "../../lib/runtime-epoch.mjs";
 import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
-import { applyModelToolBudget, compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
+import { compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
+import { compileToolSurface, coreToolPriorities, learnToolUtilization } from "../../lib/tool-surface-economy.mjs";
+import { compileAdaptiveStrategy, renderAdaptiveStrategyContract } from "../../lib/adaptive-strategy.mjs";
 import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
 import { buildContextObservatory, decisionPointFingerprint } from "../../lib/context-observatory.mjs";
 import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
@@ -867,6 +869,7 @@ async function runAgentCli(
     attempt?: number;
     modelProfile?: any;
     cachePolicy?: any;
+    toolUtility?: any;
     skills?: string[];
   } = {},
 ): Promise<RunResult> {
@@ -903,15 +906,23 @@ async function runAgentCli(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
-  const mandatoryTools = [
-    "read", "grep", "bash", "powershell",
-    ...(WRITE_AGENTS.has(agent) ? ["edit", "write", "ues_code_edit"] : []),
-    "ues_code", "ues_service",
-    ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
-    ...extraTools,
-  ];
-  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, mandatoryTools);
-  const toolExposure = await resolveChildToolExposure(agent, budgetedTools);
+  const coreTools = coreToolPriorities(candidateTools, {
+    task,
+    writer: WRITE_AGENTS.has(agent),
+    executionProfile: runtimeOptions.executionProfile || "standard",
+    platform: process.platform,
+    compactToolOutput: runtimeOptions.compactToolOutput === true,
+    extraTools,
+  });
+  const toolSurfaceEconomy = compileToolSurface(candidateTools, modelProfile, coreTools, {
+    task,
+    writer: WRITE_AGENTS.has(agent),
+    executionProfile: runtimeOptions.executionProfile || "standard",
+    attempt: runtimeOptions.attempt || 1,
+    utility: runtimeOptions.toolUtility || null,
+  });
+  const policyToolExposure = await resolveChildToolExposure(agent, toolSurfaceEconomy.advertised);
+  const toolExposure = { ...policyToolExposure, economy: toolSurfaceEconomy };
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
     agent,
@@ -1336,6 +1347,7 @@ async function runAgentRpc(
     attempt?: number;
     modelProfile?: any;
     cachePolicy?: any;
+    toolUtility?: any;
     skills?: string[];
   } = {},
 ): Promise<RunResult> {
@@ -1369,15 +1381,23 @@ async function runAgentRpc(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
-  const mandatoryTools = [
-    "read", "grep", "bash", "powershell",
-    ...(WRITE_AGENTS.has(agent) ? ["edit", "write", "ues_code_edit"] : []),
-    "ues_code", "ues_service",
-    ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
-    ...extraTools,
-  ];
-  const budgetedTools = applyModelToolBudget(candidateTools, modelProfile, mandatoryTools);
-  const toolExposure = await resolveChildToolExposure(agent, budgetedTools);
+  const coreTools = coreToolPriorities(candidateTools, {
+    task,
+    writer: WRITE_AGENTS.has(agent),
+    executionProfile: runtimeOptions.executionProfile || "standard",
+    platform: process.platform,
+    compactToolOutput: runtimeOptions.compactToolOutput === true,
+    extraTools,
+  });
+  const toolSurfaceEconomy = compileToolSurface(candidateTools, modelProfile, coreTools, {
+    task,
+    writer: WRITE_AGENTS.has(agent),
+    executionProfile: runtimeOptions.executionProfile || "standard",
+    attempt: runtimeOptions.attempt || 1,
+    utility: runtimeOptions.toolUtility || null,
+  });
+  const policyToolExposure = await resolveChildToolExposure(agent, toolSurfaceEconomy.advertised);
+  const toolExposure = { ...policyToolExposure, economy: toolSurfaceEconomy };
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
     agent,
@@ -1705,6 +1725,7 @@ async function runAgent(
     attempt?: number;
     modelProfile?: any;
     cachePolicy?: any;
+    toolUtility?: any;
     skills?: string[];
   } = {},
 ): Promise<RunResult> {
