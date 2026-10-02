@@ -45,6 +45,7 @@ import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-displ
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
+import { classifyPlanningFailure, directLaneDecision, plannerSelfCheck, planningFailureFingerprint, planningRecoveryDecision, PLANNING_ERROR } from "../../lib/planning-recovery.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, compilePolicyLattice, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
@@ -152,6 +153,12 @@ const CHILD_HARD_TIMEOUT_MS = configuredDuration(
 const CHILD_IDLE_TIMEOUT_MS = configuredDuration(
   "UES_CHILD_IDLE_TIMEOUT_MS",
   5 * 60_000,
+  30_000,
+  30 * 60_000,
+);
+const CHILD_TOOL_TIMEOUT_MS = configuredDuration(
+  "UES_CHILD_TOOL_TIMEOUT_MS",
+  10 * 60_000,
   30_000,
   30 * 60_000,
 );
@@ -909,6 +916,7 @@ async function runAgentCli(
     compactToolOutput?: boolean;
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
+    toolTimeoutMs?: number;
     hardTimeoutMs?: number;
     absoluteHardTimeoutMs?: number;
     activityExtensionMs?: number;
@@ -1050,6 +1058,7 @@ async function runAgentCli(
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
+          UES_CHILD_TOOL_TIMEOUT_SEC: String(Math.max(5, Math.ceil(Number(runtimeOptions.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS) / 1000))),
           UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
           UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
           UES_CHILD_DEFERRED_TOOLS: toolSurfaceEconomy.deferred.join(","),
@@ -1395,6 +1404,7 @@ async function runAgentRpc(
     compactToolOutput?: boolean;
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
+    toolTimeoutMs?: number;
     hardTimeoutMs?: number;
     absoluteHardTimeoutMs?: number;
     activityExtensionMs?: number;
@@ -1506,6 +1516,7 @@ async function runAgentRpc(
     Boolean(runtimeOptions.compactToolOutput),
     Number(runtimeOptions.toolOutputLimit || 0),
     Number(runtimeOptions.verificationTimeoutSec || 0),
+    Number(runtimeOptions.toolTimeoutMs || 0),
     Boolean(runtimeOptions.allowLocalEnvWrite),
     policySnapshot.id,
     effectiveRuntimeEpochId,
@@ -1568,6 +1579,7 @@ async function runAgentRpc(
           UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
           UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
+          UES_CHILD_TOOL_TIMEOUT_SEC: String(Math.max(5, Math.ceil(Number(runtimeOptions.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS) / 1000))),
           UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
           UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
           UES_CHILD_DEFERRED_TOOLS: toolSurfaceEconomy.deferred.join(","),
@@ -1781,6 +1793,7 @@ async function runAgent(
     compactToolOutput?: boolean;
     toolOutputLimit?: number;
     verificationTimeoutSec?: number;
+    toolTimeoutMs?: number;
     hardTimeoutMs?: number;
     absoluteHardTimeoutMs?: number;
     activityExtensionMs?: number;
@@ -2650,14 +2663,18 @@ async function runRoutedAgent(
               : taskPolicy.executionProfile === "standard"
                 ? 300
                 : 600,
+      toolTimeoutMs:
+        turboFast.eligible
+          ? TURBO_FAST_TIMEOUTS.verificationTimeoutSec * 1000
+          : planningBudget?.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS,
       hardTimeoutMs:
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
-          : planningBudget?.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
+          : planningBudget?.planningTimeoutMs || planningBudget?.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
       absoluteHardTimeoutMs:
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
-          : planningBudget?.absoluteHardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
+          : planningBudget?.absoluteRunTimeoutMs || planningBudget?.absoluteHardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
       activityExtensionMs:
         turboFast.eligible ? 0 : planningBudget?.activityExtensionMs || 0,
       activityWindowMs:
@@ -2665,7 +2682,7 @@ async function runRoutedAgent(
       idleTimeoutMs:
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.idleTimeoutMs
-          : planningBudget?.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS,
+          : planningBudget?.modelTimeoutMs || planningBudget?.idleTimeoutMs || CHILD_IDLE_TIMEOUT_MS,
       postToolErrorIdleTimeoutMs:
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.postToolErrorIdleTimeoutMs
@@ -5243,8 +5260,24 @@ export default function (pi: ExtensionAPI) {
       const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
       const steps: RunResult[] = [];
       let recentFailure = "";
+      let planningResumeEvidence = "";
       let structuredPlan: any = null;
       let durableWork: any = null;
+      const directLane = directLaneDecision(params.task, policy, executionContract);
+      if (policy.requirePlanCheck && directLane.eligible) {
+        await appendRunJournalEvent(cwd, traceID, "planning.direct-lane", {
+          reason: directLane.reason,
+          files: directLane.files,
+          preservesVerification: true,
+        }).catch(() => null);
+        onUpdate?.({
+          content: [{
+            type: "text",
+            text: "UES V16.2 direct lane: bounded task admitted without architect/plan-checker; permission and verification gates remain active",
+          }],
+          details: { mode: "execute", phase: "planning-direct-lane", directLane, traceID },
+        });
+      }
 
       const abortedResponse = (result?: RunResult | null, stage = "execution") => ({
         content: [{
@@ -5588,7 +5621,7 @@ export default function (pi: ExtensionAPI) {
         recentFailure = diagnosis.output;
       }
 
-      if (policy.requirePlanCheck) {
+      planningGate: if (policy.requirePlanCheck && !directLane.eligible) {
         const planInstruction = [
           params.task,
           "",
@@ -5604,12 +5637,45 @@ export default function (pi: ExtensionAPI) {
           "DEEP efficiency rule: use the supplied runtime context/ranked references first; do not inventory the whole repository or re-read unchanged files. You have a bounded planning budget: prefer at most one targeted lookup per unresolved boundary, then emit the plan. Stop exploration once exact task scope, dependencies, acceptance, verification, and risk/rollback are grounded.",
         ].join("\n");
 
-        let architect = await run(
-          "ues-architect",
-          planInstruction,
-          1,
-          recentFailure || undefined,
-        );
+        const planningFailureFingerprints: string[] = [];
+        let architectTurns = 0;
+        const runArchitectTurn = async (failure?: string) => {
+          if (architectTurns >= 2) return null;
+          architectTurns += 1;
+          return run("ues-architect", planInstruction, architectTurns, failure);
+        };
+        const planningFailureState = (agentResult: RunResult, candidate: any, requirementGate: any) => {
+          const failure = classifyPlanningFailure({
+            ...agentResult,
+            plan: candidate?.plan || null,
+            validation: candidate?.validation || null,
+            requirementGate,
+            parseError: candidate?.parseError || null,
+          });
+          const fingerprint = planningFailureFingerprint(failure, {
+            validation: candidate?.validation || null,
+            requirementGate,
+            repairs: candidate?.repairs || [],
+          });
+          return { failure, fingerprint };
+        };
+        const reportPlanRecovery = async (state: any, attempt: number) => {
+          await appendRunJournalEvent(cwd, traceID, "planning.failure", {
+            attempt,
+            code: state.failure.code,
+            fingerprint: state.fingerprint,
+            message: state.failure.message,
+          }).catch(() => null);
+        };
+
+        let architect = await runArchitectTurn(recentFailure || undefined);
+        if (!architect) {
+          return {
+            content: [{ type: "text", text: "UES planner turn budget was exhausted before the first architect pass." }],
+            details: { mode: "execute", policy, steps, planningError: PLANNING_ERROR.TRANSPORT },
+            isError: true,
+          };
+        }
         if (isAbortedRun(architect)) return abortedResponse(architect, "planning");
 
         let planCandidate = extractValidatedPlan(architect.output);
@@ -5620,18 +5686,28 @@ export default function (pi: ExtensionAPI) {
           executionContract.requirementLedger,
         );
 
-        if (planCandidate.salvaged && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
+        if (planCandidate.repaired && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
+          onUpdate?.({
+            content: [{
+              type: "text",
+              text: `UES V16.2 planner JSON repair: recovered valid plan deterministically (${(planCandidate.repairs || []).join(", ") || "bounded repair"})`,
+            }],
+            details: {
+              mode: "execute",
+              phase: "planning-json-repair",
+              source: planCandidate.source,
+              repairs: planCandidate.repairs || [],
+              repairCount: planCandidate.repairCount || 0,
+              traceID,
+            },
+          });
+        } else if (planCandidate.salvaged && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
           onUpdate?.({
             content: [{
               type: "text",
               text: `UES planning salvage: recovered a valid plan from ${planCandidate.source} architect output`,
             }],
-            details: {
-              mode: "execute",
-              phase: "planning-salvage",
-              source: planCandidate.source,
-              traceID,
-            },
+            details: { mode: "execute", phase: "planning-salvage", source: planCandidate.source, traceID },
           });
         }
 
@@ -5641,13 +5717,64 @@ export default function (pi: ExtensionAPI) {
           requirementPlanGate.valid === true;
 
         if (!firstPlanValid) {
+          const firstFailure = planningFailureState(architect, planCandidate, requirementPlanGate);
+          await reportPlanRecovery(firstFailure, 1);
+          const firstRecovery = planningRecoveryDecision({
+            attempts: 1,
+            maxAttempts: 2,
+            failure: firstFailure.failure,
+            fingerprint: firstFailure.fingerprint,
+            previousFingerprints: planningFailureFingerprints,
+            task: params.task,
+            candidatePlan: structuredPlan,
+            policy,
+            executionContract,
+          });
+          planningFailureFingerprints.push(firstFailure.fingerprint);
+
+          if (firstRecovery.action === "DIRECT_FALLBACK") {
+            planningResumeEvidence = [
+              "V16.2 bounded planner fallback preserved prior evidence instead of restarting.",
+              `${firstFailure.failure.code}: ${firstFailure.failure.message}`,
+              `fingerprint: ${firstFailure.fingerprint}`,
+            ].join("\n");
+            structuredPlan = null;
+            await appendRunJournalEvent(cwd, traceID, "planning.direct-fallback", {
+              code: firstFailure.failure.code,
+              fingerprint: firstFailure.fingerprint,
+              reason: firstRecovery.reason,
+            }).catch(() => null);
+            onUpdate?.({
+              content: [{ type: "text", text: "UES V16.2 planning fallback: switching to bounded direct execution without discarding gathered evidence" }],
+              details: { mode: "execute", phase: "planning-direct-fallback", recovery: firstRecovery, traceID },
+            });
+            break planningGate;
+          }
+
+          if (firstRecovery.action !== "RETRY") {
+            return {
+              content: [{
+                type: "text",
+                text: `Planning stopped safely (${firstFailure.failure.code}, ${firstRecovery.reason}).\n\n${firstFailure.failure.message}`,
+              }],
+              details: {
+                mode: "execute", policy, steps, structuredPlan, structuredValidation, requirementPlanGate,
+                planningError: firstFailure.failure.code,
+                planningFailureFingerprint: firstFailure.fingerprint,
+                planningRecovery: firstRecovery,
+              },
+              isError: true,
+            };
+          }
+
           const recoveryEvidence = failureDelta([
             architect.exitCode !== 0 || architect.stopReason
               ? "Previous architect pass stopped before a valid plan: " + String(architect.stopReason || architect.exitCode)
               : "Previous architect pass returned an invalid plan.",
+            `Planning error: ${firstFailure.failure.code}; fingerprint=${firstFailure.fingerprint}`,
             structuredValidation
               ? JSON.stringify(structuredValidation, null, 2)
-              : "UES_PLAN_JSON marker or valid JSON object was missing.",
+              : planCandidate.parseError || "UES_PLAN_JSON marker or valid JSON object was missing.",
             requirementPlanGate.valid !== true
               ? "V16.1 requirement coverage errors:\n" + requirementPlanGate.errors.join("\n")
               : "",
@@ -5655,7 +5782,15 @@ export default function (pi: ExtensionAPI) {
             "acceptance and verification must be non-empty string arrays; requirementIds must map every controller-owned R# at least once; risk must be low|medium|high|critical; descriptive prose belongs in riskNotes.",
           ].join("\n"), { maxChars: 4200 });
 
-          architect = await run("ues-architect", planInstruction, 2, recoveryEvidence);
+          const recoveredArchitect = await runArchitectTurn(recoveryEvidence);
+          if (!recoveredArchitect) {
+            return {
+              content: [{ type: "text", text: "Planner recovery turn budget exhausted; UES will not start another equivalent planning pass." }],
+              details: { mode: "execute", policy, steps, planningError: firstFailure.failure.code, planningRecovery: firstRecovery },
+              isError: true,
+            };
+          }
+          architect = recoveredArchitect;
           if (isAbortedRun(architect)) return abortedResponse(architect, "plan-recovery");
           planCandidate = extractValidatedPlan(architect.output);
           structuredPlan = planCandidate.plan;
@@ -5664,34 +5799,67 @@ export default function (pi: ExtensionAPI) {
             structuredPlan,
             executionContract.requirementLedger,
           );
-          if (planCandidate.salvaged && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
+          if (planCandidate.repaired && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
             onUpdate?.({
               content: [{
                 type: "text",
-                text: `UES planning salvage: recovery produced a valid ${planCandidate.source} plan`,
+                text: `UES V16.2 planner JSON repair: recovery produced a valid repaired plan (${(planCandidate.repairs || []).join(", ") || "bounded repair"})`,
               }],
               details: {
-                mode: "execute",
-                phase: "planning-salvage",
-                source: planCandidate.source,
-                traceID,
+                mode: "execute", phase: "planning-json-repair", source: planCandidate.source,
+                repairs: planCandidate.repairs || [], traceID,
               },
+            });
+          } else if (planCandidate.salvaged && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
+            onUpdate?.({
+              content: [{ type: "text", text: `UES planning salvage: recovery produced a valid ${planCandidate.source} plan` }],
+              details: { mode: "execute", phase: "planning-salvage", source: planCandidate.source, traceID },
             });
           }
         }
 
-        if (
-          !structuredPlan ||
-          structuredValidation?.valid !== true ||
-          requirementPlanGate.valid !== true
-        ) {
+        if (!structuredPlan || structuredValidation?.valid !== true || requirementPlanGate.valid !== true) {
+          const finalFailure = planningFailureState(architect, planCandidate, requirementPlanGate);
+          await reportPlanRecovery(finalFailure, architectTurns);
+          const finalRecovery = planningRecoveryDecision({
+            attempts: architectTurns,
+            maxAttempts: 2,
+            failure: finalFailure.failure,
+            fingerprint: finalFailure.fingerprint,
+            previousFingerprints: planningFailureFingerprints,
+            task: params.task,
+            candidatePlan: structuredPlan,
+            policy,
+            executionContract,
+          });
+          if (finalRecovery.action === "DIRECT_FALLBACK") {
+            planningResumeEvidence = [
+              "V16.2 bounded planner fallback preserved prior evidence after recovery.",
+              `${finalFailure.failure.code}: ${finalFailure.failure.message}`,
+              `fingerprint: ${finalFailure.fingerprint}`,
+            ].join("\n");
+            structuredPlan = null;
+            await appendRunJournalEvent(cwd, traceID, "planning.direct-fallback", {
+              code: finalFailure.failure.code,
+              fingerprint: finalFailure.fingerprint,
+              reason: finalRecovery.reason,
+            }).catch(() => null);
+            break planningGate;
+          }
           return {
             content: [{
               type: "text",
-              text: "Long-horizon planning exhausted its bounded fast-planning recovery without a valid deterministic task graph.\n\n" +
+              text:
+                `Long-horizon planning stopped safely: ${finalFailure.failure.code} (${finalRecovery.reason}).\n` +
+                `fingerprint=${finalFailure.fingerprint}\n\n` +
                 (structuredValidation ? JSON.stringify(structuredValidation, null, 2) : architect.output),
             }],
-            details: { mode: "execute", policy, steps, structuredPlan, structuredValidation, requirementPlanGate },
+            details: {
+              mode: "execute", policy, steps, structuredPlan, structuredValidation, requirementPlanGate,
+              planningError: finalFailure.failure.code,
+              planningFailureFingerprint: finalFailure.fingerprint,
+              planningRecovery: finalRecovery,
+            },
             isError: true,
           };
         }
@@ -5707,17 +5875,14 @@ export default function (pi: ExtensionAPI) {
             "Current plan:",
             JSON.stringify(structuredPlan, null, 2),
           ].join("\n"), { maxChars: 6200 });
-          const phaseRevisedArchitect = await run(
-            "ues-architect",
-            planInstruction,
-            2,
-            phaseRevisionEvidence,
-          );
-          if (isAbortedRun(phaseRevisedArchitect)) {
+          const phaseRevisedArchitect = await runArchitectTurn(phaseRevisionEvidence);
+          if (phaseRevisedArchitect && isAbortedRun(phaseRevisedArchitect)) {
             return abortedResponse(phaseRevisedArchitect, "phase-plan-auto-revise");
           }
-          const phaseRevisedCandidate = extractValidatedPlan(phaseRevisedArchitect.output);
-          if (phaseRevisedCandidate.plan && phaseRevisedCandidate.validation?.valid === true) {
+          const phaseRevisedCandidate = phaseRevisedArchitect
+            ? extractValidatedPlan(phaseRevisedArchitect.output)
+            : { plan: null, validation: null };
+          if (phaseRevisedArchitect && phaseRevisedCandidate.plan && phaseRevisedCandidate.validation?.valid === true) {
             const revisedPhaseGate = enforcePhaseGates(
               phaseRevisedCandidate.plan,
               executionContract,
@@ -5752,6 +5917,33 @@ export default function (pi: ExtensionAPI) {
           };
         }
         structuredPlan = phaseGate.plan;
+        structuredValidation = validatePlan(structuredPlan);
+        requirementPlanGate = validateRequirementPlanCoverage(
+          structuredPlan,
+          executionContract.requirementLedger,
+        );
+        const initialPlannerSelfCheck = plannerSelfCheck({
+          root: cwd,
+          plan: structuredPlan,
+          validation: structuredValidation,
+          requirementGate: requirementPlanGate,
+          phaseGate,
+        });
+        if (initialPlannerSelfCheck.valid !== true) {
+          return {
+            content: [{
+              type: "text",
+              text: "V16.2 planner self-check rejected the task graph before plan-checker execution.\n\n" +
+                initialPlannerSelfCheck.errors.join("\n"),
+            }],
+            details: {
+              mode: "execute", policy, steps, structuredPlan,
+              plannerSelfCheck: initialPlannerSelfCheck,
+              planningError: PLANNING_ERROR.SCHEMA,
+            },
+            isError: true,
+          };
+        }
 
         const buildPlanCheckTask = () => [
           "Validate the following inline plan against the current repository. If persistent SPEC/PLAN files do not exist yet, evaluate this inline plan directly instead of failing only because those files are absent.",
@@ -5781,6 +5973,18 @@ export default function (pi: ExtensionAPI) {
           );
 
         if (planCheckTransportFailure) {
+          const planCheckFailure = classifyPlanningFailure({
+            ...planCheck,
+            plan: structuredPlan,
+            validation: { valid: true, errors: [] },
+            requirementGate: { valid: true, errors: [] },
+          });
+          await appendRunJournalEvent(cwd, traceID, "planning.failure", {
+            role: "plan-checker",
+            attempt: 1,
+            code: planCheckFailure.code,
+            message: planCheckFailure.message,
+          }).catch(() => null);
           const planCheckRecoveryEvidence = failureDelta([
             "Previous plan-checker runtime failure:",
             String(planCheck.output || planCheck.stderr || planCheck.stopReason || "unknown"),
@@ -5806,12 +6010,21 @@ export default function (pi: ExtensionAPI) {
             JSON.stringify(structuredPlan, null, 2),
           ].join("\n"), { maxChars: 5200 });
 
-          const revisedArchitect = await run(
-            "ues-architect",
-            planInstruction,
-            2,
-            revisionEvidence,
-          );
+          const revisedArchitect = await runArchitectTurn(revisionEvidence);
+          if (!revisedArchitect) {
+            return {
+              content: [{
+                type: "text",
+                text: "Plan-checker requested another architect revision after the two-turn planner budget was exhausted. UES stopped instead of repeating planning.",
+              }],
+              details: {
+                mode: "execute", policy, steps, structuredPlan,
+                planningError: PLANNING_ERROR.SCHEMA,
+                planningRecovery: "architect-turn-budget-exhausted",
+              },
+              isError: true,
+            };
+          }
           if (isAbortedRun(revisedArchitect)) return abortedResponse(revisedArchitect, "plan-auto-revise");
           const revisedCandidate = extractValidatedPlan(revisedArchitect.output);
           if (revisedCandidate.plan && revisedCandidate.validation?.valid === true) {
@@ -5870,6 +6083,30 @@ export default function (pi: ExtensionAPI) {
             isError: true,
           };
         }
+        const finalStructuredValidation = validatePlan(structuredPlan);
+        const finalPlannerSelfCheck = plannerSelfCheck({
+          root: cwd,
+          plan: structuredPlan,
+          validation: finalStructuredValidation,
+          requirementGate: requirementPlanGate,
+          phaseGate: finalPhaseGate,
+        });
+        if (finalPlannerSelfCheck.valid !== true) {
+          return {
+            content: [{
+              type: "text",
+              text: "V16.2 final planner self-check rejected the revised task graph.\n\n" +
+                finalPlannerSelfCheck.errors.join("\n"),
+            }],
+            details: {
+              mode: "execute", policy, steps, structuredPlan,
+              plannerSelfCheck: finalPlannerSelfCheck,
+              planningError: PLANNING_ERROR.SCHEMA,
+            },
+            isError: true,
+          };
+        }
+        structuredValidation = finalStructuredValidation;
         executionContract.requirementPlanCoverage = {
           ...requirementPlanGate,
           mappingMode: "structured-plan",
@@ -5878,7 +6115,21 @@ export default function (pi: ExtensionAPI) {
         if (planCheck.exitCode !== 0 || planCheck.verdict !== "PASS") {
           return {
             content: [{ type: "text", text: `Plan gate did not pass after bounded auto-recovery:\n\n${planCheck.output}` }],
-            details: { mode: "execute", policy, steps, structuredPlan },
+            details: {
+              mode: "execute",
+              policy,
+              steps,
+              structuredPlan,
+              planningError:
+                planCheck.verdict === "REVISE"
+                  ? PLANNING_ERROR.SCHEMA
+                  : classifyPlanningFailure({
+                      ...planCheck,
+                      plan: structuredPlan,
+                      validation: structuredValidation,
+                      requirementGate: requirementPlanGate,
+                    }).code,
+            },
             isError: true,
           };
         }
@@ -6280,6 +6531,7 @@ export default function (pi: ExtensionAPI) {
         const executorTask = [
           params.task,
           recentFailure ? "\nEvidence from diagnosis/previous failed verification:\n" + cap(recentFailure, 7000) : "",
+          planningResumeEvidence ? "\nPlanner recovery evidence preserved for direct continuation:\n" + cap(planningResumeEvidence, 4200) : "",
           fastBoundedLane
             ? "\nFAST bounded rule: stay on the named target file. Read that file first; do not inventory the repository or run broad searches unless the target is missing or direct evidence proves wider scope. Make the smallest edit, then run one focused behavioral check and stop once a fresh PASS receipt covers every explicit branch. If no project-native JS/TS test exists, use one temporary .ues-cache/fast-acceptance.test.mjs probe, run node --test .ues-cache/fast-acceptance.test.mjs, and remove only that probe afterwards. Syntax/build alone is insufficient."
             : "",

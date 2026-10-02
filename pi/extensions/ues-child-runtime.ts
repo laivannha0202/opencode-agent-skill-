@@ -248,6 +248,12 @@ function configuredVerificationTimeout() {
   return Math.max(30, Math.min(1800, Math.trunc(raw)));
 }
 
+function configuredToolTimeout() {
+  const raw = Number(process.env.UES_CHILD_TOOL_TIMEOUT_SEC || 600);
+  if (!Number.isFinite(raw) || raw <= 0) return 600;
+  return Math.max(5, Math.min(1800, Math.trunc(raw)));
+}
+
 function configuredRawCaptureLimit() {
   const raw = Number(process.env.UES_CHILD_RAW_CAPTURE_LIMIT || 32 * 1024 * 1024);
   if (!Number.isFinite(raw) || raw <= 0) return 32 * 1024 * 1024;
@@ -591,11 +597,17 @@ export default function (pi: ExtensionAPI) {
         inputHash: toolInputHash(input),
       });
     }
+    const configuredToolTimeoutSec = configuredToolTimeout();
+    const requestedToolTimeout = Number((event.input as any)?.timeout);
+    (event.input as any).timeout =
+      Number.isFinite(requestedToolTimeout) && requestedToolTimeout > 0
+        ? Math.min(requestedToolTimeout, configuredToolTimeoutSec)
+        : configuredToolTimeoutSec;
+
     if (verificationLike) {
-      const configured = configuredVerificationTimeout();
-      // A model-provided 90 minute timeout must not bypass the bounded verification
-      // policy. Clamp, rather than only filling a missing timeout, so hidden-output
-      // pipelines cannot make the agent look hung for an unbounded period.
+      const configured = Math.min(configuredVerificationTimeout(), configuredToolTimeoutSec);
+      // A model-provided 90 minute timeout must not bypass either the bounded
+      // verification policy or the V16.2 per-tool ceiling.
       const boundedTimeout = boundedVerificationTimeout(
         { ...commandAnalysis, verificationLike: true },
         (event.input as any)?.timeout,

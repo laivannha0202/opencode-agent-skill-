@@ -32,6 +32,21 @@ test("V15.10 architect planning has an activity-aware ceiling and tighter recove
   assert.ok(recovery.absoluteHardTimeoutMs < first.absoluteHardTimeoutMs)
 })
 
+test("V16.2 exposes separate planner/model/tool/absolute timeout semantics", () => {
+  const first = planningRuntimeBudget("architect", 1, { executionProfile: "deep" })
+  const checker = planningRuntimeBudget("plan-checker", 1, { executionProfile: "deep" })
+
+  assert.equal(first.planningTimeoutMs, first.hardTimeoutMs)
+  assert.equal(first.modelTimeoutMs, first.idleTimeoutMs)
+  assert.equal(first.absoluteRunTimeoutMs, first.absoluteHardTimeoutMs)
+  assert.equal(first.toolTimeoutMs, 45_000)
+
+  assert.equal(checker.planningTimeoutMs, checker.hardTimeoutMs)
+  assert.equal(checker.modelTimeoutMs, checker.idleTimeoutMs)
+  assert.equal(checker.absoluteRunTimeoutMs, checker.absoluteHardTimeoutMs)
+  assert.equal(checker.toolTimeoutMs, 40_000)
+})
+
 test("V15.10 architect soft-steers before idle watchdog or runaway exploration", () => {
   const budget = planningRuntimeBudget("architect", 1, { executionProfile: "deep" })
   assert.equal(
@@ -69,6 +84,7 @@ test("V15.10 plan-checker uses bounded activity extension and shorter recovery",
   assert.equal(recovery.idleTimeoutMs, 24_000)
   assert.equal(recovery.softSteerMs, 18_000)
   assert.equal(recovery.maxExplorationTools, 6)
+  assert.equal(recovery.toolTimeoutMs, 25_000)
 
   assert.equal(
     shouldSoftSteerPlanningRole({ elapsedMs: 36_000, idleMs: 1_000, toolCalls: 5 }, checker),
