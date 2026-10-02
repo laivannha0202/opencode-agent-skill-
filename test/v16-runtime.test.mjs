@@ -57,16 +57,22 @@ test("V16 runtime status exposes the active hardening contracts", async () => {
     "V16 capability exfiltration guard: on",
     "V16 Windows cleanup barrier: on",
     "V16 cost-aware model routing: on",
+    "V16.1 requirement correctness gate: on",
+    "V16.2 tool surface economy: on",
+    "V16.3 adaptive editing: on",
+    "V16.4 delta context: on",
+    "V16.5 cache-stable context: on",
+    "V16.6 strategy learning: on",
   ]) {
     assert.ok(text.includes(marker), "missing runtime status marker: " + marker)
   }
-  assert.match(text, /statusSchemaVersion:\s*7/)
+  assert.match(text, /statusSchemaVersion:\s*8/)
 })
 
-test("V16 fresh-Pi acceptance tracks status schema 7", async () => {
+test("V16 fresh-Pi acceptance tracks status schema 8", async () => {
   const text = await source("scripts/acceptance-fresh-pi.mjs")
-  assert.match(text, /details\.statusSchemaVersion === 7/)
-  assert.doesNotMatch(text, /details\.statusSchemaVersion === 6/)
+  assert.match(text, /details\.statusSchemaVersion === 8/)
+  assert.doesNotMatch(text, /details\.statusSchemaVersion === 7/)
 })
 
 test("V16 cleanup call sites use the bounded filesystem primitive", async () => {
