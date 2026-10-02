@@ -910,6 +910,7 @@ async function runAgentCli(
     task,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
+    editStrategy: modelProfile?.editStrategy || "",
     platform: process.platform,
     compactToolOutput: runtimeOptions.compactToolOutput === true,
     extraTools,
@@ -918,6 +919,7 @@ async function runAgentCli(
     task,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
+    editStrategy: modelProfile?.editStrategy || "",
     attempt: runtimeOptions.attempt || 1,
     utility: runtimeOptions.toolUtility || null,
   });
@@ -1385,6 +1387,7 @@ async function runAgentRpc(
     task,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
+    editStrategy: modelProfile?.editStrategy || "",
     platform: process.platform,
     compactToolOutput: runtimeOptions.compactToolOutput === true,
     extraTools,
@@ -1393,6 +1396,7 @@ async function runAgentRpc(
     task,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
+    editStrategy: modelProfile?.editStrategy || "",
     attempt: runtimeOptions.attempt || 1,
     utility: runtimeOptions.toolUtility || null,
   });
