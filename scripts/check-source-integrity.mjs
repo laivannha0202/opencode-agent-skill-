@@ -1680,6 +1680,285 @@ const CONTRACTS = [
       "V15.3 child env: nothing in the sanitiser prints or returns a value",
     ],
   },
+
+  // ---------------------------------------------------------------------
+  // V16.3 - Browser Execution Reliability.
+  //
+  // The taxonomy is the single source of risk truth: retry, approval, evidence
+  // and stale recovery all read ITS decision. A second place that guesses
+  // whether `click` is safe is how a payment submit gets replayed, so the
+  // fail-closed markers below are the contract rather than documentation.
+  // ---------------------------------------------------------------------
+  {
+    file: "lib/browser-action-taxonomy.mjs",
+    minBytes: 9_000,
+    startsWith: "// V16.3 Phase A, step 1: browser action taxonomy.",
+    required: [
+      "BROWSER_ACTION_CLASS",
+      "EXTERNAL_SIDE_EFFECT",
+      "unknown-action-fail-closed",
+      "idempotencyProofRequired",
+      "BROWSER_NAVIGATION_WAIT_UNTIL",
+      "requiresExplicitApproval",
+    ],
+  },
+  {
+    file: "lib/browser-capability.mjs",
+    minBytes: 7_000,
+    startsWith: "// V16.3 Phase A, steps 1 and 2 (preflight half): capability preflight and",
+    required: [
+      "BROWSER_CAPABILITY_REASON",
+      "preflightBrowserCapability",
+      "browserCapabilityRouting",
+      "browserCapabilityToolExposure",
+      "tokenizeBrowserToolName",
+      "interactiveCapability",
+      "mcp-unavailable-native-inspect-fallback",
+      "interactive-capability-unavailable",
+    ],
+  },
+  {
+    file: "lib/browser-retry-policy.mjs",
+    minBytes: 4_500,
+    startsWith: "// V16.3 Phase A, step 3: bounded safe retry.",
+    required: [
+      "BROWSER_RETRY_LIMITS",
+      "staleLocatorMax: 1",
+      "sideEffectMax: 0",
+      "external-side-effect-never-replayed",
+      "interactive-action-without-idempotency-proof",
+      "browserRetryDecision",
+    ],
+  },
+  {
+    file: "lib/browser-stale-recovery.mjs",
+    minBytes: 6_000,
+    startsWith: "// V16.3 Phase A, steps 4 and 5: stale-element recovery and locator quality.",
+    required: [
+      "LOCATOR_PRIORITY",
+      "LOCATOR_FORBIDDEN",
+      "identity-contradicted",
+      "snapshot-shows-state-may-have-applied",
+      "external-side-effect-never-recovered",
+      "hasVolatileClassToken",
+      "staleRecoveryDecision",
+    ],
+  },
+  {
+    file: "lib/browser-evidence.mjs",
+    minBytes: 9_000,
+    startsWith: "// V16.3 Phase A, step 5 (evidence half): action receipts, post-action",
+    required: [
+      "tool-success-is-not-proof",
+      "BROWSER_ACTION_RESULT",
+      "BROWSER_VERIFICATION_STATUS",
+      "buildActionReceipt",
+      "createBrowserTelemetry",
+      "staleRecoverySuccessRate",
+      "isSecretFormTarget",
+      "secret-form-target",
+      "providerResultWithheld",
+    ],
+  },
+  {
+    file: "lib/browser-lifecycle.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.3 Phase A, steps 6 and 11: navigation lifecycle and session hygiene.",
+    required: [
+      "BROWSER_TIMEOUTS",
+      "resolveBrowserTimeouts",
+      "BROWSER_NAVIGATION_KIND",
+      "closeBrowserSession",
+      "cleanupBrowserArtifacts",
+      "session-action-budget-exhausted",
+      "absolute-hard-timeout",
+    ],
+  },
+  {
+    file: "lib/browser-execution.mjs",
+    minBytes: 10_000,
+    startsWith: "// V16.3 Phase A: the single execution path for a browser action.",
+    required: [
+      "executeBrowserAction",
+      "createSubmitGuard",
+      "duplicate-submit-refused",
+      "external-side-effect-not-approved",
+      "deps.verify",
+    ],
+  },
+  {
+    file: "lib/browser-security.mjs",
+    minBytes: 1_500,
+    startsWith: "// V16.3 Phase A, step 10: browser security boundary.",
+    required: [
+      "EXTERNAL_TRUST_LEVEL",
+      "externalTrustContract",
+      "assertExternalContentCannotGrantAuthority",
+      "authority-escalation-refused",
+    ],
+  },
+  {
+    file: "lib/secret-redaction.mjs",
+    minBytes: 6_000,
+    startsWith: "// V16.3 shared secret redaction.",
+    required: [
+      "REDACTION_MASK",
+      "redactSecrets",
+      "redactStructure",
+      "envSecretValues",
+      "PEM_PRIVATE_KEY",
+    ],
+    // Redaction must never be able to become a network sink.
+    forbidden: ["fetch(", "https.request("],
+  },
+  {
+    file: "test/browser-reliability-v16-3.test.mjs",
+    minBytes: 20_000,
+    startsWith: "// V16.3 Phase A - Browser Execution Reliability.",
+    required: [
+      "V16.3 browser capability preflight detects a healthy interactive MCP provider",
+      "V16.3 native Playwright inspect absorbs a read-only requirement when MCP is unavailable",
+      "V16.3 a read-only-only provider never claims interactive capability",
+      "V16.3 a transient snapshot failure is retried exactly within the bounded budget",
+      "V16.3 a submit is never replayed, and the retry policy has no code path that allows it",
+      "V16.3 a duplicate submit of the same target inside one session is refused",
+      "V16.3 a stale click recovers once through a fresh snapshot and an identity match",
+      "V16.3 stale recovery is refused when target identity confidence is too low",
+      "V16.3 locator priority is role+name first and forbids coordinates, indexes and volatile classes",
+      "V16.3 the five browser timeouts are separate and the tool envelope contains the action budget",
+      "V16.3 a browser session has an absolute ceiling that active work cannot extend",
+      "V16.3 repeated transient MCP failures degrade the provider and produce a bounded cooldown",
+      "V16.3 transient browser screenshots are cleaned up within a bound",
+      "V16.3 session cleanup closes pages, closes the browser and kills the process tree",
+      "V16.3 action receipts redact credentials, tokens, cookies and secret form values",
+      "V16.3 tool success without an expected-state observation is unverified, never a pass",
+    ],
+  },
+
+  // ---------------------------------------------------------------------
+  // V16.3 - DeepSeek Web Reasoning Bridge.
+  //
+  // The load-bearing property is that the external model is a CONSULTANT. Every
+  // marker below exists to make "advice can never become a verdict" checkable
+  // rather than aspirational.
+  // ---------------------------------------------------------------------
+  {
+    file: "lib/web-reasoning-provider.mjs",
+    minBytes: 9_000,
+    startsWith: "// V16.3 Phase B, step 8: the generic web-reasoning provider interface.",
+    required: [
+      "WEB_REASONING_AUTHORITY",
+      "consultant-only",
+      "WEB_REASONING_METHODS",
+      "defineWebReasoningProvider",
+      "normalizeAdvice",
+      "throwIfFailed",
+      "mayProduceVerificationVerdict: false",
+      "createWebReasoningRegistry",
+    ],
+  },
+  {
+    file: "lib/decision-packet.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.3 Phase B, steps 10, 11 and 14: the Decision Packet.",
+    required: [
+      "DECISION_PACKET_SECTION_ORDER",
+      "ESSENTIAL_SECTIONS",
+      "DEFAULT_DECISION_PACKET_BUDGET",
+      "isExcludedPacketPath",
+      "isRelevantPacketRow",
+      "buildDecisionPacket",
+      "buildFollowUpDelta",
+      "applyBudget",
+    ],
+  },
+  {
+    file: "lib/deepseek-response.mjs",
+    minBytes: 10_000,
+    startsWith: "// V16.3 Phase B, steps 13, 18, 19 and 22: the DeepSeek response parser.",
+    required: [
+      "DEEPSEEK_REQUIRED_FIELDS",
+      "DEEPSEEK_PARSE_FAILURE",
+      "detectAuthorityAttempts",
+      "parseDeepSeekResponse",
+      "bindClaimsToLocalEvidence",
+      "verifyLocalAdvice",
+      "implement-then-verify",
+      "canProducePass: false",
+      "isTaskVerdict: false",
+    ],
+  },
+  {
+    file: "lib/deepseek-web-adapter.mjs",
+    minBytes: 11_000,
+    startsWith: "// V16.3 Phase B, step 9: the DeepSeek Web session adapter.",
+    required: [
+      "DEEPSEEK_WEB_STATE",
+      "DEEPSEEK_WEB_FAILURE",
+      "createDeepSeekWebAdapter",
+      "renderDeepSeekPrompt",
+      "deepSeekDefaultVerify",
+      "sendPrompt",
+      "createSubmitGuard",
+      "executeBrowserAction",
+      "answerBelongsToRequest",
+    ],
+  },
+  {
+    file: "lib/web-reasoning-escalation.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.3 Phase B, steps 12, 17, 20, 21, 22 and 23: the escalation router and",
+    required: [
+      "WEB_ESCALATION_MODE",
+      "ESCALATION_SIGNAL",
+      "NON_ESCALATION_SIGNAL",
+      "decideWebEscalation",
+      "runWebConsultation",
+      "runWebFollowUp",
+      "unavailableOutcome",
+      "WEB_REASONING_UNAVAILABLE",
+      "fallbackToLocal",
+      "canProducePass: false",
+    ],
+  },
+  {
+    file: "test/deepseek-web-bridge-v16-3.test.mjs",
+    minBytes: 20_000,
+    startsWith: "// V16.3 Phase B - DeepSeek Web Reasoning Bridge.",
+    required: [
+      "V16.3 an easy grounded task never calls DeepSeek in AUTO",
+      "V16.3 a hard multi-subsystem task escalates in AUTO and reports its signals",
+      "V16.3 OFF never escalates and never probes a provider",
+      "V16.3 the decision packet carries every bounded section and excludes unrelated files",
+      "V16.3 budget pressure never truncates a MUST or MUST_NOT constraint",
+      "V16.3 the decision packet redacts secrets anywhere they appear",
+      "V16.3 FORCE fails loudly with WEB_REASONING_UNAVAILABLE and never pretends it consulted",
+      "V16.3 a needs-auth provider falls back in AUTO and does not loop",
+      "V16.3 an invalid DeepSeek response is rejected, not repaired",
+      "V16.3 untrusted instructions in a DeepSeek response are flagged, never obeyed",
+      "V16.3 accepted DeepSeek advice still authorizes only implement-then-verify",
+      "V16.3 a consultation result can never be read as a task verdict",
+      "V16.3 a follow-up sends only the delta and reuses the same session",
+      "V16.3 an answer that cannot be bound to its request is discarded, not parsed",
+      "V16.3 the DeepSeek submit is never duplicated when the UI re-renders mid-round trip",
+    ],
+  },
+  {
+    file: "scripts/bench-web-reasoning-ab.mjs",
+    minBytes: 8_000,
+    startsWith: "#!/usr/bin/env node",
+    required: [
+      "measured values only",
+      "deterministicProviderDouble",
+      "runWebArm",
+      "runLocalArm",
+      "benchmarkReadiness",
+      "claimsVerified: false",
+      "incomplete-measurement-no-conclusion",
+    ],
+    // An A/B harness that ships a headline percentage is a marketing artifact.
+    forbidden: ["saves 70%", "70% faster", "reduces tokens by 70", "guaranteed"],
+  },
 ]
 
 const problems = []

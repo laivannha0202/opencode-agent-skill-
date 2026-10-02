@@ -316,11 +316,35 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     ) {
       errors.push("package.json: eval:v16 must use the bounded runner and include V16 correctness/security/reliability/efficiency regressions")
     }
+    // V16.3 (browser execution reliability + DeepSeek web reasoning bridge).
+    // These two files ARE the phase; an eval that quietly drops them would leave
+    // the release claiming a subsystem nobody ran.
+    const requiredV163Tests = [
+      "test/browser-reliability-v16-3.test.mjs",
+      "test/deepseek-web-bridge-v16-3.test.mjs",
+    ]
+    if (!requiredV163Tests.every((file) => focusedV16.includes(file))) {
+      errors.push("package.json: eval:v16 must include the V16.3 browser-reliability and deepseek-web-bridge suites")
+    }
+    const focusedV163 = String(scripts["eval:v16.3"] || "").trim().split(/\s+/).filter(Boolean)
+    if (
+      focusedV163[0] !== "node" ||
+      focusedV163[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV163Tests.every((file) => focusedV163.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.3 must use the bounded runner and cover both V16.3 suites")
+    }
+    if (scripts["bench:web-reasoning"] !== "node scripts/bench-web-reasoning-ab.mjs") {
+      errors.push("package.json: missing measured V16.3 web-reasoning A/B benchmark command")
+    }
     if (!String(scripts["release:verify"] || "").includes("npm run eval:v16")) {
       errors.push("package.json: release:verify must include eval:v16")
     }
     if (!pkg.files.includes("docs/V16-DETERMINISTIC-HARDENING.md")) {
       errors.push("package.json: V16 runtime documentation must be packed")
+    }
+    if (!pkg.files.includes("docs/V16.3-BROWSER-WEB-REASONING.md")) {
+      errors.push("package.json: V16.3 browser/web-reasoning documentation must be packed")
     }
   }
 
