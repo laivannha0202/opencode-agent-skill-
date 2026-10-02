@@ -163,7 +163,7 @@ const CONTRACTS = [
       "writeFeedbackInHandler",
       "contentArtifactStoreStats",
       "REPO_MAP_STATUS",
-      "statusSchemaVersion: 6",
+      "statusSchemaVersion: 7",
       "Type.Literal(\"repo-map\")",
       "buildRepoMap",
       "WRITE_FEEDBACK_TOOLS",
