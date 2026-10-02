@@ -14,6 +14,7 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { governToolOutput } from "../../lib/tool-output-governor.mjs";
+import { pruneStaleFailedToolInputs } from "../../lib/context-pruning.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
 import { runtimeWorkspaceFingerprint } from "../../lib/workspace-fingerprint.mjs";
@@ -261,6 +262,24 @@ export default function (pi: ExtensionAPI) {
     TOOL_SCHEDULER.reset("session-boundary");
   };
   pi.on("session_start", clearExecutionState);
+
+  // V16.5 request-local pruning: only stale, large inputs from failed tool calls
+  // are reduced. Error results stay intact, signed assistant history is skipped,
+  // and cache-first mode preserves the prefix verbatim.
+  pi.on("context", async (event) => {
+    const pruned = pruneStaleFailedToolInputs(event.messages, {
+      cacheMode: String(process.env.UES_CHILD_CACHE_MODE || "neutral"),
+      minAgeMessages: 6,
+      minInputChars: 2048,
+      minSavedChars: 512,
+      maxStringChars: 256,
+      maxArrayItems: 6,
+      maxObjectKeys: 24,
+    });
+    if (!pruned.changed) return undefined;
+    return { messages: pruned.messages };
+  });
+
   pi.on("session_shutdown", async (_event, ctx) => {
     clearExecutionState();
     await Promise.all([
