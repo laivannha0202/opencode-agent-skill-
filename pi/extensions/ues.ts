@@ -39,6 +39,7 @@ import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlannin
 import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
 import { createSubagentArtifact, failSubagentArtifact, finalizeSubagentArtifact, listSubagentArtifacts, readSubagentArtifact } from "../../lib/subagent-artifacts.mjs";
 import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, detectInheritedDirtyViolations, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
+import { evaluateRequirementEvidence, requirementLedgerAllowsDeterministicFastPass, validateRequirementPlanCoverage } from "../../lib/requirement-contract.mjs";
 import { buildCompactionResumeGuard, checkpointDurableWorkBeforeCompaction, renderCompactionResumeGuard } from "../../lib/compaction-resume-guard.mjs";
 import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-display.mjs";
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
@@ -558,6 +559,11 @@ async function persistExecutionContractArtifacts(dir: string, contract: any) {
     "utf8",
   );
   await fs.promises.writeFile(
+    path.join(dir, "REQUIREMENTS.json"),
+    JSON.stringify(contract.requirementLedger || { schemaVersion: 1, requirements: [], total: 0 }, null, 2) + "\n",
+    "utf8",
+  );
+  await fs.promises.writeFile(
     path.join(phasesDir, "MANIFEST.json"),
     JSON.stringify({
       schemaVersion: 1,
@@ -574,8 +580,10 @@ async function persistExecutionContractArtifacts(dir: string, contract: any) {
   }
   return {
     contract: path.join(dir, "EXECUTION_CONTRACT.json"),
+    requirements: path.join(dir, "REQUIREMENTS.json"),
     manifest: path.join(phasesDir, "MANIFEST.json"),
     phaseCount: contract.phases?.length || 0,
+    requirementCount: contract.requirementLedger?.requirements?.length || 0,
   };
 }
 
@@ -597,10 +605,27 @@ async function finalizeExecutionContractArtifacts(
     JSON.stringify(payload, null, 2) + "\n",
     "utf8",
   );
+  await fs.promises.writeFile(
+    path.join(dir, "REQUIREMENT_EVIDENCE.json"),
+    JSON.stringify(verdictMatrix?.requirementCoverage || {
+      schemaVersion: 1,
+      status: "REQUIREMENTS_NOT_VERIFIED",
+      coverage: 0,
+      requirements: [],
+    }, null, 2) + "\n",
+    "utf8",
+  );
 
   for (const item of phaseArtifactPayloads(contract)) {
     const phaseText = String(item.value.title || "") + "\n" + String(item.value.sourceBody || "");
     let status = verdictMatrix?.source === "SOURCE_PASS" ? "VERIFIED" : "NOT_VERIFIED";
+    if (
+      verdictMatrix?.requirements &&
+      verdictMatrix.requirements !== "REQUIREMENTS_PASS" &&
+      verdictMatrix.requirements !== "REQUIREMENTS_NOT_REQUIRED"
+    ) {
+      status = "NOT_VERIFIED";
+    }
     if (/device|expo go|thiết bị/i.test(phaseText) && verdictMatrix?.device !== "DEVICE_PASS") {
       status = "NOT_VERIFIED";
     }
@@ -1879,6 +1904,18 @@ function parseStructuredReport(output: string) {
 function acceptanceEvidenceStatusPresent(run: any) {
   const value = String(run?.report?.sections?.["acceptance-criteria-proven"] || "");
   return /(?:^|\n)\s*(?:[-*]\s*)?(?:VERIFIED|INFERRED|UNKNOWN)\s*:/im.test(value);
+}
+
+function requirementEvidenceForRun(run: any, executionContract: any) {
+  return evaluateRequirementEvidence(
+    executionContract?.requirementLedger,
+    [{ source: String(run?.agent || "verifier"), text: String(run?.output || "") }],
+  );
+}
+
+function requirementEvidencePassed(run: any, executionContract: any) {
+  const result = requirementEvidenceForRun(run, executionContract);
+  return result.status === "REQUIREMENTS_PASS" || result.status === "REQUIREMENTS_NOT_REQUIRED";
 }
 
 function taskRecord(task: string) {
@@ -5131,7 +5168,8 @@ export default function (pi: ExtensionAPI) {
         const deterministicChecks = deterministicReadOnlyGitCommands(params.task);
         let inspection: any;
 
-        if (deterministicChecks.length > 0) {
+        const readOnlyRequirementFastGate = requirementLedgerAllowsDeterministicFastPass(executionContract.requirementLedger);
+        if (deterministicChecks.length > 0 && readOnlyRequirementFastGate.allowed) {
           const rows: any[] = [];
           for (const spec of deterministicChecks) {
             const result = await runProcess(spec.command, spec.args, cwd, signal);
@@ -5201,6 +5239,11 @@ export default function (pi: ExtensionAPI) {
             "## Completion evidence",
             "UES executed " + rows.length + " command-only read-only Git check(s) directly and compared the source workspace fingerprint before and after.",
             "",
+            ...(deterministicPass
+              ? (executionContract.requirementLedger?.requirements || []).map((item: any) =>
+                  "UES_REQUIREMENT: " + item.id + " PASS - Fresh whitelisted read-only command evidence completed and the source workspace fingerprint remained unchanged.",
+                )
+              : []),
             "UES_VERDICT: " + (deterministicPass ? "PASS" : "FAIL"),
           ].join("\n");
 
@@ -5268,6 +5311,29 @@ export default function (pi: ExtensionAPI) {
             );
             if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-verification-format-recovery");
           }
+          if (
+            inspection.exitCode === 0 &&
+            inspection.verdict === "PASS" &&
+            !requirementEvidencePassed(inspection, executionContract)
+          ) {
+            inspection = await run(
+              "ues-verifier",
+              [
+                "V16.1 REQUIREMENT EVIDENCE RECOVERY. The previous PASS did not prove every controller-owned R# requirement.",
+                "Do not edit files or broaden exploration. Reuse fresh evidence and emit one UES_REQUIREMENT line per R# using PASS, FAIL, or NOT_VERIFIED with concrete evidence.",
+                "Any missing, inferred, or unknown requirement must be NOT_VERIFIED and cannot support PASS.",
+                "",
+                "Inspection request:",
+                params.task,
+                "",
+                "Previous verifier output (not proof by itself):",
+                cap(inspection.output, 5000),
+              ].join("\n"),
+              1,
+              "Previous verifier PASS omitted complete requirement evidence.",
+            );
+            if (isAbortedRun(inspection)) return abortedResponse(inspection, "read-only-requirement-recovery");
+          }
         }
 
         const after = runtimeWorkspaceSnapshot(cwd);
@@ -5284,6 +5350,18 @@ export default function (pi: ExtensionAPI) {
           requireBehavioralReceipt: false,
           requireClaimEvidenceStatus: true,
         });
+        const readOnlyRequirementEvidence = requirementEvidenceForRun(inspection, executionContract);
+        completionAudit.requirements = readOnlyRequirementEvidence;
+        if (
+          readOnlyRequirementEvidence.status !== "REQUIREMENTS_PASS" &&
+          readOnlyRequirementEvidence.status !== "REQUIREMENTS_NOT_REQUIRED"
+        ) {
+          completionAudit.passed = false;
+          completionAudit.failures = [...new Set([
+            ...(completionAudit.failures || []),
+            "requirements-not-verified",
+          ])];
+        }
         if (!unchanged) {
           completionAudit.passed = false;
           completionAudit.failures = [...new Set([
@@ -5337,7 +5415,8 @@ export default function (pi: ExtensionAPI) {
           "",
           "Produce an implementation plan grounded in the current repository. Include exact files/interfaces, dependencies, risk controls, rollback notes, acceptance criteria and verification commands.",
           "For deterministic scheduling, emit UES_PLAN_JSON: followed by one valid JSON object with schemaVersion=1, goal, and tasks as the first substantive output. Do not delay the JSON behind long prose.",
-          "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, and risk.",
+          "Each task must have id, title, summary, dependsOn, files ({create,modify,test,delete,read}), acceptance, verification, requirementIds, and risk.",
+          "V16.1 REQUIREMENT MAPPING: requirementIds is a non-empty array of controller-owned R# IDs. Every R# in the requirement ledger must appear on at least one task; do not invent IDs. MUST_NOT requirements must be mapped to the task(s) whose diff/verification can prove the prohibition.",
           executionContract.phases?.length
             ? "PHASE CONTRACT: every execution task must include an integer phase matching one explicit execution PHASE number from the user request. Constraint/guardrail-only phases are invariants, not fake tasks. Do not omit, merge away, or invent execution phases. UES will add deterministic previous-phase barriers after validation."
             : "",
@@ -5357,8 +5436,12 @@ export default function (pi: ExtensionAPI) {
         let planCandidate = extractValidatedPlan(architect.output);
         structuredPlan = planCandidate.plan;
         let structuredValidation = planCandidate.validation;
+        let requirementPlanGate = validateRequirementPlanCoverage(
+          structuredPlan,
+          executionContract.requirementLedger,
+        );
 
-        if (planCandidate.salvaged && structuredValidation?.valid === true) {
+        if (planCandidate.salvaged && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
           onUpdate?.({
             content: [{
               type: "text",
@@ -5375,7 +5458,8 @@ export default function (pi: ExtensionAPI) {
 
         const firstPlanValid =
           structuredPlan &&
-          structuredValidation?.valid === true;
+          structuredValidation?.valid === true &&
+          requirementPlanGate.valid === true;
 
         if (!firstPlanValid) {
           const recoveryEvidence = failureDelta([
@@ -5385,8 +5469,11 @@ export default function (pi: ExtensionAPI) {
             structuredValidation
               ? JSON.stringify(structuredValidation, null, 2)
               : "UES_PLAN_JSON marker or valid JSON object was missing.",
+            requirementPlanGate.valid !== true
+              ? "V16.1 requirement coverage errors:\n" + requirementPlanGate.errors.join("\n")
+              : "",
             "RECOVERY RULE: do not restart repository exploration. Reuse the existing context/evidence, perform at most one targeted lookup for any blocking gap, then return the corrected plan immediately.",
-            "acceptance and verification must be non-empty string arrays; risk must be low|medium|high|critical; descriptive prose belongs in riskNotes.",
+            "acceptance and verification must be non-empty string arrays; requirementIds must map every controller-owned R# at least once; risk must be low|medium|high|critical; descriptive prose belongs in riskNotes.",
           ].join("\n"), { maxChars: 4200 });
 
           architect = await run("ues-architect", planInstruction, 2, recoveryEvidence);
@@ -5394,7 +5481,11 @@ export default function (pi: ExtensionAPI) {
           planCandidate = extractValidatedPlan(architect.output);
           structuredPlan = planCandidate.plan;
           structuredValidation = planCandidate.validation;
-          if (planCandidate.salvaged && structuredValidation?.valid === true) {
+          requirementPlanGate = validateRequirementPlanCoverage(
+            structuredPlan,
+            executionContract.requirementLedger,
+          );
+          if (planCandidate.salvaged && structuredValidation?.valid === true && requirementPlanGate.valid === true) {
             onUpdate?.({
               content: [{
                 type: "text",
@@ -5412,7 +5503,8 @@ export default function (pi: ExtensionAPI) {
 
         if (
           !structuredPlan ||
-          structuredValidation?.valid !== true
+          structuredValidation?.valid !== true ||
+          requirementPlanGate.valid !== true
         ) {
           return {
             content: [{
@@ -5420,7 +5512,7 @@ export default function (pi: ExtensionAPI) {
               text: "Long-horizon planning exhausted its bounded fast-planning recovery without a valid deterministic task graph.\n\n" +
                 (structuredValidation ? JSON.stringify(structuredValidation, null, 2) : architect.output),
             }],
-            details: { mode: "execute", policy, steps, structuredPlan, structuredValidation },
+            details: { mode: "execute", policy, steps, structuredPlan, structuredValidation, requirementPlanGate },
             isError: true,
           };
         }
@@ -5799,6 +5891,7 @@ export default function (pi: ExtensionAPI) {
                     : "UES deterministic final gate is not fully verified.",
                   "",
                   verdictMatrix.source,
+                  verdictMatrix.requirements,
                   verdictMatrix.runtime,
                   verdictMatrix.dbClean,
                   verdictMatrix.device,
@@ -5917,6 +6010,7 @@ export default function (pi: ExtensionAPI) {
                 `Safe waves: ${scheduled.schedule?.safeWaves?.length || 0}; integrations: ${scheduled.integrations?.length || 0}.`,
                 durableWork ? `Durable state: .ues-work/${durableWork.slug} finalized with fresh integration receipt.` : "",
                 verdictMatrix.source,
+                verdictMatrix.requirements,
                 verdictMatrix.runtime,
                 verdictMatrix.dbClean,
                 verdictMatrix.device,
@@ -6059,6 +6153,15 @@ export default function (pi: ExtensionAPI) {
             visualRequired: false,
             staticEvidence,
           });
+          const requirementFastGate = requirementLedgerAllowsDeterministicFastPass(executionContract.requirementLedger);
+          if (fastGate?.passed === true && requirementFastGate.allowed !== true) {
+            fastGate = {
+              ...fastGate,
+              passed: false,
+              reason: requirementFastGate.reason,
+              requirementGate: requirementFastGate,
+            };
+          }
         }
         if (fastGate?.passed === true) {
           verification = {
@@ -6077,6 +6180,9 @@ export default function (pi: ExtensionAPI) {
                 : []),
               ...fastGate.behavioralReceipts.map((item: any) => "- " + item.command),
               "",
+              ...(executionContract.requirementLedger?.requirements || []).map((item: any) =>
+                "UES_REQUIREMENT: " + item.id + " PASS - Fresh post-implementation behavioral receipt(s) and required static completeness evidence passed at the current workspace fingerprint.",
+              ),
               "UES_VERDICT: PASS",
             ].join("\n"),
             stderr: "", verdict: "PASS", durationMs: 0, toolCalls: 0, toolNames: [],
@@ -6139,6 +6245,29 @@ export default function (pi: ExtensionAPI) {
               "Previous verifier PASS omitted evidence-status markers.",
             );
             if (isAbortedRun(verification)) return abortedResponse(verification, "verification-format-recovery");
+          }
+          if (
+            verification.exitCode === 0 &&
+            verification.verdict === "PASS" &&
+            !requirementEvidencePassed(verification, executionContract)
+          ) {
+            verification = await run(
+              "ues-verifier",
+              [
+                "V16.1 REQUIREMENT EVIDENCE RECOVERY. The previous verifier returned PASS without complete R# evidence.",
+                "Do not edit files or re-run broad checks. Reuse fresh evidence and emit exactly one UES_REQUIREMENT line per controller-owned R#.",
+                "Use PASS only with concrete fresh proof. Use FAIL for contradictory proof and NOT_VERIFIED for any gap. Missing R# evidence blocks final PASS.",
+                "",
+                "Original task:",
+                params.task,
+                "",
+                "Previous verifier output (not proof by itself):",
+                cap(verification.output, 5000),
+              ].join("\n"),
+              attempt,
+              "Previous verifier PASS omitted complete requirement evidence.",
+            );
+            if (isAbortedRun(verification)) return abortedResponse(verification, "verification-requirement-recovery");
           }
         }
         const verified = verification.exitCode === 0 && verification.verdict === "PASS";
@@ -6264,6 +6393,7 @@ export default function (pi: ExtensionAPI) {
                   : "UES deterministic final gate is not fully verified.",
                 "",
                 verdictMatrix.source,
+                verdictMatrix.requirements,
                 verdictMatrix.runtime,
                 verdictMatrix.dbClean,
                 verdictMatrix.device,
@@ -6411,6 +6541,7 @@ export default function (pi: ExtensionAPI) {
         "V16 capability exfiltration guard: on (secret source + outbound payload transfer fails closed)",
         "V16 Windows cleanup barrier: on (bounded EBUSY/EPERM/ENOTEMPTY retry)",
         "V16 cost-aware model routing: on (retry-amplified token economics after evidence floor)",
+        "V16.1 requirement correctness gate: on (MUST / MUST_NOT / VERIFY ledger + plan/task/evidence coverage; final PASS fails closed)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
