@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.0.0",
+  "version": "16.1.0",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
