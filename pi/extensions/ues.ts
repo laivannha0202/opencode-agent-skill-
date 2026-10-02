@@ -2218,26 +2218,76 @@ async function runRoutedAgent(
 
   const workspaceFingerprint = String(workspaceState.fingerprint || "unknown");
   const telemetryRoot = await taskSandboxOwnerRoot(cwd).catch(() => null) || traceRoot;
-  const cachePolicy = await providerCacheStabilityPolicy(telemetryRoot, {
-    provider: selectedProvider,
+  const [cachePolicy, toolUtility] = await Promise.all([
+    providerCacheStabilityPolicy(telemetryRoot, {
+      provider: selectedProvider,
+      model: selectedModel,
+      minSamples: 6,
+      stableSamples: 12,
+      limit: 200,
+    }).catch(() => ({
+      schemaVersion: 3,
+      provider: selectedProvider,
+      model: selectedModel || null,
+      mode: "neutral",
+      reason: "cache-policy-unavailable",
+      samples: 0,
+      cacheReadRatio: null,
+      preserveStablePrefix: true,
+      compactLiveZoneOnly: true,
+      evidence: "NOT_MEASURED",
+    })),
+    learnToolUtilization(telemetryRoot, {
+      model: selectedModel,
+      role,
+      minRuns: 8,
+      minToolExposures: 8,
+      limit: 240,
+    }).catch(() => ({
+      schemaVersion: 1,
+      model: selectedModel || null,
+      role,
+      runs: 0,
+      minRuns: 8,
+      minToolExposures: 8,
+      evidence: "NOT_MEASURED",
+      tools: {},
+    })),
+  ]);
+
+  const strategyTaskClass = String(
+    selection.capabilitySelection?.taskClass ||
+    activeCapabilityCandidate?.taskClass ||
+    "general",
+  );
+  const strategyProfile = compileAdaptiveStrategy({
     model: selectedModel,
-    minSamples: 6,
-    stableSamples: 12,
-    limit: 200,
-  }).catch(() => ({
-    schemaVersion: 2,
-    provider: selectedProvider,
-    model: selectedModel || null,
-    mode: "neutral",
-    reason: "cache-policy-unavailable",
-    samples: 0,
-    cacheReadRatio: null,
-    preserveStablePrefix: true,
-    compactLiveZoneOnly: true,
-    evidence: "NOT_MEASURED",
-  }));
+    role,
+    writer: WRITE_AGENTS.has(agent),
+    task,
+    taskClass: strategyTaskClass,
+    surface: modelProfile.surface,
+    executionProfile: taskPolicy.executionProfile,
+    risk: taskPolicy.risk,
+    attempt,
+    recentFailure,
+    scaffoldLevel: modelProfile.scaffoldLevel,
+    performanceHistory: modelPolicy.performance || {},
+    minSamples: modelPolicy.performanceMinSamples || 8,
+  });
+  const childModelProfile = {
+    ...modelProfile,
+    strategyId: strategyProfile.id,
+    editStrategy: strategyProfile.editStrategy,
+    searchStrategy: strategyProfile.searchStrategy,
+    contextStrategy: strategyProfile.contextStrategy,
+  };
 
   let enrichedTask = task;
+  const adaptiveStrategyContract = renderAdaptiveStrategyContract(strategyProfile);
+  if (adaptiveStrategyContract) {
+    enrichedTask = [enrichedTask, "", adaptiveStrategyContract].join("\n");
+  }
   if (modelProfile.editPipeline === "architect-editor" && role === "executor") {
     enrichedTask = [
       enrichedTask,
