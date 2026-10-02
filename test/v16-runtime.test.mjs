@@ -63,6 +63,12 @@ test("V16 runtime status exposes the active hardening contracts", async () => {
   assert.match(text, /statusSchemaVersion:\s*7/)
 })
 
+test("V16 fresh-Pi acceptance tracks status schema 7", async () => {
+  const text = await source("scripts/acceptance-fresh-pi.mjs")
+  assert.match(text, /details\.statusSchemaVersion === 7/)
+  assert.doesNotMatch(text, /details\.statusSchemaVersion === 6/)
+})
+
 test("V16 cleanup call sites use the bounded filesystem primitive", async () => {
   const [worktree, hygiene] = await Promise.all([
     source("lib/worktree-sandbox.mjs"),

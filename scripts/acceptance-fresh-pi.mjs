@@ -258,7 +258,7 @@ async function childHarness() {
   record("A-no-lsp-session-precreated", (poolBefore.sessionCount ?? 0) === 0, {
     sessionCount: poolBefore.sessionCount ?? 0,
   })
-  record("A-status-schema-current", details.statusSchemaVersion === 6, { statusSchemaVersion: details.statusSchemaVersion })
+  record("A-status-schema-current", details.statusSchemaVersion === 7, { statusSchemaVersion: details.statusSchemaVersion })
   record("A-status-advertises-v15-3",
     String(status?.content || "").includes("V15.3 incremental write intelligence")
     && String(status?.content || "").includes("V15.3 content-addressed semantic index")
