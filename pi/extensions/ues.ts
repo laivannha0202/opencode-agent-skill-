@@ -54,12 +54,13 @@ import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
 import { compileToolSurface, coreToolPriorities, learnToolUtilization } from "../../lib/tool-surface-economy.mjs";
+import { DEFERRED_DISPATCHER_TOOL } from "../../lib/deferred-tool-hydration.mjs";
 import { compileAdaptiveStrategy, renderAdaptiveStrategyContract } from "../../lib/adaptive-strategy.mjs";
 import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
 import { buildContextObservatory, decisionPointFingerprint } from "../../lib/context-observatory.mjs";
-import { providerCacheStabilityPolicy } from "../../lib/provider-cache-stability.mjs";
+import { providerCacheStabilityPolicy, stableProjectPrefix, stableSystemPrefix } from "../../lib/provider-cache-stability.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
-import { appendRunJournalEvent, closeRunJournal, createRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
+import { appendRunJournalEvent, closeRunJournal, createRunJournal, readRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
 import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { aggregateUsageSamples, recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
@@ -485,6 +486,61 @@ function getAgentPrompt(agent: AgentName) {
   return bridge + "\n" + original + verdictContract;
 }
 
+// V16.5 cache-stable prefix hashes for the child provider request. The system
+// prefix is the exact system text UES contributes (agent prompt + bridge);
+// the project prefix is the workspace AGENTS.md Pi loads from the child cwd.
+// Both are hashed after volatile-token redaction so runId/timestamp/tmp-path
+// churn does not fake a prefix change. Reads are bounded and read-only.
+function childPrefixHashes(agent: AgentName, cwd: string): { systemPrefixHash: string | null; projectPrefixHash: string | null; evidence: string } {
+  let systemPrefixHash: string | null = null;
+  let projectPrefixHash: string | null = null;
+  try {
+    systemPrefixHash = stableSystemPrefix(getAgentPrompt(agent)).hash;
+  } catch {}
+  try {
+    const projectFile = path.join(cwd, "AGENTS.md");
+    const info = fs.statSync(projectFile);
+    if (info.isFile() && info.size > 0 && info.size <= 65536) {
+      projectPrefixHash = stableProjectPrefix(fs.readFileSync(projectFile, "utf8")).hash;
+    }
+  } catch {}
+  return {
+    systemPrefixHash,
+    projectPrefixHash,
+    evidence: systemPrefixHash || projectPrefixHash ? "FINGERPRINTED" : "NO_STABLE_PREFIX",
+  };
+}
+
+// V16.2 same-attempt hydration telemetry: the child dispatcher journals
+// tool.hydrated / tool.hydration-denied / tool.discovery events into the run
+// journal. The parent re-reads them (bounded, best-effort) so task telemetry
+// records what was hydrated in-session without a retry.
+async function readChildHydrationTelemetry(journalRoot: string, runId: string | undefined): Promise<{
+  dispatcher: string; sameAttempt: true; hydrated: string[]; deniedCount: number; hydrationRequests: number; discoveryCount: number;
+} | null> {
+  if (!journalRoot || !runId) return null;
+  const rows: any[] = await readRunJournal(journalRoot, runId, { limit: 2000 }).catch(() => []);
+  if (!rows || !rows.length) return null;
+  const hydrated: string[] = [];
+  let deniedCount = 0;
+  let discoveryCount = 0;
+  let hydrationRequests = 0;
+  for (const row of rows) {
+    if (row?.type === "tool.hydrated" && row?.tool) {
+      const name = String(row.tool);
+      if (name && !hydrated.includes(name)) hydrated.push(name);
+      hydrationRequests += 1;
+    } else if (row?.type === "tool.hydration-denied") {
+      deniedCount += 1;
+      hydrationRequests += 1;
+    } else if (row?.type === "tool.discovery") {
+      discoveryCount += 1;
+    }
+  }
+  if (!hydrated.length && !deniedCount && !discoveryCount) return null;
+  return { dispatcher: DEFERRED_DISPATCHER_TOOL, sameAttempt: true as const, hydrated, deniedCount, hydrationRequests, discoveryCount };
+}
+
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
   const invocation = resolvePiChildInvocation(args);
   return { command: invocation.command, args: invocation.args };
@@ -903,6 +959,7 @@ async function runAgentCli(
     ...config.tools,
     ...codeIntelligenceTools,
     "ues_service",
+    DEFERRED_DISPATCHER_TOOL,
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
@@ -924,7 +981,7 @@ async function runAgentCli(
     utility: runtimeOptions.toolUtility || null,
   });
   const policyToolExposure = await resolveChildToolExposure(agent, toolSurfaceEconomy.advertised);
-  const toolExposure = { ...policyToolExposure, economy: toolSurfaceEconomy };
+  const toolExposure = { ...policyToolExposure, economy: toolSurfaceEconomy, prefixHashes: childPrefixHashes(agent, cwd) };
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
     agent,
@@ -995,6 +1052,11 @@ async function runAgentCli(
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
           UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
           UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
+          UES_CHILD_DEFERRED_TOOLS: toolSurfaceEconomy.deferred.join(","),
+          UES_CHILD_HYDRATION_FORBIDDEN: ((toolExposure as any)?.hidden || []).map((row: any) => String(row?.tool || row || "")).filter(Boolean).join(","),
+          UES_CHILD_ROLE: roleForAgent(agent),
+          UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
+          UES_CHILD_HYDRATION_MAX: "4",
         },
         shell: false,
         detached: process.platform !== "win32",
@@ -1380,6 +1442,7 @@ async function runAgentRpc(
     ...config.tools,
     ...codeIntelligenceTools,
     "ues_service",
+    DEFERRED_DISPATCHER_TOOL,
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
@@ -1401,7 +1464,7 @@ async function runAgentRpc(
     utility: runtimeOptions.toolUtility || null,
   });
   const policyToolExposure = await resolveChildToolExposure(agent, toolSurfaceEconomy.advertised);
-  const toolExposure = { ...policyToolExposure, economy: toolSurfaceEconomy };
+  const toolExposure = { ...policyToolExposure, economy: toolSurfaceEconomy, prefixHashes: childPrefixHashes(agent, cwd) };
   const allowedTools = toolExposure.tools;
   const policySnapshot = buildPolicySnapshot({
     agent,
@@ -1507,6 +1570,11 @@ async function runAgentRpc(
           UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
           UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
           UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
+          UES_CHILD_DEFERRED_TOOLS: toolSurfaceEconomy.deferred.join(","),
+          UES_CHILD_HYDRATION_FORBIDDEN: ((toolExposure as any)?.hidden || []).map((row: any) => String(row?.tool || row || "")).filter(Boolean).join(","),
+          UES_CHILD_ROLE: roleForAgent(agent),
+          UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
+          UES_CHILD_HYDRATION_MAX: "4",
         },
       },
       taskInput,
@@ -2725,8 +2793,18 @@ async function runRoutedAgent(
     runtimeEpochId: result.runtimeEpochId || null,
     policySnapshotId: result.policySnapshotId || null,
   }, { cwd }).catch(() => null);
+  // V16.2/V16.5 finalize enrichment: same-attempt hydration journal (if the
+  // child dispatcher activated deferred tools in-session) rides on
+  // toolExposure so task telemetry records it without a retry.
+  const childHydration = await readChildHydrationTelemetry(
+    artifactRoot,
+    traceID || (childArtifact as any)?.handle || undefined,
+  ).catch(() => null);
   const enrichedResult: RunResult = {
     ...result,
+    toolExposure: childHydration
+      ? { ...((result as any)?.toolExposure || null), hydration: childHydration }
+      : (result as any)?.toolExposure || null,
     task,
     modelTier: effectiveModelTier,
     modelSelection: {

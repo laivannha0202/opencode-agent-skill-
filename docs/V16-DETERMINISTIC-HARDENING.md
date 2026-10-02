@@ -81,6 +81,62 @@ The empirical candidate surface exposes:
 This lets UES avoid a nominally cheap model when repeated retries make it more
 expensive overall.
 
+## 6. Requirement ledger + execution contract (V16.1)
+
+Every task compiles to a stable `R#` requirement ledger. Plans must map each
+task to non-empty `R#` ids; malformed or unknown ids invalidate the plan.
+Evidence lines (`UES_REQUIREMENT: R# PASS - <concrete detail>`) verify
+requirements, but a detail-free `PASS` degrades to `NOT_VERIFIED`: claims
+without receipts never verify. The final verdict matrix separates source,
+runtime, requirement, DB-clean, and device dimensions; device-gated work
+without on-device evidence yields `SOURCE_RUNTIME_PASS_DEVICE_NOT_VERIFIED`,
+never a full `PASS`.
+
+## 7. Tool-surface economy + same-attempt hydration (V16.2)
+
+Weak-model sessions advertise a bounded core tool surface ordered
+deterministically with a stable `schemaPrefixHash`. Remaining allowlisted
+tools are deferred, not removed: the fixed tiny `ues_tool_search` dispatcher
+is advertised exactly when something is deferred. In the same live session
+the child can `search` (metadata only, bounded, deterministic) then
+`hydrate` a deferred tool via Pi's native `setActiveTools` — no restart, no
+attempt increment. Hydration grants are checked against deferred membership,
+current visibility, read-only role, policy-hidden tools, and a per-session
+budget (default 4, max 8); denials carry stable reason codes and fall back to
+retry reveal. Hydrated tools append after the intact base prefix, and the
+dispatcher schema fingerprint never grows. Execution of a hydrated tool still
+flows through every existing guard (scheduler, ownership, permission lattice,
+MCP policy).
+
+## 8. Adaptive strategy selection (V16.3)
+
+Per-attempt strategy selection covers six edit strategies plus `none` for
+read-only roles, with retry dimension shifts (a failed edit-application
+anchor moves `search-replace` to `symbol-edit`, and `symbol-edit` to
+`range-edit`) instead of repeating the failing dimension.
+
+## 9. Seen-context ledger (V16.4)
+
+Observed context is tracked per scope with `NEW` / `UNCHANGED` / `CHANGED` /
+`STALE` (TTL) / `PINNED` states. PINNED entries never flip, scopes isolate
+sessions, and changed entries stay restorable with the previous text for the
+verify-phase delta guard.
+
+## 10. Cache-stable prefix fingerprints (V16.5)
+
+System and project prefix blocks are hashed after volatile-token redaction
+(run/trace/session ids, timestamps, tmp paths, pids), so cosmetic churn does
+not fake a prefix change while real instruction edits move the hash. Empty
+prefixes hash to null with `NO_PROJECT_PREFIX` evidence. Telemetry aggregates
+prefix samples, stable-transition ratios, and distinct counts per model.
+
+## 11. Closed-loop strategy learning (V16.6)
+
+Strategy outcomes persist per model through the model config and reload
+across processes. Once a strategy key clears the sample floor, measured
+pass-rate evidence promotes the winner over the heuristic (correctness
+outranks cost); below the floor or on corrupt history the heuristic holds.
+
 ## Non-goals
 
 V16 does not rewrite the LSP pool, durable task lease system, process supervisor,
@@ -101,4 +157,10 @@ isolation is a separate trust boundary and must not be implied by this release.
 - bounded filesystem cleanup retries;
 - external-data provenance;
 - retry/token-aware empirical model routing;
+- requirement ledger negatives and the false-pass gate;
+- the six-strategy adaptive matrix with retry dimension shift;
+- seen-context PINNED/isolation/TTL behavior;
+- same-attempt hydration grants, denials, budget, and prefix stability;
+- system/project prefix fingerprint stability and telemetry;
+- closed-loop strategy promotion, persistence, and corrupt-history safety;
 - V15.9 runtime regressions.

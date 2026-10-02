@@ -497,6 +497,12 @@ const CONTRACTS = [
     required: ["cacheStabilityFromRows", "providerCacheStabilityPolicy", "cacheAwareVisibleBudget", "provider", "stableSamples", "previousMode", "measured-cache-hysteresis", "measured-token-hysteresis", "NOT_MEASURED", "preserveStablePrefix", "pi-normalized-disjoint", "promptSideTokens", "partialSamples", "insufficient-complete-provider-cache-telemetry"],
   },
   {
+    file: "lib/deferred-tool-hydration.mjs",
+    minBytes: 6_000,
+    startsWith: "// V16.2 same-attempt deferred-tool hydration.",
+    required: ["DEFERRED_DISPATCHER_TOOL", "HYDRATION_INTERFACE_VERSION", "searchDeferredTools", "createDeferredHydrationSession", "requestDeferredHydration", "applyHydratedTools", "HYDRATED_SAME_ATTEMPT", "HYDRATION_BUDGET_EXHAUSTED", "READ_ONLY_ROLE", "FORBIDDEN_POLICY", "ALREADY_ADVERTISED", "ALREADY_HYDRATED", "UNKNOWN_TOOL", "dispatcherSchemaFingerprint", "summarizeDeferredHydration", "describeDeferredTool"],
+  },
+  {
     file: "lib/performance-fabric.mjs",
     minBytes: 10_000,
     startsWith: 'import { putEvidence }',

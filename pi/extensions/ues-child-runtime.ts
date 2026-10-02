@@ -48,6 +48,13 @@ import { ToolScheduler } from "../../lib/tool-scheduler.mjs";
 import { toolConcurrencyContract } from "../../lib/tool-concurrency.mjs";
 import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { analyzeShellCommand, boundedVerificationTimeout } from "../../lib/command-intelligence.mjs";
+import {
+  DEFERRED_DISPATCHER_TOOL,
+  createDeferredHydrationSession,
+  describeDeferredTool,
+  requestDeferredHydration,
+  searchDeferredTools,
+} from "../../lib/deferred-tool-hydration.mjs";
 import { assertExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { appendRunJournalEvent } from "../../lib/run-journal.mjs";
 import { createWriteCheckpoint, finalizeWriteCheckpoint } from "../../lib/write-checkpoints.mjs";
@@ -130,6 +137,44 @@ function schedulerOwner(event: any, toolName = "") {
 
 function toolInputHash(input: any) {
   return createHash("sha256").update(JSON.stringify(input || {})).digest("hex");
+}
+
+function deferredHydrationEnv() {
+  const list = (value: string) => String(value || "").split(",").map((item) => item.trim()).filter(Boolean);
+  return {
+    deferred: list(process.env.UES_CHILD_DEFERRED_TOOLS),
+    forbidden: list(process.env.UES_CHILD_HYDRATION_FORBIDDEN),
+    role: String(process.env.UES_CHILD_ROLE || ""),
+    writer: process.env.UES_CHILD_WRITER === "1",
+    max: Math.max(1, Math.min(8, Math.trunc(Number(process.env.UES_CHILD_HYDRATION_MAX || 4)) || 4)),
+  };
+}
+
+let deferredHydrationSession: any = null;
+
+function resetDeferredHydrationSession() {
+  deferredHydrationSession = null;
+}
+
+function getDeferredHydrationSession(activeTools: string[] = []) {
+  const env = deferredHydrationEnv();
+  if (!deferredHydrationSession) {
+    deferredHydrationSession = createDeferredHydrationSession({
+      deferred: env.deferred,
+      advertised: activeTools,
+      role: env.role,
+      writer: env.writer,
+      forbidden: env.forbidden,
+      maxHydrations: env.max,
+    });
+  } else {
+    deferredHydrationSession.role = env.role;
+    deferredHydrationSession.writer = env.writer;
+    deferredHydrationSession.forbidden = [...env.forbidden];
+    deferredHydrationSession.maxHydrations = env.max;
+    deferredHydrationSession.advertised = [...new Set([...(deferredHydrationSession.advertised || []), ...activeTools])];
+  }
+  return deferredHydrationSession;
 }
 
 async function journalChildEvent(ctx: any, type: string, data: any = {}) {
@@ -1251,4 +1296,130 @@ export default function (pi: ExtensionAPI) {
       }
     },
   });
+
+  pi.on("session_start", resetDeferredHydrationSession);
+
+  // V16.2 same-attempt deferred-tool hydration. The dispatcher is registered
+  // only when the parent economy actually deferred tools for this run. It
+  // can only reveal tools from the parent-computed deferred universe (a
+  // subset of the per-agent allowlist); execution of a hydrated tool still
+  // flows through every existing guard (scheduler, ownership, permission
+  // lattice, MCP policy). Activation uses Pi's native setActiveTools in the
+  // live session: no restart, no attempt increment.
+  if (deferredHydrationEnv().deferred.length > 0) {
+    pi.registerTool({
+      name: DEFERRED_DISPATCHER_TOOL,
+      executionMode: "parallel",
+      label: "UES Deferred Tool Search",
+      description:
+        "Discover and activate a deferred specialist tool in this same session. Use search to find the right deferred tool for a need, then hydrate to activate it. Hydration is bounded per session and writer tools stay unavailable to read-only roles.",
+      parameters: Type.Object({
+        action: Type.Union([Type.Literal("search"), Type.Literal("hydrate")]),
+        query: Type.Optional(Type.String()),
+        tool: Type.Optional(Type.String({ minLength: 1 })),
+        limit: Type.Optional(Type.Number({ minimum: 1, maximum: 8 })),
+      }),
+      async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+        const env = deferredHydrationEnv();
+        let activeTools: string[] = [];
+        try {
+          activeTools = pi.getActiveTools() || [];
+        } catch {
+          activeTools = [];
+        }
+        const session = getDeferredHydrationSession(activeTools);
+        try {
+          if (params.action === "search") {
+            const found = searchDeferredTools({
+              query: params.query || "",
+              deferred: env.deferred,
+              writer: env.writer,
+              limit: params.limit || 5,
+            });
+            session.discoveryCount = Number(session.discoveryCount || 0) + 1;
+            await journalChildEvent(ctx, "tool.discovery", {
+              query: String(params.query || ""),
+              returned: found.returned,
+              tools: found.results.map((row) => row.tool),
+            });
+            const lines = found.results.map((row) => `- ${row.tool} (${row.capability}): ${row.purpose}${row.writerOnly ? " [writer-only]" : ""}`);
+            return {
+              content: [{
+                type: "text",
+                text: [
+                  `deferred tools matching ${JSON.stringify(String(params.query || ""))}: ${found.returned}/${found.deferredCount} (bounded, deterministic)`,
+                  "",
+                  ...(lines.length ? lines : ["(no match; try a different need, e.g. 'run tests', 'read file', 'browser check')"]),
+                  "",
+                  `hydrate with ${DEFERRED_DISPATCHER_TOOL} action=hydrate tool=<name> to activate one in this same session`,
+                ].join("\n"),
+              }],
+              details: { action: "search", ...found },
+            };
+          }
+          if (params.action === "hydrate") {
+            const name = String(params.tool || "").trim();
+            if (!name || name === DEFERRED_DISPATCHER_TOOL) {
+              await journalChildEvent(ctx, "tool.hydration-denied", { tool: name || null, reason: "UNKNOWN_TOOL" });
+              return {
+                content: [{ type: "text", text: `hydrate denied (UNKNOWN_TOOL): ${name || "(empty)"} is not a deferred tool` }],
+                details: { action: "hydrate", granted: false, reason: "UNKNOWN_TOOL" },
+                isError: true,
+              };
+            }
+            const decision = requestDeferredHydration(session, name, { writer: env.writer });
+            if (decision.granted !== true) {
+              await journalChildEvent(ctx, "tool.hydration-denied", { tool: name, reason: decision.reason });
+              return {
+                content: [{ type: "text", text: `hydrate denied (${decision.reason}): ${name}. ${decision.reason === "READ_ONLY_ROLE" ? "Writer tools are unavailable to this read-only role." : decision.reason === "HYDRATION_BUDGET_EXHAUSTED" ? "Session hydration budget is spent; continue with advertised tools or fail for retry reveal." : "Use search to pick a deferred tool, or continue with the advertised tools."}` }],
+                details: { action: "hydrate", granted: false, tool: name, reason: decision.reason },
+                isError: true,
+              };
+            }
+            const next = [...new Set([...activeTools, name])];
+            try {
+              pi.setActiveTools(next);
+            } catch (error) {
+              await journalChildEvent(ctx, "tool.hydration-denied", { tool: name, reason: "ACTIVATION_FAILED" });
+              return {
+                content: [{ type: "text", text: `hydrate approved but activation failed for ${name}; continue with advertised tools or fail for retry reveal` }],
+                details: { action: "hydrate", granted: false, tool: name, reason: "ACTIVATION_FAILED" },
+                isError: true,
+              };
+            }
+            const meta = describeDeferredTool(name);
+            await journalChildEvent(ctx, "tool.hydrated", {
+              tool: name,
+              capability: meta.capability,
+              activation: "set-active-tools",
+              sameAttempt: true,
+              hydratedCount: session.hydrated.length,
+            });
+            return {
+              content: [{
+                type: "text",
+                text: [
+                  `hydrated ${name} in this same session (${meta.capability}: ${meta.purpose})`,
+                  `session hydrations: ${session.hydrated.length}/${session.maxHydrations}`,
+                  `call ${name} directly now with its normal arguments; all standard guards still apply`,
+                ].join("\n"),
+              }],
+              details: { action: "hydrate", granted: true, tool: name, capability: meta.capability, activation: "set-active-tools", hydrated: [...session.hydrated] },
+            };
+          }
+          return {
+            content: [{ type: "text", text: `unsupported ${DEFERRED_DISPATCHER_TOOL} action` }],
+            details: { action: params.action },
+            isError: true,
+          };
+        } catch (error) {
+          return {
+            content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
+            details: { action: params.action },
+            isError: true,
+          };
+        }
+      },
+    });
+  }
 }
