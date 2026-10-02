@@ -10,6 +10,7 @@ import { compileAdaptiveStrategy, strategyPerformanceKey } from "../lib/adaptive
 import { modelRuntimeProfile } from "../lib/model-runtime-profile.mjs"
 import { normalizePerformanceHistory, recordStrategyPerformanceOutcome } from "../lib/model-performance.mjs"
 import { governToolOutput } from "../lib/tool-output-governor.mjs"
+import { pruneStaleFailedToolInputs } from "../lib/context-pruning.mjs"
 
 test("V16.2 execution surfaces are bounded by model x execution profile", () => {
   assert.equal(modelRuntimeProfile("provider/free", { executionProfile: "fast" }).maxAdvertisedTools, 7)
@@ -64,6 +65,67 @@ test("V16.4 seen context ledger distinguishes NEW UNCHANGED and CHANGED", () => 
   const delta = lineDelta(changed.previousText, "alpha\ngamma")
   assert.equal(delta.changed, true)
   assert.ok(delta.changedLines > 0)
+})
+
+test("V16.4 seen context ledger reports STALE and RESTORABLE deterministically", () => {
+  resetSeenContextLedger("stale-test")
+  const first = observeSeenContext("stale-test", "read:file", "alpha", { now: 10_000, ttlMs: 1_000 })
+  const stale = observeSeenContext("stale-test", "read:file", "alpha", { now: 11_001, ttlMs: 1_000 })
+  assert.equal(first.state, "NEW")
+  assert.equal(stale.state, "STALE")
+  assert.equal(stale.restorable, true)
+  assert.equal(stale.restorableState, "RESTORABLE")
+  assert.ok(stale.staleAgeMs > 1_000)
+})
+
+test("V16.5 failed-input pruning preserves errors and signed or cache-first history", () => {
+  const huge = "x".repeat(6_000)
+  const assistant = {
+    role: "assistant",
+    content: [{ type: "toolCall", id: "call-1", name: "bash", arguments: { command: huge } }],
+  }
+  const error = {
+    role: "toolResult",
+    toolCallId: "call-1",
+    toolName: "bash",
+    content: [{ type: "text", text: "Command failed with exit code 1" }],
+    isError: true,
+  }
+  const tail = Array.from({ length: 7 }, (_, index) => ({ role: "user", content: "later-" + index }))
+  const messages = [assistant, error, ...tail]
+  const pruned = pruneStaleFailedToolInputs(messages, {
+    cacheMode: "neutral",
+    minAgeMessages: 6,
+    minInputChars: 2_048,
+    minSavedChars: 512,
+  })
+  assert.equal(pruned.changed, true)
+  assert.equal(pruned.prunedCalls, 1)
+  assert.ok(pruned.savedChars > 4_000)
+  assert.equal(pruned.messages[1], error)
+  assert.match(pruned.messages[0].content[0].arguments.command, /UES pruned stale failed input/)
+
+  const cacheFirst = pruneStaleFailedToolInputs(messages, { cacheMode: "cache" })
+  assert.equal(cacheFirst.changed, false)
+  assert.equal(cacheFirst.messages, messages)
+
+  const signed = [
+    {
+      ...assistant,
+      content: [{
+        ...assistant.content[0],
+        thoughtSignature: "opaque-provider-signature",
+      }],
+    },
+    error,
+    ...tail,
+  ]
+  const signedResult = pruneStaleFailedToolInputs(signed, {
+    minAgeMessages: 6,
+    minInputChars: 2_048,
+  })
+  assert.equal(signedResult.changed, false)
+  assert.equal(signedResult.skippedSigned, 1)
 })
 
 test("V16.3 retry strategy changes a failed edit dimension", () => {
