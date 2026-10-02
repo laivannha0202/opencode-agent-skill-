@@ -258,7 +258,7 @@ async function childHarness() {
   record("A-no-lsp-session-precreated", (poolBefore.sessionCount ?? 0) === 0, {
     sessionCount: poolBefore.sessionCount ?? 0,
   })
-  record("A-status-schema-current", details.statusSchemaVersion === 7, { statusSchemaVersion: details.statusSchemaVersion })
+  record("A-status-schema-current", details.statusSchemaVersion === 8, { statusSchemaVersion: details.statusSchemaVersion })
   record("A-status-advertises-v15-3",
     String(status?.content || "").includes("V15.3 incremental write intelligence")
     && String(status?.content || "").includes("V15.3 content-addressed semantic index")
@@ -271,6 +271,13 @@ async function childHarness() {
     && String(status?.content || "").includes("V15.4 mutation-shape write detection")
     && String(status?.content || "").includes("V15.4 document ingestion"),
   { contentHead: String(status?.content || "").split("\n").slice(0, 3).join(" | ") })
+  record("A-status-advertises-v16-adaptive",
+    String(status?.content || "").includes("V16.2 tool surface economy")
+    && String(status?.content || "").includes("V16.3 adaptive editing")
+    && String(status?.content || "").includes("V16.4 delta context")
+    && String(status?.content || "").includes("V16.5 cache-stable context")
+    && String(status?.content || "").includes("V16.6 strategy learning"),
+  { statusSchemaVersion: details.statusSchemaVersion ?? null })
   record("A-status-telemetry-details",
     details.taskTelemetry?.schemaVersion === 1
     && details.compactionRecall?.schemaVersion === 1,
