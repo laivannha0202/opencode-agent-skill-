@@ -12,12 +12,12 @@ import { normalizePerformanceHistory, recordStrategyPerformanceOutcome } from ".
 import { governToolOutput } from "../lib/tool-output-governor.mjs"
 
 test("V16.2 execution surfaces are bounded by model x execution profile", () => {
-  assert.equal(modelRuntimeProfile("unknown/model", { surface: "compact", executionProfile: "fast" }).maxAdvertisedTools, 7)
-  assert.equal(modelRuntimeProfile("unknown/model", { surface: "compact", executionProfile: "standard" }).maxAdvertisedTools, 9)
-  assert.equal(modelRuntimeProfile("unknown/model", { surface: "compact", executionProfile: "deep" }).maxAdvertisedTools, 10)
-  assert.equal(modelRuntimeProfile("unknown/model", { surface: "balanced", executionProfile: "fast" }).maxAdvertisedTools, 8)
-  assert.equal(modelRuntimeProfile("unknown/model", { surface: "balanced", executionProfile: "deep" }).maxAdvertisedTools, 15)
-  assert.equal(modelRuntimeProfile("unknown/model", { surface: "expanded", executionProfile: "deep" }).maxAdvertisedTools, 20)
+  assert.equal(modelRuntimeProfile("provider/free", { executionProfile: "fast" }).maxAdvertisedTools, 7)
+  assert.equal(modelRuntimeProfile("provider/free", { executionProfile: "standard" }).maxAdvertisedTools, 9)
+  assert.equal(modelRuntimeProfile("provider/free", { executionProfile: "deep" }).maxAdvertisedTools, 10)
+  assert.equal(modelRuntimeProfile("provider/medium", { executionProfile: "fast" }).maxAdvertisedTools, 8)
+  assert.equal(modelRuntimeProfile("provider/medium", { executionProfile: "deep" }).maxAdvertisedTools, 15)
+  assert.equal(modelRuntimeProfile("openai/gpt-5", { executionProfile: "deep" }).maxAdvertisedTools, 20)
 })
 
 test("V16.2 stable tool surface is independent of candidate input order", () => {
