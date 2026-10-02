@@ -29,18 +29,15 @@ import { createHash } from "node:crypto"
 import { mkdir, readFile as readFileImpl, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
+import { spawn } from "node:child_process"
 
 import { buildDecisionPacket, buildFollowUpDelta, clearDecisionPacketCache } from "../lib/decision-packet.mjs"
 import { createDeepSeekWebAdapter } from "../lib/deepseek-web-adapter.mjs"
 import { preflightBrowserCapability } from "../lib/browser-capability.mjs"
 import { createBrowserTelemetry } from "../lib/browser-evidence.mjs"
 import { createWebReasoningRegistry } from "../lib/web-reasoning-provider.mjs"
-import {
-  createWebReasoningTelemetry,
-  estimateTokens,
-  runWebConsultation,
-  runWebFollowUp,
-} from "../lib/web-reasoning-escalation.mjs"
+import { createWebReasoningTelemetry, runWebConsultation, runWebFollowUp } from "../lib/web-reasoning-escalation.mjs"
+import { createBrowserWorkerClient, spawnBrowserWorkerTransport } from "../lib/browser-worker-client.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -86,13 +83,21 @@ const DEFAULT_TASKS = [
 ]
 
 function parseArgs(argv) {
-  const args = { arm: "local", repeat: 3, live: false, json: false, tasks: null }
+  const args = {
+    arm: "local",
+    repeat: 3,
+    live: false,
+    json: false,
+    tasks: null,
+    piTelemetry: null,
+  }
   for (const entry of argv) {
     if (entry.startsWith("--arm=")) args.arm = entry.slice(6)
     else if (entry.startsWith("--repeat=")) args.repeat = Math.max(1, Math.min(50, Number(entry.slice(9)) || 3))
     else if (entry === "--live") args.live = true
     else if (entry === "--json") args.json = true
     else if (entry.startsWith("--tasks=")) args.tasks = entry.slice(8)
+    else if (entry.startsWith("--pi-telemetry=")) args.piTelemetry = entry.slice(14)
   }
   return args
 }
@@ -366,6 +371,44 @@ async function runWebArm(tasks, repeat, deps) {
   }
 }
 
+/**
+ * Reads measured Pi/API token usage from a UES run-telemetry file.
+ *
+ * Returns `null` when no file was supplied or when the file carries no measured
+ * bucket, so the benchmark reports `null` rather than a fabricated number.
+ */
+async function readPiUsage(file, deps) {
+  if (!file) return null
+  try {
+    const raw = await deps.readFile(file, "utf8")
+    const rows = String(raw).split("\n").map((line) => line.trim()).filter(Boolean).map((line) => {
+      try { return JSON.parse(line) } catch { return null }
+    }).filter(Boolean)
+    if (!rows.length) return null
+    const input = rows.reduce((sum, row) => sum + finite(row.usage?.inputTokens ?? row.inputTokens ?? row.usage?.input), 0)
+    const output = rows.reduce((sum, row) => sum + finite(row.usage?.outputTokens ?? row.outputTokens ?? row.usage?.output), 0)
+    const measured = input > 0 || output > 0
+    return {
+      piInputTokens: measured ? input : null,
+      piOutputTokens: measured ? output : null,
+      measured,
+      reason: measured ? "measured from the supplied UES run telemetry" : "telemetry file contained no measured token bucket",
+    }
+  } catch {
+    return {
+      piInputTokens: null,
+      piOutputTokens: null,
+      measured: false,
+      reason: `pi telemetry file could not be read: ${file}`,
+    }
+  }
+}
+
+function finite(value) {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : 0
+}
+
 function compare(local, web) {
   const fields = [
     "verifiedPassRate",
@@ -411,6 +454,24 @@ export async function runBenchmark(options = {}) {
     liveLoginProbe: options.liveLoginProbe || (async () => ({ authenticated: false })),
     closeBrowser: options.closeBrowser || null,
     maxPacketChars: options.maxPacketChars || 24_000,
+    piTelemetryFile: options.piTelemetryFile || null,
+  }
+
+  // Real provider attach for the B arm. `--live` spawns the same managed browser
+  // worker the controller uses, so the benchmark exercises the production path
+  // rather than a bench-only one. Without it the arm stays on the deterministic
+  // double and says so in `providerKind`.
+  let liveWorker = null;
+  if (deps.live && !deps.liveInvoke) {
+    const transport = spawnBrowserWorkerTransport(path.join(root, "scripts", "browser-worker-v16-3.mjs"), {
+      spawnImpl: spawn,
+      cwd: root,
+    });
+    liveWorker = transport ? createBrowserWorkerClient({ transport, process: transport.process }) : null;
+    if (liveWorker) {
+      deps.liveInvoke = (action, context) => liveWorker.invoke(action, context);
+      deps.closeBrowser = async () => { await liveWorker.close(); };
+    }
   }
 
   let tasks = DEFAULT_TASKS
@@ -427,6 +488,17 @@ export async function runBenchmark(options = {}) {
 
   const local = wantLocal ? await runLocalArm(tasks, repeat, deps) : null
   const web = wantWeb ? await runWebArm(tasks, repeat, deps) : null
+
+  // Pi/API token accounting comes from a REAL run-telemetry file when one is
+  // supplied. It is never estimated into the pi* fields: a missing measurement
+  // stays `null` with a reason, which is the only honest option.
+  const piUsage = await readPiUsage(deps.piTelemetryFile, deps)
+  if (piUsage) {
+    if (local) local.tokenMetrics = { ...local.tokenMetrics, ...piUsage, arm: "A" }
+    if (web) web.tokenMetrics = { ...web.tokenMetrics, ...piUsage, arm: "B" }
+  }
+
+  await liveWorker?.close().catch(() => null)
 
   return {
     schemaVersion: 1,
@@ -464,6 +536,7 @@ async function main() {
     repeat: args.repeat,
     live: args.live,
     tasksFile: args.tasks,
+    piTelemetryFile: args.piTelemetry,
   })
 
   if (args.json) {

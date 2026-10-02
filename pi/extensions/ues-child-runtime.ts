@@ -25,6 +25,11 @@ import { PermissionPolicyStore, permissionRecoveryHint, toolPermissionRequest } 
 import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
+// V16.3 managed browser lane. The gate and the receipt are the ONLY place a
+// managed browser call passes through; a Playwright/MCP browser tool cannot be
+// dispatched without the Phase A policy deciding it first.
+import { createBrowserLane } from "../../lib/browser-lane.mjs";
+import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { crossToolTempPathRisk, isLocalEnvPath, localEnvWriteRisk } from "../../lib/execution-contract.mjs";
 import {
   canonicalVerificationCommand,
@@ -101,6 +106,92 @@ const scheduledToolLeases = new Map<string, any>();
 const toolCheckpointState = new Map<string, { checkpointId: string; runId: string }>();
 
 const HOST_SEQUENTIAL_TOOLS = new Set(["bash", "powershell", "edit", "write", "ues_code_edit", "ues_service"]);
+
+// ---------------------------------------------------------------------------
+// V16.3 managed browser lane (child side).
+//
+// One lane per child runtime. It is built from the host's own tool registry plus
+// the shared MCP health tracker, so the child enforces exactly the policy the
+// parent used to compute the exposed surface. A browser tool call that the lane
+// does not manage is NOT silently allowed -- it is treated as unmanaged and
+// blocked, because "we could not classify it" is the fail-closed answer.
+// ---------------------------------------------------------------------------
+const CHILD_MCP_HEALTH = new McpHealthTracker({
+  failureThreshold: Math.max(1, Math.min(10, Number(process.env.UES_MCP_HEALTH_FAILURE_THRESHOLD || 2))),
+  cooldownMs: Math.max(1_000, Math.min(5 * 60_000, Number(process.env.UES_MCP_HEALTH_COOLDOWN_MS || 15_000))),
+});
+const CHILD_BROWSER_TOOL_NAMES = String(process.env.UES_CHILD_BROWSER_TOOL_NAMES || "")
+  .split(",")
+  .map((value) => value.trim())
+  .filter(Boolean);
+let CHILD_BROWSER_LANE: any = null;
+let CHILD_BROWSER_TOOL_SET = new Set<string>();
+
+function childBrowserLane(pi: any) {
+  if (CHILD_BROWSER_LANE) return CHILD_BROWSER_LANE;
+  const tools =
+    typeof (pi as any).getAllTools === "function"
+      ? (pi as any).getAllTools()
+      : CHILD_BROWSER_TOOL_NAMES.map((name) => ({ name }));
+  CHILD_BROWSER_LANE = createBrowserLane({
+    tools,
+    healthTracker: CHILD_MCP_HEALTH,
+    providerName: "child-browser-mcp",
+    nativeInspect: String(process.env.UES_NATIVE_BROWSER_INSPECT || "").trim().toLowerCase() === "1",
+    // External side effects are NEVER auto-approved here. A child that wants one
+    // must be given explicit approval by the parent/user; without it the gate
+    // refuses and the model is told why.
+    approvedSideEffects: String(process.env.UES_BROWSER_APPROVED_SIDE_EFFECTS || "") === "1",
+    sessionOptions: { sessionId: `cbl-${CHILD_RUN_ID || "child"}` },
+  });
+  return CHILD_BROWSER_LANE;
+}
+
+function isManagedBrowserTool(pi: any, toolName: string) {
+  const lane = childBrowserLane(pi);
+  const managed = lane.managedToolNames({ requiredActions: requiredBrowserActionsForChild(toolName) });
+  CHILD_BROWSER_TOOL_SET = new Set(managed);
+  if (managed.includes(toolName)) return true;
+  // A browser-shaped tool that the lane did NOT expose is still a browser tool.
+  // Letting it through is exactly the unmanaged path V16.3 removes.
+  return CHILD_BROWSER_TOOL_SET.size > 0
+    ? /(^|[_:.])(browser|playwright)([_:.]|$)|^browser_|^playwright_/i.test(toolName)
+    : false;
+}
+
+function requiredBrowserActionsForChild(toolName: string) {
+  const name = String(toolName || "").toLowerCase();
+  if (/snapshot|a11y|accessibility/.test(name)) return ["snapshot", "screenshot", "inspect"];
+  if (/screenshot/.test(name)) return ["snapshot", "screenshot", "inspect"];
+  if (/navigate|goto/.test(name)) return ["navigate", "snapshot"];
+  if (/click|press|button/.test(name)) return ["click", "snapshot"];
+  if (/fill|type|input/.test(name)) return ["fill", "snapshot"];
+  return ["snapshot", "screenshot", "inspect"];
+}
+
+/**
+ * Extracts the expected-state checks the CALLER declared for a browser action.
+ *
+ * The declarations come from the tool input the model supplied (`expectUrl`,
+ * `expectText`, `expectSelector`). The important property is what this function
+ * does NOT do: it never invents an `observed: true`. An undeclared expectation
+ * stays unobserved, and the lane then reports NOT_VERIFIED -- which is the honest
+ * answer for "the tool said OK and nothing else".
+ */
+function browserExpectedStates(input: any) {
+  const source = input && typeof input === "object" ? input : {};
+  const rows: any[] = [];
+  if (source.expectUrl || source.expectedUrl) {
+    rows.push({ kind: "url", expected: String(source.expectUrl || source.expectedUrl), observed: null, required: true });
+  }
+  if (source.expectText || source.expectedText) {
+    rows.push({ kind: "text-present", expected: String(source.expectText || source.expectedText), observed: null, required: true });
+  }
+  if (source.expectSelector || source.expectedSelector) {
+    rows.push({ kind: "element-present", expected: String(source.expectSelector || source.expectedSelector), observed: null, required: true });
+  }
+  return rows;
+}
 
 function hostManagedLease(owner: string, toolName: string, input: any) {
   return {
@@ -497,7 +588,43 @@ export default function (pi: ExtensionAPI) {
       }
     }
 
-    if (!["bash", "powershell"].includes(toolName)) return undefined;
+    if (!["bash", "powershell"].includes(toolName)) {
+      // V16.3 managed browser gate. Runs for EVERY non-shell tool and is a no-op
+      // for non-browser tools; for a browser tool it is the difference between a
+      // governed action and an unmanaged one.
+      if (isManagedBrowserTool(pi, toolName)) {
+        const gate = childBrowserLane(pi).gate({
+          toolName,
+          toolCallId: String(event.toolCallId || ""),
+          input,
+          action: undefined,
+        });
+        if (gate.block) {
+          toolExecutionState.delete(String(event.toolCallId || ""));
+          await releaseScheduledTool(event, ctx, "tool.blocked");
+          await journalChildEvent(ctx, "tool.blocked", {
+            toolCallId: owner,
+            tool: toolName,
+            reason: gate.reason,
+            managedBrowser: true,
+            capability: gate.capability?.reason || null,
+          });
+          return {
+            block: true,
+            reason: gate.message || `UES blocked ${toolName}: ${gate.reason}`,
+          };
+        }
+        await journalChildEvent(ctx, "browser.action.allowed", {
+          toolCallId: owner,
+          tool: toolName,
+          action: gate.taxonomy?.action,
+          actionClass: gate.taxonomy?.actionClass,
+          route: gate.routing?.route,
+          retryCount: gate.retryCount,
+        });
+      }
+      return undefined;
+    }
 
     const command = String(input.command || "");
     const envRisk = localEnvWriteRisk(command);
@@ -769,6 +896,33 @@ export default function (pi: ExtensionAPI) {
     };
     const postWrite = await childPostWriteFeedback(event as any, ctx as any, toolName);
     const shownText = visibleText(event);
+    // V16.3 managed browser receipt. Converts a managed browser result into a
+    // Phase A evidence receipt, applies post-action verification, and attaches a
+    // NOT_VERIFIED notice when the tool reported success without an observed
+    // expected state. This is the browser half of the V16 false-pass gate: the
+    // model must not be able to read "tool returned 200" as proof.
+    const browserReceipt = isManagedBrowserTool(pi, toolName)
+      ? childBrowserLane(pi).receipt({
+        toolCallId: String(event.toolCallId || owner || ""),
+        resultText: shownText,
+        isError: event.isError === true,
+        expectedStates: browserExpectedStates(resultInput),
+      })
+      : null;
+    if (browserReceipt) {
+      await journalChildEvent(ctx, "browser.action.receipt", {
+        toolCallId: owner,
+        tool: toolName,
+        action: browserReceipt.action,
+        actionClass: browserReceipt.actionClass,
+        verdict: browserReceipt.verdict,
+        expectedStateVerified: browserReceipt.expectedStateVerified,
+        retryPermitted: browserReceipt.retryPermitted,
+        retryReason: browserReceipt.retry?.reason || null,
+        recoveryReason: browserReceipt.recovery?.reason || null,
+        durationMs: browserReceipt.receipt?.durationMs ?? null,
+      });
+    }
     const allTools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
     const descriptor = allTools.find((tool: any) => String(tool?.name || "") === toolName);
     const externalPolicy = mcpExecutionPolicy(descriptor || { name: toolName });
@@ -777,7 +931,27 @@ export default function (pi: ExtensionAPI) {
       externalPolicy.externalEvidenceBoundary === true;
     let trustBoundaryText = "";
     let trustBoundaryAnalysis: any = null;
-    if (externalBoundary && shownText) {
+    if (browserReceipt?.notVerifiedNotice) {
+      // Highest precedence: a managed browser action with no observed expected
+      // state is announced as NOT_VERIFIED before anything else in the result.
+      trustBoundaryText = [
+        "[UES V16.3 BROWSER EVIDENCE BOUNDARY]",
+        trustBoundaryText,
+        browserReceipt.notVerifiedNotice,
+        "[END UES V16.3 BROWSER EVIDENCE BOUNDARY]",
+      ].filter(Boolean).join("\n");
+      trustBoundaryAnalysis = {
+        schemaVersion: 1,
+        kind: "ues-browser-evidence-boundary",
+        action: browserReceipt.action,
+        actionClass: browserReceipt.actionClass,
+        verdict: browserReceipt.verdict,
+        expectedStateVerified: browserReceipt.expectedStateVerified,
+        trustLevel: "untrusted-external",
+        instructionAuthority: "none",
+      };
+    }
+    if (externalBoundary && shownText && !trustBoundaryAnalysis) {
       const analysis = analyzeUntrustedOutput(shownText, {
         source: toolName,
         trustClass: "external-data",

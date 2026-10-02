@@ -811,6 +811,11 @@ test("V16.3 browser telemetry reports only measured values and never fabricates 
   assert.equal(empty.mcpTransientFailures, 0)
 
   const telemetry = createBrowserTelemetry()
+  // A receipt is not a dispatch: `browserToolCalls` counts calls the lane
+  // actually allowed through, so an action that produced no receipt still
+  // appears in the count. Counting receipts instead under-reported every call
+  // the gate blocked or the host dropped.
+  assert.equal(createBrowserTelemetry().snapshot().browserToolCalls, 0)
   telemetry.recordReceipt({
     result: BROWSER_ACTION_RESULT.SUCCESS,
     durationMs: 100,
@@ -818,7 +823,11 @@ test("V16.3 browser telemetry reports only measured values and never fabricates 
     navigationObserved: true,
     snapshotRef: "s1",
   })
+  assert.equal(telemetry.snapshot().browserToolCalls, 0, "a receipt alone must not count as a tool call")
+  telemetry.recordDispatch()
+  telemetry.recordDispatch()
   telemetry.recordReceipt({ result: BROWSER_ACTION_RESULT.FAILURE, durationMs: 300, retryCount: 1 })
+  telemetry.recordDispatch()
   telemetry.recordStaleFailure()
   telemetry.recordMcpTransientFailure()
   telemetry.recordCooldown()
@@ -827,7 +836,8 @@ test("V16.3 browser telemetry reports only measured values and never fabricates 
   telemetry.recordNavigation({ observed: true, kind: "redirect", durationMs: 200 })
   telemetry.recordTokens({ inputTokens: 1200, outputTokens: 300, reasoningTurns: 2 })
   const snapshot = telemetry.snapshot()
-  assert.equal(snapshot.browserToolCalls, 2)
+  assert.equal(snapshot.browserToolCalls, 3)
+  assert.equal(snapshot.browserActionAttempts, 2)
   assert.equal(snapshot.browserActionSuccesses, 1)
   assert.equal(snapshot.browserActionFailures, 1)
   assert.equal(snapshot.browserActionSuccessRate, 0.5)

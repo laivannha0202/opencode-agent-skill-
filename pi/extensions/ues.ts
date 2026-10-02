@@ -78,6 +78,13 @@ import {
   selectBrowserToolsForTask,
   visualEvidenceNeeded,
 } from "../../lib/browser-mcp-routing.mjs";
+// V16.3 runtime integration. These modules carry the browser reliability policy
+// and the web-reasoning policy; the controller only sequences them.
+import { createBrowserLane } from "../../lib/browser-lane.mjs";
+import { createWebReasoningLane, WEB_LANE_OUTCOME } from "../../lib/web-reasoning-lane.mjs";
+import { WEB_REASONING_UNAVAILABLE } from "../../lib/web-reasoning-provider.mjs";
+import { createDeepSeekWebAdapter } from "../../lib/deepseek-web-adapter.mjs";
+import { createBrowserWorkerClient, spawnBrowserWorkerTransport } from "../../lib/browser-worker-client.mjs";
 import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
 import { buildRepoMap } from "../../lib/repo-map.mjs";
 import { contentArtifactStoreStats } from "../../lib/content-artifacts.mjs";
@@ -387,6 +394,193 @@ function refreshHostBrowserToolNames(pi: ExtensionAPI) {
     limit: BROWSER_MCP_TOOL_LIMIT,
   });
   return HOST_BROWSER_TOOL_NAMES;
+}
+
+// ---------------------------------------------------------------------------
+// V16.3 managed browser lane
+//
+// `HOST_BROWSER_TOOL_NAMES` is a NAME list: it says which Playwright tools exist,
+// not which actions they may safely perform, and it is computed without knowing
+// what the task needs. The lane closes that gap. It is built once per run from the
+// live tool registry plus the shared MCP health tracker, and it is the single
+// source of the managed browser surface for the whole run.
+// ---------------------------------------------------------------------------
+const ACTIVE_BROWSER_LANES = new Map<string, any>();
+
+function browserLaneKey(cwd: string, runId: string) {
+  return `${path.resolve(String(cwd || ""))}::${String(runId || "default")}`;
+}
+
+function resolveBrowserLane(cwd: string, runId: string, pi: ExtensionAPI, overrides: Record<string, any> = {}) {
+  const key = browserLaneKey(cwd, runId);
+  const existing = ACTIVE_BROWSER_LANES.get(key);
+  if (existing) return existing;
+  const tools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
+  const lane = createBrowserLane({
+    tools,
+    healthTracker: MCP_HEALTH,
+    providerName: "host-browser-mcp",
+    nativeInspect: configuredBoolean("UES_NATIVE_BROWSER_INSPECT", false),
+    approvedSideEffects: configuredBoolean("UES_BROWSER_APPROVED_SIDE_EFFECTS", false),
+    sessionOptions: { sessionId: `bl-${String(runId || "default")}` },
+    ...overrides,
+  });
+  ACTIVE_BROWSER_LANES.set(key, lane);
+  return lane;
+}
+
+/**
+ * A bounded diff for the Decision Packet. Uses the workspace snapshot the
+ * controller already maintains, so the packet carries the CURRENT change set
+ * without shelling out to git a second time. Failure degrades to an empty diff;
+ * it never blocks and never claims a diff it does not have.
+ */
+function boundedWorkspaceDiff(cwd: string, maxChars = 6_000) {
+  try {
+    const snapshot = runtimeWorkspaceSnapshot(cwd);
+    const rows = Array.isArray(snapshot.changedFiles) ? snapshot.changedFiles.slice(0, 40) : [];
+    if (!rows.length) return "";
+    return rows
+      .map((row: any) => `${row?.status || "?"} ${row?.path || ""}`)
+      .join("\n")
+      .slice(0, maxChars);
+  } catch {
+    return "";
+  }
+}
+
+function activeBrowserLane(cwd: string, runId: string) {
+  return ACTIVE_BROWSER_LANES.get(browserLaneKey(cwd, runId)) || null;
+}
+
+/**
+ * Derives the browser actions a task actually needs from the existing routing
+ * vocabulary, so the lane exposes the minimum surface instead of the whole
+ * Playwright registry. Returns an empty list for a pure read-only task, which is
+ * what lets the preflight report `inspect-only` honestly.
+ */
+export function requiredBrowserActionsForTask(task: string) {
+  const text = String(task || "").toLowerCase();
+  const actions: string[] = ["snapshot", "screenshot", "inspect"];
+  if (/(navigate|open|go to|url|route|page)/.test(text)) actions.push("navigate");
+  if (/(click|press|button|tap|submit)/.test(text)) actions.push("click");
+  if (/(fill|type|enter|input|form|textbox)/.test(text)) actions.push("fill");
+  if (/(select|dropdown|combobox|option)/.test(text)) actions.push("select");
+  if (/(hover|tooltip|menu)/.test(text)) actions.push("hover");
+  if (/(keyboard|key|shortcut|press enter)/.test(text)) actions.push("press");
+  if (/(wait|eventually|until)/.test(text)) actions.push("wait");
+  if (/(console|network|request|response)/.test(text)) actions.push("console-read", "network-read");
+  if (/(checkout|purchase|payment|place order|delete|publish|send message)/.test(text)) actions.push("navigate");
+  return [...new Set(actions)];
+}
+
+async function releaseBrowserLane(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, runId);
+  const lane = ACTIVE_BROWSER_LANES.get(key);
+  if (!lane) return null;
+  ACTIVE_BROWSER_LANES.delete(key);
+  const cleanup = await lane.cleanup(cwd).catch(() => null);
+  return cleanup;
+}
+
+// ---------------------------------------------------------------------------
+// V16.3 web-reasoning lane
+//
+// The controller consults at most ONCE before implementation, and at most twice
+// more as bounded deltas after a verifier failure.
+//
+// Availability is a first-class, measured value. The managed browser worker is
+// spawned only when `UES_WEB_REASONING_LIVE=1`; otherwise the adapter is given
+// NO dispatch binding and reports `browser-unavailable`, which the escalation
+// router then handles exactly as specified: AUTO falls back locally, FORCE fails
+// loudly with WEB_REASONING_UNAVAILABLE. Nothing here can fake a consultation.
+// ---------------------------------------------------------------------------
+function webReasoningMode() {
+  const raw = String(process.env.UES_WEB_REASONING_MODE || "auto").trim().toLowerCase();
+  return raw === "off" || raw === "force" ? raw : "auto";
+}
+
+function webReasoningLiveEnabled() {
+  return configuredBoolean("UES_WEB_REASONING_LIVE", false);
+}
+
+const ACTIVE_WEB_LANES = new Map<string, any>();
+const ACTIVE_WEB_WORKERS = new Map<string, any>();
+
+function browserWorkerScript() {
+  return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "browser-worker-v16-3.mjs");
+}
+
+function resolveManagedBrowserWorker(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, `web:${runId}`);
+  const existing = ACTIVE_WEB_WORKERS.get(key);
+  if (existing) return existing;
+  if (!webReasoningLiveEnabled()) {
+    // No live flag -> no worker, no cost, and an honest `unavailable` capability.
+    ACTIVE_WEB_WORKERS.set(key, null);
+    return null;
+  }
+  const transport = spawnBrowserWorkerTransport(browserWorkerScript(), {
+    spawnImpl: spawn,
+    cwd: path.resolve(String(cwd || process.cwd())),
+  });
+  const client = transport
+    ? createBrowserWorkerClient({ transport, process: transport.process })
+    : null;
+  ACTIVE_WEB_WORKERS.set(key, client);
+  return client;
+}
+
+async function releaseManagedBrowserWorker(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, `web:${runId}`);
+  const client = ACTIVE_WEB_WORKERS.get(key);
+  ACTIVE_WEB_WORKERS.delete(key);
+  if (!client) return null;
+  return client.close().catch(() => null);
+}
+
+function buildWebReasoningAdapter(cwd: string, runId: string) {
+  const worker = resolveManagedBrowserWorker(cwd, runId);
+  return createDeepSeekWebAdapter({
+    capability: worker
+      ? {
+        provider: "browser-worker",
+        interactive: true,
+        readOnlyAvailable: true,
+        reason: "managed-browser-worker",
+      }
+      : { provider: "browser-worker", interactive: false, readOnlyAvailable: false, reason: "browser-worker-unavailable" },
+    invoke: worker ? (action, context) => worker.invoke(action, context) : null,
+    loginProbe: worker
+      ? async () => ({ authenticated: worker.state().state !== "needs-auth" })
+      : async () => ({ authenticated: false, url: "https://chat.deepseek.com/" }),
+    closeBrowser: worker ? async () => { await worker.close(); } : null,
+  });
+}
+
+function createRunWebLane(cwd: string, runId: string) {
+  const mode = webReasoningMode();
+  const lane = createWebReasoningLane({
+    mode,
+    live: webReasoningLiveEnabled(),
+    provider: String(process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web").trim(),
+    maxPacketChars: configuredCount("UES_WEB_PACKET_MAX_CHARS", 48_000, 2_000, 400_000),
+    adapters: mode === "off" ? [] : [buildWebReasoningAdapter(cwd, runId)],
+  });
+  ACTIVE_WEB_LANES.set(browserLaneKey(cwd, `web:${runId}`), lane);
+  return lane;
+}
+
+function activeWebLane(cwd: string, runId: string) {
+  return ACTIVE_WEB_LANES.get(browserLaneKey(cwd, `web:${runId}`)) || null;
+}
+
+async function releaseWebLane(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, `web:${runId}`)
+  const lane = ACTIVE_WEB_LANES.get(key);
+  ACTIVE_WEB_LANES.delete(key);
+  if (lane) await lane.close().catch(() => null);
+  await releaseManagedBrowserWorker(cwd, runId);
 }
 
 function stopChildTree(proc: any) {
@@ -5240,22 +5434,47 @@ export default function (pi: ExtensionAPI) {
       }
       const browserLaneRequested =
         browserEvidenceNeeded(params.task, "executor") || visualEvidenceNeeded(params.task);
+      // V16.3: the managed browser lane replaces the bare tool-name list. The
+      // preflight computes what the provider can actually do, exposes only the
+      // task-scoped tools, and is the SAME object the tool_call gate consults --
+      // so the surface the model sees is the surface the policy enforced.
+      const managedBrowserLane = browserLaneRequested
+        ? resolveBrowserLane(cwd, traceID, pi)
+        : null;
+      const managedBrowserLaneReport = managedBrowserLane
+        ? managedBrowserLane.describe({
+          requiredActions: requiredBrowserActionsForTask(params.task),
+        })
+        : null;
       if (browserLaneRequested) {
+        const report = managedBrowserLaneReport;
         onUpdate?.({
           content: [{
             type: "text",
-            text: hostBrowserTools.length
-              ? `UES browser lane: ${hostBrowserTools.length} Playwright/Browser MCP tool(s) selected on demand`
-              : "UES browser lane requested, but no Playwright/Browser MCP tools were detected in the host registry",
+            text: report && report.managedTools.length
+              ? `UES V16.3 browser lane: ${report.managedTools.length} managed tool(s), capability=${report.capability.reason}, interactive=${report.interactive ? "yes" : "no"}`
+              : "UES browser lane requested, but no interactive Playwright/Browser MCP capability is available on the managed lane. Browser-visible behavior cannot be claimed as verified.",
           }],
           details: {
             mode: "execute",
             phase: "browser-capability",
             requested: true,
             browserTools: hostBrowserTools,
+            managedLane: report,
           },
         });
       }
+      // Web-reasoning lane for this run. Created here so OFF costs nothing and
+      // AUTO only probes when a real escalation signal exists.
+      const webLane = createRunWebLane(cwd, traceID);
+      const webLanePreflight = {
+        mode: webLane.mode,
+        provider: webLane.providerId,
+        probesProvider: webLane.probesProvider(),
+        live: webReasoningLiveEnabled(),
+        maxConsultations: webLane.maxConsultations,
+        maxFollowUps: webLane.maxFollowUps,
+      };
       const requestedAttempts = Number(params.maxAttempts || policy.maxAttempts || 2);
       const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
       const steps: RunResult[] = [];
@@ -5304,7 +5523,89 @@ export default function (pi: ExtensionAPI) {
           taskChars: task.length,
         });
         let softSteerSent = false;
-        const governedTask = [task, "", contractPrompt].filter(Boolean).join("\n");
+        // V16.3 web consultation. Fires ONCE, before the first implementation
+        // turn, and only when the escalation router found a real signal. FORCE
+        // with an unavailable provider is a hard, explicit failure here rather
+        // than a silent downgrade to a local run.
+        let webAdviceText = "";
+        let failureDeltaText = failure || "";
+        if (webLane && agent === "ues-executor" && attempt === 1 && !failure) {
+          const consultation = await webLane
+            .consult({
+              task: params.task,
+              notes: failureDeltaText || "",
+              constraints: executionContract?.mustNot || [],
+              verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
+              affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+            })
+            .catch(() => null);
+          if (consultation?.code === WEB_REASONING_UNAVAILABLE) {
+            await appendRunJournalEvent(cwd, traceID, "web-reasoning.unavailable", {
+              provider: consultation.provider,
+              reason: consultation.reason,
+              mode: consultation.mode,
+            }).catch(() => null);
+            return {
+              agent,
+              task,
+              cwd,
+              exitCode: 2,
+              output:
+                `UES web reasoning is unavailable in FORCE mode (${consultation.reason}). ` +
+                "No consultation was performed and none is claimed. Fix the provider/browser lane, or run with UES_WEB_REASONING_MODE=auto to fall back to local execution.",
+              stderr: "",
+              model: inheritedModel,
+              taskPolicy: policy,
+              verdict: "FAIL",
+              webReasoning: consultation,
+            };
+          }
+          if (consultation?.advisorText) webAdviceText = consultation.advisorText;
+          await appendRunJournalEvent(cwd, traceID, "web-reasoning.consulted", {
+            provider: consultation?.provider,
+            mode: consultation?.mode,
+            outcome: consultation?.outcome,
+            reason: consultation?.reason,
+            signals: consultation?.escalation?.signals || [],
+            packetChars: consultation?.packet?.chars ?? 0,
+            packetFiles: consultation?.packet?.files ?? 0,
+            packetCacheHit: consultation?.packet?.cacheHit === true,
+            flagged: consultation?.flagged === true,
+            authorityAttempts: consultation?.authorityAttempts || [],
+            fallbackToLocal: consultation?.fallbackToLocal === true,
+          }).catch(() => null);
+          if (consultation && consultation.outcome !== WEB_LANE_OUTCOME.SKIPPED) {
+            onUpdate?.({
+              content: [{
+                type: "text",
+                text:
+                  `UES V16.3 web consultation: outcome=${consultation.outcome}` +
+                  (consultation.reason ? ` reason=${consultation.reason}` : "") +
+                  (consultation.packet ? ` packet=${consultation.packet.chars}ch/${consultation.packet.files}files` : "") +
+                  (consultation.flagged ? " [response flagged: untrusted instruction-like text recorded, not obeyed]" : ""),
+              }],
+              details: {
+                mode: "execute",
+                phase: "web-reasoning-consult",
+                consultation: {
+                  outcome: consultation.outcome,
+                  reason: consultation.reason,
+                  packet: consultation.packet,
+                  flagged: consultation.flagged,
+                  authorityAttempts: consultation.authorityAttempts,
+                  fallbackToLocal: consultation.fallbackToLocal,
+                },
+                traceID,
+              },
+            });
+          }
+        }
+        const governedTask = [
+          task,
+          webAdviceText,
+          failure ? "" : "",
+          contractPrompt,
+        ].filter(Boolean).join("\n");
         await appendRunJournalEvent(cwd, traceID, "agent.started", { agent, attempt }).catch(() => null);
         const result = await runRoutedAgent(
           agent,
@@ -6527,9 +6828,64 @@ export default function (pi: ExtensionAPI) {
           visualRequired: visualEvidenceNeeded(params.task),
         });
         const fastBoundedLane = fastDecision.eligible;
+        // V16.3 bounded web follow-up. Fires only on a RETRY (attempt > 1) with
+        // a real verifier failure, sends only the DELTA in the same session, and
+        // is capped by the lane's own follow-up budget. A task never escalates on
+        // every turn.
+        let webFollowUpText = "";
+        if (webLane && attempt > 1 && recentFailure) {
+          const followUp = await webLane
+            .followUp({
+              task: params.task,
+              evidence: [{ kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) }],
+              previousAttempts: [cap(recentFailure, 2_000)],
+              diff: boundedWorkspaceDiff(cwd),
+            })
+            .catch(() => null);
+          if (followUp?.code === WEB_REASONING_UNAVAILABLE && webLane.mode === "force") {
+            await appendRunJournalEvent(cwd, traceID, "web-reasoning.follow-up-unavailable", {
+              provider: followUp.provider,
+              reason: followUp.reason,
+            }).catch(() => null);
+          }
+          if (followUp?.advisorText) webFollowUpText = followUp.advisorText;
+          await appendRunJournalEvent(cwd, traceID, "web-reasoning.follow-up", {
+            provider: followUp?.provider,
+            outcome: followUp?.outcome,
+            reason: followUp?.reason,
+            deltaChars: followUp?.delta?.chars ?? 0,
+            changedSections: followUp?.delta?.changedSections || [],
+            savedChars: followUp?.delta?.savedChars ?? 0,
+            flagged: followUp?.flagged === true,
+            fallbackToLocal: followUp?.fallbackToLocal === true,
+          }).catch(() => null);
+          if (followUp && followUp.outcome !== WEB_LANE_OUTCOME.SKIPPED) {
+            onUpdate?.({
+              content: [{
+                type: "text",
+                text:
+                  `UES V16.3 web follow-up: outcome=${followUp.outcome}` +
+                  (followUp.delta?.chars ? ` delta=${followUp.delta.chars}ch` : "") +
+                  (followUp.delta?.savedChars ? ` saved=${followUp.delta.savedChars}ch` : ""),
+              }],
+              details: {
+                mode: "execute",
+                phase: "web-reasoning-follow-up",
+                followUp: {
+                  outcome: followUp.outcome,
+                  reason: followUp.reason,
+                  delta: followUp.delta,
+                  flagged: followUp.flagged,
+                },
+                traceID,
+              },
+            });
+          }
+        }
         const fastAttemptStartedAt = Date.now();
         const executorTask = [
           params.task,
+          webFollowUpText,
           recentFailure ? "\nEvidence from diagnosis/previous failed verification:\n" + cap(recentFailure, 7000) : "",
           planningResumeEvidence ? "\nPlanner recovery evidence preserved for direct continuation:\n" + cap(planningResumeEvidence, 4200) : "",
           fastBoundedLane

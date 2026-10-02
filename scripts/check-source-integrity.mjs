@@ -1955,9 +1955,128 @@ const CONTRACTS = [
       "benchmarkReadiness",
       "claimsVerified: false",
       "incomplete-measurement-no-conclusion",
+      "readPiUsage",
     ],
     // An A/B harness that ships a headline percentage is a marketing artifact.
     forbidden: ["saves 70%", "70% faster", "reduces tokens by 70", "guaranteed"],
+  },
+
+  // ---------------------------------------------------------------------
+  // V16.3 runtime integration.
+  //
+  // These contracts guard INTEGRATION invariants, not prose. Each marker is a
+  // property whose absence would silently remove a controller gate: if the child
+  // stopped calling the gate, or the controller stopped journaling the escalation,
+  // or the receipt stopped emitting NOT_VERIFIED, the policy would still "exist"
+  // in lib/ while nothing enforced it on the live path.
+  // ---------------------------------------------------------------------
+  {
+    file: "lib/browser-lane.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.3 runtime integration: the managed browser lane for the Pi controller.",
+    required: [
+      "gate(input = {})",
+      "receipt(input = {})",
+      "BROWSER_BLOCK_REASON",
+      "fresh-semantic-snapshot-required-before-retry",
+      "retry-budget-exhausted",
+      "duplicate-submit-refused",
+      "browser-provider-in-bounded-cooldown",
+      "NOT_VERIFIED",
+      "observeDeclaredExpectations",
+      "retryBudgetExhausted",
+    ],
+    // The lane must never dispatch a tool itself; the host owns dispatch.
+    forbidden: ["await page.", "chromium.launch"],
+  },
+  {
+    file: "lib/web-reasoning-lane.mjs",
+    minBytes: 11_000,
+    startsWith: "// V16.3 runtime integration: the web-reasoning lane for the Pi controller.",
+    required: [
+      "WEB_LANE_OUTCOME",
+      "WEB_LANE_LIMIT",
+      "probesProvider",
+      "advisorTextFor",
+      "packetInputFrom",
+      "consultation-budget-exhausted",
+      "follow-up-budget-exhausted",
+      "ADVISORY EVIDENCE ONLY",
+      "canProducePass: false",
+    ],
+  },
+  {
+    file: "lib/browser-worker-protocol.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.3 runtime integration: the managed browser worker protocol.",
+    required: [
+      "BROWSER_WORKER_PROTOCOL_VERSION",
+      "encodeWorkerRequest",
+      "decodeWorkerResponse",
+      "encodeWorkerResponse",
+      "side-effect-not-approved",
+      "nested the whole envelope inside itself",
+      "trustLevel: \"untrusted-external\"",
+    ],
+  },
+  {
+    file: "lib/browser-worker-client.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.3 runtime integration: managed browser worker client.",
+    required: [
+      "createBrowserWorkerClient",
+      "spawnBrowserWorkerTransport",
+      "BROWSER_WORKER_CLIENT_STATE",
+      "terminateProcessTree",
+      "inflight.size >= 1",
+      "externalSideEffect",
+    ],
+  },
+  {
+    file: "scripts/browser-worker-v16-3.mjs",
+    minBytes: 9_000,
+    startsWith: "#!/usr/bin/env node",
+    required: [
+      "BROWSER_WORKER_OPERATION",
+      "encodeWorkerRequest",
+      "Playwright is not installed",
+      "--probe",
+      "process.stdin.on(\"data\"",
+      "shutdown",
+    ],
+  },
+  {
+    file: "scripts/smoke-deepseek-web-v16-3.mjs",
+    minBytes: 8_000,
+    startsWith: "#!/usr/bin/env node",
+    required: [
+      "MANUAL live DeepSeek Web smoke",
+      "NEEDS_AUTH",
+      "yes-i-have-authorized-a-live-consultation",
+      "SYNTHETIC_CONTEXT",
+      "Do not request secrets and do not perform external actions",
+    ],
+    forbidden: ["ci must NOT", "release:verify must NOT"],
+  },
+  {
+    file: "test/v16-3-controller-integration.test.mjs",
+    minBytes: 18_000,
+    startsWith: "// V16.3 runtime integration: the controller lanes.",
+    required: [
+      "V16.3 controller lane exposes only task-scoped browser tools",
+      "V16.3 A: an easy grounded task never consults the web provider",
+      "V16.3 B: a hard ambiguous task consults exactly once",
+      "V16.3 C: DeepSeek unavailable in AUTO leaves the local path running",
+      "V16.3 D: DeepSeek unavailable in FORCE fails explicitly",
+      "V16.3 E: a stale click requires a fresh snapshot before the single retry",
+      "V16.3 F3: a transiently failed submit is never re-dispatched",
+      "V16.3 G: browser tool success without an observed expected state is NOT_VERIFIED",
+      "V16.3 H: advice carrying a permission instruction is flagged and never reaches the executor",
+      "V16.3 I: a web response claiming PASS cannot affect any verdict field",
+      "V16.3 J: a follow-up sends only the delta and reuses the session",
+      "V16.3 K: the lanes never emit a task verdict and never widen permissions",
+      "V16.3 L: a degraded browser provider blocks browser work without retry spam",
+    ],
   },
 ]
 

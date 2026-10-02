@@ -322,6 +322,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     const requiredV163Tests = [
       "test/browser-reliability-v16-3.test.mjs",
       "test/deepseek-web-bridge-v16-3.test.mjs",
+      "test/v16-3-controller-integration.test.mjs",
     ]
     if (!requiredV163Tests.every((file) => focusedV16.includes(file))) {
       errors.push("package.json: eval:v16 must include the V16.3 browser-reliability and deepseek-web-bridge suites")
@@ -336,6 +337,26 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     }
     if (scripts["bench:web-reasoning"] !== "node scripts/bench-web-reasoning-ab.mjs") {
       errors.push("package.json: missing measured V16.3 web-reasoning A/B benchmark command")
+    }
+    // The live DeepSeek smoke is deliberately MANUAL and separately gated. It must
+    // not be reachable from `ci` / `release:verify`, because it drives a real
+    // third-party web UI.
+    if (scripts["smoke:deepseek-web"] !== "node scripts/smoke-deepseek-web-v16-3.mjs") {
+      errors.push("package.json: missing the manually gated V16.3 DeepSeek web smoke")
+    }
+    if (String(scripts.ci || "").includes("smoke:deepseek-web")) {
+      errors.push("package.json: ci must NOT run the live DeepSeek web smoke")
+    }
+    if (String(scripts["release:verify"] || "").includes("smoke:deepseek-web")) {
+      errors.push("package.json: release:verify must NOT run the live DeepSeek web smoke")
+    }
+    for (const required of [
+      "scripts/browser-worker-v16-3.mjs",
+      "scripts/smoke-deepseek-web-v16-3.mjs",
+    ]) {
+      if (!pkg.files.includes(required)) {
+        errors.push(`package.json: V16.3 runtime integration file must be packed: ${required}`)
+      }
     }
     if (!String(scripts["release:verify"] || "").includes("npm run eval:v16")) {
       errors.push("package.json: release:verify must include eval:v16")
