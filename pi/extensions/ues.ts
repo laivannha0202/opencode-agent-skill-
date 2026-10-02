@@ -2608,8 +2608,9 @@ async function runRoutedAgent(
       workspaceFingerprint,
       executionProfile: taskPolicy.executionProfile,
       attempt,
-      modelProfile,
+      modelProfile: childModelProfile,
       cachePolicy,
+      toolUtility,
       skills: Array.isArray(microSkills?.loaded) ? microSkills.loaded : [],
       },
     );
@@ -2763,6 +2764,9 @@ async function runRoutedAgent(
       contextPerformance,
       modelRuntimeProfile: modelProfile,
       modelAciProfile,
+      toolSurfaceEconomy: (result as any)?.toolExposure?.economy || null,
+      toolUtilityEvidence: toolUtility?.evidence || "NOT_MEASURED",
+      strategyProfile,
       roleContextABI: modelProfile.roleContextABI || null,
       verificationDiversity: modelProfile.verificationDiversity || null,
       diversityThinkingPreserved: !(diversitySelection?.id && inheritedThinking),
@@ -2819,7 +2823,7 @@ async function runRoutedAgent(
     agent,
     role,
     attempt,
-    taskClass: taskPolicy.executionProfile,
+    taskClass: strategyTaskClass,
     provider: selectedProvider,
     model: selectedModel,
   }).catch(() => null);
@@ -2846,6 +2850,8 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
       retries,
       latencyMs: result.durationMs || 0,
       tokens: Number(aggregateUsage?.totalTokens ?? result.usage?.totalTokens ?? 0),
+      taskClass: result.optimizations?.strategyProfile?.taskClass || undefined,
+      strategyProfile: result.optimizations?.strategyProfile || null,
     });
   } catch {
     // Telemetry must never make the engineering task fail.
@@ -6661,6 +6667,11 @@ export default function (pi: ExtensionAPI) {
         "V16 Windows cleanup barrier: on (bounded EBUSY/EPERM/ENOTEMPTY retry)",
         "V16 cost-aware model routing: on (retry-amplified token economics after evidence floor)",
         "V16.1 requirement correctness gate: on (MUST / MUST_NOT / VERIFY ledger + plan/task/evidence coverage; final PASS fails closed)",
+        "V16.2 tool surface economy: on (stable core/deferred schemas + utilization learning + estimated schema tax)",
+        "V16.3 adaptive editing: on (model/task edit + search strategy; reasoned retry dimension shift)",
+        "V16.4 delta context: on (same-runtime read/search dedup + reversible Evidence Store recovery)",
+        "V16.5 cache-stable context: on (stable schema prefix telemetry + live-zone compaction policy)",
+        "V16.6 strategy learning: on (model x task x tool/context/edit/execution outcome history)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -6694,8 +6705,8 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V7 adds V16 deterministic hardening contracts while retaining earlier counters.
-          statusSchemaVersion: 7,
+          // Status schema V8 adds V16.2-V16.6 adaptive economy/strategy contracts while retaining earlier counters.
+          statusSchemaVersion: 8,
           incrementalWrite: {
             ...writeFeedbackStats,
             coverage: {
