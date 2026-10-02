@@ -293,24 +293,38 @@ test("V15.15 final verdict matrix separates source runtime data and device proof
     "Test Expo Go on a real device.",
   ].join("\n")
   const contract = buildExecutionContract(task)
+  const runtimeRequirementId = contract.requirementLedger.requirements.find((item) => /e2e|runtime smoke/i.test(item.text))?.id
+  const deviceRequirementId = contract.requirementLedger.requirements.find((item) => /expo go|real device/i.test(item.text))?.id
+  assert.ok(runtimeRequirementId)
+  assert.ok(deviceRequirementId)
   const partial = buildFinalVerdictMatrix(task, {
     contract,
     primaryPass: true,
     integrationPass: true,
-    integrationOutput: "DB_CLEAN_PASS\ncleanup dry-run removed count=12; second cleanup run idempotent count=0",
+    integrationOutput: [
+      "DB_CLEAN_PASS",
+      "cleanup dry-run removed count=12; second cleanup run idempotent count=0",
+      `UES_REQUIREMENT: ${runtimeRequirementId} PASS - pnpm runtime smoke completed with fresh integration evidence`,
+      `UES_REQUIREMENT: ${deviceRequirementId} NOT_VERIFIED - Expo Go real-device evidence is still pending`,
+    ].join("\n"),
     integrationChecks: "pnpm test\npnpm runtime:smoke\npnpm cleanup --dry-run",
   })
   assert.equal(partial.source, "SOURCE_PASS")
   assert.equal(partial.runtime, "RUNTIME_PASS")
   assert.equal(partial.dbClean, "DB_CLEAN_PASS")
   assert.equal(partial.device, "DEVICE_NOT_VERIFIED")
+  assert.equal(partial.requirements, "REQUIREMENTS_NOT_VERIFIED")
   assert.equal(partial.final, "SOURCE_RUNTIME_PASS_DEVICE_NOT_VERIFIED")
 
   const missingDb = buildFinalVerdictMatrix(task, {
     contract,
     primaryPass: true,
     integrationPass: true,
-    integrationOutput: "cleanup started but idempotency/count evidence is missing",
+    integrationOutput: [
+      "cleanup started but idempotency/count evidence is missing",
+      `UES_REQUIREMENT: ${runtimeRequirementId} PASS - pnpm runtime smoke completed with fresh integration evidence`,
+      `UES_REQUIREMENT: ${deviceRequirementId} NOT_VERIFIED - Expo Go real-device evidence is still pending`,
+    ].join("\n"),
     integrationChecks: "pnpm test\npnpm runtime:smoke",
   })
   assert.equal(missingDb.source, "SOURCE_PASS")
@@ -323,8 +337,16 @@ test("V15.15 final verdict matrix separates source runtime data and device proof
     contract,
     primaryPass: true,
     integrationPass: true,
-    integrationOutput: "DB_CLEAN_PASS\nRUNTIME_PASS\ncleanup dry-run removed count=12; second cleanup run idempotent count=0",
-    visualOutput: "DEVICE_PASS — Expo Go real device verified",
+    integrationOutput: [
+      "DB_CLEAN_PASS",
+      "RUNTIME_PASS",
+      "cleanup dry-run removed count=12; second cleanup run idempotent count=0",
+      `UES_REQUIREMENT: ${runtimeRequirementId} PASS - pnpm runtime smoke completed with fresh integration evidence`,
+    ].join("\n"),
+    visualOutput: [
+      "DEVICE_PASS — Expo Go real device verified",
+      `UES_REQUIREMENT: ${deviceRequirementId} PASS - adb and Expo Go physical-device interaction verified`,
+    ].join("\n"),
     integrationChecks: "pnpm test\npnpm cleanup --dry-run",
     visualChecks: "adb devices\nExpo Go physical device interaction verified",
   })
