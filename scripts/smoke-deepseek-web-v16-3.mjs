@@ -44,6 +44,7 @@ import {
   authWaitProgressLabel,
   nextAuthWaitState,
 } from "../lib/browser-profile.mjs"
+import { WORKER_PROFILE_MODE, workerModePlan, workerModeViolation } from "../lib/browser-worker-mode.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const workerScript = path.join(root, "scripts", "browser-worker-v16-3.mjs")
@@ -127,29 +128,20 @@ function sleep(ms) {
 }
 
 /**
- * Spawns the managed worker and returns a client.
+ * Spawns the managed worker according to a resolved mode plan.
  *
- * `--live` is what turns on the persistent profile, and it is passed ONLY from
- * the explicit live/auth flows here. The default preflight runs headless with a
- * persistent profile so it can observe an existing session without creating one,
- * and nothing in CI passes `--live`.
+ * The mode table and its rationale live in lib/browser-worker-mode.mjs. Only the
+ * spawn lives here, so the decision cannot drift from the process arguments.
  */
-function startWorker({ live, headed, profileName }) {
-  const scriptArgs = []
-  if (live) scriptArgs.push("--live", `--profile=${profileName}`)
-  if (headed) scriptArgs.push("--headed")
+function startWorker(plan) {
   const transport = spawnBrowserWorkerTransport(workerScript, {
     spawnImpl: spawn,
     cwd: root,
-    scriptArgs,
-  })
+    scriptArgs: plan.scriptArgs,
+  });
   return transport ? createBrowserWorkerClient({ transport, process: transport.process }) : null;
 }
 
-/**
- * Read-only auth observation through the managed worker.
- * There is no `authenticated: true` anywhere on this path.
- */
 async function observeAuth(worker, timeoutMs = AUTH_POLL.probeTimeoutMs) {
   try {
     return await worker.authProbe({
@@ -253,7 +245,8 @@ async function main() {
 
   // ---- --auth: manual headed login -----------------------------------------
   if (args.auth) {
-    const worker = startWorker({ live: true, headed: true, profileName: args.profile });
+    const authPlan = workerModePlan(args);
+    const worker = startWorker(authPlan);
     if (!worker) {
       report("NEEDS_AUTH", { reason: "managed browser worker could not be started" });
       process.exitCode = 2;
@@ -267,6 +260,14 @@ async function main() {
         playwright: capability.playwright ?? "(worker could not start)",
       });
       process.exitCode = 2;
+      return;
+    }
+
+    const authViolation = workerModeViolation(authPlan, capability);
+    if (authViolation) {
+      await worker.close().catch(() => null);
+      report("HARD_NAVIGATION_FAILURE", { stage: "persistent-profile", reason: authViolation });
+      process.exitCode = 3;
       return;
     }
 
@@ -350,7 +351,8 @@ async function main() {
   }
 
   // ---- preflight: observe, do not consult ----------------------------------
-  const worker = startWorker({ live: false, headed: false, profileName: args.profile });
+  const workerPlan = workerModePlan(args);
+  const worker = startWorker(workerPlan);
   if (!worker) {
     report("NEEDS_AUTH", { reason: "managed browser worker could not be started" });
     process.exitCode = 2;
@@ -368,6 +370,21 @@ async function main() {
     return;
   }
 
+  // A live consultation MUST be on the persisted profile. If the worker came back
+  // ephemeral, the session established by --auth is not reachable and proceeding
+  // would report a spurious auth failure, so refuse instead.
+  const liveViolation = args.live === true ? workerModeViolation(workerPlan, capability) : null;
+  if (liveViolation) {
+    await worker.close().catch(() => null);
+    report("HARD_NAVIGATION_FAILURE", {
+      stage: "persistent-profile",
+      reason: liveViolation,
+      expected: WORKER_PROFILE_MODE.PERSISTENT,
+    });
+    process.exitCode = 3;
+    return;
+  }
+
   // Observe the REAL page state. No consultation is performed here.
   await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
   const observed = await observeAuth(worker);
@@ -376,6 +393,7 @@ async function main() {
     await worker.close().catch(() => null);
     report(observed.state === AUTH_PROBE_STATE.UI_CHANGED ? "UI_CHANGED" : "NEEDS_AUTH", {
       observedUrl: observed.url || "(none)",
+      mode: `${workerPlan.mode} (${capability.profileMode})`,
       reason: observed.reason || observed.state,
       profile: capability.profileDir || "(ephemeral)",
       next: "npm run smoke:deepseek-web -- --auth",
@@ -388,8 +406,8 @@ async function main() {
     await worker.close().catch(() => null);
     report("READY", {
       observedUrl: observed.url,
+      mode: `${workerPlan.mode} (${capability.profileMode}) - no consultation performed`,
       profile: capability.profileDir || "(ephemeral)",
-      mode: "preflight only (no consultation performed)",
       next: "npm run smoke:deepseek-web -- --live --yes-i-have-authorized-a-live-consultation",
     });
     process.exitCode = 0;

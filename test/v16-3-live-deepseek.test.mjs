@@ -506,8 +506,14 @@ test("V16.3 live the headed auth mode is manual only and never reachable from CI
   const smoke = await readFile(path.join(root, "scripts", "smoke-deepseek-web-v16-3.mjs"), "utf8");
   // `--auth` exists, and it is gated behind an explicit flag rather than a default.
   assert.ok(smoke.includes("--auth"));
-  assert.ok(smoke.includes("--headed"));
   assert.ok(smoke.includes("AUTH_POLL"));
+  // The HEADED decision now lives in the mode plan, so assert the BEHAVIOUR
+  // (auth is headed, live is not) instead of a literal in the script body.
+  const { workerModePlan, WORKER_MODE } = await import("../lib/browser-worker-mode.mjs");
+  assert.equal(workerModePlan({ auth: true }).headed, true);
+  assert.ok(workerModePlan({ auth: true }).scriptArgs.includes("--headed"));
+  assert.equal(workerModePlan({ live: true }).headed, false);
+  assert.equal(workerModePlan({}).headed, false);
   // The login wait is bounded in both directions.
   assert.ok(smoke.includes("maxAttempts"));
   assert.ok(smoke.includes("overallTimeoutMs"));

@@ -363,6 +363,17 @@ async function main() {
               text: observations.text,
               composerVisible: observations.composerVisible,
               answerRegions: observations.answerRegions,
+              // REAL BUG FIX: this boolean was computed by `authProbeScript` and
+              // then dropped here, so `classifyAuthState` never saw the positive
+              // session signal and a genuinely logged-in page stayed
+              // `composer-visible-but-no-session-signal` forever.
+              //
+              // Only the BOOLEAN crosses this boundary. The selectors that detect
+              // it may match an avatar image whose alt text is an account name,
+              // so no account text, no `aria-label`, no class name and no
+              // element content is returned with it.
+              accountSignal: observations.accountSignal === true,
+              historyCount: Number(observations.historyCount || 0),
             },
           },
         });
