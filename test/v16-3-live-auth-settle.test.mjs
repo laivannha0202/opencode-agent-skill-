@@ -463,9 +463,10 @@ test("V16.3 settle 16 diagnostic mode unchanged (fixed 4s sleep, single probe)",
   assert.ok(smoke.includes("READ-ONLY AUTH DIAGNOSTIC"))
   assert.ok(smoke.includes("await sleep(4_000)"), "diagnostic keeps its measurement sleep")
   const diagStart = smoke.indexOf("if (args.authDiagnose)")
+  const diagEnd = smoke.indexOf("// ---- --locator-diagnose")
   const preflightStart = smoke.indexOf("// ---- preflight: observe")
-  assert.ok(diagStart >= 0 && preflightStart > diagStart)
-  const diagBlock = smoke.slice(diagStart, preflightStart)
+  assert.ok(diagStart >= 0 && diagEnd > diagStart && preflightStart > diagEnd)
+  const diagBlock = smoke.slice(diagStart, diagEnd)
   assert.ok(!diagBlock.includes("waitForAuthenticatedPage"), "diagnostic must not use the live settle")
   assert.ok(diagBlock.includes("observeAuth(worker)"), "diagnostic keeps its single probe")
 })
@@ -488,8 +489,10 @@ test("V16.3 settle smoke live/preflight navigates once then settles before consu
   // Settle happens before any consultation construction.
   assert.ok(smoke.indexOf("waitForAuthenticatedPage(worker)") < smoke.indexOf("createDeepSeekWebAdapter({"))
   assert.ok(smoke.indexOf("waitForAuthenticatedPage(worker)") < smoke.indexOf("lane.consult("))
-  // Persistent-profile guard still first.
-  assert.ok(smoke.indexOf("workerModeViolation(workerPlan, capability)") < smoke.indexOf("waitForAuthenticatedPage(worker)"))
+  // Persistent-profile guard still first (preflight occurrence is the last
+  // waitForAuthenticatedPage(worker) call site; the locator diagnostic above
+  // carries its own identical guard under a different plan variable).
+  assert.ok(smoke.indexOf("workerModeViolation(workerPlan, capability)") < smoke.lastIndexOf("waitForAuthenticatedPage(worker)"))
   // Consultation still at most once.
   const consults = smoke.match(/lane\.consult\s*\(/g) || []
   assert.equal(consults.length, 1, "the live consultation must happen at most once")

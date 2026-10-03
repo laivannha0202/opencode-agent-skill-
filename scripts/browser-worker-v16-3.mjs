@@ -31,6 +31,7 @@ import {
 } from "../lib/browser-worker-protocol.mjs"
 import { AUTH_PROBE_STATE, authProbeScript, profileForMode } from "../lib/browser-profile.mjs"
 import { domInspectScript } from "../lib/browser-dom-inspect.mjs"
+import { composerVicinityScript } from "../lib/deepseek-locators.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -347,6 +348,33 @@ async function main() {
         // READ-ONLY structural inspection. No click, no type, no submit. The
         // in-page script withholds page text, input values, cookies, storage,
         // conversation titles and account names; the client re-filters.
+        if (payload.mode === "composer-vicinity") {
+          // Composer/send/answer candidates near the prompt box: counts and
+          // safe descriptors only, for locator repair. Same safety contract
+          // as the generic inspection, scoped to the composer vicinity.
+          const vicinity = await activePage.evaluate(composerVicinityScript({
+            nearbyLimit: payload.nearbyLimit,
+            answerSelectors: payload.answerSelectors,
+          }));
+          return encodeWorkerResponse({
+            ok: true,
+            requestId: payload.requestId,
+            operation,
+            payload: {
+              ...base,
+              finalUrl: activePage.url(),
+              vicinity: {
+                url: vicinity.url,
+                composers: vicinity.composers,
+                composerContext: vicinity.composerContext,
+                sendNearby: vicinity.sendNearby,
+                sendTotal: vicinity.sendTotal,
+                sendMatches: vicinity.sendMatches,
+                answers: vicinity.answers,
+              },
+            },
+          });
+        }
         const inspection = await activePage.evaluate(domInspectScript({ limit: payload.limit }));
         return encodeWorkerResponse({
           ok: true,

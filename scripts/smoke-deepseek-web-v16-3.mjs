@@ -48,6 +48,7 @@ import {
 } from "../lib/browser-profile.mjs"
 import { WORKER_PROFILE_MODE, workerModePlan, workerModeViolation } from "../lib/browser-worker-mode.mjs";
 import { sanitizeDomInspection } from "../lib/browser-dom-inspect.mjs";
+import { resolveDeepSeekTarget } from "../lib/deepseek-locators.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const workerScript = path.join(root, "scripts", "browser-worker-v16-3.mjs")
@@ -109,6 +110,7 @@ function parseArgs(argv) {
   return {
     auth: argv.includes("--auth"),
     authDiagnose: argv.includes("--auth-diagnose"),
+    locatorDiagnose: argv.includes("--locator-diagnose"),
     live: argv.includes("--live"),
     yes: argv.includes("--yes-i-have-authorized-a-live-consultation"),
     profile: arg("profile") || process.env.UES_DEEPSEEK_PROFILE || DEEPSEEK_PROFILE_NAME,
@@ -458,6 +460,106 @@ async function main() {
     return;
   }
 
+  // ---- --locator-diagnose: READ-ONLY composer/send/answer resolution ----
+  //
+  // Pre-submit validation without a consultation. Resolves all three targets
+  // from measured vicinity evidence, proves the composer accepts a fill with
+  // synthetic non-secret content, clears it, and reports strategies/counts.
+  // NEVER clicks Send. No prompt is submitted, no answer is read.
+  if (args.locatorDiagnose) {
+    const plan = workerModePlan({ live: true, profile: args.profile });
+    const worker = startWorker(plan);
+    if (!worker) {
+      report("NEEDS_AUTH", { reason: "managed browser worker could not be started" });
+      process.exitCode = 2;
+      return;
+    }
+    const capability = await worker.capability();
+    const violation = workerModeViolation(plan, capability);
+    if (violation) {
+      await worker.close().catch(() => null);
+      report("HARD_NAVIGATION_FAILURE", { stage: "persistent-profile", reason: violation });
+      process.exitCode = 3;
+      return;
+    }
+
+    const opened = await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
+    console.log("");
+    console.log("V16.3 DeepSeek Web — READ-ONLY LOCATOR DIAGNOSTIC");
+    console.log(`  profile:  ${capability.profileDir || "(ephemeral)"}`);
+    console.log(`  mode:     ${capability.profileMode} (headless=${capability.headless})`);
+    console.log(`  navigate: ${opened.ok ? `ok -> ${opened.afterUrl}` : `FAILED -> ${opened.error}`}`);
+    console.log("");
+    console.log("  Nothing is submitted. The composer fill test uses synthetic");
+    console.log("  non-secret content and clears the composer afterwards.");
+    console.log("");
+
+    const settled = await waitForAuthenticatedPage(worker);
+    if (settled.state !== AUTH_PROBE_STATE.READY) {
+      await worker.close().catch(() => null);
+      report("NEEDS_AUTH", {
+        reason: settled.reason || settled.state,
+        authProbes: settled.authProbes ?? 1,
+        authSettleMs: settled.authSettleMs ?? 0,
+        next: "npm run smoke:deepseek-web -- --auth",
+      });
+      process.exitCode = 2;
+      return;
+    }
+
+    const vic = await worker.domInspect({ mode: "composer-vicinity", nearbyLimit: 10, timeoutMs: 30_000 });
+    if (!vic.ok) {
+      await worker.close().catch(() => null);
+      report("HARD_NAVIGATION_FAILURE", { stage: "locator-inspect", reason: vic.reason || vic.failure });
+      process.exitCode = 3;
+      return;
+    }
+
+    const composer = resolveDeepSeekTarget("composer", vic.vicinity);
+    const send = resolveDeepSeekTarget("send", vic.vicinity);
+    const answer = resolveDeepSeekTarget("answer", vic.vicinity);
+
+    // Fill test with synthetic non-secret content, then clear. No submit.
+    let fillTest = composer.ok ? "not-attempted" : "skipped-no-composer";
+    let clearTest = "skipped";
+    if (composer.ok) {
+      const filled = await worker.invoke("fill", {
+        target: composer.target,
+        value: "UES_LOCATOR_PROBE",
+        actionTimeoutMs: 15_000,
+      });
+      const filledChars = Number(filled.filledChars ?? filled.result?.filledChars ?? 0);
+      fillTest = filled.ok && filledChars > 0 ? `ok:${filledChars}` : `failed:${String(filled.error || "unverified").slice(0, 80)}`;
+      if (filled.ok && filledChars > 0) {
+        const cleared = await worker.invoke("fill", {
+          target: composer.target,
+          value: "",
+          actionTimeoutMs: 15_000,
+        });
+        const clearedChars = Number(cleared.filledChars ?? cleared.result?.filledChars ?? -1);
+        clearTest = cleared.ok && clearedChars === 0 ? "ok:cleared" : `failed:${String(cleared.error || clearedChars).slice(0, 80)}`;
+      }
+    }
+    await worker.close().catch(() => null);
+
+    const ready = composer.ok && send.ok && fillTest.startsWith("ok:") && clearTest === "ok:cleared";
+    report(ready ? "LOCATOR_READY" : "UI_CHANGED", {
+      composerStrategy: composer.strategy || "(none)",
+      composerCandidates: composer.candidates ?? 0,
+      composerReason: composer.reason || "",
+      sendStrategy: send.strategy || "(none)",
+      sendCandidates: send.candidates ?? 0,
+      sendReason: send.reason || "",
+      answerStrategy: answer.strategy || "(none)",
+      answerCandidates: answer.candidates ?? 0,
+      answerReason: answer.reason || "",
+      fillTest,
+      clearTest,
+    });
+    process.exitCode = ready ? 0 : 3;
+    return;
+  }
+
   // ---- preflight: observe, do not consult ----------------------------------
   const workerPlan = workerModePlan(args);
   const worker = startWorker(workerPlan);
@@ -555,6 +657,8 @@ async function main() {
     invoke: (action, context) => worker.invoke(action, context),
     // The REAL read-only probe. There is no asserted-auth shortcut on this path.
     authProbe: (options) => observeAuth(worker, options?.timeoutMs),
+    // Measured locator evidence for the composer/send/answer cascade.
+    domInspect: (options) => worker.domInspect({ mode: "composer-vicinity", ...(options || {}) }),
     answerTimeoutMs: args.answerTimeoutMs,
   });
   const lane = createWebReasoningLane({
