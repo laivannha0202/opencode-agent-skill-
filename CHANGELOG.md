@@ -1,5 +1,20 @@
 # Changelog
 
+## [16.3.0] - 2026-10-03
+
+### Added
+
+- **Production DeepSeek Web reasoning bridge.** Managed browser worker drives a real third-party web consultation over a persistent authenticated profile: fill exactly once, unique Send resolution, submit at most once, scoped answer-region polling with streaming acquisition, structured response parsing, local advice verification, and bounded cleanup.
+- **Separated integration vs advice acceptance in live smoke.** Bridge PASS means session started, prompt filled once, prompt submitted once, response extracted, structured parser succeeded, local verifier ran, and cleanup ran; `adviceAccepted` reports the verifier verdict separately. `advice-rejected` is an expected safe outcome, never a recommendation, and never enters executor context.
+- **AUTO escalation / non-escalation routing.** Genuine ambiguity, architectural uncertainty, and repeated verifier failure escalate; well-grounded, trivial, or doc/version tasks stay local with an auditable reason.
+- **Production-wired live A/B benchmark with consent.** Measured readiness, provider failures, browser retries, false-pass rate, consultation counts, submit attempts, and verified pass rate prove integration and routing. Verified live benchmark: readiness live-provider-measured, provider_failures 0, browser_retries 0, false_pass_rate 0, web_consultations 1, submit_attempts 1, verified_pass_rate 1; per-task AUTO routing consulted once (ambiguous MCP retry → advice-rejected) and stayed local for the three grounded tasks.
+
+### Safety / quality invariants
+
+- Local verifier is not weakened: rejected web advice remains untrusted (`trust=untrusted-external`, `instruction-authority=none`), authorizes only `reject-and-retry-locally`, and cannot change permissions, request secrets, authorize external side effects, or produce a task verdict.
+- DeepSeek authority boundaries unchanged: consultant-only, advisory evidence only, every claim verified against the local repository before use.
+- **Non-goal:** this release proves bridge integration and routing, not real Pi model improvement. No Pi model token savings measured, no equivalence to larger models claimed, no measured model quality improvement claimed.
+
 ## [16.0.0] - 2026-10-02
 
 ### Added
