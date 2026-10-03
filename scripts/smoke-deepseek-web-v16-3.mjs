@@ -464,9 +464,10 @@ async function main() {
   //
   // Pre-submit validation without a consultation. Reproduces the REAL
   // production PRE-SUBMIT sequence exactly, minus the submit:
-  //   auth READY -> inspect/resolve composer -> fill synthetic non-secret text
-  //   -> RE-INSPECT composer vicinity AFTER FILL -> resolve send from POST-FILL
-  //   evidence -> inspect answer candidates -> CLEAR composer -> verify cleared
+  //   auth READY -> inspect/resolve composer -> PRE-FILL candidate snapshot
+  //   (same-node handles) -> fill synthetic non-secret text -> POST-FILL
+  //   inspect SAME handles -> accessibility counts -> transition comparison ->
+  //   resolve send from POST-FILL evidence -> CLEAR composer -> verify cleared
   //   -> close. NEVER clicks Send. No prompt is submitted, no answer is read.
   // The reported send state always reflects POST-FILL evidence, never stale
   // pre-fill evidence: a toolbar/control-state change caused by the non-empty
@@ -533,6 +534,18 @@ async function main() {
     const preSendStale = resolveDeepSeekTarget("send", preVic.vicinity);
     const preAnswer = resolveDeepSeekTarget("answer", preVic.vicinity);
 
+    // Step 1b: PRE-FILL same-node candidate snapshot (read-only, before fill).
+    // Captures ElementHandles for the Send structural candidates; handles stay
+    // worker-side. Continuity is by attachment, never index/distance/coords.
+    let transitionBegin = null;
+    if (composer.ok) {
+      try {
+        const begun = await worker.domInspect({ mode: "send-transition-begin", timeoutMs: 30_000 });
+        domInspects += 1;
+        if (begun && begun.ok === true && begun.transition) transitionBegin = begun.transition;
+      } catch { transitionBegin = null; }
+    }
+
     // Step 2: fill ONCE with synthetic non-secret content. No submit.
     let fillTest = composer.ok ? "not-attempted" : "skipped-no-composer";
     let filledChars = 0;
@@ -557,10 +570,18 @@ async function main() {
     // This is the coverage the old diagnostic lacked: DeepSeek may change the
     // toolbar/control state after the textarea becomes non-empty, so the send
     // decision must use fresh POST-FILL evidence, never the stale pre-fill one.
+    // SAME handles are re-inspected first (causal comparison immune to order
+    // swaps), then the vicinity + accessibility semantics.
     let postVicinity = null;
     let postFillSend = { ok: false, strategy: null, target: null, candidates: 0, reason: "not-inspected" };
     let postFillAnswer = { ok: true, strategy: null, target: null, candidates: 0, reason: "not-inspected" };
+    let transitionSummary = null;
     if (composer.ok && fillTest.startsWith("ok:")) {
+      try {
+        const measured = await worker.domInspect({ mode: "send-transition-measure", timeoutMs: 30_000 });
+        domInspects += 1;
+        if (measured && measured.ok === true && measured.transition) transitionSummary = measured.transition;
+      } catch { transitionSummary = null; }
       const postVic = await worker.domInspect({ mode: "composer-vicinity", nearbyLimit: 10, timeoutMs: 30_000 });
       domInspects += 1;
       if (!postVic.ok) {
@@ -568,7 +589,7 @@ async function main() {
         postFillSend = { ok: false, strategy: null, target: null, candidates: 0, reason: String(postVic.reason || postVic.failure || "post-fill-inspect-failed").slice(0, 160) };
       } else {
         postVicinity = postVic.vicinity;
-        postFillSend = resolveDeepSeekTarget("send", postVic.vicinity);
+        postFillSend = resolveDeepSeekTarget("send", postVic.vicinity, { transition: transitionSummary });
         postFillAnswer = resolveDeepSeekTarget("answer", postVic.vicinity);
         if (!postFillSend.ok && !failureStage) {
           failureStage = DEEPSEEK_FAILURE_STAGE.SEND_RESOLVE_POST_FILL;
@@ -664,6 +685,30 @@ async function main() {
       semanticMicrophoneCount,
     }, null, 2));
     console.log("");
+    // Same-node transition summary (diagnostic labels A/B only; never used as
+    // a production locator — only the same-node marker may target).
+    const transitionSafe = transitionSummary && typeof transitionSummary === "object" ? transitionSummary : null;
+    const preFillCandidateCount = Math.max(0, Number(transitionSafe?.preFillCandidateCount ?? transitionBegin?.preFillCandidateCount) || 0);
+    const postFillCandidateCount = Math.max(0, Number(transitionSafe?.postFillCandidateCount) || 0);
+    const sameNodeContinuityCount = Math.max(0, Number(transitionSafe?.sameNodeContinuityCount) || 0);
+    const candidateAChanged = transitionSafe?.candidateAChanged === true;
+    const candidateBChanged = transitionSafe?.candidateBChanged === true;
+    const transitionUnique = transitionSafe?.transitionUnique === true;
+    const transitionDetached = transitionSafe?.detached === true;
+    const transitionChangedCategories = Array.isArray(transitionSafe?.changedCategories)
+      ? transitionSafe.changedCategories.filter((entry) => typeof entry === "string").slice(0, 17)
+      : [];
+    console.log("PRE/POST-FILL TRANSITION (safe: counts and changed flags only, no positions used as locators)");
+    console.log(JSON.stringify({
+      preFillCandidateCount,
+      postFillCandidateCount,
+      sameNodeContinuityCount,
+      candidateTransitionSummary: { candidateAChanged, candidateBChanged },
+      transitionUnique,
+      transitionDetached,
+      transitionChangedCategories,
+    }, null, 2));
+    console.log("");
 
     const ready = composer.ok && fillTest.startsWith("ok:") && postFillSend.ok && clearOk;
     if (!failureStage && !ready) {
@@ -683,6 +728,13 @@ async function main() {
       composerReason: composer.reason || "",
       fillTest,
       filledChars,
+      preFillCandidateCount,
+      postFillCandidateCount,
+      sameNodeContinuityCount,
+      candidateAChanged,
+      candidateBChanged,
+      transitionUnique,
+      transitionChangedCategories,
       postFillSendStrategy: postFillSend.strategy || "(none)",
       postFillSendMatches,
       postFillSendReason: postFillSend.reason || "",
@@ -827,6 +879,11 @@ async function main() {
     authProbe: (options) => observeAuth(worker, options?.timeoutMs),
     // Measured locator evidence for the composer/send/answer cascade.
     domInspect: (options) => worker.domInspect({ mode: "composer-vicinity", ...(options || {}) }),
+    // Same-node pre/post-fill transition evidence (read-only, handles stay
+    // worker-side). Lets the live lane promote a unique transition the same
+    // way the diagnostic does; ambiguity still fails closed before any click.
+    transitionBegin: async () => worker.domInspect({ mode: "send-transition-begin", timeoutMs: 30_000 }),
+    transitionMeasure: async () => worker.domInspect({ mode: "send-transition-measure", timeoutMs: 30_000 }),
     answerTimeoutMs: args.answerTimeoutMs,
   });
   const lane = createWebReasoningLane({

@@ -31,7 +31,7 @@ import {
 } from "../lib/browser-worker-protocol.mjs"
 import { AUTH_PROBE_STATE, authProbeScript, profileForMode } from "../lib/browser-profile.mjs"
 import { domInspectScript } from "../lib/browser-dom-inspect.mjs"
-import { composerVicinityScript } from "../lib/deepseek-locators.mjs"
+import { DEEPSEEK_SEND_TRANSITION_SELECTOR, composerVicinityScript } from "../lib/deepseek-locators.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -144,7 +144,119 @@ async function main() {
     return page
   }
 
+  // Same-node transition tracking (V16.3 pre/post-fill causal comparison).
+  //
+  // ElementHandles for the ambiguous Send candidates are captured PRE-FILL and
+  // kept ONLY in worker process memory. POST-FILL the SAME handles are
+  // re-inspected and diffed. No DOM id crosses the boundary; continuity is
+  // proven by handle attachment (document.contains), and a detached handle
+  // reports `detached: true` with no identity data. Only booleans/counts and
+  // allowlisted category names ever leave this process.
+  let transitionStore = { handles: [], preStates: [], selector: null, uniqueHandle: null };
+  const TRANSITION_MAX_NODES = 4;
+
+  // Bounded safe per-node state. Booleans/numbers/categories only: never text,
+  // titles, labels beyond the existing generic vocabulary, ids, classes,
+  // SVG/path data, values, or account data.
+  async function captureCandidateState(handle) {
+    try {
+      return await handle.evaluate((el) => {
+        const bool = (value) => value === true;
+        const bounded = (n, max) => Math.max(0, Math.min(max || 1000, Number(n) || 0));
+        const style = (() => { try { return window.getComputedStyle(el); } catch { return null; } })();
+        const descendants = (() => { try { return Array.from(el.querySelectorAll("*")); } catch { return []; } })();
+        const tagKey = descendants.map((node) => String(node.tagName || "").toLowerCase().slice(0, 12)).sort().join(",");
+        const countTag = (tag) => descendants.filter((node) => String(node.tagName || "").toLowerCase() === tag).length;
+        const opacity = (() => { try { const raw = parseFloat(style ? style.opacity : "1"); return Number.isFinite(raw) ? raw : 1; } catch { return 1; } })();
+        const pointerEvents = (() => { try { return String(style ? style.pointerEvents : "auto").toLowerCase(); } catch { return "auto"; } })();
+        const cursor = (() => { try { return String(style ? style.cursor : "default").toLowerCase(); } catch { return "default"; } })();
+        const bg = (() => { try { return { image: String(style ? style.backgroundImage : "none"), color: String(style ? style.backgroundColor : "") }; } catch { return { image: "none", color: "" }; } })();
+        return {
+          disabled: bool(el.disabled) || String(el.getAttribute("aria-disabled") || "").toLowerCase() === "true",
+          tabIndex: (() => { try { const raw = el.getAttribute("tabindex"); if (raw === null) return null; const n = Number(raw); return Number.isFinite(n) ? n : -99; } catch { return null; } })(),
+          ariaHasPopup: el.hasAttribute("aria-haspopup"),
+          ariaExpandedTrue: String(el.getAttribute("aria-expanded") || "").toLowerCase() === "true",
+          ariaExpandedPresent: el.hasAttribute("aria-expanded"),
+          ariaControlsPresent: el.hasAttribute("aria-controls"),
+          dataStatePresent: el.hasAttribute("data-state"),
+          childCount: bounded(el.children ? el.children.length : 0, 1000),
+          descendantCount: bounded(descendants.length, 5000),
+          svgCount: bounded(countTag("svg"), 500),
+          pathCount: bounded(countTag("path"), 2000),
+          subtreeShapeKey: String(tagKey).slice(0, 400),
+          pointerEventsCategory: pointerEvents === "auto" || pointerEvents === "none" ? pointerEvents : "other",
+          opacityBucket: opacity >= 0.99 ? "opaque" : opacity <= 0.01 ? "transparent" : "translucent",
+          visibilityVisible: (() => { try { return style ? (style.visibility !== "hidden" && style.display !== "none") : true; } catch { return true; } })(),
+          cursorCategory: ["pointer", "default", "not-allowed", "wait", "text"].includes(cursor) ? cursor : "other",
+          backgroundPresent: bg.image !== "none" && bg.image !== "" ? true : (bg.color !== "" && bg.color !== "rgba(0, 0, 0, 0)" && bg.color !== "transparent"),
+          classTokenCount: bounded(el.classList ? el.classList.length : 0, 200),
+        };
+      });
+    } catch {
+      return null;
+    }
+  }
+
+  function diffCandidateStates(pre, post) {
+    const changed = {};
+    if (!pre || !post) return { changedAfterFill: false, changed, incomparable: true };
+    const same = (key) => JSON.stringify(pre[key]) === JSON.stringify(post[key]);
+    const fields = [
+      ["disabled", "disabledChanged"],
+      ["tabIndex", "tabIndexChanged"],
+      ["ariaHasPopup", "ariaHasPopupChanged"],
+      ["ariaExpandedTrue", "ariaExpandedChanged"],
+      ["ariaExpandedPresent", "ariaExpandedChanged"],
+      ["ariaControlsPresent", "ariaControlsChanged"],
+      ["dataStatePresent", "dataStatePresenceChanged"],
+      ["childCount", "childCountChanged"],
+      ["descendantCount", "descendantCountChanged"],
+      ["svgCount", "svgCountChanged"],
+      ["pathCount", "pathCountChanged"],
+      ["subtreeShapeKey", "subtreeShapeChanged"],
+      ["pointerEventsCategory", "pointerEventsChanged"],
+      ["opacityBucket", "opacityBucketChanged"],
+      ["visibilityVisible", "visibilityChanged"],
+      ["cursorCategory", "cursorChanged"],
+      ["backgroundPresent", "backgroundStateChanged"],
+      ["classTokenCount", "classTokenCountChanged"],
+    ];
+    let any = false;
+    for (const [field, flag] of fields) {
+      const differs = !same(field);
+      // ariaExpandedTrue/Present share one flag: OR them.
+      if (flag === "ariaExpandedChanged") {
+        changed[flag] = changed[flag] === true || differs;
+      } else {
+        changed[flag] = differs;
+      }
+      if (changed[flag] === true) any = true;
+    }
+    return { changedAfterFill: any, changed, incomparable: false };
+  }
+
   async function resolveTarget(target = {}) {
+    // Same-node transition marker. Resolves to the stored transition-unique
+    // handle proven to change on fill — never an index, ordinal, distance
+    // rank, or coordinate. Refuses when no unique transition was proven or
+    // the node has since detached.
+    if (target.transition === "send-transition-unique") {
+      const handle = transitionStore.uniqueHandle || null;
+      if (!handle) {
+        const error = new Error("browser-worker no transition-unique handle proven")
+        error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
+        throw error
+      }
+      let attached = false;
+      try { attached = await handle.evaluate((el) => document.contains(el)); } catch { attached = false; }
+      if (attached !== true) {
+        transitionStore.uniqueHandle = null;
+        const error = new Error("browser-worker transition handle detached")
+        error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
+        throw error
+      }
+      return handle;
+    }
     // Fail-closed uniqueness gate (V16.3 post-fill fix). A CSS or role target
     // that matches more than one element is AMBIGUOUS and must never be
     // clicked via `.first()`: post-click verification happens AFTER the
@@ -412,6 +524,127 @@ async function main() {
         // READ-ONLY structural inspection. No click, no type, no submit. The
         // in-page script withholds page text, input values, cookies, storage,
         // conversation titles and account names; the client re-filters.
+        if (payload.mode === "send-transition-begin") {
+          // PRE-FILL candidate snapshot. Captures ElementHandles for the Send
+          // structural candidates and keeps them ONLY in worker memory.
+          // Continuity across the fill is by handle attachment, never by
+          // index, ordinal, distance, or coordinates.
+          const selector = String(payload.selector || DEEPSEEK_SEND_TRANSITION_SELECTOR).slice(0, 500);
+          let handles = [];
+          try { handles = await activePage.locator(selector).elementHandles(); } catch { handles = []; }
+          handles = (Array.isArray(handles) ? handles : []).slice(0, TRANSITION_MAX_NODES);
+          const preStates = [];
+          for (const handle of handles) preStates.push(await captureCandidateState(handle));
+          transitionStore = { handles, preStates, selector, uniqueHandle: null };
+          const visible = Array.isArray(preStates) ? preStates.filter((state) => state !== null).length : 0;
+          return encodeWorkerResponse({
+            ok: true,
+            requestId: payload.requestId,
+            operation,
+            payload: {
+              ...base,
+              finalUrl: activePage.url(),
+              transition: {
+                preFillCandidateCount: handles.length,
+                postFillCandidateCount: 0,
+                sameNodeContinuityCount: visible,
+                candidateAChanged: false,
+                candidateBChanged: false,
+                transitionUnique: false,
+                detached: false,
+                changedCategories: [],
+              },
+            },
+          });
+        }
+        if (payload.mode === "send-transition-measure") {
+          // POST-FILL re-inspection of THOSE SAME handles. Compares bounded
+          // safe state per node; order swaps cannot confuse it because each
+          // handle is diffed against its own pre-fill snapshot.
+          const handles = Array.isArray(transitionStore.handles) ? transitionStore.handles : [];
+          const preStates = Array.isArray(transitionStore.preStates) ? transitionStore.preStates : [];
+          const perNode = [];
+          let attached = 0;
+          let detached = false;
+          for (let index = 0; index < handles.length; index += 1) {
+            const handle = handles[index];
+            let alive = false;
+            try { alive = await handle.evaluate((el) => document.contains(el)); } catch { alive = false; }
+            if (alive !== true) {
+              detached = true;
+              perNode.push({ changedAfterFill: false, changed: {}, detached: true });
+              continue;
+            }
+            attached += 1;
+            const post = await captureCandidateState(handle);
+            if (!post) {
+              detached = true;
+              perNode.push({ changedAfterFill: false, changed: {}, detached: true });
+              continue;
+            }
+            const diff = diffCandidateStates(preStates[index] || null, post);
+            perNode.push({ changedAfterFill: diff.changedAfterFill === true, changed: diff.changed || {}, detached: false });
+          }
+          const changedFlags = perNode.map((row) => row.detached === true ? null : row.changedAfterFill === true);
+          const changedCount = changedFlags.filter((flag) => flag === true).length;
+          const fullShape = handles.length === 2 && attached === 2 && detached !== true;
+          const transitionUnique = fullShape && changedCount === 1;
+          // Diagnostic labels only: capture order, never used as a locator.
+          const candidateAChanged = perNode.length > 0 && perNode[0].detached !== true ? perNode[0].changedAfterFill === true : false;
+          const candidateBChanged = perNode.length > 1 && perNode[1].detached !== true ? perNode[1].changedAfterFill === true : false;
+          let changedCategories = [];
+          if (transitionUnique) {
+            const uniqueIndex = perNode.findIndex((row) => row.detached !== true && row.changedAfterFill === true);
+            const flags = (uniqueIndex >= 0 && perNode[uniqueIndex].changed) || {};
+            const allow = new Set([
+              "disabledChanged", "tabIndexChanged", "ariaHasPopupChanged", "ariaExpandedChanged",
+              "ariaControlsChanged", "dataStatePresenceChanged", "childCountChanged", "descendantCountChanged",
+              "svgCountChanged", "pathCountChanged", "subtreeShapeChanged", "pointerEventsChanged",
+              "opacityBucketChanged", "visibilityChanged", "cursorChanged", "backgroundStateChanged",
+              "classTokenCountChanged",
+            ]);
+            changedCategories = Object.entries(flags)
+              .filter(([, value]) => value === true)
+              .map(([key]) => key)
+              .filter((key) => allow.has(key))
+              .slice(0, 17);
+            try {
+              const candidate = handles[uniqueIndex];
+              let alive = false;
+              try { alive = await candidate.evaluate((el) => document.contains(el)); } catch { alive = false; }
+              transitionStore.uniqueHandle = alive === true ? candidate : null;
+            } catch { transitionStore.uniqueHandle = null; }
+            if (!transitionStore.uniqueHandle) {
+              detached = true;
+            }
+          } else {
+            transitionStore.uniqueHandle = null;
+          }
+          const finalUnique = transitionUnique === true && detached !== true;
+          if (finalUnique !== true) {
+            transitionStore.uniqueHandle = null;
+            changedCategories = [];
+          }
+          return encodeWorkerResponse({
+            ok: true,
+            requestId: payload.requestId,
+            operation,
+            payload: {
+              ...base,
+              finalUrl: activePage.url(),
+              transition: {
+                preFillCandidateCount: handles.length,
+                postFillCandidateCount: attached,
+                sameNodeContinuityCount: attached,
+                candidateAChanged,
+                candidateBChanged,
+                transitionUnique: finalUnique,
+                detached,
+                changedCategories,
+              },
+            },
+          });
+        }
         if (payload.mode === "composer-vicinity") {
           // Composer/send/answer candidates near the prompt box: counts and
           // safe descriptors only, for locator repair. Same safety contract
