@@ -156,6 +156,11 @@ async function main() {
       const locator = page.getByRole(target.role, { name: target.name })
       let count = 1
       try { count = await locator.count() } catch { count = 1 }
+      if (count === 0) {
+        const error = new Error(`browser-worker role target not found: role=${target.role} matches 0`)
+        error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
+        throw error
+      }
       if (count > 1) {
         const error = new Error(`browser-worker ambiguous role target: role=${target.role} matches ${count}, requires discriminator`)
         error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
@@ -167,6 +172,11 @@ async function main() {
       const locator = page.locator(target.selector)
       let count = 1
       try { count = await locator.count() } catch { count = 1 }
+      if (count === 0) {
+        const error = new Error("browser-worker css target not found: selector matches 0")
+        error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
+        throw error
+      }
       if (count > 1) {
         const error = new Error(`browser-worker ambiguous css target: selector matches ${count}, requires discriminator`)
         error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
@@ -175,6 +185,33 @@ async function main() {
       return locator.first()
     }
     throw new Error("browser-worker needs a role+name or selector target")
+  }
+
+  // Bounded READ-ONLY accessibility-semantic counts via Playwright's own
+  // accessible-name engine. `.count()` only: never clicks, types, submits, or
+  // returns names, trees, text, or values. ONLY numeric counts cross the
+  // worker boundary. Measured POST-FILL when the caller inspects post-fill.
+  async function measureSemanticCounts() {
+    const bounded = (n) => Math.max(0, Math.min(1000, Number(n) || 0));
+    const countRole = async (role, name, exact) => {
+      try {
+        const locator = exact === true
+          ? page.getByRole(role, { name, exact: true })
+          : page.getByRole(role, { name });
+        return bounded(await locator.count());
+      } catch { return 0; }
+    };
+    const out = { sendExact: 0, sendGeneric: 0, submitGeneric: 0, stopGeneric: 0, attachGeneric: 0, uploadGeneric: 0, fileGeneric: 0, voiceGeneric: 0, microphoneGeneric: 0 };
+    try { out.sendExact = await countRole("button", "Send", true); } catch { out.sendExact = 0; }
+    try { out.sendGeneric = await countRole("button", /send/i); } catch { out.sendGeneric = 0; }
+    try { out.submitGeneric = await countRole("button", /submit/i); } catch { out.submitGeneric = 0; }
+    try { out.stopGeneric = await countRole("button", /stop/i); } catch { out.stopGeneric = 0; }
+    try { out.attachGeneric = await countRole("button", /attach/i); } catch { out.attachGeneric = 0; }
+    try { out.uploadGeneric = await countRole("button", /upload/i); } catch { out.uploadGeneric = 0; }
+    try { out.fileGeneric = await countRole("button", /file/i); } catch { out.fileGeneric = 0; }
+    try { out.voiceGeneric = await countRole("button", /voice/i); } catch { out.voiceGeneric = 0; }
+    try { out.microphoneGeneric = await countRole("button", /microphone/i); } catch { out.microphoneGeneric = 0; }
+    return out;
   }
 
   async function snapshotElements(maxElements) {
@@ -383,6 +420,11 @@ async function main() {
             nearbyLimit: payload.nearbyLimit,
             answerSelectors: payload.answerSelectors,
           }));
+          // Accessibility-semantic counts from Playwright's engine, measured
+          // here so a POST-FILL inspection carries POST-FILL semantics.
+          // Counts only; a failure to count degrades to zeros, never content.
+          let semanticCounts = null;
+          try { semanticCounts = await measureSemanticCounts(); } catch { semanticCounts = null; }
           return encodeWorkerResponse({
             ok: true,
             requestId: payload.requestId,
@@ -398,6 +440,7 @@ async function main() {
                 sendTotal: vicinity.sendTotal,
                 sendMatches: vicinity.sendMatches,
                 answers: vicinity.answers,
+                semanticCounts,
               },
             },
           });

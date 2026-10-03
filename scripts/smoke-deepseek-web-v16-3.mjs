@@ -600,8 +600,11 @@ async function main() {
     // Safe POST-FILL send DOM measurements (bounded, generic, no content):
     // visible generic buttons near composer with enabled/disabled, role,
     // generic aria-label, generic control-name token, safe dimensions,
-    // composer-relative relationship, and per-selector visible-match counts.
-    // No text, SVG/path data, ids, hrefs, values, or account data.
+    // composer-relative relationship, per-selector visible-match counts, and
+    // Playwright accessibility-semantic counts (numbers only, measured
+    // POST-FILL via the browser's own accessible-name engine). No text,
+    // SVG/path data, ids, hrefs, values, or account data. No arbitrary
+    // accessible name is ever printed.
     const safeNearby = (postVicinity?.sendNearby || []).slice(0, 10).map((row) => ({
       tag: String(row?.tag || "").slice(0, 20),
       role: row?.role ? String(row.role).slice(0, 30) : null,
@@ -612,6 +615,14 @@ async function main() {
       box: row?.box && typeof row.box === "object" ? { w: Math.max(0, Number(row.box.w) || 0), h: Math.max(0, Number(row.box.h) || 0) } : null,
       afterComposer: row?.afterComposer === true ? true : row?.afterComposer === false ? false : null,
       distance: row?.distance === null || row?.distance === undefined ? null : Math.max(0, Number(row.distance) || 0),
+      ariaHasPopup: row?.ariaHasPopup === true,
+      ariaExpanded: row?.ariaExpanded === true,
+      ariaControlsPresent: row?.ariaControlsPresent === true,
+      containsFileInput: row?.containsFileInput === true,
+      insideLabel: row?.insideLabel === true,
+      dataStatePresent: row?.dataStatePresent === true,
+      childCount: Math.max(0, Number(row?.childCount) || 0),
+      tabIndex: row?.tabIndex === null || row?.tabIndex === undefined ? null : row.tabIndex,
     }));
     const sendMatches = postVicinity?.sendMatches || {};
     // The visible-match count that drove the decision: 1 when unique, the
@@ -620,10 +631,38 @@ async function main() {
     const postFillSendMatches = postFillSend.ok
       ? 1
       : Math.max(0, ...Object.values(sendMatches).map((n) => Number(n) || 0));
+    // Accessibility-semantic counts (POST-FILL, numbers only). Computed by the
+    // worker with page.getByRole().count() AFTER the synthetic fill, so they
+    // reflect post-fill semantics. Never names, trees, or text.
+    const semantic = postVicinity?.semanticCounts && typeof postVicinity.semanticCounts === "object"
+      ? postVicinity.semanticCounts
+      : {};
+    const semanticSendExactCount = Math.max(0, Number(semantic.sendExact) || 0);
+    const semanticSendGenericCount = Math.max(0, Number(semantic.sendGeneric) || 0);
+    const semanticSubmitCount = Math.max(0, Number(semantic.submitGeneric) || 0);
+    const semanticStopCount = Math.max(0, Number(semantic.stopGeneric) || 0);
+    const semanticAttachCount = Math.max(0, Number(semantic.attachGeneric) || 0);
+    const semanticUploadCount = Math.max(0, Number(semantic.uploadGeneric) || 0);
+    const semanticFileCount = Math.max(0, Number(semantic.fileGeneric) || 0);
+    const semanticVoiceCount = Math.max(0, Number(semantic.voiceGeneric) || 0);
+    const semanticMicrophoneCount = Math.max(0, Number(semantic.microphoneGeneric) || 0);
 
     console.log("");
     console.log("POST-FILL SEND DOM (safe: counts, roles, generic tokens, dimensions only)");
     console.log(JSON.stringify({ sendTotal: postVicinity?.sendTotal ?? null, sendMatches, sendNearby: safeNearby }, null, 2));
+    console.log("");
+    console.log("POST-FILL ACCESSIBILITY SEMANTICS (safe: numeric counts only, no names)");
+    console.log(JSON.stringify({
+      semanticSendExactCount,
+      semanticSendGenericCount,
+      semanticSubmitCount,
+      semanticStopCount,
+      semanticAttachCount,
+      semanticUploadCount,
+      semanticFileCount,
+      semanticVoiceCount,
+      semanticMicrophoneCount,
+    }, null, 2));
     console.log("");
 
     const ready = composer.ok && fillTest.startsWith("ok:") && postFillSend.ok && clearOk;
@@ -647,6 +686,15 @@ async function main() {
       postFillSendStrategy: postFillSend.strategy || "(none)",
       postFillSendMatches,
       postFillSendReason: postFillSend.reason || "",
+      semanticSendExactCount,
+      semanticSendGenericCount,
+      semanticSubmitCount,
+      semanticStopCount,
+      semanticAttachCount,
+      semanticUploadCount,
+      semanticFileCount,
+      semanticVoiceCount,
+      semanticMicrophoneCount,
       // Aliases for the pre-postfill field names so existing readiness checks
       // keep working: they now always reflect POST-FILL evidence.
       sendStrategy: postFillSend.strategy || "(none)",
