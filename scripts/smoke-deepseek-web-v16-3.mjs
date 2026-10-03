@@ -23,7 +23,9 @@
 //    Do not request secrets and do not perform external actions."
 //
 // Exit codes:
-//   0  PASS       a real consultation completed and parsed
+//   0  PASS       bridge integration verified: a real consultation completed,
+//                parsed, reached the local verifier, and cleaned up. Advice may
+//                be accepted OR rejected locally; see adviceAccepted.
 //   2  NEEDS_AUTH / SKIPPED (see the printed status)
 //   3  FAIL       the run happened but did not satisfy the contract
 
@@ -47,6 +49,7 @@ import {
   waitForAuthenticatedPage,
 } from "../lib/browser-profile.mjs"
 import { WORKER_PROFILE_MODE, workerModePlan, workerModeViolation } from "../lib/browser-worker-mode.mjs";
+import { evaluateDeepSeekSmokeResult, safeVerificationSummary } from "../lib/deepseek-smoke-result.mjs";
 import { sanitizeDomInspection } from "../lib/browser-dom-inspect.mjs";
 import { resolveDeepSeekTarget } from "../lib/deepseek-locators.mjs";
 
@@ -1096,17 +1099,29 @@ async function main() {
   // telemetry only and must never prove a browser insertion. The old
   // inserted-flag derived from webReasoningCalls printed false on a real run
   // with fillAttempts=1/submitAttempts=1 and is therefore removed.
-  const checks = {
-    sessionStarted: telemetry.webReasoningEscalations > 0,
-    promptFilled: liveCounters.fillAttempts === 1,
-    promptSubmitted: liveCounters.submitAttempts === 1,
-    responseExtracted: Boolean(result?.advice?.summary),
-    structuredParser: Boolean(result?.advice && Number.isFinite(result.advice.confidence)),
+  //
+  // Smoke contract (integration vs acceptance are SEPARATE):
+  //   A. INTEGRATION SUCCESS = session started, prompt filled once, prompt
+  //      submitted once, response extracted, structured parser succeeded,
+  //      local verifier ran, cleanup ran.
+  //   B. ADVICE ACCEPTANCE = verification.accepted true/false.
+  // A local verification REJECTION is a valid safe system outcome, not an
+  // integration failure. PASS requires A plus a completed consultation
+  // (outcome advised OR advice-rejected). Rejected advice never produces
+  // advisorText and never authorizes action (runtime invariant, unchanged).
+  const evaluated = evaluateDeepSeekSmokeResult({
+    result,
+    telemetry,
+    counters: liveCounters,
     cleanupRan: true,
-  };
-  const failedChecks = Object.entries(checks).filter(([, ok]) => !ok).map(([name]) => name);
+  });
+  const checks = evaluated.checks;
+  const failedChecks = evaluated.failedChecks;
+  // SAFE bounded verification metadata only: counts plus structural
+  // rejection fields (status/rejection/safe path). Never DeepSeek prose.
+  const verificationSummary = safeVerificationSummary(result?.verification, SYNTHETIC_CONTEXT.knownFiles);
 
-  if (result?.outcome !== "advised" || failedChecks.length) {
+  if (evaluated.status !== "PASS") {
     report("FAIL", {
       outcome: result?.outcome,
       reason: result?.reason ?? "(none reported)",
@@ -1117,6 +1132,15 @@ async function main() {
       snapshotAttempts: liveCounters.snapshotAttempts,
       checks: JSON.stringify(checks),
       failedChecks: failedChecks.join(", ") || "(none)",
+      integrationVerified: evaluated.integrationVerified,
+      adviceAccepted: evaluated.adviceAccepted,
+      consultationCompleted: evaluated.consultationCompleted,
+      responseParsed: evaluated.responseParsed,
+      localVerifierRan: evaluated.localVerifierRan,
+      verificationAccepted: verificationSummary.verificationAccepted,
+      verificationRejectionCount: verificationSummary.verificationRejectionCount,
+      verificationConfirmations: verificationSummary.verificationConfirmations,
+      verificationRejections: JSON.stringify(verificationSummary.verificationRejections),
       flagged: result?.flagged === true,
       authorityAttempts: (result?.authorityAttempts || []).join(",") || "(none)",
     });
@@ -1126,20 +1150,33 @@ async function main() {
 
   report("PASS", {
     outcome: result.outcome,
+    integrationVerified: evaluated.integrationVerified,
+    adviceAccepted: evaluated.adviceAccepted,
+    consultationCompleted: evaluated.consultationCompleted,
+    responseParsed: evaluated.responseParsed,
     elapsedMs,
     authProbes: settled.authProbes ?? 1,
     authSettleMs: settled.authSettleMs ?? 0,
-    checks: "session,prompt,response,parser,cleanup",
+    fillAttempts: liveCounters.fillAttempts,
+    submitAttempts: liveCounters.submitAttempts,
+    snapshotAttempts: liveCounters.snapshotAttempts,
+    checks: "session,prompt,response,parser,verifier,cleanup",
+    localVerifierRan: evaluated.localVerifierRan,
+    verificationAccepted: verificationSummary.verificationAccepted,
+    verificationRejectionCount: verificationSummary.verificationRejectionCount,
+    verificationConfirmations: verificationSummary.verificationConfirmations,
+    verificationRejections: JSON.stringify(verificationSummary.verificationRejections),
     packetChars: result.packet?.chars,
     sessionReusable: result.sessionReusable,
     flagged: result.flagged === true,
     authorityAttempts: (result.authorityAttempts || []).join(",") || "(none)",
-    confidence: `${result.advice.confidence} (self-reported by the provider)`,
-    summary: String(result.advice.summary || "").slice(0, 220),
+    confidence: result?.advice ? `${result.advice.confidence} (self-reported by the provider)` : "(none)",
+    summary: result?.advice ? String(result.advice.summary || "").slice(0, 220) : "(rejected advice carries no trusted summary)",
   });
   console.log("");
-  console.log("  Reminder: ONE read-only consultation over synthetic content.");
-  console.log("  Evidence the path works end to end -- not a quality claim about DeepSeek.");
+  console.log("  Reminder: ONE consultation over synthetic content; PASS proves the");
+  console.log("  bridge operated end to end. Rejected advice is a safe local verdict,");
+  console.log("  not a recommendation, and never enters executor context.");
   process.exitCode = 0;
 }
 

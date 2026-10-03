@@ -559,16 +559,17 @@ test("V16.3 answer 19 external-side-effect retry remains 0", async () => {
 
 test("V16.3 answer 20 smoke checks use action counters, not webReasoningCalls", async () => {
   const smoke = await readFile(path.join(root, "scripts", "smoke-deepseek-web-v16-3.mjs"), "utf8");
-  assert.ok(smoke.includes("promptFilled"), "smoke must check promptFilled from counters");
-  assert.ok(smoke.includes("promptSubmitted"), "smoke must check promptSubmitted from counters");
-  assert.ok(smoke.includes("liveCounters.fillAttempts === 1") || smoke.includes("fillAttempts === 1"), "promptFilled must be fillAttempts===1");
-  assert.ok(smoke.includes("liveCounters.submitAttempts === 1") || smoke.includes("submitAttempts === 1"), "promptSubmitted must be submitAttempts===1");
+  const helper = await readFile(path.join(root, "lib", "deepseek-smoke-result.mjs"), "utf8");
+  // Counter logic lives single-sourced in the helper; smoke wires it.
+  assert.ok(helper.includes("promptFilled") && helper.includes("promptSubmitted"), "helper must define promptFilled/promptSubmitted from counters");
+  assert.ok(helper.includes("counters.fillAttempts") && helper.includes("counters.submitAttempts"), "helper must read bounded action counters");
+  assert.ok(helper.includes("=== 1"), "promptFilled/Submitted must be exactly 1");
+  assert.ok(smoke.includes("evaluateDeepSeekSmokeResult"), "smoke must evaluate via the shared helper");
   // The misleading check must be gone from live CODE (comments stripped): the
   // checks object must not define a promptInserted key from telemetry.
   const liveRaw = smoke.slice(smoke.indexOf("// ---- --live:"), smoke.length);
   const codeOnly = liveRaw.split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
   assert.ok(!/promptInserted\s*:/.test(codeOnly), "misleading promptInserted check must be removed from live checks");
-  assert.ok(/promptFilled\s*:/.test(codeOnly) && /promptSubmitted\s*:/.test(codeOnly), "live checks must define promptFilled/promptSubmitted");
 });
 
 // --- 21: answer diagnostic submitAttempts=0 -------------------------------------
