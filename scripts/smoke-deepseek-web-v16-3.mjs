@@ -111,6 +111,7 @@ function parseArgs(argv) {
     auth: argv.includes("--auth"),
     authDiagnose: argv.includes("--auth-diagnose"),
     locatorDiagnose: argv.includes("--locator-diagnose"),
+    answerDiagnose: argv.includes("--answer-diagnose"),
     live: argv.includes("--live"),
     yes: argv.includes("--yes-i-have-authorized-a-live-consultation"),
     profile: arg("profile") || process.env.UES_DEEPSEEK_PROFILE || DEEPSEEK_PROFILE_NAME,
@@ -768,6 +769,126 @@ async function main() {
     return;
   }
 
+  // ---- --answer-diagnose: READ-ONLY answer-region inspection -----------------
+  //
+  // Never sends a prompt. Inspects an already-open/existing conversation
+  // READ-ONLY via the dedicated `deepseek-answer-regions` path (bounded
+  // assistant regions only; never whole-page body text, sidebar/history text,
+  // or account text). Reports only counts/strategy/chars; answer text is NOT
+  // printed by default. No fill, no click Send, submitAttempts=0 always. If no
+  // existing answer region is active, reports NO_EXISTING_ANSWER_TO_DIAGNOSE
+  // honestly instead of navigating into a private conversation to fake a PASS.
+  if (args.answerDiagnose) {
+    const plan = workerModePlan({ live: true, profile: args.profile });
+    const worker = startWorker(plan);
+    if (!worker) {
+      report("NEEDS_AUTH", { reason: "managed browser worker could not be started" });
+      process.exitCode = 2;
+      return;
+    }
+    const capability = await worker.capability();
+    const violation = workerModeViolation(plan, capability);
+    if (violation) {
+      await worker.close().catch(() => null);
+      report("HARD_NAVIGATION_FAILURE", { stage: "persistent-profile", reason: violation });
+      process.exitCode = 3;
+      return;
+    }
+
+    const opened = await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
+    console.log("");
+    console.log("V16.3 DeepSeek Web — READ-ONLY ANSWER DIAGNOSTIC");
+    console.log(`  profile:  ${capability.profileDir || "(ephemeral)"}`);
+    console.log(`  mode:     ${capability.profileMode} (headless=${capability.headless})`);
+    console.log(`  navigate: ${opened.ok ? `ok -> ${opened.afterUrl}` : `FAILED -> ${opened.error}`}`);
+    console.log("");
+    console.log("  Nothing is filled, clicked, typed or submitted. No answer text is printed.");
+    console.log("  Only scoped assistant-region counts/strategy/chars are reported.");
+    console.log("");
+
+    // Bounded settle so the SPA has hydrated before measuring. READ-ONLY.
+    await sleep(4_000);
+
+    const settled = await waitForAuthenticatedPage(worker);
+    if (settled.state !== AUTH_PROBE_STATE.READY) {
+      await worker.close().catch(() => null);
+      report("NEEDS_AUTH", {
+        reason: settled.reason || settled.state,
+        authProbes: settled.authProbes ?? 1,
+        authSettleMs: settled.authSettleMs ?? 0,
+        fillAttempts: 0,
+        submitAttempts: 0,
+        snapshotAttempts: 0,
+        next: "npm run smoke:deepseek-web -- --auth",
+      });
+      process.exitCode = 2;
+      return;
+    }
+
+    // Side-effect-free counters. submitAttempts must stay 0: this diagnostic
+    // never fills and never clicks. Proven by the absence of any fill/click
+    // invocation below.
+    const fillAttempts = 0;
+    const submitAttempts = 0;
+    let domInspects = 0;
+
+    const inspected = await worker.domInspect({ mode: "deepseek-answer-regions", timeoutMs: 30_000 });
+    domInspects += 1;
+    await worker.close().catch(() => null);
+
+    if (!inspected.ok) {
+      report("ANSWER_DIAGNOSE", {
+        reason: inspected.reason || inspected.failure || "answer-inspect-failed",
+        fillAttempts,
+        submitAttempts,
+        snapshotAttempts: 0,
+        domInspects,
+      });
+      process.exitCode = 3;
+      return;
+    }
+
+    const regions = inspected.answerRegions || {};
+    const families = Array.isArray(regions.families) ? regions.families : [];
+    const answerSelectorCounts = {};
+    for (const row of families) {
+      if (row && row.selectorKey) answerSelectorCounts[row.selectorKey] = Math.max(0, Number(row.visibleCount) || 0);
+    }
+    const totalVisible = Math.max(0, Number(regions.totalVisible) || Object.values(answerSelectorCounts).reduce((s, n) => s + (Number(n) || 0), 0));
+    const selected = regions.selected || null;
+
+    if (totalVisible === 0 || !selected) {
+      report("NO_EXISTING_ANSWER_TO_DIAGNOSE", {
+        reason: "no assistant answer region is active in the current conversation",
+        answerSelectorCounts: JSON.stringify(answerSelectorCounts),
+        selectedAnswerStrategy: "(none)",
+        selectedAnswerCount: 0,
+        answerTextChars: 0,
+        fillAttempts,
+        submitAttempts,
+        snapshotAttempts: 0,
+        domInspects,
+        note: "open a conversation with an assistant answer, then re-run; no navigation into private conversations was performed",
+      });
+      process.exitCode = 2;
+      return;
+    }
+
+    report("ANSWER_DIAGNOSED", {
+      answerSelectorCounts: JSON.stringify(answerSelectorCounts),
+      selectedAnswerStrategy: selected.selectorKey || "(none)",
+      selectedAnswerCount: Math.max(0, Number(selected.visibleCount) || 0),
+      answerTextChars: Math.max(0, Number(selected.textChars) || 0),
+      fillAttempts,
+      submitAttempts,
+      snapshotAttempts: 0,
+      domInspects,
+      disclosure: "counts/strategy/chars only; answer text withheld by default",
+    });
+    process.exitCode = 0;
+    return;
+  }
+
   // ---- preflight: observe, do not consult ----------------------------------
   const workerPlan = workerModePlan(args);
   const worker = startWorker(workerPlan);
@@ -856,7 +977,9 @@ async function main() {
   // ---- --live: ONE real consultation ----------------------------------------
   // Bounded action counters at the smoke layer. Proven from the actual invoke
   // calls below, never inferred from elapsed time. Proves fill-once /
-  // submit-at-most-once for the current run.
+  // submit-at-most-once for the current run. Answer-region reads
+  // (READ-ONLY domInspect) also count as snapshotAttempts so the answer-wait
+  // evidence stays comparable to the pre-fix runs.
   let liveFillAttempts = 0;
   let liveClickAttempts = 0;
   let liveSnapshotAttempts = 0;
@@ -865,6 +988,11 @@ async function main() {
     if (action === "click") liveClickAttempts += 1;
     if (action === "snapshot") liveSnapshotAttempts += 1;
     return worker.invoke(action, context);
+  };
+  const countingDomInspect = async (options) => {
+    const mode = String(options?.mode || "composer-vicinity");
+    if (mode === "deepseek-answer-regions") liveSnapshotAttempts += 1;
+    return worker.domInspect({ mode: "composer-vicinity", ...(options || {}), mode });
   };
   clearDecisionPacketCache();
   const adapter = createDeepSeekWebAdapter({
@@ -878,7 +1006,10 @@ async function main() {
     // The REAL read-only probe. There is no asserted-auth shortcut on this path.
     authProbe: (options) => observeAuth(worker, options?.timeoutMs),
     // Measured locator evidence for the composer/send/answer cascade.
-    domInspect: (options) => worker.domInspect({ mode: "composer-vicinity", ...(options || {}) }),
+    // Routes the requested mode through (composer-vicinity for locators,
+    // deepseek-answer-regions for scoped answer reads) and counts answer
+    // reads as snapshotAttempts for comparable answer-wait evidence.
+    domInspect: countingDomInspect,
     // Same-node pre/post-fill transition evidence (read-only, handles stay
     // worker-side). Lets the live lane promote a unique transition the same
     // way the diagnostic does; ambiguity still fails closed before any click.
@@ -960,9 +1091,15 @@ async function main() {
     return;
   }
 
+  // Browser-evidence checks (NOT telemetry inference). promptFilled and
+  // promptSubmitted come from bounded action counters; webReasoningCalls is
+  // telemetry only and must never prove a browser insertion. The old
+  // inserted-flag derived from webReasoningCalls printed false on a real run
+  // with fillAttempts=1/submitAttempts=1 and is therefore removed.
   const checks = {
     sessionStarted: telemetry.webReasoningEscalations > 0,
-    promptInserted: telemetry.webReasoningCalls > 0,
+    promptFilled: liveCounters.fillAttempts === 1,
+    promptSubmitted: liveCounters.submitAttempts === 1,
     responseExtracted: Boolean(result?.advice?.summary),
     structuredParser: Boolean(result?.advice && Number.isFinite(result.advice.confidence)),
     cleanupRan: true,

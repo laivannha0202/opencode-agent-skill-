@@ -31,7 +31,7 @@ import {
 } from "../lib/browser-worker-protocol.mjs"
 import { AUTH_PROBE_STATE, authProbeScript, profileForMode } from "../lib/browser-profile.mjs"
 import { domInspectScript } from "../lib/browser-dom-inspect.mjs"
-import { DEEPSEEK_SEND_TRANSITION_SELECTOR, composerVicinityScript } from "../lib/deepseek-locators.mjs"
+import { DEEPSEEK_SEND_TRANSITION_SELECTOR, answerRegionsScript, composerVicinityScript } from "../lib/deepseek-locators.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -674,6 +674,41 @@ async function main() {
                 sendMatches: vicinity.sendMatches,
                 answers: vicinity.answers,
                 semanticCounts,
+              },
+            },
+          });
+        }
+        if (payload.mode === "deepseek-answer-regions") {
+          // Dedicated READ-ONLY answer-region acquisition. Inspects ONLY
+          // bounded assistant-answer candidate regions; never whole-page body
+          // text, sidebar/history/account text, cookies/storage, input values,
+          // or raw HTML/SVG. Returns per-family counts plus the selected
+          // region's bounded text (<=40k). No click/fill/submit.
+          const regions = await activePage.evaluate(answerRegionsScript({ maxChars: 40_000 }));
+          const families = Array.isArray(regions?.families) ? regions.families.slice(0, 8) : [];
+          const selected = regions?.selected && typeof regions.selected === "object" ? regions.selected : null;
+          const counts = {};
+          for (const row of families) {
+            const key = String(row?.selectorKey || "").slice(0, 80);
+            if (key) counts[key] = Math.max(0, Math.min(10_000, Number(row.visibleCount) || 0));
+          }
+          return encodeWorkerResponse({
+            ok: true,
+            requestId: payload.requestId,
+            operation,
+            payload: {
+              ...base,
+              finalUrl: activePage.url(),
+              answerRegions: {
+                families,
+                selected: selected ? {
+                  selectorKey: String(selected.selectorKey || "").slice(0, 80),
+                  visibleCount: Math.max(0, Math.min(10_000, Number(selected.visibleCount) || 0)),
+                  textChars: Math.max(0, Math.min(40_000, Number(selected.textChars) || String(selected.answerText || "").length)),
+                  answerText: String(selected.answerText || "").slice(0, 40_000),
+                } : null,
+                counts,
+                totalVisible: Math.max(0, Math.min(10_000, Number(regions?.totalVisible) || 0)),
               },
             },
           });
