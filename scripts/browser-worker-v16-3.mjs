@@ -30,6 +30,7 @@ import {
   encodeWorkerResponse,
 } from "../lib/browser-worker-protocol.mjs"
 import { AUTH_PROBE_STATE, authProbeScript, profileForMode } from "../lib/browser-profile.mjs"
+import { domInspectScript } from "../lib/browser-dom-inspect.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 
@@ -341,6 +342,26 @@ async function main() {
       }
       if (operation === BROWSER_WORKER_OPERATION.CLOSE) {
         return encodeWorkerResponse({ ok: true, requestId: payload.requestId, operation, payload: { ...base } })
+      }
+      if (operation === BROWSER_WORKER_OPERATION.DOM_INSPECT) {
+        // READ-ONLY structural inspection. No click, no type, no submit. The
+        // in-page script withholds page text, input values, cookies, storage,
+        // conversation titles and account names; the client re-filters.
+        const inspection = await activePage.evaluate(domInspectScript({ limit: payload.limit }));
+        return encodeWorkerResponse({
+          ok: true,
+          requestId: payload.requestId,
+          operation,
+          payload: {
+            ...base,
+            finalUrl: activePage.url(),
+            dom: {
+              url: inspection.url,
+              aggregates: inspection.aggregates,
+              rows: inspection.rows,
+            },
+          },
+        });
       }
       if (operation === "auth-probe") {
         // READ-ONLY. Evaluates a fixed DOM snapshot in the page and returns it.

@@ -45,6 +45,7 @@ import {
   nextAuthWaitState,
 } from "../lib/browser-profile.mjs"
 import { WORKER_PROFILE_MODE, workerModePlan, workerModeViolation } from "../lib/browser-worker-mode.mjs";
+import { sanitizeDomInspection } from "../lib/browser-dom-inspect.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const workerScript = path.join(root, "scripts", "browser-worker-v16-3.mjs")
@@ -105,10 +106,12 @@ function parseArgs(argv) {
   const arg = (name) => (argv.find((entry) => entry.startsWith(`--${name}=`)) || "").split("=")[1] || "";
   return {
     auth: argv.includes("--auth"),
+    authDiagnose: argv.includes("--auth-diagnose"),
     live: argv.includes("--live"),
     yes: argv.includes("--yes-i-have-authorized-a-live-consultation"),
     profile: arg("profile") || process.env.UES_DEEPSEEK_PROFILE || DEEPSEEK_PROFILE_NAME,
     answerTimeoutMs: Number(arg("answer-timeout-ms") || 120_000),
+    diagnoseLimit: Number(arg("diagnose-limit") || 60),
     authTimeoutMs: Number(arg("auth-timeout-ms") || AUTH_POLL.overallTimeoutMs),
   };
 }
@@ -240,6 +243,22 @@ async function waitForManualLogin(worker, overallTimeoutMs, options = {}) {
   }
 }
 
+
+/** Booleans and counts only. Safe to print for a manual diagnosis. */
+function client_authDebugSummary(worker, probe) {
+  const observations = probe?.observations || {};
+  return {
+    composerVisible: observations.composerVisible === true,
+    accountSignal: observations.accountSignal === true,
+    historyCount: Number(observations.historyCount || 0),
+    answerRegions: Number(observations.answerRegions || 0),
+    urlPath: String(observations.url || "").split("?")[0].split("#")[0].slice(0, 120),
+    classifiedState: String(probe?.state || "UNKNOWN"),
+    reason: String(probe?.reason || "").slice(0, 120),
+    disclosure: "booleans and counts only; no page content, no account text, no credentials",
+  };
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
@@ -347,6 +366,93 @@ async function main() {
       next: "log in within the headed window, then re-run: npm run smoke:deepseek-web -- --auth",
     });
     process.exitCode = 2;
+    return;
+  }
+
+  // ---- --auth-diagnose: READ-ONLY DOM evidence for selector repair ---------
+  //
+  // Why it exists: the user was visibly logged in and the detector still reported
+  // no session for 89 probes. Guessing new selectors would be guessing, so this
+  // mode prints the MEASURED structure of the real page instead.
+  //
+  // Safety: the in-page script withholds page text, input values, cookies,
+  // storage, conversation titles and account names; the client re-filters with
+  // sanitizeDomInspection(); and only structure, booleans and counts are printed.
+  // It never clicks, types or submits.
+  if (args.authDiagnose) {
+    const plan = workerModePlan({ live: true, profile: args.profile });
+    const worker = startWorker(plan);
+    if (!worker) {
+      report("NEEDS_AUTH", { reason: "managed browser worker could not be started" });
+      process.exitCode = 2;
+      return;
+    }
+    const capability = await worker.capability();
+    const violation = workerModeViolation(plan, capability);
+    if (violation) {
+      await worker.close().catch(() => null);
+      report("HARD_NAVIGATION_FAILURE", { stage: "persistent-profile", reason: violation });
+      process.exitCode = 3;
+      return;
+    }
+
+    const opened = await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
+    console.log("");
+    console.log("V16.3 DeepSeek Web — READ-ONLY AUTH DIAGNOSTIC");
+    console.log(`  profile:  ${capability.profileDir || "(ephemeral)"}`);
+    console.log(`  mode:     ${capability.profileMode} (headless=${capability.headless})`);
+    console.log(`  navigate: ${opened.ok ? `ok -> ${opened.afterUrl}` : `FAILED -> ${opened.error}`}`);
+    console.log("");
+    console.log("  Nothing is clicked, typed or submitted. No cookies, storage, tokens,");
+    console.log("  input values, conversation titles or account names are read or printed.");
+    console.log("");
+
+    // Bounded settle so the SPA has hydrated before measuring.
+    await sleep(4_000);
+
+    const probe = await observeAuth(worker);
+    console.log("AUTH SUMMARY (booleans and counts only)");
+    console.log(JSON.stringify(client_authDebugSummary(worker, probe), null, 2));
+    console.log("");
+
+    const inspected = await worker.domInspect({ limit: Number(args.diagnoseLimit) || 60, timeoutMs: 30_000 });
+    await worker.close().catch(() => null);
+
+    if (!inspected.ok) {
+      report("HARD_NAVIGATION_FAILURE", { stage: "dom-inspect", reason: inspected.reason || inspected.failure });
+      process.exitCode = 3;
+      return;
+    }
+
+    const inspection = sanitizeDomInspection(inspected.inspection);
+    console.log("AGGREGATE COUNTS");
+    console.log(JSON.stringify(inspection.aggregates, null, 2));
+    console.log("");
+    console.log("VISIBLE ELEMENT STRUCTURE (bounded)");
+    for (const row of inspection.rows) {
+      const bits = [String(row.tag).padEnd(10)];
+      if (row.role) bits.push(`role=${row.role}`);
+      if (row.ariaLabel?.present) bits.push(`aria=${row.ariaLabel.generic ?? "[withheld]"}`);
+      if (row.testId) bits.push("data-testid=[present]");
+      if (row.hasNameAttr) bits.push("name=[present]");
+      if (row.type) bits.push(`type=${row.type}`);
+      if (row.contentEditable) bits.push(`contenteditable=${row.contentEditable}`);
+      if (row.ariaHaspopup) bits.push(`aria-haspopup=${row.ariaHaspopup}`);
+      if (row.href) bits.push(`href=${row.href.shape}${row.href.hasQuery ? "?<redacted>" : ""}`);
+      if (row.classTokens.length) bits.push(`class=${row.classTokens.join(".")}`);
+      if (row.classFiltered) bits.push(`(+${row.classFiltered} filtered)`);
+      if (row.inSidebar) bits.push("[in-sidebar]");
+      bits.push(`children=${row.childCount}`);
+      console.log("  " + bits.join(" "));
+    }
+    console.log("");
+    console.log("DISCLOSURE");
+    console.log(JSON.stringify(inspection.disclosure));
+    console.log("");
+    console.log("Selector repair note: use the aggregates and the sidebar rows above.");
+    console.log("If accountCandidates is 0 but you are logged in, the account affordance is");
+    console.log("not matched - re-run and share the aggregate counts only.");
+    process.exitCode = 0;
     return;
   }
 

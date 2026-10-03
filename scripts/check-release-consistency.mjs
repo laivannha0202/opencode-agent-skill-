@@ -326,6 +326,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
       "test/v16-3-live-deepseek.test.mjs",
       "test/v16-3-manual-auth-wait.test.mjs",
       "test/v16-3-live-regressions.test.mjs",
+      "test/v16-3-auth-ui-detection.test.mjs",
     ]
     if (!requiredV163Tests.every((file) => focusedV16.includes(file))) {
       errors.push("package.json: eval:v16 must include the V16.3 browser-reliability and deepseek-web-bridge suites")
@@ -347,17 +348,22 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["smoke:deepseek-web"] !== "node scripts/smoke-deepseek-web-v16-3.mjs") {
       errors.push("package.json: missing the manually gated V16.3 DeepSeek web smoke")
     }
-    if (String(scripts.ci || "").includes("smoke:deepseek-web")) {
-      errors.push("package.json: ci must NOT run the live DeepSeek web smoke")
+    for (const gate of ["ci", "release:verify", "test", "eval:v16", "eval:v16.3", "eval:v16.3.workers"]) {
+      if (String(scripts[gate] || "").includes("smoke:deepseek-web")) {
+        errors.push(`package.json: ${gate} must NOT run the live DeepSeek web smoke`)
+      }
     }
-    if (String(scripts["release:verify"] || "").includes("smoke:deepseek-web")) {
-      errors.push("package.json: release:verify must NOT run the live DeepSeek web smoke")
+    // The read-only diagnostic drives a third-party site too, so it is gated the
+    // same way even though it submits nothing.
+    if (String(scripts["smoke:deepseek-web"] || "").includes("--auth-diagnose")) {
+      errors.push("package.json: smoke:deepseek-web must not default to the third-party diagnostic")
     }
     for (const required of [
       "scripts/browser-worker-v16-3.mjs",
       "scripts/smoke-deepseek-web-v16-3.mjs",
       "lib/browser-profile.mjs",
       "lib/browser-worker-mode.mjs",
+      "lib/browser-dom-inspect.mjs",
     ]) {
       if (!pkg.files.includes(required)) {
         errors.push(`package.json: V16.3 runtime integration file must be packed: ${required}`)

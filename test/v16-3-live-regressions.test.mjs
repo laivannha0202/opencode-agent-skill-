@@ -399,6 +399,9 @@ test("V16.3 BUG B duplicate submit protection still holds through the live lane"
 
 test("V16.3 BUG A the release gate still forbids the live smoke", async () => {
   const check = await readFile(path.join(root, "scripts", "check-release-consistency.mjs"), "utf8");
-  assert.ok(check.includes("ci must NOT run the live DeepSeek web smoke"));
-  assert.ok(check.includes("release:verify must NOT run the live DeepSeek web smoke"));
+  assert.ok(check.includes("must NOT run the live DeepSeek web smoke"));
+  const gates = check.slice(check.indexOf("const gate of ["), check.indexOf("const gate of [") + 400);
+  assert.ok(gates.includes('"ci"'));
+  assert.ok(gates.includes('"release:verify"'));
+  assert.ok(check.includes("must not default to the third-party diagnostic"));
 });

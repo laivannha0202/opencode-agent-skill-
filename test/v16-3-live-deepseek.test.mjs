@@ -535,8 +535,12 @@ test("V16.3 live the headed auth mode is manual only and never reachable from CI
 
 test("V16.3 live the release gate actively forbids the live smoke from CI", async () => {
   const check = await readFile(path.join(root, "scripts", "check-release-consistency.mjs"), "utf8");
-  assert.ok(check.includes("ci must NOT run the live DeepSeek web smoke"));
-  assert.ok(check.includes("release:verify must NOT run the live DeepSeek web smoke"));
+  // Assert the MECHANISM, not a message wording: one templated refusal covering
+  // every automated gate, and both critical gates listed.
+  assert.ok(check.includes("must NOT run the live DeepSeek web smoke"));
+  const gates = check.slice(check.indexOf("const gate of ["), check.indexOf("const gate of [") + 400);
+  assert.ok(gates.includes('"ci"'), "ci must be in the gated list");
+  assert.ok(gates.includes('"release:verify"'), "release:verify must be in the gated list");
   assert.ok(check.includes("smoke-deepseek-web-v16-3.mjs"));
 });
 
