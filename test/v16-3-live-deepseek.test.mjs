@@ -191,13 +191,23 @@ test("V16.3 live a login wall classifies NEEDS_AUTH from the URL and from page t
   assert.equal(byUrl.state, AUTH_PROBE_STATE.NEEDS_AUTH);
   assert.equal(byUrl.reason, "login-url-detected");
 
+  // The worker now reduces the login-wall check to a BOOLEAN inside the page, so
+  // no body text has to cross the boundary at all.
   const byText = classifyAuthState({
+    url: "https://chat.deepseek.com/",
+    loginEvidence: true,
+    composerVisible: false,
+  });
+  assert.equal(byText.state, AUTH_PROBE_STATE.NEEDS_AUTH);
+  assert.equal(byText.reason, "login-wall-detected");
+
+  // An older worker that still sends text is handled without weakening the rule.
+  const legacy = classifyAuthState({
     url: "https://chat.deepseek.com/",
     text: "Sign in to continue using DeepSeek",
     composerVisible: false,
   });
-  assert.equal(byText.state, AUTH_PROBE_STATE.NEEDS_AUTH);
-  assert.equal(byText.reason, "login-wall-detected-in-page-text");
+  assert.equal(legacy.state, AUTH_PROBE_STATE.NEEDS_AUTH);
 
   // A login wall beats a visible composer: a stale page object must not read READY.
   const walledWithComposer = classifyAuthState({

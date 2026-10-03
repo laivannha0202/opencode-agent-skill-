@@ -381,7 +381,7 @@ async function main() {
             auth: {
               url: observations.url,
               title: observations.title,
-              text: observations.text,
+              loginEvidence: observations.loginEvidence === true,
               composerVisible: observations.composerVisible,
               answerRegions: observations.answerRegions,
               // REAL BUG FIX: this boolean was computed by `authProbeScript` and

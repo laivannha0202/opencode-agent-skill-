@@ -2092,6 +2092,9 @@ const CONTRACTS = [
       "historyCount",
       "MIN_HISTORY_ROWS_FOR_SESSION",
       "SIDEBAR_CONTAINERS",
+      "/a/chat/s/",
+      "Math.max(genericHistoryCount, deepSeekChatPathCount)",
+      "loginEvidence",
       "composer-and-history-present",
       "composer-visible-but-no-session-signal",
       "AUTH_WAIT_STATE",
@@ -2134,6 +2137,23 @@ const CONTRACTS = [
     ],
     // A diagnostic must never be able to become an exfiltration path.
     forbidden: ["document.cookie", "localStorage[", "sessionStorage[", "navigator.clipboard"],
+  },
+  {
+    file: "test/v16-3-deepseek-history-detector.test.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.3 DeepSeek authenticated-history detector, driven by MEASURED evidence.",
+    required: [
+      "V16.3 history composer + 15 visible /a/chat/s/ anchors is READY",
+      "V16.3 history composer + 2 visible /a/chat/s/ anchors is READY",
+      "V16.3 history composer + 1 visible /a/chat/s/ anchor stays UNKNOWN",
+      "V16.3 history hidden /a/chat/s/ anchors do not count",
+      "V16.3 history unrelated anchors never count as conversations",
+      "V16.3 history generic structural detection still works",
+      "V16.3 history generic and chat-path detectors combine with MAX, never SUM",
+      "V16.3 history no query, fragment, conversation id or title crosses the boundary",
+      "V16.3 history the accountSignal path is unchanged by this fix",
+      "V16.3 history composer alone is never sufficient, under any history value",
+    ],
   },
   {
     file: "test/v16-3-auth-ui-detection.test.mjs",

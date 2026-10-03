@@ -145,9 +145,19 @@ test("V16.3 auth the probe derives history STRUCTURALLY, not from a vendor class
   }
   assert.ok(script.includes("HISTORY_ROW"));
   assert.ok(script.includes("historyCount"));
+  // The measured vendor path detector sits alongside it, and is a COUNT too.
+  assert.ok(script.includes("/a/chat/s/"));
+  assert.ok(script.includes("Math.max(genericHistoryCount, deepSeekChatPathCount)"));
   // A COUNT only: the sidebar walk must never read rendered text, which is where
   // conversation titles and account names live.
-  const walk = script.slice(script.indexOf("SIDEBAR_CONTAINERS"), script.indexOf("historyCount > 50"));
+  // Comments are stripped first: the detector documents its own guarantee with the
+  // word "title", and a raw substring search would flag the very comment that
+  // promises the property being asserted.
+  const code = script.split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
+  const walk = code.slice(
+    code.indexOf("SIDEBAR_CONTAINERS"),
+    code.indexOf("Math.max(genericHistoryCount, deepSeekChatPathCount)"),
+  );
   assert.ok(!walk.includes("innerText"), "the history walk must not read rendered text");
   assert.ok(!walk.includes("textContent"), "the history walk must not read rendered text");
   assert.ok(!walk.includes("title"), "the history walk must not read title attributes");

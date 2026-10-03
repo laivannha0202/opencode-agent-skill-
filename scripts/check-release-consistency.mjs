@@ -327,6 +327,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
       "test/v16-3-manual-auth-wait.test.mjs",
       "test/v16-3-live-regressions.test.mjs",
       "test/v16-3-auth-ui-detection.test.mjs",
+      "test/v16-3-deepseek-history-detector.test.mjs",
     ]
     if (!requiredV163Tests.every((file) => focusedV16.includes(file))) {
       errors.push("package.json: eval:v16 must include the V16.3 browser-reliability and deepseek-web-bridge suites")
