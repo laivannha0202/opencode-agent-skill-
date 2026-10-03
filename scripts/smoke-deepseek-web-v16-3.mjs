@@ -32,7 +32,7 @@ import path from "node:path"
 import { fileURLToPath } from "node:url"
 
 import { createBrowserWorkerClient, spawnBrowserWorkerTransport } from "../lib/browser-worker-client.mjs"
-import { createDeepSeekWebAdapter } from "../lib/deepseek-web-adapter.mjs"
+import { createDeepSeekWebAdapter, classifyDeepSeekSmokeStatus, parseDeepSeekFailureStage, DEEPSEEK_FAILURE_STAGE } from "../lib/deepseek-web-adapter.mjs"
 import { createWebReasoningRegistry } from "../lib/web-reasoning-provider.mjs"
 import { createWebReasoningLane } from "../lib/web-reasoning-lane.mjs"
 import { clearDecisionPacketCache } from "../lib/decision-packet.mjs"
@@ -460,12 +460,17 @@ async function main() {
     return;
   }
 
-  // ---- --locator-diagnose: READ-ONLY composer/send/answer resolution ----
+  // ---- --locator-diagnose: READ-ONLY PRE-SUBMIT composer/send/answer resolution
   //
-  // Pre-submit validation without a consultation. Resolves all three targets
-  // from measured vicinity evidence, proves the composer accepts a fill with
-  // synthetic non-secret content, clears it, and reports strategies/counts.
-  // NEVER clicks Send. No prompt is submitted, no answer is read.
+  // Pre-submit validation without a consultation. Reproduces the REAL
+  // production PRE-SUBMIT sequence exactly, minus the submit:
+  //   auth READY -> inspect/resolve composer -> fill synthetic non-secret text
+  //   -> RE-INSPECT composer vicinity AFTER FILL -> resolve send from POST-FILL
+  //   evidence -> inspect answer candidates -> CLEAR composer -> verify cleared
+  //   -> close. NEVER clicks Send. No prompt is submitted, no answer is read.
+  // The reported send state always reflects POST-FILL evidence, never stale
+  // pre-fill evidence: a toolbar/control-state change caused by the non-empty
+  // composer is observed before any readiness claim.
   if (args.locatorDiagnose) {
     const plan = workerModePlan({ live: true, profile: args.profile });
     const worker = startWorker(plan);
@@ -485,13 +490,13 @@ async function main() {
 
     const opened = await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
     console.log("");
-    console.log("V16.3 DeepSeek Web — READ-ONLY LOCATOR DIAGNOSTIC");
+    console.log("V16.3 DeepSeek Web — READ-ONLY LOCATOR DIAGNOSTIC (PRE-SUBMIT, POST-FILL)");
     console.log(`  profile:  ${capability.profileDir || "(ephemeral)"}`);
     console.log(`  mode:     ${capability.profileMode} (headless=${capability.headless})`);
     console.log(`  navigate: ${opened.ok ? `ok -> ${opened.afterUrl}` : `FAILED -> ${opened.error}`}`);
     console.log("");
-    console.log("  Nothing is submitted. The composer fill test uses synthetic");
-    console.log("  non-secret content and clears the composer afterwards.");
+    console.log("  Nothing is submitted and Send is never clicked. The composer fill");
+    console.log("  test uses synthetic non-secret content and clears it afterwards.");
     console.log("");
 
     const settled = await waitForAuthenticatedPage(worker);
@@ -507,54 +512,157 @@ async function main() {
       return;
     }
 
-    const vic = await worker.domInspect({ mode: "composer-vicinity", nearbyLimit: 10, timeoutMs: 30_000 });
-    if (!vic.ok) {
+    // Bounded side-effect-free counters. submitAttempts (clicks) must stay 0:
+    // this diagnostic never submits. Proven by the absence of any click
+    // invocation below, not by elapsed time.
+    let fillAttempts = 0;
+    const submitAttempts = 0;
+    let domInspects = 0;
+
+    // Step 1: pre-fill inspect + resolve composer (read-only, before any fill).
+    const preVic = await worker.domInspect({ mode: "composer-vicinity", nearbyLimit: 10, timeoutMs: 30_000 });
+    domInspects += 1;
+    if (!preVic.ok) {
       await worker.close().catch(() => null);
-      report("HARD_NAVIGATION_FAILURE", { stage: "locator-inspect", reason: vic.reason || vic.failure });
+      report("HARD_NAVIGATION_FAILURE", { stage: "locator-inspect", reason: preVic.reason || preVic.failure });
       process.exitCode = 3;
       return;
     }
 
-    const composer = resolveDeepSeekTarget("composer", vic.vicinity);
-    const send = resolveDeepSeekTarget("send", vic.vicinity);
-    const answer = resolveDeepSeekTarget("answer", vic.vicinity);
+    const composer = resolveDeepSeekTarget("composer", preVic.vicinity);
+    const preSendStale = resolveDeepSeekTarget("send", preVic.vicinity);
+    const preAnswer = resolveDeepSeekTarget("answer", preVic.vicinity);
 
-    // Fill test with synthetic non-secret content, then clear. No submit.
+    // Step 2: fill ONCE with synthetic non-secret content. No submit.
     let fillTest = composer.ok ? "not-attempted" : "skipped-no-composer";
-    let clearTest = "skipped";
-    if (composer.ok) {
+    let filledChars = 0;
+    let failureStage = null;
+    if (!composer.ok) {
+      failureStage = DEEPSEEK_FAILURE_STAGE.COMPOSER_RESOLVE;
+    } else {
       const filled = await worker.invoke("fill", {
         target: composer.target,
         value: "UES_LOCATOR_PROBE",
         actionTimeoutMs: 15_000,
       });
-      const filledChars = Number(filled.filledChars ?? filled.result?.filledChars ?? 0);
+      fillAttempts = 1;
+      filledChars = Number(filled.filledChars ?? filled.result?.filledChars ?? 0);
       fillTest = filled.ok && filledChars > 0 ? `ok:${filledChars}` : `failed:${String(filled.error || "unverified").slice(0, 80)}`;
-      if (filled.ok && filledChars > 0) {
+      if (!(filled.ok && filledChars > 0)) {
+        failureStage = DEEPSEEK_FAILURE_STAGE.COMPOSER_FILL;
+      }
+    }
+
+    // Step 3: POST-FILL re-inspection (mandatory, after fill, before send).
+    // This is the coverage the old diagnostic lacked: DeepSeek may change the
+    // toolbar/control state after the textarea becomes non-empty, so the send
+    // decision must use fresh POST-FILL evidence, never the stale pre-fill one.
+    let postVicinity = null;
+    let postFillSend = { ok: false, strategy: null, target: null, candidates: 0, reason: "not-inspected" };
+    let postFillAnswer = { ok: true, strategy: null, target: null, candidates: 0, reason: "not-inspected" };
+    if (composer.ok && fillTest.startsWith("ok:")) {
+      const postVic = await worker.domInspect({ mode: "composer-vicinity", nearbyLimit: 10, timeoutMs: 30_000 });
+      domInspects += 1;
+      if (!postVic.ok) {
+        failureStage = failureStage || DEEPSEEK_FAILURE_STAGE.SEND_RESOLVE_POST_FILL;
+        postFillSend = { ok: false, strategy: null, target: null, candidates: 0, reason: String(postVic.reason || postVic.failure || "post-fill-inspect-failed").slice(0, 160) };
+      } else {
+        postVicinity = postVic.vicinity;
+        postFillSend = resolveDeepSeekTarget("send", postVic.vicinity);
+        postFillAnswer = resolveDeepSeekTarget("answer", postVic.vicinity);
+        if (!postFillSend.ok && !failureStage) {
+          failureStage = DEEPSEEK_FAILURE_STAGE.SEND_RESOLVE_POST_FILL;
+        }
+      }
+    }
+
+    // Step 4: CLEAR composer even if send resolution failed (finally-style).
+    // The composer must never be left holding synthetic text.
+    let clearTest = composer.ok && fillTest.startsWith("ok:") ? "not-attempted" : "skipped";
+    let inputCleared = false;
+    if (composer.ok && fillTest.startsWith("ok:")) {
+      try {
         const cleared = await worker.invoke("fill", {
           target: composer.target,
           value: "",
           actionTimeoutMs: 15_000,
         });
         const clearedChars = Number(cleared.filledChars ?? cleared.result?.filledChars ?? -1);
-        clearTest = cleared.ok && clearedChars === 0 ? "ok:cleared" : `failed:${String(cleared.error || clearedChars).slice(0, 80)}`;
+        inputCleared = cleared.ok && clearedChars === 0;
+        clearTest = inputCleared ? "ok:cleared" : `failed:${String(cleared.error || clearedChars).slice(0, 80)}`;
+      } catch (error) {
+        clearTest = `failed:${String(error?.message || error).slice(0, 80)}`;
       }
     }
+    const clearOk = clearTest === "ok:cleared";
     await worker.close().catch(() => null);
 
-    const ready = composer.ok && send.ok && fillTest.startsWith("ok:") && clearTest === "ok:cleared";
+    // Safe POST-FILL send DOM measurements (bounded, generic, no content):
+    // visible generic buttons near composer with enabled/disabled, role,
+    // generic aria-label, generic control-name token, safe dimensions,
+    // composer-relative relationship, and per-selector visible-match counts.
+    // No text, SVG/path data, ids, hrefs, values, or account data.
+    const safeNearby = (postVicinity?.sendNearby || []).slice(0, 10).map((row) => ({
+      tag: String(row?.tag || "").slice(0, 20),
+      role: row?.role ? String(row.role).slice(0, 30) : null,
+      disabled: row?.disabled === true,
+      aria: row?.ariaLabel?.generic || null,
+      control: row?.controlName?.generic || null,
+      testId: row?.testId === "[present]" ? "[present]" : null,
+      box: row?.box && typeof row.box === "object" ? { w: Math.max(0, Number(row.box.w) || 0), h: Math.max(0, Number(row.box.h) || 0) } : null,
+      afterComposer: row?.afterComposer === true ? true : row?.afterComposer === false ? false : null,
+      distance: row?.distance === null || row?.distance === undefined ? null : Math.max(0, Number(row.distance) || 0),
+    }));
+    const sendMatches = postVicinity?.sendMatches || {};
+    // The visible-match count that drove the decision: 1 when unique, the
+    // ambiguous selector's count (2) when fail-closed. Nearby length is
+    // reported separately as sendCandidates; it must not inflate this number.
+    const postFillSendMatches = postFillSend.ok
+      ? 1
+      : Math.max(0, ...Object.values(sendMatches).map((n) => Number(n) || 0));
+
+    console.log("");
+    console.log("POST-FILL SEND DOM (safe: counts, roles, generic tokens, dimensions only)");
+    console.log(JSON.stringify({ sendTotal: postVicinity?.sendTotal ?? null, sendMatches, sendNearby: safeNearby }, null, 2));
+    console.log("");
+
+    const ready = composer.ok && fillTest.startsWith("ok:") && postFillSend.ok && clearOk;
+    if (!failureStage && !ready) {
+      failureStage = !composer.ok
+        ? DEEPSEEK_FAILURE_STAGE.COMPOSER_RESOLVE
+        : !fillTest.startsWith("ok:")
+          ? DEEPSEEK_FAILURE_STAGE.COMPOSER_FILL
+          : !postFillSend.ok
+            ? DEEPSEEK_FAILURE_STAGE.SEND_RESOLVE_POST_FILL
+            : DEEPSEEK_FAILURE_STAGE.DISPATCH_VERIFY;
+    }
     report(ready ? "LOCATOR_READY" : "UI_CHANGED", {
+      failureStage: failureStage || (ready ? "(none)" : DEEPSEEK_FAILURE_STAGE.SEND_RESOLVE_POST_FILL),
       composerStrategy: composer.strategy || "(none)",
+      composerSelector: composer.target?.selector || composer.target?.accessibleName || "(none)",
       composerCandidates: composer.candidates ?? 0,
       composerReason: composer.reason || "",
-      sendStrategy: send.strategy || "(none)",
-      sendCandidates: send.candidates ?? 0,
-      sendReason: send.reason || "",
-      answerStrategy: answer.strategy || "(none)",
-      answerCandidates: answer.candidates ?? 0,
-      answerReason: answer.reason || "",
       fillTest,
+      filledChars,
+      postFillSendStrategy: postFillSend.strategy || "(none)",
+      postFillSendMatches,
+      postFillSendReason: postFillSend.reason || "",
+      // Aliases for the pre-postfill field names so existing readiness checks
+      // keep working: they now always reflect POST-FILL evidence.
+      sendStrategy: postFillSend.strategy || "(none)",
+      sendCandidates: postFillSend.candidates ?? 0,
+      sendReason: postFillSend.reason || "",
+      preFillSendReason: preSendStale.reason || "",
+      answerStrategy: (postFillAnswer.strategy || preAnswer.strategy) || "(none)",
+      answerCandidates: (postFillAnswer.candidates ?? preAnswer.candidates) ?? 0,
+      answerReason: (postFillAnswer.reason || preAnswer.reason) || "",
       clearTest,
+      inputCleared,
+      sendClicked: false,
+      fillAttempts,
+      submitAttempts,
+      snapshotAttempts: 0,
+      domInspects,
     });
     process.exitCode = ready ? 0 : 3;
     return;
@@ -646,6 +754,18 @@ async function main() {
   }
 
   // ---- --live: ONE real consultation ----------------------------------------
+  // Bounded action counters at the smoke layer. Proven from the actual invoke
+  // calls below, never inferred from elapsed time. Proves fill-once /
+  // submit-at-most-once for the current run.
+  let liveFillAttempts = 0;
+  let liveClickAttempts = 0;
+  let liveSnapshotAttempts = 0;
+  const countingInvoke = async (action, context) => {
+    if (action === "fill") liveFillAttempts += 1;
+    if (action === "click") liveClickAttempts += 1;
+    if (action === "snapshot") liveSnapshotAttempts += 1;
+    return worker.invoke(action, context);
+  };
   clearDecisionPacketCache();
   const adapter = createDeepSeekWebAdapter({
     capability: {
@@ -654,7 +774,7 @@ async function main() {
       readOnlyAvailable: true,
       reason: "managed-browser-worker",
     },
-    invoke: (action, context) => worker.invoke(action, context),
+    invoke: countingInvoke,
     // The REAL read-only probe. There is no asserted-auth shortcut on this path.
     authProbe: (options) => observeAuth(worker, options?.timeoutMs),
     // Measured locator evidence for the composer/send/answer cascade.
@@ -684,17 +804,54 @@ async function main() {
 
   const elapsedMs = Date.now() - startedAt;
   const telemetry = result?.telemetry || {};
+  const liveCounters = { fillAttempts: liveFillAttempts, submitAttempts: liveClickAttempts, snapshotAttempts: liveSnapshotAttempts };
 
-  if (result?.outcome === "unavailable" || String(result?.reason || "").includes("auth")) {
+  // Stage-specific safe evidence: the failure stage survives in the reason
+  // suffix (e.g. `...:send-resolve-post-fill:...`). Only bounded stage names,
+  // strategies, counts and counters are printed -- never prompt contents,
+  // input values, conversation content, account data, cookies/storage, or URLs
+  // with query/ids.
+  const failureStage = parseDeepSeekFailureStage(String(result?.reason || "")) || "(none)";
+
+  // Corrected status classification: a generic "unavailable" outcome is NEVER
+  // authentication. Only an explicit `deepseek-auth-required` reason is
+  // NEEDS_AUTH. Selector drift is UI_CHANGED, timeouts are TIMEOUT/FAIL, and
+  // browser problems are UNAVAILABLE. FORCE-mode semantics are preserved: every
+  // non-PASS status here fails loudly (no silent fallback).
+  const smokeStatus = classifyDeepSeekSmokeStatus(result);
+  if (smokeStatus === "NEEDS_AUTH") {
     report("NEEDS_AUTH", {
       reason: result.reason,
+      failureStage,
       elapsedMs,
       observedUrl: observed.url,
       authProbes: settled.authProbes ?? 1,
       authSettleMs: settled.authSettleMs ?? 0,
+      fillAttempts: liveCounters.fillAttempts,
+      submitAttempts: liveCounters.submitAttempts,
+      snapshotAttempts: liveCounters.snapshotAttempts,
       next: "npm run smoke:deepseek-web -- --auth",
     });
     process.exitCode = 2;
+    return;
+  }
+  if (smokeStatus === "UI_CHANGED" || smokeStatus === "UNAVAILABLE" || smokeStatus === "TIMEOUT") {
+    report(smokeStatus, {
+      reason: result.reason,
+      failureStage,
+      elapsedMs,
+      observedUrl: observed.url,
+      authProbes: settled.authProbes ?? 1,
+      authSettleMs: settled.authSettleMs ?? 0,
+      fillAttempts: liveCounters.fillAttempts,
+      submitAttempts: liveCounters.submitAttempts,
+      snapshotAttempts: liveCounters.snapshotAttempts,
+      outcome: result?.outcome ?? "(none)",
+      next: smokeStatus === "UI_CHANGED"
+        ? "npm run smoke:deepseek-web -- --locator-diagnose"
+        : "npm run smoke:deepseek-web -- --auth",
+    });
+    process.exitCode = 3;
     return;
   }
 
@@ -711,7 +868,11 @@ async function main() {
     report("FAIL", {
       outcome: result?.outcome,
       reason: result?.reason ?? "(none reported)",
+      failureStage,
       elapsedMs,
+      fillAttempts: liveCounters.fillAttempts,
+      submitAttempts: liveCounters.submitAttempts,
+      snapshotAttempts: liveCounters.snapshotAttempts,
       checks: JSON.stringify(checks),
       failedChecks: failedChecks.join(", ") || "(none)",
       flagged: result?.flagged === true,

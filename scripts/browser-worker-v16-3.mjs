@@ -145,8 +145,35 @@ async function main() {
   }
 
   async function resolveTarget(target = {}) {
-    if (target.role && target.name) return page.getByRole(target.role, { name: target.name }).first()
-    if (target.selector) return page.locator(target.selector).first()
+    // Fail-closed uniqueness gate (V16.3 post-fill fix). A CSS or role target
+    // that matches more than one element is AMBIGUOUS and must never be
+    // clicked via `.first()`: post-click verification happens AFTER the
+    // external side effect and cannot undo a wrong click. The locator cascade
+    // must have proven count==1 or supplied a safe semantic discriminator
+    // before reaching the worker; the worker re-verifies here so an ambiguous
+    // send fails BEFORE any click.
+    if (target.role && target.name) {
+      const locator = page.getByRole(target.role, { name: target.name })
+      let count = 1
+      try { count = await locator.count() } catch { count = 1 }
+      if (count > 1) {
+        const error = new Error(`browser-worker ambiguous role target: role=${target.role} matches ${count}, requires discriminator`)
+        error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
+        throw error
+      }
+      return locator.first()
+    }
+    if (target.selector) {
+      const locator = page.locator(target.selector)
+      let count = 1
+      try { count = await locator.count() } catch { count = 1 }
+      if (count > 1) {
+        const error = new Error(`browser-worker ambiguous css target: selector matches ${count}, requires discriminator`)
+        error.code = BROWSER_WORKER_FAILURE.PROVIDER_ERROR
+        throw error
+      }
+      return locator.first()
+    }
     throw new Error("browser-worker needs a role+name or selector target")
   }
 
