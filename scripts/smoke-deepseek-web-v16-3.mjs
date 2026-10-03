@@ -38,11 +38,13 @@ import { createWebReasoningLane } from "../lib/web-reasoning-lane.mjs"
 import { clearDecisionPacketCache } from "../lib/decision-packet.mjs"
 import {
   AUTH_PROBE_STATE,
+  AUTH_SETTLE_LIMIT,
   AUTH_WAIT_LIMIT,
   AUTH_WAIT_STATE,
   DEEPSEEK_PROFILE_NAME,
   authWaitProgressLabel,
   nextAuthWaitState,
+  waitForAuthenticatedPage,
 } from "../lib/browser-profile.mjs"
 import { WORKER_PROFILE_MODE, workerModePlan, workerModeViolation } from "../lib/browser-worker-mode.mjs";
 import { sanitizeDomInspection } from "../lib/browser-dom-inspect.mjs";
@@ -491,17 +493,26 @@ async function main() {
     return;
   }
 
-  // Observe the REAL page state. No consultation is performed here.
+  // Observe the REAL page state with a SHORT bounded SPA hydration settle.
+  // DeepSeek hydrates sidebar/history asynchronously (~2s): a single immediate
+  // probe races hydration and reports UNKNOWN on an authenticated profile.
+  // The settle probes immediately, returns on READY, fails fast on a login
+  // wall, and retries UNKNOWN/UI_CHANGED/TIMEOUT for ~6s max. READ-ONLY: one
+  // navigation above, no navigation retry, no click/type/submit here.
   await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
-  const observed = await observeAuth(worker);
+  const settled = await waitForAuthenticatedPage(worker);
+  const observed = settled.probe || settled;
 
-  if (observed.state !== AUTH_PROBE_STATE.READY) {
+  if (settled.state !== AUTH_PROBE_STATE.READY) {
     await worker.close().catch(() => null);
-    report(observed.state === AUTH_PROBE_STATE.UI_CHANGED ? "UI_CHANGED" : "NEEDS_AUTH", {
-      observedUrl: observed.url || "(none)",
+    report(settled.state === AUTH_PROBE_STATE.UI_CHANGED ? "UI_CHANGED" : settled.state === "CLOSED" ? "NEEDS_AUTH" : observed.state === AUTH_PROBE_STATE.UI_CHANGED ? "UI_CHANGED" : "NEEDS_AUTH", {
+      observedUrl: settled.url || observed.url || "(none)",
       mode: `${workerPlan.mode} (${capability.profileMode})`,
-      reason: observed.reason || observed.state,
+      reason: settled.reason || observed.reason || settled.state,
       profile: capability.profileDir || "(ephemeral)",
+      authProbes: settled.authProbes ?? settled.attempts ?? 1,
+      authSettleMs: settled.authSettleMs ?? settled.elapsedMs ?? 0,
+      authBound: `${AUTH_SETTLE_LIMIT.maxAttempts} probes / ${AUTH_SETTLE_LIMIT.overallTimeoutMs}ms`,
       next: "npm run smoke:deepseek-web -- --auth",
     });
     process.exitCode = 2;
@@ -511,9 +522,11 @@ async function main() {
   if (!args.live) {
     await worker.close().catch(() => null);
     report("READY", {
-      observedUrl: observed.url,
+      observedUrl: settled.url || observed.url,
       mode: `${workerPlan.mode} (${capability.profileMode}) - no consultation performed`,
       profile: capability.profileDir || "(ephemeral)",
+      authProbes: settled.authProbes ?? 1,
+      authSettleMs: settled.authSettleMs ?? 0,
       next: "npm run smoke:deepseek-web -- --live --yes-i-have-authorized-a-live-consultation",
     });
     process.exitCode = 0;
@@ -573,6 +586,8 @@ async function main() {
       reason: result.reason,
       elapsedMs,
       observedUrl: observed.url,
+      authProbes: settled.authProbes ?? 1,
+      authSettleMs: settled.authSettleMs ?? 0,
       next: "npm run smoke:deepseek-web -- --auth",
     });
     process.exitCode = 2;
@@ -605,6 +620,8 @@ async function main() {
   report("PASS", {
     outcome: result.outcome,
     elapsedMs,
+    authProbes: settled.authProbes ?? 1,
+    authSettleMs: settled.authSettleMs ?? 0,
     checks: "session,prompt,response,parser,cleanup",
     packetChars: result.packet?.chars,
     sessionReusable: result.sessionReusable,
