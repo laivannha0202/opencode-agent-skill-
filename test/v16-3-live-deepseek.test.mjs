@@ -151,9 +151,35 @@ test("V16.3 live a logged-in page classifies READY from real evidence", () => {
   assert.equal(loggedIn.state, AUTH_PROBE_STATE.READY);
   assert.equal(loggedIn.reason, "composer-and-answer-region-present");
 
-  const fresh = classifyAuthState({ url: "https://chat.deepseek.com/", text: "", composerVisible: true, answerRegions: 0 });
-  assert.equal(fresh.state, AUTH_PROBE_STATE.READY);
-  assert.equal(fresh.reason, "composer-present");
+  const withAccount = classifyAuthState({ url: "https://chat.deepseek.com/", composerVisible: true, answerRegions: 0, accountSignal: true });
+  assert.equal(withAccount.state, AUTH_PROBE_STATE.READY);
+  assert.equal(withAccount.reason, "composer-and-account-signal-present");
+});
+
+test("V16.3 live a composer with no session signal is NOT logged in (observed live regression)", () => {
+  // Observed against the real logged-out landing page: it renders a full prompt
+  // box ("Whenever you're ready") and zero assistant answer regions. The previous
+  // rule read that as READY on probe 1, which would have submitted a prompt into
+  // a logged-out shell. A composer is necessary but not sufficient.
+  const loggedOutShell = classifyAuthState({
+    url: "https://chat.deepseek.com/",
+    text: "New chat Whenever you're ready DeepThink Search",
+    composerVisible: true,
+    answerRegions: 0,
+    accountSignal: false,
+  });
+  assert.equal(loggedOutShell.state, AUTH_PROBE_STATE.UNKNOWN);
+  assert.equal(loggedOutShell.reason, "composer-visible-but-no-session-signal");
+
+  // Either positive signal is sufficient on its own.
+  assert.equal(
+    classifyAuthState({ url: "https://chat.deepseek.com/", composerVisible: true, answerRegions: 2, accountSignal: false }).state,
+    AUTH_PROBE_STATE.READY,
+  );
+  assert.equal(
+    classifyAuthState({ url: "https://chat.deepseek.com/", composerVisible: true, answerRegions: 0, accountSignal: true }).state,
+    AUTH_PROBE_STATE.READY,
+  );
 });
 
 test("V16.3 live a login wall classifies NEEDS_AUTH from the URL and from page text", () => {

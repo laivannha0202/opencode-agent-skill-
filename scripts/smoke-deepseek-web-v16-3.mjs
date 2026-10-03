@@ -36,7 +36,14 @@ import { createDeepSeekWebAdapter } from "../lib/deepseek-web-adapter.mjs"
 import { createWebReasoningRegistry } from "../lib/web-reasoning-provider.mjs"
 import { createWebReasoningLane } from "../lib/web-reasoning-lane.mjs"
 import { clearDecisionPacketCache } from "../lib/decision-packet.mjs"
-import { AUTH_PROBE_STATE, DEEPSEEK_PROFILE_NAME, profileForMode } from "../lib/browser-profile.mjs"
+import {
+  AUTH_PROBE_STATE,
+  AUTH_WAIT_LIMIT,
+  AUTH_WAIT_STATE,
+  DEEPSEEK_PROFILE_NAME,
+  authWaitProgressLabel,
+  nextAuthWaitState,
+} from "../lib/browser-profile.mjs"
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const workerScript = path.join(root, "scripts", "browser-worker-v16-3.mjs")
@@ -155,33 +162,90 @@ async function observeAuth(worker, timeoutMs = AUTH_POLL.probeTimeoutMs) {
 }
 
 /**
- * Bounded login wait for --auth. Capped by attempts AND by wall clock, so an
- * abandoned headed window cannot hang the process forever.
+ * Bounded manual-login wait.
+ *
+ * The rule that matters: during MANUAL AUTH the page legitimately has no prompt
+ * composer until a human has finished logging in. "Composer absent" is therefore
+ * PENDING_AUTH, not a terminal UI_CHANGED -- treating it as terminal killed the
+ * wait on probe 1, before the user could type anything.
+ *
+ * UI_CHANGED only becomes terminal AFTER a READY has been seen, which is the one
+ * case with positive evidence of breakage: the page loaded, you were logged in,
+ * and the expected UI stopped resolving.
+ *
+ * Exits are bounded by BOTH probe count and wall clock, and the poll always
+ * sleeps between probes.
  */
-async function waitForManualLogin(worker, overallTimeoutMs) {
-  const deadline = Date.now() + overallTimeoutMs;
+async function waitForManualLogin(worker, overallTimeoutMs, options = {}) {
+  const startedAt = Date.now();
+  const maxAttempts = Number(options.maxAttempts) || AUTH_POLL.maxAttempts;
+  const intervalMs = Number(options.intervalMs) || AUTH_POLL.intervalMs;
+  const onLog = typeof options.onLog === "function" ? options.onLog : () => null;
+  const sleepImpl = typeof options.sleep === "function" ? options.sleep : sleep;
+
+  /** @type {any} */
+  let closeEvent = null;
+  const offClose = typeof worker?.onClose === "function"
+    ? worker.onClose((event) => { closeEvent = event })
+    : () => null;
+
   let attempt = 0;
+  let seenReady = false;
   let last = null;
-  while (Date.now() < deadline && attempt < AUTH_POLL.maxAttempts) {
-    attempt += 1;
-    last = await observeAuth(worker);
-    if (last.state === AUTH_PROBE_STATE.READY) {
-      return { ok: true, attempts: attempt, state: last.state, url: last.url || null };
+
+  try {
+    while (true) {
+      attempt += 1;
+      const elapsedMs = Date.now() - startedAt;
+      const transportAlive = !closeEvent && worker?.isAlive?.() !== false;
+
+      const observation = transportAlive ? await observeAuth(worker) : null;
+
+      // UNKNOWN is a REAL observation meaning "the page is up but I cannot see a
+      // session". During manual login that is the normal state, so it must stay
+      // PENDING. Only a genuinely dead lane -- no observation at all, or a
+      // process that has exited -- is BROWSER_CLOSED. Conflating the two made the
+      // wait report "browser closed" on probe 1 while the window was open.
+      const observedState = observation?.state ? String(observation.state).toUpperCase() : null;
+      const laneDead = !transportAlive || closeEvent !== null || worker?.isAlive?.() === false;
+
+      const step = nextAuthWaitState({
+        observation: laneDead ? null : observedState,
+        transportAlive: !laneDead,
+        navigationOk: true,
+        seenReady,
+        attempt,
+        elapsedMs,
+        maxAttempts,
+        overallTimeoutMs,
+        closeReason: closeEvent?.reason,
+      });
+
+      onLog(authWaitProgressLabel(step.state, attempt, maxAttempts));
+      last = observation || null;
+
+      if (step.state === AUTH_WAIT_STATE.READY) {
+        seenReady = true;
+        return { terminal: true, state: step.state, reason: step.reason, attempts: attempt, elapsedMs, url: observation.url || null };
+      }
+      if (step.terminal) {
+        return {
+          terminal: true,
+          state: step.state,
+          reason: step.reason,
+          attempts: attempt,
+          elapsedMs,
+          url: observation.url || null,
+          closeReason: closeEvent?.reason || null,
+        };
+      }
+
+      // Always sleep: the wait must never spin on a page that is still loading.
+      await sleepImpl(Math.max(AUTH_WAIT_LIMIT.minIntervalMs, Math.min(AUTH_WAIT_LIMIT.maxIntervalMs, intervalMs)));
     }
-    if (last.state === AUTH_PROBE_STATE.UI_CHANGED) {
-      // A recognisable page that is not a login wall and not the composer is a UI
-      // change, not a login. Stop rather than waiting for a state that will not come.
-      return { ok: false, attempts: attempt, state: last.state, reason: last.reason, url: last.url || null };
-    }
-    await sleep(AUTH_POLL.intervalMs);
+  } finally {
+    offClose();
   }
-  return {
-    ok: false,
-    attempts: attempt,
-    state: last?.state || AUTH_PROBE_STATE.TIMEOUT,
-    reason: `bounded-login-wait-exhausted-after-${attempt}-probes`,
-    url: last?.url || null,
-  };
 }
 
 async function main() {
@@ -218,34 +282,70 @@ async function main() {
 
     const opened = await worker.invoke("navigate", { url: ENTRY_URL, waitUntil: "domcontentloaded" });
     if (!opened.ok) {
+      // A real entry-navigation failure is a hard failure, distinct from "you did
+      // not log in": the operator must fix the environment, not retry the login.
       await worker.close().catch(() => null);
-      report("FAIL", { stage: "open-entry-page", reason: opened.error });
+      report("HARD_NAVIGATION_FAILURE", {
+        stage: "open-entry-page",
+        reason: opened.error || "entry navigation did not complete",
+      });
       process.exitCode = 3;
       return;
     }
 
-    const result = await waitForManualLogin(worker, args.authTimeoutMs);
+    const result = await waitForManualLogin(worker, args.authTimeoutMs, {
+      onLog: (line) => console.log(`  ${line}`),
+    });
+    // Close the persistent context cleanly. The profile on disk survives, so the
+    // NEXT `--live` invocation reuses the session this run established.
     await worker.close().catch(() => null);
 
-    if (!result.ok) {
-      report(result.state === AUTH_PROBE_STATE.UI_CHANGED ? "UI_CHANGED" : "NEEDS_AUTH", {
-        probes: result.attempts,
+    if (result.state === AUTH_WAIT_STATE.READY) {
+      report("AUTH_READY", {
+        probes: `${result.attempts}/${AUTH_POLL.maxAttempts}`,
+        elapsed: `${result.elapsedMs}ms`,
         bound: `${AUTH_POLL.maxAttempts} probes / ${AUTH_POLL.overallTimeoutMs}ms`,
-        reason: result.reason || result.state,
-        next: "Log in manually, then re-run: npm run smoke:deepseek-web -- --auth",
+        reason: result.reason,
+        profile: capability.profileDir,
+        note: "session stored in the persistent profile; no credential was read or exported",
+        next: "npm run smoke:deepseek-web -- --live --yes-i-have-authorized-a-live-consultation",
+      });
+      process.exitCode = 0;
+      return;
+    }
+
+    if (result.state === AUTH_WAIT_STATE.BROWSER_CLOSED) {
+      report("BROWSER_CLOSED", {
+        probes: `${result.attempts}/${AUTH_POLL.maxAttempts}`,
+        elapsed: `${result.elapsedMs}ms`,
+        reason: result.closeReason || result.reason,
+        next: "re-run: npm run smoke:deepseek-web -- --auth and leave the window open while you log in",
       });
       process.exitCode = 2;
       return;
     }
-    report("PASS", {
-      stage: "manual-auth",
-      probes: result.attempts,
+
+    if (result.state === AUTH_WAIT_STATE.UI_CHANGED) {
+      // Terminal only after a READY: the session was authenticated and the
+      // expected UI then stopped resolving. That is drift, not "not logged in".
+      report("UI_CHANGED", {
+        probes: `${result.attempts}/${AUTH_POLL.maxAttempts}`,
+        elapsed: `${result.elapsedMs}ms`,
+        reason: result.reason,
+        next: "the authenticated page loaded but the expected chat UI could not be resolved; the provider selectors may need updating",
+      });
+      process.exitCode = 2;
+      return;
+    }
+
+    report("NEEDS_AUTH", {
+      probes: `${result.attempts}/${AUTH_POLL.maxAttempts}`,
+      elapsed: `${result.elapsedMs}ms`,
       bound: `${AUTH_POLL.maxAttempts} probes / ${AUTH_POLL.overallTimeoutMs}ms`,
-      profile: capability.profileDir,
-      note: "session stored in the persistent profile; no credential was read or exported",
-      next: "npm run smoke:deepseek-web -- --live --yes-i-have-authorized-a-live-consultation",
+      reason: result.reason || "bounded-login-wait-exhausted",
+      next: "log in within the headed window, then re-run: npm run smoke:deepseek-web -- --auth",
     });
-    process.exitCode = 0;
+    process.exitCode = 2;
     return;
   }
 
