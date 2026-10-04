@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.3.0",
+  "version": "16.3.1",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
@@ -88,7 +88,8 @@
     "eval:v16.3": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/browser-reliability-v16-3.test.mjs test/deepseek-web-bridge-v16-3.test.mjs test/v16-3-controller-integration.test.mjs test/v16-3-live-deepseek.test.mjs test/v16-3-manual-auth-wait.test.mjs test/v16-3-live-regressions.test.mjs test/v16-3-auth-ui-detection.test.mjs test/v16-3-deepseek-history-detector.test.mjs test/browser-mcp-routing-v14.test.mjs test/browser-runtime-v11.test.mjs test/untrusted-output.test.mjs",
     "eval:v16.3.workers": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-3-controller-integration.test.mjs test/v16-3-live-deepseek.test.mjs test/v16-3-manual-auth-wait.test.mjs test/v16-3-live-regressions.test.mjs test/v16-3-auth-ui-detection.test.mjs test/v16-3-deepseek-history-detector.test.mjs test/pi-rpc-control.test.mjs test/v14.3-intelligence.test.mjs",
     "smoke:deepseek-web": "node scripts/smoke-deepseek-web-v16-3.mjs",
-    "bench:web-reasoning": "node scripts/bench-web-reasoning-ab.mjs"
+    "bench:web-reasoning": "node scripts/bench-web-reasoning-ab.mjs",
+    "validate:v16.3:accuracy": "node scripts/validate-v16-3-deepseek-accuracy.mjs"
   },
   "keywords": [
     "pi-package",

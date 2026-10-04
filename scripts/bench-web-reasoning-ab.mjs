@@ -569,6 +569,10 @@ async function runWebArm(tasks, repeat, deps) {
           task: task.prompt,
           knownFiles: task.requiredFiles || [],
           budget: { maxPacketChars: deps.maxPacketChars },
+          keepSession: true,
+          // Keep the session open: the verifier-failure branch below reuses
+          // result._session for a delta follow-up. Default close-on-return
+          // would hand it a CLOSED session (deepseek-session-lost).
         },
         // Shared telemetry: consultation counts land in the arm accumulator.
         { registry, telemetry: webTelemetry, now: deps.now, sleep: deps.sleep },
