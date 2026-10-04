@@ -2,46 +2,71 @@
 
 ## [Unreleased]
 
-### Added (V16.5 — agent skill & delegation intelligence)
+## [16.6.0] - 2026-10-05
 
-- Micro-skill registry, evidence-driven skill router, bounded skill capsules, phase-scoped tool surface.
-- Subagent Fabric V2: delegate-vs-parent-direct decision, fresh-context child briefs, bounded session lifecycle.
-- Verified Handoff Capsules: raw child output to the Evidence Store, bounded capsule to the parent.
-- Five DeepSeek advisor question types with consultant-only authority.
-- Advisor benefit learner (bounded AUTO consult weight only), reasoning doctor, progress observer.
-- `lib/delegation-fleet.mjs` — bounded concurrent wave executor wired into the production
-  controller's structured-plan wave loop (`executeStructuredPlan` in `pi/extensions/ues.ts`).
+### Added
 
-### Changed (V16.5)
+- **Unified orchestration budget** (`lib/orchestration-budget-v16-6.mjs`): ONE evidence-driven
+  decision per run for execution profile, context, skill capsule, advertised tool surface, tool
+  description profile, DeepSeek turns, delegation and verification shape. Evidence priority is
+  runtime > repository structure > verifier > task text, and task text alone can never reach DEEP.
+- **Canonical DeepSeek turn budget** (`lib/deepseek-turn-policy-v16-6.mjs`) replacing
+  `maxConsultations = 1`: 0 / 2 / 4 / 6 by complexity, clamped by the existing lane safety bounds
+  (consultations <= 3, follow-ups <= 2, effective max 5 turns).
+- **`UES_REASONING_MODE`** = `economy` | `balanced` | `deepseek-first`. It controls the degree of
+  DeepSeek participation only: it never enables the browser lane and never bypasses escalation.
+  An invalid value falls back to `balanced` with `normalized: false`.
+- **Session intelligence**: `lib/deepseek-session-budget.mjs`, `lib/deepseek-session-pool.mjs`,
+  `lib/deepseek-consult-cache.mjs`, `lib/deepseek-resume-capsule.mjs` - one conversation session
+  per run with rotation, a bounded in-memory consult cache, and a bounded, deterministic,
+  secret-scanned resume capsule. No second persistent store was introduced.
+- **Context-window awareness**: detected -> override -> conservative fallback, clamped and
+  labeled `ESTIMATED`; `UES_DEEPSEEK_CONTEXT_TOKENS=auto` is the default and no 64K constant is
+  hard-coded.
+- **Bounded evidence-request loop** (`lib/deepseek-evidence-requests.mjs`): 8 allowlisted kinds,
+  <= 4 per exchange, <= 8 per run, workspace-contained, with `.env` / key material / `.git/` /
+  `node_modules/` / traversal denied and a redact -> bound -> re-scan pass before anything can
+  leave the machine. DeepSeek still runs no tools.
+- **Advisor roles V2** (`lib/deepseek-advisor-roles-v2.mjs`): the 5 V16.5 roles plus
+  IMPLEMENTATION_PLAN, CODE_REVIEW, UI_UX_REVIEW and RESEARCH - 9 frozen, one primary thread and
+  at most one secondary.
+- **Tool description profiles** (`lib/tool-description-profiles-v16-6.mjs`): `full` / `compact` /
+  `minimal`. A compression that would drop a protective, permission, containment, failure or
+  re-read line is rejected and the original text is restored.
+- **Stable-prefix drift guard** (`lib/prefix-drift-guard-v16-6.mjs`): report-only CACHE /
+  BALANCED / TOKEN budgets; an env budget may only tighten.
+- **Bounded tool-output economy** (`lib/tool-output-economy-v16-6.mjs`), off by default, with
+  `assertNoLossyTransform()` as the executable proof that preserved evidence survives.
+- **Parallel read-only reasoning overlap** (`lib/parallel-reasoning-v16-6.mjs`): fail-closed,
+  exactly one DeepSeek writer, any write during overlap refuses the overlap.
+- **Progress Observer V2** (`lib/progress-observer-v2.mjs`) with the header
+  `UES 16.6 · DEEPSEEK-FIRST · BALANCED`, compact by default.
+- **Measurement provenance** (`lib/measurement-provenance.mjs`): MEASURED / DERIVED / ESTIMATED /
+  NOT_MEASURED, with an additive `v16_6` block in the task telemetry.
+- `lib/v16-6-runtime.mjs`: the single production surface, hydrating the heavy session and economy
+  modules only when a run actually consults DeepSeek or compacts output.
+- `scripts/eval-v16-6.mjs`: a deterministic 20-scenario A/B against V16.5 behavior.
 
-- Independent children in a proven-safe wave now execute **concurrently** instead of serially.
-  Wave order still comes from the task graph (`computeSafeWaves`); wave safety still comes from
-  `lib/delegation-safety.mjs`; the child runtime is still the existing Pi child spawn plus
-  `lib/process-supervisor.mjs`. The fleet spawns no process and is not a scheduler.
-- Concurrency for a delegation wave is bounded to `UES_MAX_ACTIVE_CHILDREN` (default 2, hard
-  max 3) instead of the raw `MAX_CONCURRENCY` request.
-- Delegation telemetry (`safeWaveCount`, `parallelDelegations`, `serializedDelegations`,
-  `maxObservedChildConcurrency`, `childQueueMs`, `childExecutionMs`, `parallelWallMs`,
-  `sequentialEquivalentMs`, `overlapSavingsMs`) is reported on every scheduler return path.
+### Changed
 
-### Safety invariants
+- The task policy is now derived from the unified budget. Spending less is always allowed;
+  spending more requires an evidence floor (high/critical risk, long horizon, hard evidence
+  score), and an existing DEEP floor is always kept.
+- The web lane receives budget-derived ceilings for consultations and follow-ups; the V16.5
+  bounds (consultations <= 3, follow-ups <= 2) are unchanged.
 
-- Parallelism is fail-closed. Overlapping writers, destructive shell, external side effects, and
-  shared mutable services stay serial; writer conflicts are isolated through the existing
-  per-task Git worktree.
-- A child that throws, is aborted, is reaped by the watchdog, or returns a non-zero exit code is
-  a failure. `runDelegationWave()` always returns `passed: false` and `canProduceVerdict: false`.
-- One child failing never cancels an unrelated read-only sibling; the parent decides recovery.
-- Results are emitted in deterministic task-id order regardless of completion order.
-- Cancellation and the inactivity watchdog abort the child's own signal, so the real process
-  tree is terminated and no orphan process survives.
+### Unchanged (deliberately)
 
-### Measurement honesty
+- Correctness gates, verifier strictness, permission lattice, workspace containment, Evidence
+  Store integrity, process cleanup, browser safety, Windows support and LSP fail-closed behaviour.
+- `lib/web-reasoning-escalation.mjs` remains the only component that may decide to ask DeepSeek.
+- The V16.5 progress observer is kept intact next to Observer V2.
 
-- `overlapSavingsMs` is a measured dispatch overlap of child execution windows inside this
-  process. It is not called a speedup anywhere, and `speedupClaim` is always `null`.
-- Provider tokens, real-model wall clock, and model quality remain `NOT_MEASURED`; they require
-  a live `ues trial` run.
+### Measured (deterministic corpus, no live model)
+
+- skill capsule chars 40,000 -> 34,200; advertised tools 158 -> 166; context chars
+  248,000 -> 276,000; DeepSeek turn budget 20 -> 37; advisor packet chars 12,476 -> 12,476.
+- Provider tokens, wall-clock latency, cost and model quality stay `NOT_MEASURED`.
 
 ## [16.5.0] - 2026-10-04
 
@@ -58,6 +83,38 @@
 - Advisor Benefit Learner V2 with bounded provider/model-scoped AUTO-routing influence.
 - Read-only reasoning diagnostics and agent progress observability.
 - Professional README rewrite focused on current installation, architecture, safety and usage.
+- Micro-skill registry, evidence-driven skill router, bounded skill capsules, phase-scoped tool surface.
+- Subagent Fabric V2: delegate-vs-parent-direct decision, fresh-context child briefs, bounded session lifecycle.
+- Verified Handoff Capsules: raw child output to the Evidence Store, bounded capsule to the parent.
+- Five DeepSeek advisor question types with consultant-only authority.
+- Advisor benefit learner (bounded AUTO consult weight only), reasoning doctor, progress observer.
+- `lib/delegation-fleet.mjs` — bounded concurrent wave executor wired into the production
+  controller's structured-plan wave loop (`executeStructuredPlan` in `pi/extensions/ues.ts`).
+### Changed (V16.5)
+- Independent children in a proven-safe wave now execute **concurrently** instead of serially.
+  Wave order still comes from the task graph (`computeSafeWaves`); wave safety still comes from
+  `lib/delegation-safety.mjs`; the child runtime is still the existing Pi child spawn plus
+  `lib/process-supervisor.mjs`. The fleet spawns no process and is not a scheduler.
+- Concurrency for a delegation wave is bounded to `UES_MAX_ACTIVE_CHILDREN` (default 2, hard
+  max 3) instead of the raw `MAX_CONCURRENCY` request.
+- Delegation telemetry (`safeWaveCount`, `parallelDelegations`, `serializedDelegations`,
+  `maxObservedChildConcurrency`, `childQueueMs`, `childExecutionMs`, `parallelWallMs`,
+  `sequentialEquivalentMs`, `overlapSavingsMs`) is reported on every scheduler return path.
+### Safety invariants
+- Parallelism is fail-closed. Overlapping writers, destructive shell, external side effects, and
+  shared mutable services stay serial; writer conflicts are isolated through the existing
+  per-task Git worktree.
+- A child that throws, is aborted, is reaped by the watchdog, or returns a non-zero exit code is
+  a failure. `runDelegationWave()` always returns `passed: false` and `canProduceVerdict: false`.
+- One child failing never cancels an unrelated read-only sibling; the parent decides recovery.
+- Results are emitted in deterministic task-id order regardless of completion order.
+- Cancellation and the inactivity watchdog abort the child's own signal, so the real process
+  tree is terminated and no orphan process survives.
+### Measurement honesty
+- `overlapSavingsMs` is a measured dispatch overlap of child execution windows inside this
+  process. It is not called a speedup anywhere, and `speedupClaim` is always `null`.
+- Provider tokens, real-model wall clock, and model quality remain `NOT_MEASURED`; they require
+  a live `ues trial` run.
 
 ### Changed
 

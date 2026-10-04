@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![CI](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml)
 
-`opencode-agent-skill` · version **16.5.0** · host **Pi Agent** · runtime **Node.js >= 22.19**
+`opencode-agent-skill` · version **16.6.0** · host **Pi Agent** · runtime **Node.js >= 22.19**
 
-<!-- ues-version: 16.5.0 -->
+<!-- ues-version: 16.6.0 -->
 
 ---
 
@@ -268,6 +268,7 @@ Bounded parallel delegation reports `safeWaveCount`, `parallelDelegations`,
 
 ```bash
 npm run eval:v16.5            # deterministic V16.5 evaluation
+npm run eval:v16.6            # deterministic V16.6 unified-budget evaluation
 npm run eval:v16.5:measure    # full measurement report
 npm run eval:v16.5:routing    # skill routing matrix
 ues trial                     # paired baseline-vs-UES real-model run
@@ -316,6 +317,7 @@ docs/    design, compatibility, evaluation, and release documentation
 | Browser + web reasoning | [V16.3](./docs/V16.3-BROWSER-WEB-REASONING.md) |
 | Measured adaptive runtime | [V16.4](./docs/V16.4-MEASURED-ADAPTIVE-RUNTIME.md) |
 | Agent skill + delegation intelligence | [V16.5](./docs/V16.5-AGENT-SKILL-DELEGATION.md) |
+| Unified adaptive orchestration | [V16.6](./docs/V16.6-UNIFIED-ADAPTIVE-ORCHESTRATION.md) |
 | Evaluations | [EVALS](./docs/EVALS.md) |
 | Deterministic tools | [DETERMINISTIC-TOOLS](./docs/DETERMINISTIC-TOOLS.md) |
 | Trace schema | [TRACE-SCHEMA](./docs/TRACE-SCHEMA.md) |
@@ -327,7 +329,7 @@ docs/    design, compatibility, evaluation, and release documentation
 ```bash
 npm ci
 npm test                     # bounded per-file suite
-npm run eval:v16.5           # V16.5 deterministic evaluation
+npm run eval:v16.6           # V16.6 deterministic evaluation
 npm run release:verify       # full release gate chain
 ```
 

@@ -49,7 +49,45 @@ import {
 import { createHandoffCapsule, renderHandoffCapsule } from "../../lib/verified-handoff.mjs";
 import { buildAdvisorPacket, selectAdvisorRole } from "../../lib/deepseek-advisor-roles.mjs";
 import { advisorWeightV2, recordAdvisorOutcomeV2 } from "../../lib/advisor-benefit-learner-v2.mjs";
+import { orderAdvisorRolesV3, recordAdvisorOutcomeV3 } from "../../lib/advisor-benefit-learner-v3.mjs";
 import { createProgressObserver, renderProgress, upsertLane } from "../../lib/agent-progress-observer.mjs";
+// V16.6 Unified Adaptive Orchestration (release: unified adaptive
+// orchestration + DeepSeek reasoning partner). ONE production surface: the
+// budget is computed once per run, read through `taskPolicy.v16_6`, and the
+// heavy session/cache/economy modules hydrate lazily only when a run actually
+// consults DeepSeek or compacts tool output.
+import {
+  applyOrchestrationBudgetToTaskPolicy,
+  budgetChildEnv,
+  computeOrchestrationBudget,
+  createRunObserver,
+  escalateRunBudget,
+  loadSessionRuntime,
+  v16_6Telemetry,
+} from "../../lib/v16-6-runtime.mjs";
+import { recordToolDescriptionOutcome } from "../../lib/tool-description-profiles-v16-6.mjs";
+// V16.6 Advisor Roles V2 (adds IMPLEMENTATION_PLAN, CODE_REVIEW, UI_UX_REVIEW
+// and RESEARCH to the five V16.5 roles) plus the bounded in-memory consult
+// cache. Both are pure and local: no module here can reach the filesystem, git,
+// the terminal or the permission layer on their own.
+import {
+  buildAdvisorPacketV2,
+  selectAdvisorRolesV2,
+} from "../../lib/deepseek-advisor-roles-v2.mjs";
+import { consultOnce } from "../../lib/deepseek-consult-cache.mjs";
+import {
+  createParallelReasoningState,
+  parallelReasoningTelemetry,
+  planParallelReasoning,
+} from "../../lib/parallel-reasoning-v16-6.mjs";
+// V16.6 Progress Observer V2 (compact | detailed | off). It reports phases,
+// lanes and bounded redacted notes -- never a chain of thought.
+import {
+  progressTelemetryV2,
+  recordProgressV2,
+  renderProgressV2,
+  summarizeProgressV2,
+} from "../../lib/progress-observer-v2.mjs";
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
@@ -503,6 +541,21 @@ function boundedWorkspaceDiff(cwd: string, maxChars = 6_000) {
   }
 }
 
+/**
+ * The current HEAD id for cache identity. Read from the same snapshot the diff
+ * comes from when possible; otherwise this is a documented cache-KEY input, so
+ * a failure degrades to the literal "unknown" and can only cause an extra
+ * provider turn, never a wrong answer.
+ */
+function boundedWorkspaceHead(cwd: string): string {
+  try {
+    const fingerprint = runtimeWorkspaceSnapshot(cwd).fingerprint;
+    return String(fingerprint || "unknown").slice(0, 80);
+  } catch {
+    return "unknown";
+  }
+}
+
 function activeBrowserLane(cwd: string, runId: string) {
   return ACTIVE_BROWSER_LANES.get(browserLaneKey(cwd, runId)) || null;
 }
@@ -645,7 +698,7 @@ async function buildWebReasoningAdapter(cwd: string, runId: string) {
   });
 }
 
-async function createRunWebLane(cwd: string, runId: string) {
+async function createRunWebLane(cwd: string, runId: string, budget?: any) {
   const mode = webReasoningMode();
   const adapters: any[] = [];
   if (mode !== "off") {
@@ -662,11 +715,23 @@ async function createRunWebLane(cwd: string, runId: string) {
     return null;
   }
   ACTIVE_WEB_LANE_OUTCOME = laneModule.WEB_LANE_OUTCOME || null;
+  // V16.6 turn budget replaces the fixed `maxConsultations = 1`. The lane keeps
+  // its own hard safety bounds (consultations 0..3, follow-ups 0..2) and only
+  // ever receives a ceiling the unified budget granted. UES_REASONING_MODE
+  // changes the DEGREE of participation (turns), never whether escalation may
+  // ask DeepSeek at all.
+  const turnBudget = budget?.deepSeekTurnBudget || null;
   const lane = laneModule.createWebReasoningLane({
     mode,
     live: webReasoningLiveEnabled(),
     provider: String(process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web").trim(),
     maxPacketChars: configuredCount("UES_WEB_PACKET_MAX_CHARS", 48_000, 2_000, 400_000),
+    ...(turnBudget
+      ? {
+        maxConsultations: Math.max(0, Math.min(3, Number(turnBudget.maxConsultations) || 0)),
+        maxFollowUps: Math.max(0, Math.min(2, Number(turnBudget.maxFollowUps) || 0)),
+      }
+      : {}),
     adapters,
   });
   ACTIVE_WEB_LANES.set(browserLaneKey(cwd, `web:${runId}`), lane);
@@ -1241,6 +1306,12 @@ async function runAgentCli(
     cachePolicy?: any;
     toolUtility?: any;
     skills?: string[];
+    // V16.6 unified budget hand-off. The cap only narrows the ADVERTISED tool
+    // surface; deferred tools stay reachable through the ues_tool_search
+    // hydration dispatcher and every safety capability stays runtime-enforced.
+    maxAdvertisedToolsCap?: number;
+    toolDescriptionProfile?: string;
+    v16_6Budget?: any;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1294,7 +1365,22 @@ async function runAgentCli(
     compactToolOutput: runtimeOptions.compactToolOutput === true,
     extraTools: [...extraTools, ...phasePriority],
   });
-  const toolSurfaceEconomy = compileToolSurface(candidateTools, modelProfile, coreTools, {
+  // V16.6: the unified budget may NARROW the advertised surface only. The
+  // profile value below is a cap applied to whatever the model runtime profile
+  // already allows, so it can never widen the surface past the V16.2 economy
+  // authority, and every deferred tool stays reachable through
+  // `ues_tool_search` hydration.
+  const advertisedToolCap = Number(runtimeOptions.maxAdvertisedToolsCap || 0);
+  const budgetedModelProfile = advertisedToolCap > 0
+    ? {
+      ...modelProfile,
+      maxAdvertisedTools: Math.max(
+        1,
+        Math.min(Number(modelProfile?.maxAdvertisedTools || advertisedToolCap), advertisedToolCap),
+      ),
+    }
+    : modelProfile;
+  const toolSurfaceEconomy = compileToolSurface(candidateTools, budgetedModelProfile, coreTools, {
     task,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
@@ -1380,6 +1466,12 @@ async function runAgentCli(
           UES_CHILD_ROLE: roleForAgent(agent),
           UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
           UES_CHILD_HYDRATION_MAX: "4",
+          // V16.6 unified budget hand-off to the child. The child only ever
+          // NARROWS tool descriptions under the granted profile and can never
+          // gain a tool, a permission or a capability from these variables.
+          ...budgetChildEnv(runtimeOptions.v16_6Budget || {}, {
+            UES_TOOL_DESCRIPTION_PROFILE: String(runtimeOptions.toolDescriptionProfile || ""),
+          }),
         },
         shell: false,
         detached: process.platform !== "win32",
@@ -1737,6 +1829,12 @@ async function runAgentRpc(
     cachePolicy?: any;
     toolUtility?: any;
     skills?: string[];
+    // V16.6 unified budget hand-off. The cap only narrows the ADVERTISED tool
+    // surface; deferred tools stay reachable through the ues_tool_search
+    // hydration dispatcher and every safety capability stays runtime-enforced.
+    maxAdvertisedToolsCap?: number;
+    toolDescriptionProfile?: string;
+    v16_6Budget?: any;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -1787,7 +1885,22 @@ async function runAgentRpc(
     compactToolOutput: runtimeOptions.compactToolOutput === true,
     extraTools: [...extraTools, ...phasePriority],
   });
-  const toolSurfaceEconomy = compileToolSurface(candidateTools, modelProfile, coreTools, {
+  // V16.6: the unified budget may NARROW the advertised surface only. The
+  // profile value below is a cap applied to whatever the model runtime profile
+  // already allows, so it can never widen the surface past the V16.2 economy
+  // authority, and every deferred tool stays reachable through
+  // `ues_tool_search` hydration.
+  const advertisedToolCap = Number(runtimeOptions.maxAdvertisedToolsCap || 0);
+  const budgetedModelProfile = advertisedToolCap > 0
+    ? {
+      ...modelProfile,
+      maxAdvertisedTools: Math.max(
+        1,
+        Math.min(Number(modelProfile?.maxAdvertisedTools || advertisedToolCap), advertisedToolCap),
+      ),
+    }
+    : modelProfile;
+  const toolSurfaceEconomy = compileToolSurface(candidateTools, budgetedModelProfile, coreTools, {
     task,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
@@ -1909,6 +2022,12 @@ async function runAgentRpc(
           UES_CHILD_ROLE: roleForAgent(agent),
           UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
           UES_CHILD_HYDRATION_MAX: "4",
+          // V16.6 unified budget hand-off to the child. The child only ever
+          // NARROWS tool descriptions under the granted profile and can never
+          // gain a tool, a permission or a capability from these variables.
+          ...budgetChildEnv(runtimeOptions.v16_6Budget || {}, {
+            UES_TOOL_DESCRIPTION_PROFILE: String(runtimeOptions.toolDescriptionProfile || ""),
+          }),
         },
       },
       taskInput,
@@ -2134,6 +2253,12 @@ async function runAgent(
     cachePolicy?: any;
     toolUtility?: any;
     skills?: string[];
+    // V16.6 unified budget hand-off. The cap only narrows the ADVERTISED tool
+    // surface; deferred tools stay reachable through the ues_tool_search
+    // hydration dispatcher and every safety capability stays runtime-enforced.
+    maxAdvertisedToolsCap?: number;
+    toolDescriptionProfile?: string;
+    v16_6Budget?: any;
   } = {},
 ): Promise<RunResult> {
   const runOnce = async (): Promise<RunResult> => {
@@ -2502,7 +2627,33 @@ async function runRoutedAgent(
   const browserTools = browserRequested
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
     : [];
-  const taskPolicy = taskPolicyOverride || classifyEngineeringTask(task);
+  let taskPolicy = taskPolicyOverride || classifyEngineeringTask(task);
+  // V16.6 unified orchestration budget: ONE evidence-driven decision per run
+  // covering execution profile, context, skill capsule, tool surface,
+  // DeepSeek turns, delegation and verification shape. Evidence priority is
+  // runtime > repository structure > verifier > task text; task text alone can
+  // never reach DEEP. The budget may only escalate `verificationStrategy` and it
+  // never weakens a permission, safety, containment or verifier setting.
+  // When the controller already computed a run budget, richer per-turn evidence
+  // may only ESCALATE it -- a retry never gets a smaller budget than the run
+  // was granted.
+  const v16_6Budget = escalateRunBudget((taskPolicy as any)?.v16_6 || null, {
+    taskPolicy,
+    attempt,
+    changedFiles: workspaceState.changedFiles || [],
+    // Only a real measured diff counts as change-size evidence. An empty or
+    // uncached snapshot is NOT_MEASURED, not zero, so a fresh run can never be
+    // downgraded to the FAST profile on absence of evidence.
+    affectedFiles: (workspaceState.changedFiles || []).length > 0
+      ? (workspaceState.changedFiles || []).length
+      : undefined,
+    runtimeFailures: recentFailure ? 1 : 0,
+    verifierFailures: attempt > 1 ? 1 : 0,
+  });
+  taskPolicy = applyOrchestrationBudgetToTaskPolicy(taskPolicy, v16_6Budget);
+  // The APPLIED record is the single decision the rest of the run reads: it is
+  // the budget aligned with the profile the task policy actually kept.
+  const v16_6 = taskPolicy.v16_6 || v16_6Budget;
   const turboFast = turboFastPathDecision(taskPolicy, {
     role,
     attempt,
@@ -2521,6 +2672,31 @@ async function runRoutedAgent(
       contextBudget: budgetDecision.budget,
     },
   };
+  if (traceID) {
+    await appendTrajectoryEvent(traceRoot, traceID, "budget.v16-6", {
+      fingerprint: v16_6.fingerprint,
+      executionProfile: v16_6.executionProfile,
+      taskPolicyExecutionProfile: v16_6.taskPolicyExecutionProfile,
+      taskPolicyProfile: taskPolicy.executionProfile,
+      reasons: v16_6.reasons,
+      deepSeekMode: v16_6.deepSeekMode,
+      deepSeekTurnBudget: v16_6.deepSeekTurnBudget,
+      maxAdvertisedTools: v16_6.maxAdvertisedTools,
+      toolDescriptionProfile: v16_6.toolDescriptionProfile,
+      delegation: v16_6.delegation,
+      verificationStrategy: v16_6.verificationStrategy,
+      evidence: v16_6.evidence,
+    }).catch(() => {});
+    await appendRunJournalEvent(traceRoot, traceID, "v16.6.budget", {
+      fingerprint: v16_6.fingerprint,
+      executionProfile: v16_6.executionProfile,
+      taskPolicyExecutionProfile: v16_6.taskPolicyExecutionProfile,
+      reasons: v16_6.reasons,
+      maxAdvertisedTools: v16_6.maxAdvertisedTools,
+      toolDescriptionProfile: v16_6.toolDescriptionProfile,
+      deepSeekTurnBudget: v16_6.deepSeekTurnBudget,
+    }).catch(() => {});
+  }
   const modelPolicy = await readModelPolicy(getUesConfigDir());
   const selection = resolveCapabilityModel(role, attempt, task, taskPolicy, modelPolicy);
   if (traceID) {
@@ -2632,6 +2808,10 @@ async function runRoutedAgent(
       minSamples: 6,
       stableSamples: 12,
       limit: 200,
+      // V16.6: track prefix drift (system/project/tool-schema) for this
+      // provider+model so a stable input whose hash moved is reported instead
+      // of silently paying re-read tokens.
+      trackDrift: true,
     }).catch(() => ({
       schemaVersion: 3,
       provider: selectedProvider,
@@ -2661,6 +2841,30 @@ async function runRoutedAgent(
       tools: {},
     })),
   ]);
+
+  // V16.6 prefix drift guard: report (never silently ignore) instruction-prefix
+  // drift for the provider+model. This is observation only -- it never rewrites
+  // history or reorders the advertised tool surface.
+  if (traceID && cachePolicy?.prefixDrift) {
+    await appendTrajectoryEvent(traceRoot, traceID, "provider-cache.prefix-drift", {
+      provider: cachePolicy.prefixDrift.provider,
+      model: cachePolicy.prefixDrift.model,
+      mode: cachePolicy.prefixDrift.mode,
+      baselinePresent: cachePolicy.prefixDrift.baselinePresent,
+      driftCount: cachePolicy.prefixDrift.driftCount,
+      allowed: cachePolicy.prefixDrift.allowed,
+      ok: cachePolicy.prefixDrift.ok,
+      unexpectedDrift: cachePolicy.prefixDrift.unexpectedDrift,
+      unexpectedReason: cachePolicy.prefixDrift.unexpectedReason,
+      systemChanged: cachePolicy.prefixDrift.systemChanged,
+      projectChanged: cachePolicy.prefixDrift.projectChanged,
+      schemaChanged: cachePolicy.prefixDrift.schemaChanged,
+      cacheReadRatio: cachePolicy.prefixDrift.cacheReadRatio,
+      stableTransitionRatio: cachePolicy.prefixDrift.stableTransitionRatio,
+      evidence: cachePolicy.prefixDrift.evidence,
+      authority: "observation-only",
+    }).catch(() => null);
+  }
 
   const strategyTaskClass = String(
     selection.capabilitySelection?.taskClass ||
@@ -2785,6 +2989,9 @@ async function runRoutedAgent(
             role,
             task,
             repoEvidence: (workspaceState.changedFiles || []).slice(0, 40),
+            // V16.6 skill budget is part of the unified budget; the capsule can
+            // never exceed the chars the profile actually granted.
+            totalChars: v16_6.skillBudget?.capsuleChars,
           }).catch(() => null)
         : Promise.resolve(null),
       AFFECTED_TEST_HINTS_ENABLED &&
@@ -3084,6 +3291,12 @@ async function runRoutedAgent(
       cachePolicy,
       toolUtility,
       skills: Array.isArray(microSkills?.loaded) ? microSkills.loaded : [],
+      // V16.6 unified budget -> child surface. `maxAdvertisedToolsCap` narrows
+      // the advertised tool list only; `toolDescriptionProfile` narrows
+      // description text only. Neither can add capability.
+      maxAdvertisedToolsCap: v16_6.maxAdvertisedTools,
+      toolDescriptionProfile: v16_6.toolDescriptionProfile,
+      v16_6Budget: v16_6,
       },
     );
   } catch (error) {
@@ -3259,6 +3472,24 @@ async function runRoutedAgent(
     artifactRoot,
     traceID || (childArtifact as any)?.handle || undefined,
   ).catch(() => null);
+  // V16.6 §13 tool-description learner: record what this attempt actually
+  // observed (verifier verdict + hydration activity + any selection errors the
+  // child reported). The learner may later narrow the profile only for a model
+  // with enough samples and a clean record; it can never widen risk. Unknown
+  // counts are recorded as 0, never invented.
+  try {
+    recordToolDescriptionOutcome({
+      model: selectedModel,
+      risk: String((taskPolicy as any)?.risk || "low"),
+      profile: String((v16_6 as any)?.toolDescriptionProfile || "full"),
+      selectionErrors: Number((result as any)?.toolExposure?.economy?.toolSelectionErrors || 0),
+      hydrationRequests: Number(childHydration?.requests || 0),
+      unusedAdvertisedTools: (result as any)?.toolExposure?.economy?.unusedAdvertisedTools ?? null,
+      verifiedPass: verdictFromOutput(result.output) === "PASS",
+    });
+  } catch {
+    // A learner observation must never break a run.
+  }
   const enrichedResult: RunResult = {
     ...result,
     toolExposure: childHydration
@@ -3367,6 +3598,9 @@ async function runRoutedAgent(
     taskClass: strategyTaskClass,
     provider: selectedProvider,
     model: selectedModel,
+    // V16.6: the unified budget and the DeepSeek turn accounting are recorded
+    // with every specialist run, with provenance on every number.
+    v16_6Budget: v16_6,
   }).catch(() => null);
   await PARENT_RUNTIME_HOOKS.emit("finalize.after", {
     agent,
@@ -5758,6 +5992,15 @@ export default function (pi: ExtensionAPI) {
         localEnvWriteExplicitlyAllowed: executionContract.localEnvWriteExplicitlyAllowed === true,
         executionContractPrompt: contractPrompt,
       };
+      // V16.6: the unified budget is computed ONCE per run, here, so the web
+      // lane, the progress header, every specialist run and the run telemetry
+      // all read the SAME decision. Richer per-turn evidence can only ESCALATE
+      // it later (escalateRunBudget in runRoutedAgent); it never re-decides.
+      const runBudgetV16_6 = applyOrchestrationBudgetToTaskPolicy(
+        policy,
+        computeOrchestrationBudget({ taskPolicy: policy, env: process.env, model: inheritedModel }),
+      ).v16_6;
+      policy.v16_6 = runBudgetV16_6;
       const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
       const controllerWorkspaceFingerprint = String(
         runtimeWorkspaceSnapshot(cwd, { workspaceState: controllerWorkspaceState }).fingerprint || "unknown",
@@ -5847,7 +6090,7 @@ export default function (pi: ExtensionAPI) {
       }
       // Web-reasoning lane for this run. Created here so OFF costs nothing and
       // AUTO only probes when a real escalation signal exists.
-      const webLane = await createRunWebLane(cwd, traceID);
+      const webLane = await createRunWebLane(cwd, traceID, runBudgetV16_6);
       const webLanePreflight = {
         mode: webLane?.mode ?? webReasoningMode(),
         provider: webLane?.providerId ?? String(process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web").trim(),
@@ -5856,9 +6099,168 @@ export default function (pi: ExtensionAPI) {
         maxConsultations: webLane?.maxConsultations ?? 0,
         maxFollowUps: webLane?.maxFollowUps ?? 0,
         laneAvailable: webLane != null,
+        // V16.6: the canonical turn policy behind those two ceilings.
+        reasoningMode: runBudgetV16_6?.deepSeekMode || "balanced",
+        turnBudget: runBudgetV16_6?.deepSeekTurnBudget?.maxTurns ?? 0,
+        effectiveTurnBudget: runBudgetV16_6?.deepSeekTurnBudget?.effectiveMaxTurns ?? 0,
       };
       const requestedAttempts = Number(params.maxAttempts || policy.maxAttempts || 2);
       const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
+      // ---------------------------------------------------------------------
+      // V16.6 DeepSeek reasoning-partner state (one conversation per run).
+      //
+      // This is NOT a second persistent store: it is bounded, in-memory run
+      // state that counts turns, refuses work past the granted turn budget,
+      // reuses an identical earlier answer, and emits a bounded deterministic
+      // resume capsule for the next delta. The heavy modules hydrate lazily
+      // and ONLY when a web lane actually exists.
+      // ---------------------------------------------------------------------
+      const deepSeekRuntime = webLane ? await loadSessionRuntime().catch(() => null) : null;
+      const deepSeekSession = deepSeekRuntime
+        ? deepSeekRuntime.sessionBudget.createConversationSession({
+          id: `ues-${traceID}`,
+          taskFingerprint: String(runBudgetV16_6?.fingerprint || traceID),
+          role: String(runBudgetV16_6?.deepSeekAdvisorRole || "reasoning-partner"),
+          phase: "execute",
+          reasoningMode: String(runBudgetV16_6?.deepSeekMode || "balanced"),
+          turnBudget: Number(runBudgetV16_6?.deepSeekTurnBudget?.maxTurns || 0),
+        })
+        : null;
+      const deepSeekCache = deepSeekRuntime?.consultCache?.consultCache() || null;
+      const deepSeek = {
+        turnsUsed: 0,
+        turnBudget: Number(runBudgetV16_6?.deepSeekTurnBudget?.effectiveMaxTurns || 0),
+        consultations: 0,
+        followUps: 0,
+        cacheHits: 0,
+        cacheMisses: 0,
+        refusals: [] as string[],
+        rotations: 0,
+        // Bounded continuity state for the resume capsule.
+        decisions: [] as string[],
+        openQuestions: [] as string[],
+        failedHypotheses: [] as string[],
+        session: deepSeekSession,
+        runtime: deepSeekRuntime,
+      };
+      if (deepSeekCache) deepSeekCache.beginRun(traceID);
+      /** One canonical turn budget: the lane ceiling AND the run budget must both allow it. */
+      const deepSeekTurnsAllow = (kind: "consult" | "follow-up", wanted = 1) => {
+        if (deepSeek.turnBudget <= 0) {
+          deepSeek.refusals.push(`${kind}:turn-budget-0`);
+          return false;
+        }
+        if (deepSeek.turnsUsed + wanted > deepSeek.turnBudget) {
+          deepSeek.refusals.push(`${kind}:turn-budget-exhausted`);
+          return false;
+        }
+        return true;
+      };
+      const recordDeepSeekTurn = (kind: "consult" | "follow-up", result: any, cached = false) => {
+        if (cached) {
+          deepSeek.cacheHits += 1;
+          return;
+        }
+        deepSeek.cacheMisses += 1;
+        if (kind === "consult") deepSeek.consultations += 1;
+        else deepSeek.followUps += 1;
+        deepSeek.turnsUsed += 1;
+        const outcomeText = String(result?.advisorText || result?.reason || result?.outcome || "");
+        deepSeekRuntime?.sessionBudget?.recordSessionTurn(deepSeek.session, {
+          inputChars: Number(result?.packet?.chars || 0),
+          outputChars: outcomeText.length,
+          error: result?.outcome === "unavailable" || result?.fallbackToLocal === true ? false : undefined,
+          evidenceRefs: result?.packet?.fingerprint ? [String(result.packet.fingerprint)] : [],
+        });
+        const rotation = deepSeekRuntime?.sessionBudget?.shouldRotateSession(deepSeek.session);
+        if (rotation?.rotate === true && deepSeek.session) {
+          deepSeek.rotations += 1;
+          deepSeek.session.rotations = Number(deepSeek.session.rotations || 0) + 1;
+          deepSeek.session.status = "open";
+          deepSeek.session.turnsUsed = 0;
+          deepSeek.session.inputChars = 0;
+          deepSeek.session.outputChars = 0;
+          deepSeekCache?.invalidate(traceID, `session-rotation:${rotation.reasons.join("+")}`);
+          void appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.session-rotation", {
+            reasons: rotation.reasons,
+            budget: rotation.budget,
+            measured: rotation.measured,
+          }).catch(() => null);
+        }
+      };
+      /** Bounded, deterministic, secret-scanned continuity for the next delta. */
+      const deepSeekResumeCapsule = (nextObjective: string) => {
+        if (!deepSeekRuntime || !deepSeek.session) return null;
+        const capsule = deepSeekRuntime.resumeCapsule.buildResumeCapsule({
+          session: deepSeek.session,
+          role: String(runBudgetV16_6?.deepSeekAdvisorRole || "reasoning-partner"),
+          phase: "execute",
+          reasoningMode: String(runBudgetV16_6?.deepSeekMode || "balanced"),
+          maxChars: Number(runBudgetV16_6?.capsuleChars || 4_000),
+          nextObjective,
+          decisions: deepSeek.decisions || [],
+          constraints: (executionContract?.mustNot || []).slice(0, 8),
+          openQuestions: deepSeek.openQuestions || [],
+          failedHypotheses: deepSeek.failedHypotheses || [],
+          budgetSnapshot: {
+            executionProfile: runBudgetV16_6?.executionProfile,
+            deepSeekTurnBudget: runBudgetV16_6?.deepSeekTurnBudget,
+            skillBudget: runBudgetV16_6?.skillBudget,
+            maxAdvertisedTools: runBudgetV16_6?.maxAdvertisedTools,
+            deepSeekPacketTier: runBudgetV16_6?.deepSeekPacketTier,
+          },
+        });
+        const check = deepSeekRuntime.resumeCapsule.assertResumeCapsule(capsule);
+        return check.ok ? capsule : null;
+      };
+      deepSeek.decisions.length = 0;
+      deepSeek.openQuestions.length = 0;
+      deepSeek.failedHypotheses.length = 0;
+      // ---------------------------------------------------------------------
+      // V16.6 Progress Observer V2. Compact by default, bounded to 8 lanes and
+      // 160 chars per note, always redacted, and it never emits a
+      // chain-of-thought. The header is the one line a user sees:
+      // `UES 16.6 · DEEPSEEK-FIRST · BALANCED`.
+      // ---------------------------------------------------------------------
+      const observerV2 = createRunObserver(runBudgetV16_6, { env: process.env, phase: "execute" });
+      const observerV2Telemetry = () => progressTelemetryV2(observerV2);
+      const recordObserverV2 = (event: string, note?: string) => {
+        recordProgressV2(observerV2, event, { note });
+      };
+      recordObserverV2("run.start", `${policy.executionProfile}/${policy.risk}`);
+      if (observerV2.mode !== "off") {
+        // The one visible line: `UES 16.6 · DEEPSEEK-FIRST · BALANCED`.
+        onUpdate?.({
+          content: [{ type: "text", text: renderProgressV2(observerV2).join("\n") }],
+          details: { mode: "execute", phase: "progress-observer-v2", traceID, header: observerV2.header },
+        });
+      }
+      if (traceID) {
+        await appendTrajectoryEvent(cwd, traceID, "progress.observer-v2", {
+          header: observerV2.header,
+          mode: observerV2.mode,
+          reasoningMode: observerV2.reasoningMode,
+          profile: observerV2.profile,
+          telemetry: observerV2Telemetry(),
+          budget: v16_6Telemetry({ budget: runBudgetV16_6 }),
+        }).catch(() => null);
+      }
+      /** Honest DeepSeek counters. No provider call is ever counted twice. */
+      const deepSeekTelemetrySnapshot = () => ({
+        turnsUsed: deepSeek.turnsUsed,
+        turnBudget: deepSeek.turnBudget,
+        consultations: deepSeek.consultations,
+        followUps: deepSeek.followUps,
+        cacheHits: deepSeek.cacheHits,
+        cacheMisses: deepSeek.cacheMisses,
+        rotations: deepSeek.rotations,
+        refusals: [...deepSeek.refusals],
+        reasoningMode: runBudgetV16_6?.deepSeekMode || "balanced",
+        session: deepSeek.session
+          ? deepSeekRuntime?.sessionBudget?.sessionTelemetry(deepSeek.session)
+          : null,
+        cache: deepSeekCache?.telemetry ? deepSeekCache.telemetry() : null,
+      });
       const steps: RunResult[] = [];
       let recentFailure = "";
       let planningResumeEvidence = "";
@@ -5912,34 +6314,143 @@ export default function (pi: ExtensionAPI) {
         let webAdviceText = "";
         let failureDeltaText = failure || "";
         if (webLane && agent === "ues-executor" && attempt === 1 && !failure) {
-          // V16.5: the advisor is asked ONE specialist question, not a generic
-          // "what should I do". The packet is bounded and stays untrusted data.
-          const advisorRole = selectAdvisorRole({
+          // V16.6 advisor role selection. Roles V2 adds IMPLEMENTATION_PLAN,
+          // CODE_REVIEW, UI_UX_REVIEW and RESEARCH next to the five V16.5
+          // roles; the V16.5 selector stays the fallback so no existing role
+          // selection can regress. The advisor NEVER decides PASS: its text is
+          // untrusted external evidence handed to the executor only.
+          const advisorRolesV2 = selectAdvisorRolesV2({
             taskClass: policy?.taskClass || undefined,
             intent: policy?.intent || undefined,
             ambiguity: Number(policy?.decision?.confidence === "low" ? 3 : policy?.decision?.confidence === "medium" ? 2 : 0),
-            changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any).diff).slice(0, 4_000) : "",
+            changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any)?.diff).slice(0, 4_000) : "",
             symptoms: [params.task],
+            budgetProfile: String(runBudgetV16_6?.executionProfile || "BALANCED"),
           });
-          const advisorPacket = advisorRole
-            ? buildAdvisorPacket({
+          const fallbackAdvisorRole = advisorRolesV2?.primary
+            || selectAdvisorRole({
+              taskClass: policy?.taskClass || undefined,
+              intent: policy?.intent || undefined,
+              ambiguity: Number(policy?.decision?.confidence === "low" ? 3 : policy?.decision?.confidence === "medium" ? 2 : 0),
+              changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any)?.diff).slice(0, 4_000) : "",
+              symptoms: [params.task],
+            });
+          // V16.6 Advisor Benefit Learner V3 (§21). The learner may REORDER the
+          // roles the V2 selector already chose (learned role usefulness by
+          // task-class/phase); it can never invent a role, add a turn, force
+          // external reasoning or change authority. Below the sample floor it
+          // is a no-op. `fallbackAdvisorRole` is always retained when the V2
+          // selector produced no bounded role set.
+          const advisorRoleAdvice = orderAdvisorRolesV3(
+            [advisorRolesV2?.primary, advisorRolesV2?.secondary].filter(Boolean),
+            { taskClass: policy?.taskClass || "unknown", phase: "plan" },
+          );
+          const advisorRole = advisorRoleAdvice.roles[0] || fallbackAdvisorRole;
+          if (traceID) {
+            await appendTrajectoryEvent(cwd, traceID, "advisor.role-preference-v3", {
+              applied: advisorRoleAdvice.applied,
+              preferred: advisorRoleAdvice.preferred,
+              reason: advisorRoleAdvice.reason,
+              samples: advisorRoleAdvice.samples,
+              effect: advisorRoleAdvice.effect,
+              roles: advisorRoleAdvice.roles,
+              selected: advisorRole || "none",
+              authority: "advisory-ordering-only",
+            }).catch(() => null);
+          }
+          const advisorPacketText = advisorRole
+            ? (buildAdvisorPacketV2({
               role: advisorRole,
               symptoms: [params.task],
               constraints: (executionContract?.mustNot || []).slice(0, 8),
               evidence: [params.task].concat((structuredPlan?.steps || []).slice(0, 4)),
-              changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any).diff).slice(0, 4_000) : "",
+              changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any)?.diff).slice(0, 4_000) : "",
               maxChars: 6_000,
+            })?.text || buildAdvisorPacket({
+              role: advisorRole,
+              symptoms: [params.task],
+              constraints: (executionContract?.mustNot || []).slice(0, 8),
+              evidence: [params.task].concat((structuredPlan?.steps || []).slice(0, 4)),
+              changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any)?.diff).slice(0, 4_000) : "",
+              maxChars: 6_000,
+            }).text)
+            : "";
+          // V16.6 canonical turn budget. A run that grants ZERO DeepSeek turns
+          // performs no consultation at all. Nothing degrades: the lane, the
+          // provider and the local execution path are untouched.
+          const turnsAllowed = deepSeekTurnsAllow("consult", 1);
+          if (!turnsAllowed) {
+            await appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.budget-exhausted", {
+              kind: "consult",
+              turnBudget: deepSeek.turnBudget,
+              turnsUsed: deepSeek.turnsUsed,
+              refusals: deepSeek.refusals,
+            }).catch(() => null);
+          }
+          // V16.6 consult cache: an identical question on an identical HEAD,
+          // diff, evidence and role is answered from the bounded in-memory cache
+          // instead of spending another provider turn.
+          const cacheLookup = deepSeekCache && turnsAllowed
+            ? consultOnce(deepSeekCache, {
+              head: boundedWorkspaceHead(cwd),
+              diff: boundedWorkspaceDiff(cwd),
+              evidenceFingerprint: advisorPacketText.slice(0, 128),
+              role: advisorRole || "none",
+              phase: "execute",
+              reasoningMode: String(runBudgetV16_6?.deepSeekMode || "balanced"),
+              question: params.task,
+              constraints: (executionContract?.mustNot || []).join("\n"),
             })
+            : { key: null, cached: false, answer: null };
+          if (cacheLookup.cached && cacheLookup.answer) {
+            webAdviceText = String(cacheLookup.answer);
+            recordDeepSeekTurn("consult", null, true);
+            await appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.cache-hit", {
+              key: cacheLookup.key,
+              role: advisorRole || "none",
+              chars: webAdviceText.length,
+              turnsUsed: deepSeek.turnsUsed,
+            }).catch(() => null);
+          }
+          const consultation = turnsAllowed && !cacheLookup.cached
+            ? await webLane
+              .consult({
+                task: params.task,
+                notes: [failureDeltaText || "", advisorPacketText].filter(Boolean).join("\n\n"),
+                constraints: executionContract?.mustNot || [],
+                verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
+                affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+              })
+              .catch(() => null)
             : null;
-          const consultation = await webLane
-            .consult({
-              task: params.task,
-              notes: [failureDeltaText || "", advisorPacket?.text || ""].filter(Boolean).join("\n\n"),
-              constraints: executionContract?.mustNot || [],
-              verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
-              affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
-            })
-            .catch(() => null);
+          if (!cacheLookup.cached) {
+            recordDeepSeekTurn("consult", consultation, false);
+            // Only a real advisor answer is cached; an unavailable, skipped or
+            // flagged answer is never replayed as if it were advice.
+            if (deepSeekCache && cacheLookup.key && consultation?.advisorText && consultation?.flagged !== true) {
+              deepSeekCache.put(cacheLookup.key, {
+                answer: consultation.advisorText,
+                role: advisorRole || "none",
+                phase: "execute",
+                evidenceRef: consultation?.packet?.fingerprint || null,
+                turn: deepSeek.turnsUsed,
+              });
+            }
+          }
+          if (cacheLookup.cached && cacheLookup.answer) {
+            // A cache hit still records the standard consultation event, so a
+            // reader can never mistake "no provider call" for "no consultation".
+            await appendRunJournalEvent(cwd, traceID, "web-reasoning.consulted", {
+              provider: "consult-cache",
+              mode: webLane?.mode,
+              outcome: "advice-replayed",
+              reason: "v16.6-consult-cache-hit",
+              signals: [],
+              packetChars: 0,
+              packetFiles: 0,
+              fallbackToLocal: false,
+            }).catch(() => null);
+          }
           if (consultation?.code === WEB_REASONING_UNAVAILABLE) {
             await appendRunJournalEvent(cwd, traceID, "web-reasoning.unavailable", {
               provider: consultation.provider,
@@ -5978,6 +6489,21 @@ export default function (pi: ExtensionAPI) {
             const learnerWeight = advisorWeightV2(learnerScope);
             recordAdvisorOutcomeV2({
               ...learnerScope,
+              consulted: true,
+              adviceAccepted: consultation.outcome === "advice-applied" || consultation.outcome === "advice-recommended",
+              finalVerifiedResult: null,
+              followUps: Number(consultation.followUps ?? 0),
+              fallbacks: consultation.fallbackToLocal === true ? 1 : 0,
+            });
+            // V16.6 Advisor Benefit Learner V3 (§21): the same sample, widened
+            // to role/phase/task-class/evidence-request/extra-turn usefulness.
+            // Advisory only; it can only reorder roles on a future run.
+            recordAdvisorOutcomeV3({
+              taskClass: String(policy?.taskClass || "unknown"),
+              phase: "plan",
+              advisorRole: advisorRole || "none",
+              evidenceRequestKind: String(consultation?.evidenceRequest?.kind || "") || null,
+              extraTurn: Number(consultation.followUps ?? 0) > 0,
               consulted: true,
               adviceAccepted: consultation.outcome === "advice-applied" || consultation.outcome === "advice-recommended",
               finalVerifiedResult: null,
@@ -6030,9 +6556,137 @@ export default function (pi: ExtensionAPI) {
             });
           }
         }
+        // ------------------------------------------------------------------
+        // V16.6 evidence-request loop.
+        //
+        // DeepSeek may ASK for local evidence, it can never TAKE it: it runs no
+        // tools. A request is parsed from its own text, validated against the
+        // allowlist, workspace-contained, redacted, bounded and re-scanned, and
+        // the result is attached to the NEXT conversation turn as delta data.
+        // ------------------------------------------------------------------
+        let pendingEvidenceDelta = "";
+        const serveEvidenceRequests = (advisorText: string) => {
+          if (!deepSeekRuntime || !advisorText) return null;
+          const budget = deepSeekRuntime.evidenceRequests.createEvidenceRequestBudget({ runId: traceID });
+          const parsed = budget.parse(String(advisorText).slice(0, 8_000));
+          if (!parsed.requests.length) return null;
+          const diff = boundedWorkspaceDiff(cwd, 16_000);
+          const repoSummary = (controllerWorkspaceState?.changedFiles || []).slice(0, 40)
+            .map((row: any) => String(row?.path || row || ""))
+            .join("\n");
+          const sources: Record<string, string> = {
+            diff,
+            "repo-summary": repoSummary,
+            "verifier-output": recentFailure || "",
+            "failed-output": recentFailure || "",
+          };
+          const deltas: string[] = [];
+          for (const request of parsed.requests) {
+            const decision = budget.authorize({ kind: request.kind, target: null }, { root: cwd });
+            if (!decision.allowed) continue;
+            const source = sources[request.kind];
+            if (!source) continue;
+            const delta = budget.prepare({ kind: request.kind, text: source, maxChars: request.maxChars });
+            if (delta.ok) deltas.push(`### requested evidence: ${request.kind}\n${delta.text}`);
+          }
+          if (deltas.length) pendingEvidenceDelta = deltas.join("\n\n").slice(0, 8_000);
+          return { parsed: parsed.total, authorized: deltas.length, telemetry: budget.telemetry() };
+        };
+        // V16.6 patch review: the reasoning partner reviews the LOCAL diff
+        // BEFORE the verifier runs, so the verifier never sees an unreviewed
+        // patch as the first opinion. It still cannot decide PASS: the text is
+        // untrusted external evidence attached to the verifier task.
+        let webPatchReviewText = "";
+        const patchDiff = boundedWorkspaceDiff(cwd, 6_000);
+        const patchReviewAllowed =
+          webLane &&
+          agent === "ues-verifier" &&
+          attempt === 1 &&
+          !failure &&
+          patchDiff.length > 0 &&
+          deepSeekTurnsAllow("consult", 1);
+        if (patchReviewAllowed) {
+          // V16.6 parallel read-only reasoning overlap. Exactly one DeepSeek
+          // writer, local work must be read-only, and ANY write during the
+          // window is a violation. The controller currently has no concurrent
+          // local work during a consult, so the honest outcome is a recorded
+          // refusal -- never a simulated speedup.
+          const overlapState = createParallelReasoningState();
+          const overlapPlan = planParallelReasoning({
+            budget: {
+              deepSeekMode: runBudgetV16_6?.deepSeekMode,
+              maxParallel: runBudgetV16_6?.maxParallel,
+              parallelReasoning: runBudgetV16_6?.parallelReasoning,
+            },
+            state: overlapState,
+            localWork: [],
+          });
+          if (!overlapPlan.overlapAllowed || !overlapPlan.readers.length) {
+            await appendRunJournalEvent(cwd, traceID, "v16.6.parallel.overlap", {
+              allowed: false,
+              reason: overlapPlan.overlapAllowed ? "no-concurrent-read-only-local-work" : (overlapPlan.reasons[0] || "refused"),
+              reasons: overlapPlan.reasons,
+              maxReaders: overlapPlan.maxReaders,
+              telemetry: parallelReasoningTelemetry(overlapState),
+            }).catch(() => null);
+          }
+          const patchRoles = selectAdvisorRolesV2({
+            taskClass: policy?.taskClass || undefined,
+            intent: policy?.intent || undefined,
+            changedDiff: patchDiff,
+            symptoms: [params.task],
+            budgetProfile: String(runBudgetV16_6?.executionProfile || "BALANCED"),
+          });
+          const patchPacket = patchRoles.primary
+            ? buildAdvisorPacketV2({
+              role: patchRoles.primary,
+              symptoms: [params.task],
+              constraints: (executionContract?.mustNot || []).slice(0, 8),
+              evidence: [patchDiff],
+              changedDiff: patchDiff,
+              maxChars: 6_000,
+            })
+            : null;
+          const patchCapsule = deepSeekResumeCapsule("Review the current local diff before verification.");
+          const review = await webLane
+            .consult({
+              task: params.task,
+              notes: [patchPacket?.text || "", patchCapsule?.content || "", pendingEvidenceDelta]
+                .filter(Boolean)
+                .join("\n\n"),
+              constraints: executionContract?.mustNot || [],
+              verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
+              affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+            })
+            .catch(() => null);
+          recordDeepSeekTurn("consult", review, false);
+          if (review?.advisorText) webPatchReviewText = review.advisorText;
+          const served = serveEvidenceRequests(review?.advisorText || "");
+          if (patchRoles.primary) {
+            // Continuity state for the resume capsule: a role decision and the
+            // review objective, never raw secrets and never an authority claim.
+            deepSeek.decisions.push(`patch-review role=${patchRoles.primary}`);
+            deepSeek.openQuestions.push(`Verifier must independently confirm: ${patchRoles.primary}`);
+          }
+          await appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.patch-review", {
+            role: patchRoles.primary || "none",
+            provider: review?.provider,
+            outcome: review?.outcome || null,
+            flagged: review?.flagged === true,
+            authorityAttempts: review?.authorityAttempts || [],
+            diffChars: patchDiff.length,
+            adviceChars: webPatchReviewText.length,
+            capsuleChars: patchCapsule?.sizeChars || 0,
+            evidenceRequests: served,
+            turnsUsed: deepSeek.turnsUsed,
+            turnBudget: deepSeek.turnBudget,
+          }).catch(() => null);
+          recordObserverV2("deepseek.patch-review", `${patchRoles.primary || "advisor"} review`);
+        }
         const governedTask = [
           task,
           webAdviceText,
+          webPatchReviewText,
           failure ? "" : "",
           contractPrompt,
         ].filter(Boolean).join("\n");
@@ -7272,11 +7926,21 @@ export default function (pi: ExtensionAPI) {
           const knownFilesForFollowUp = Array.isArray(structuredPlan?.files)
             ? structuredPlan.files.map((f: any) => String(f?.path || f)).filter(Boolean)
             : [];
-          const followUp = await webLane
+          // V16.6 canonical turn budget for follow-ups too. The lane's own
+          // ceiling still applies; this is the run-level policy on top.
+          const followUpAllowed = deepSeekTurnsAllow("follow-up", 1);
+          // V16.6 resume capsule: bounded, deterministic, secret-scanned
+          // continuity for the SAME conversation. It carries decisions and
+          // references, never raw secrets and never an authority claim.
+          const capsule = followUpAllowed
+            ? deepSeekResumeCapsule(`Resolve the verifier failure for attempt ${attempt}.`)
+            : null;
+          const followUp = followUpAllowed
+            ? await webLane
             .followUp({
               task: params.task,
               evidence: [{ kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) }],
-              previousAttempts: [cap(recentFailure, 2_000)],
+              previousAttempts: [cap(recentFailure, 2_000), ...(capsule?.content ? [cap(capsule.content, 4_000)] : [])],
               diff: liveDiff,
               // V16.4: the controller opts into the verified second-follow-up
               // rule. Every field below is a fact the controller already knows.
@@ -7296,8 +7960,21 @@ export default function (pi: ExtensionAPI) {
               benefitExceedsCost: cap(recentFailure, 6_000).length > 0,
               submitBudgetAllows: attempt - 1 <= 2,
               sessionHealthy: webLane.state()?.sessionReusable === true,
+              // V16.6: the resume capsule keeps the SAME conversation coherent
+              // across rotations and never widens the follow-up budget.
+              ...(capsule ? { resumeCapsule: capsule.content, resumeFingerprint: capsule.fingerprint } : {}),
             })
-            .catch(() => null);
+            .catch(() => null)
+            : null;
+          if (followUpAllowed) recordDeepSeekTurn("follow-up", followUp, false);
+          if (!followUpAllowed) {
+            await appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.budget-exhausted", {
+              kind: "follow-up",
+              turnBudget: deepSeek.turnBudget,
+              turnsUsed: deepSeek.turnsUsed,
+              refusals: deepSeek.refusals,
+            }).catch(() => null);
+          }
           if (followUp?.code === WEB_REASONING_UNAVAILABLE && webLane.mode === "force") {
             await appendRunJournalEvent(cwd, traceID, "web-reasoning.follow-up-unavailable", {
               provider: followUp.provider,
@@ -7734,7 +8411,7 @@ export default function (pi: ExtensionAPI) {
               final?.output || verification.output,
             ].join("\n"),
           }],
-          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, verdictMatrix, executionContract, traceID },
+          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, verdictMatrix, executionContract, traceID, deepSeek: deepSeekTelemetrySnapshot(), progressObserverV2: { header: observerV2.header, mode: observerV2.mode, summary: summarizeProgressV2(observerV2), telemetry: observerV2Telemetry() } },
         };
       }
 
@@ -8171,6 +8848,10 @@ export default function (pi: ExtensionAPI) {
       thinking: ctx.thinkingLevel as string | undefined,
       provider: ctx.model?.provider || null,
       passed: controllerPass,
+      // V16.6: run-level budget + DeepSeek turn accounting + observer V2.
+      v16_6Budget: result?.details?.policy?.v16_6 || admissionDecision?.policy?.v16_6 || null,
+      deepSeek: result?.details?.deepSeek || null,
+      v16_6Observer: result?.details?.progressObserverV2 || null,
     }).catch(() => null);
     const directDurationMs = Math.max(0, Date.now() - directStartedAt);
     await closeRunJournal(workspaceRoot, directTraceID, {

@@ -14,6 +14,16 @@ import { createHash } from "node:crypto";
 import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { governToolOutput } from "../../lib/tool-output-governor.mjs";
+import { recordEconomyOutcome } from "../../lib/tool-output-economy-v16-6.mjs";
+// V16.6 tool description profiles. The parent grants a profile through the
+// unified budget; the child may only NARROW description text. `full` returns
+// the original description byte-for-byte and any compression that would drop a
+// protective or parameter line falls back to the original text, so this can
+// never remove a safety instruction.
+import {
+  describeToolForProfile,
+  resolveToolDescriptionProfile,
+} from "../../lib/tool-description-profiles-v16-6.mjs";
 import { pruneStaleFailedToolInputs } from "../../lib/context-pruning.mjs";
 import { getEvidenceSelected } from "../../lib/evidence-store.mjs";
 import { recordVerification } from "../../lib/verification-broker.mjs";
@@ -104,6 +114,10 @@ const TOOL_SCHEDULER = new ToolScheduler({
 const RUNTIME_HOOKS = new RuntimeHookBus();
 const scheduledToolLeases = new Map<string, any>();
 const toolCheckpointState = new Map<string, { checkpointId: string; runId: string }>();
+// V16.6 tool-output economy: evidence refs produced by economy compression, so
+// a later ues_evidence_get of the exact raw bytes is recorded as a rehydration
+// (observation only; never changes execution or evidence integrity).
+const economyGovernedRefs = new Map<string, string>();
 
 const HOST_SEQUENTIAL_TOOLS = new Set(["bash", "powershell", "edit", "write", "ues_code_edit", "ues_service"]);
 
@@ -228,6 +242,20 @@ function schedulerOwner(event: any, toolName = "") {
 
 function toolInputHash(input: any) {
   return createHash("sha256").update(JSON.stringify(input || {})).digest("hex");
+}
+
+// V16.6 tool description profile, resolved ONCE per child process. The grant
+// comes from the parent's unified budget (UES_TOOL_DESCRIPTION_PROFILE). An
+// unset or invalid value resolves to `full`, i.e. the exact pre-V16.6 text.
+const TOOL_DESCRIPTION_PROFILE = resolveToolDescriptionProfile({ env: process.env });
+
+/**
+ * Narrow a tool description under the granted profile. This is a text-only
+ * transformation: `full` is byte-identical, and a compression that would drop a
+ * protective or parameter line keeps the original description instead.
+ */
+function toolDescription(name: string, description: string): string {
+  return describeToolForProfile({ name, description }, TOOL_DESCRIPTION_PROFILE).description;
 }
 
 function deferredHydrationEnv() {
@@ -1065,6 +1093,15 @@ export default function (pi: ExtensionAPI) {
         ? `Full Pi tool output captured from ${capture.sourcePath} before V15.9 model-visible reduction`
         : "Captured Pi tool output preserved before V15.9 model-visible reduction",
     }).catch(() => null);
+    // V16.6 tool-output economy rehydration signal: when the model re-fetches
+    // the exact raw bytes referenced by an economy-compressed result, record it
+    // so the learner can relax compression strength. Observation only.
+    if (governed?.economy?.evidenceRef) {
+      economyGovernedRefs.set(
+        String(governed.economy.evidenceRef),
+        String(governed.economy.commandFamily || "tool-output"),
+      );
+    }
     if (!governed?.compacted) {
       if (!trustBoundaryText) return postWrite;
       return {
@@ -1125,8 +1162,10 @@ export default function (pi: ExtensionAPI) {
     name: "ues_code",
     executionMode: "parallel",
     label: "UES Code Intelligence",
-    description:
+    description: toolDescription(
+      "ues_code",
       "Bounded code/document/context intelligence for weak models: semantic/AST search, hash-anchored reads, deterministic LSP definition/references/symbols/hover/rename-preview/call hierarchy, diagnostics, optional MarkItDown ingestion, and reversible context recovery.",
+    ),
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("status"),
@@ -1282,8 +1321,10 @@ export default function (pi: ExtensionAPI) {
     name: "ues_code_edit",
     executionMode: "sequential",
     label: "UES Anchored Edit",
-    description:
+    description: toolDescription(
+      "ues_code_edit",
       "Apply fail-closed hash-anchored edits. A stale or mismatched anchor is rejected; re-read with ues_code instead of fuzzy retrying.",
+    ),
     parameters: Type.Object({
       file: Type.String({ minLength: 1 }),
       edits: Type.Array(AnchoredEdit, { minItems: 1, maxItems: 50 }),
@@ -1355,8 +1396,10 @@ export default function (pi: ExtensionAPI) {
     name: "ues_service",
     executionMode: "sequential",
     label: "UES Managed Service",
-    description:
+    description: toolDescription(
+      "ues_service",
       "Manage long-running development servers/watchers without blocking the agent. Use start, wait-ready, status, logs, stop, or restart. For start/restart, command is the executable only (for example node or npm); put every argument in args. Services are bounded to the current workspace/runtime and are cleaned up on session shutdown.",
+    ),
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("start"),
@@ -1440,8 +1483,10 @@ export default function (pi: ExtensionAPI) {
     name: "ues_evidence_get",
     executionMode: "parallel",
     label: "UES Evidence Get",
-    description:
+    description: toolDescription(
+      "ues_evidence_get",
       "Read an exact bounded slice or JSON selector from a UES Evidence Store reference when a compacted tool result says omitted raw evidence is available.",
+    ),
     parameters: Type.Object({
       ref: Type.String({ minLength: 1 }),
       start: Type.Optional(Type.Number({ minimum: 0 })),
@@ -1453,6 +1498,10 @@ export default function (pi: ExtensionAPI) {
           start: params.start || 0,
           maxBytes: params.maxBytes || 16000,
         });
+        const economyFamily = economyGovernedRefs.get(String(params.ref));
+        if (economyFamily) {
+          recordEconomyOutcome({ commandFamily: economyFamily, laterRawRehydration: true });
+        }
         return {
           content: [{
             type: "text",
@@ -1497,8 +1546,10 @@ export default function (pi: ExtensionAPI) {
       name: DEFERRED_DISPATCHER_TOOL,
       executionMode: "parallel",
       label: "UES Deferred Tool Search",
-      description:
+      description: toolDescription(
+        "ues_tool_search",
         "Discover and activate a deferred specialist tool in this same session. Use search to find the right deferred tool for a need, then hydrate to activate it. Hydration is bounded per session and writer tools stay unavailable to read-only roles.",
+      ),
       parameters: Type.Object({
         action: Type.Union([Type.Literal("search"), Type.Literal("hydrate")]),
         query: Type.Optional(Type.String()),
