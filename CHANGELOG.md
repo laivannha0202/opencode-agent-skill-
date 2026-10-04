@@ -2,6 +2,91 @@
 
 ## [Unreleased]
 
+## [16.6.1] - 2026-10-05
+
+### Fixed
+
+DeepSeek runtime integrity. Every item below was a confirmed production-wiring defect on
+16.6.0 HEAD and is reproduced by `test/v16-6-1-regressions.test.mjs` (47 tests, each of which
+fails on 16.6.0). The full table with before/after detail is in
+`docs/V16.6-UNIFIED-ADAPTIVE-ORCHESTRATION.md` section 1a.
+
+- **Atomic budget escalation**: `refineOrchestrationBudget` recomputes the entire decision from
+  the stored inputs. It previously changed only the profile, producing a real `DEEP` run
+  advertised with `deepSeekMode: "off"` and a zero-turn advisor budget.
+- **Context-pressure budget is applied**: the task policy now spends the budget's own
+  (pressure-adjusted) value instead of the profile base. The telemetry figure and the actual
+  spend agree.
+- **Consult cache cannot replay stale advice**: the key binds the real diff, per-file content,
+  the whole Decision Packet, the evidence fingerprint (including the verifier failure), and the
+  workspace/provider/model/role/phase. `status + path` and packet prefixes are gone.
+- **Real conversation rotation**: `rotateConversationSession` closes conversation A and opens a
+  distinct conversation B carrying a bounded Resume Capsule. The browser profile, its cookies and
+  its login are never touched, and a rotation never refills the run turn budget.
+- **One evidence-request protocol**: canonical JSON `evidenceRequests` on the advisor reply. The
+  legacy `EVIDENCE: <kind>` line form remains a compatibility parser over the same normalized
+  shape; there is still only one authority path.
+- **Cumulative evidence budget**: per-exchange (24,000 chars) and per-run (60,000 chars) limits in
+  addition to the request counts. Exhaustion returns a bounded refusal and local reasoning
+  continues; nothing is faked as delivered.
+- **Relative evidence targets resolve against the workspace root**, never `process.cwd()`.
+  Windows drive paths, POSIX, worktrees and child runtimes are all covered, and a sibling
+  directory whose name merely shares a prefix is rejected.
+- **Fail-closed provider states**: only an explicit recognized READY observation is READY.
+  A missing, malformed or unrecognized state, and `logged-out` / `ui-changed` / `timeout` /
+  `closed`, all stop instead of being reported as a live conversation.
+- **Session reuse no longer resets the conversation**: reuse performs a read-only health probe.
+  The previous code navigated to the entry URL on reuse, discarding the thread.
+- **Resume capsule sanitization**: secrets are stripped before the capsule object exists, over
+  every structured field, not only the rendered content. `maxChars` is exact including the
+  truncation marker.
+- **Parallel reasoning safety**: the DeepSeek writer occupies one of the budgeted lanes, so
+  `maxParallel <= 1` means no overlap, and only explicitly allowlisted read-only operations may
+  overlap. Unknown operations fall back to serial.
+- **Session-pool writer accounting**: the lease is no longer counted twice, and the
+  high-water mark only rises on a granted lease.
+- **Decision Packet budget on the real payload**: the ceiling is judged on the rendered
+  outbound text, essential constraints are compacted by dropping whole rows rather than
+  clipping one mid-sentence, and an essential floor larger than the requested tier is reported
+  as `essential-floor-exceeds-tier`.
+- **Follow-up delta honesty**: `changedSections` is exactly what was sent;
+  `omittedChangedSections` names what changed but was dropped, and a partial delta is flagged
+  `misleading`.
+- **Canonical follow-up bounds**: `WEB_REASONING_BOUNDS` is the single owner for consultations
+  and follow-ups, and the second follow-up is gated by the module that has owned that rule since
+  V16.4.
+- **Advisor benefit learner**: samples stay pending until the run's local verifier resolves them.
+  A task PASS alone is not benefit: acceptance plus a favorable verifier before/after delta is
+  required, otherwise the sample is neutral.
+- **Wider local grounding for advice**: architecture and root-cause recommendations no longer
+  need to name an existing file, but they must be bound to local grounding (symbol, repository
+  topology, runtime evidence, verifier evidence, constraint or dependency graph) before use.
+- **Tool-output economy**: unique deprecation warnings are preserved verbatim instead of being
+  merged, the `up to date` pattern typo is fixed, real progress-bar shapes are recognized, and
+  the default mode is `auto` with an explicit refusal reason.
+- **Telemetry provenance**: chars-to-token conversions are `ESTIMATED`, unavailable provider
+  counters are `NOT_MEASURED`, and the two fabricated zeros are gone.
+- **Progress observer**: a real post-render secret scan runs and is reported as `MEASURED`;
+  chain-of-thought is reported as a policy invariant rather than an empirical zero.
+- **Prefix drift baselines are workspace-scoped** using a hashed workspace identity.
+- **Lazy-load graph**: `pi/extensions/ues.ts` no longer statically imports the V16.6 consult cache
+  or the parallel-reasoning planner, so an easy task hydrates no DeepSeek session stack.
+- **Evidence-first tool routing**: runtime and repository structure outrank task text, and
+  `model` alone never means a database model.
+- **Description learner scoping**: keyed by model family, risk, phase, tool-surface fingerprint
+  and description schema version.
+
+### Added
+
+- `test/v16-6-1-regressions.test.mjs`: 47 production-wiring regressions.
+- `test/release-coordinator-v16-6.test.mjs`: release-coordinator coverage through V16.6.
+
+### Changed
+
+- The release coordinator now coordinates `eval:v16.5` and `eval:v16.6` as well, and re-runs each
+  eval's behaviour-specific companion scripts so no coverage is lost.
+- `UES_TOOL_OUTPUT_ECONOMY` defaults to `auto`; `off` and `on` remain operator overrides.
+
 ## [16.6.0] - 2026-10-05
 
 ### Added

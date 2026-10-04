@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.6.0",
+  "version": "16.6.1",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
@@ -98,7 +98,7 @@
     "eval:v16.5": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/skill-registry-v16-5.test.mjs test/skill-router-v16-5.test.mjs test/skill-capsule-v16-5.test.mjs test/tool-surface-v3.test.mjs test/subagent-fabric-v16-5.test.mjs test/delegation-fleet-v16-5.test.mjs test/verified-handoff-v16-5.test.mjs test/deepseek-advisors-v16-5.test.mjs test/agent-observer-v16-5.test.mjs test/readme-v16-5.test.mjs && node scripts/eval-skill-routing-v16-5.mjs > /dev/null && node scripts/eval-v16-5.mjs > /dev/null",
     "eval:v16.5:measure": "node scripts/eval-v16-5.mjs",
     "eval:v16.5:routing": "node scripts/eval-skill-routing-v16-5.mjs",
-    "eval:v16.6": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/unified-budget-v16-6.test.mjs test/deepseek-session-v16-6.test.mjs test/orchestration-surface-v16-6.test.mjs test/v16-6-measured-regressions.test.mjs && node scripts/eval-v16-6.mjs > /dev/null",
+    "eval:v16.6": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/unified-budget-v16-6.test.mjs test/deepseek-session-v16-6.test.mjs test/orchestration-surface-v16-6.test.mjs test/v16-6-measured-regressions.test.mjs test/v16-6-1-regressions.test.mjs test/release-coordinator-v16-6.test.mjs && node scripts/eval-v16-6.mjs > /dev/null",
     "eval:v16.6:measure": "node scripts/eval-v16-6.mjs",
     "release:coordinator": "node scripts/release-test-coordinator.mjs"
   },

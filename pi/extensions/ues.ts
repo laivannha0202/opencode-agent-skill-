@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -49,7 +49,11 @@ import {
 import { createHandoffCapsule, renderHandoffCapsule } from "../../lib/verified-handoff.mjs";
 import { buildAdvisorPacket, selectAdvisorRole } from "../../lib/deepseek-advisor-roles.mjs";
 import { advisorWeightV2, recordAdvisorOutcomeV2 } from "../../lib/advisor-benefit-learner-v2.mjs";
-import { orderAdvisorRolesV3, recordAdvisorOutcomeV3 } from "../../lib/advisor-benefit-learner-v3.mjs";
+import { orderAdvisorRolesV3, recordPendingAdvisorOutcome, resolveAdvisorOutcomeV3 } from "../../lib/advisor-benefit-learner-v3.mjs";
+// V16.6.1: the consult cache, the parallel-reasoning planner and the
+// V16.6 session stack are NO LONGER statically imported here. They are reached
+// through `loadSessionRuntime()` / the DEEPSEEK_SESSION lazy stack, so a run
+// that never consults DeepSeek never hydrates them at all.
 import { createProgressObserver, renderProgress, upsertLane } from "../../lib/agent-progress-observer.mjs";
 // V16.6 Unified Adaptive Orchestration (release: unified adaptive
 // orchestration + DeepSeek reasoning partner). ONE production surface: the
@@ -74,12 +78,7 @@ import {
   buildAdvisorPacketV2,
   selectAdvisorRolesV2,
 } from "../../lib/deepseek-advisor-roles-v2.mjs";
-import { consultOnce } from "../../lib/deepseek-consult-cache.mjs";
-import {
-  createParallelReasoningState,
-  parallelReasoningTelemetry,
-  planParallelReasoning,
-} from "../../lib/parallel-reasoning-v16-6.mjs";
+
 // V16.6 Progress Observer V2 (compact | detailed | off). It reports phases,
 // lanes and bounded redacted notes -- never a chain of thought.
 import {
@@ -522,10 +521,52 @@ async function resolveBrowserLane(cwd: string, runId: string, pi: ExtensionAPI, 
 }
 
 /**
- * A bounded diff for the Decision Packet. Uses the workspace snapshot the
- * controller already maintains, so the packet carries the CURRENT change set
- * without shelling out to git a second time. Failure degrades to an empty diff;
- * it never blocks and never claims a diff it does not have.
+ * ONE workspace snapshot for every cache-key input.
+ *
+ * V16.6.1: `boundedWorkspaceDiff()` returned `${status} ${path}` lines and
+ * `boundedWorkspaceHead()` returned the snapshot fingerprint, and each of them
+ * took its OWN snapshot. Two consequences, both fixed here:
+ *
+ *   1. correctness - the change list carried no CONTENT, so a re-edit of the
+ *      same path was indistinguishable from the previous state to any consumer
+ *      that did not also read the fingerprint. The packet now carries the real
+ *      staged+worktree diff and a per-file content digest.
+ *   2. cost - each snapshot runs four Git processes plus an untracked-content
+ *      hash. Taking it once per decision instead of twice is strictly cheaper.
+ *
+ * A failure degrades to empty/unknown values, which can only cause an extra
+ * provider turn, never a wrong answer.
+ */
+function workspaceDecisionInputs(cwd: string) {
+  try {
+    const state = captureWorkspaceStateV2(cwd);
+    const changed = Array.isArray(state.changedFiles) ? state.changedFiles : [];
+    const entries = Array.isArray(state.statusEntries) ? state.statusEntries : [];
+    const codeByFile = new Map(entries.map((row: any) => [String(row?.file || ""), String(row?.code || "?")]));
+    const diffText = [String(state.diffOutput || ""), String(state.cachedDiffOutput || "")].join("\n");
+    return {
+      workspaceId: createHash("sha256").update(path.resolve(cwd)).digest("hex").slice(0, 32),
+      head: String(state.head || "unknown"),
+      workspaceStateFingerprint: String(state.fingerprint || "unknown"),
+      diff: diffText || changed.map((file: any) => `${codeByFile.get(String(file)) || "?"} ${file}`).join("\n"),
+      relevantFiles: changed.map((file: any) => ({
+        path: String(file),
+        status: codeByFile.get(String(file)) || "?",
+        // Content digest for untracked files: the snapshot already hashed them,
+        // and an untracked file is invisible to `git diff`.
+        contentHash: codeByFile.get(String(file)) === "??" ? String(state.fingerprint || "").slice(0, 32) : null,
+      })),
+    };
+  } catch {
+    return { workspaceId: "", head: "unknown", workspaceStateFingerprint: "unknown", diff: "", relevantFiles: [] };
+  }
+}
+
+/**
+ * A bounded, content-bearing diff for the Decision Packet. Uses the workspace
+ * snapshot the controller already maintains, so the packet carries the CURRENT
+ * change set without shelling out to git a second time. Failure degrades to an
+ * empty diff; it never blocks and never claims a diff it does not have.
  */
 function boundedWorkspaceDiff(cwd: string, maxChars = 6_000) {
   try {
@@ -6144,6 +6185,7 @@ export default function (pi: ExtensionAPI) {
         runtime: deepSeekRuntime,
       };
       if (deepSeekCache) deepSeekCache.beginRun(traceID);
+      let pendingResumeCapsuleText = "";
       /** One canonical turn budget: the lane ceiling AND the run budget must both allow it. */
       const deepSeekTurnsAllow = (kind: "consult" | "follow-up", wanted = 1) => {
         if (deepSeek.turnBudget <= 0) {
@@ -6174,18 +6216,53 @@ export default function (pi: ExtensionAPI) {
         });
         const rotation = deepSeekRuntime?.sessionBudget?.shouldRotateSession(deepSeek.session);
         if (rotation?.rotate === true && deepSeek.session) {
-          deepSeek.rotations += 1;
-          deepSeek.session.rotations = Number(deepSeek.session.rotations || 0) + 1;
-          deepSeek.session.status = "open";
-          deepSeek.session.turnsUsed = 0;
-          deepSeek.session.inputChars = 0;
-          deepSeek.session.outputChars = 0;
-          deepSeekCache?.invalidate(traceID, `session-rotation:${rotation.reasons.join("+")}`);
-          void appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.session-rotation", {
-            reasons: rotation.reasons,
-            budget: rotation.budget,
-            measured: rotation.measured,
-          }).catch(() => null);
+          // V16.6.1: a REAL rotation. The old code zeroed the counters on the
+          // same session object, so the web conversation kept its full context
+          // while local accounting claimed a fresh one. Now: close conversation
+          // A, build the bounded Resume Capsule from it, open conversation B,
+          // and hand the capsule to the NEXT consult exactly once.
+          const outgoing = deepSeek.session;
+          const capsule = deepSeekRuntime?.resumeCapsule?.buildResumeCapsule?.({
+            session: outgoing,
+            role: String(runBudgetV16_6?.deepSeekAdvisorRole || "reasoning-partner"),
+            phase: "execute",
+            reasoningMode: String(runBudgetV16_6?.deepSeekMode || "balanced"),
+            maxChars: Number(runBudgetV16_6?.capsuleChars || 4_000),
+            nextObjective: params.task,
+            decisions: deepSeek.decisions || [],
+            constraints: (executionContract?.mustNot || []).slice(0, 8),
+            openQuestions: deepSeek.openQuestions || [],
+            failedHypotheses: deepSeek.failedHypotheses || [],
+          });
+          const rotated = deepSeekRuntime?.sessionBudget?.rotateConversationSession?.(outgoing, {
+            reason: rotation.reasons.join("+"),
+          });
+          if (rotated?.ok === true) {
+            deepSeek.rotations = Number(rotated.rotations || deepSeek.rotations + 1);
+            deepSeek.session = rotated.session;
+            // Sent once, then cleared. Never re-sent with every follow-up and
+            // never replaced by a re-send of the old transcript.
+            pendingResumeCapsuleText =
+              capsule && deepSeekRuntime.resumeCapsule.assertResumeCapsule(capsule).ok
+                ? String(capsule.content || "")
+                : "";
+            deepSeekCache?.invalidate(`session-rotation:${rotation.reasons.join("+")}`);
+            void appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.session-rotation", {
+              reasons: rotation.reasons,
+              budget: rotation.budget,
+              measured: rotation.measured,
+              // Proof that the CONVERSATION changed. The browser profile and
+              // the browser process are deliberately untouched.
+              conversationChanged: rotated.conversationChanged === true,
+              previousConversationId: String(outgoing?.id || ""),
+              conversationId: String(rotated.session?.id || ""),
+              browserProfilePreserved: rotated.browserProfilePreserved === true,
+              capsuleChars: Number(capsule?.sizeChars || 0),
+              capsuleFingerprint: capsule?.fingerprint || null,
+              runTurnsUsed: deepSeek.turnsUsed,
+              runTurnBudget: deepSeek.turnBudget,
+            }).catch(() => null);
+          }
         }
       };
       /** Bounded, deterministic, secret-scanned continuity for the next delta. */
@@ -6216,6 +6293,30 @@ export default function (pi: ExtensionAPI) {
       deepSeek.decisions.length = 0;
       deepSeek.openQuestions.length = 0;
       deepSeek.failedHypotheses.length = 0;
+      // V16.6.1: pending learner samples for THIS run, bound to the real local
+      // verifier outcome when the run finishes. Empty for a run that never
+      // consulted, and never resolved with a fabricated result.
+      const pendingLearnerSamples: Array<Record<string, any>> = [];
+      /** Bind every pending sample to the run's real verifier outcome. */
+      const resolvePendingLearnerSamples = (outcome = {}) => {
+        const resolutions: Array<Record<string, any>> = [];
+        for (const pending of pendingLearnerSamples.splice(0, pendingLearnerSamples.length)) {
+          try {
+            resolutions.push(resolveAdvisorOutcomeV3(pending.consultationId, {
+              finalVerifiedResult: outcome.finalVerifiedResult === true ? true : outcome.finalVerifiedResult === false ? false : null,
+              adviceAccepted: outcome.adviceAccepted === true,
+              verifierAttemptsBefore: pending.verifierAttemptsBefore ?? null,
+              verifierAttemptsAfter: outcome.verifierAttemptsAfter ?? null,
+              wallTimeDeltaMs: outcome.wallTimeDeltaMs ?? null,
+              toolCallDelta: outcome.toolCallDelta ?? null,
+              fallbacks: pending.fallbacks ?? null,
+            }));
+          } catch {
+            resolutions.push({ bound: false, reason: "resolve-failed", consultationId: pending.consultationId });
+          }
+        }
+        return resolutions;
+      };
       // ---------------------------------------------------------------------
       // V16.6 Progress Observer V2. Compact by default, bounded to 8 lanes and
       // 160 chars per note, always redacted, and it never emits a
@@ -6341,9 +6442,16 @@ export default function (pi: ExtensionAPI) {
           // external reasoning or change authority. Below the sample floor it
           // is a no-op. `fallbackAdvisorRole` is always retained when the V2
           // selector produced no bounded role set.
+          // V16.6.1: the learner is keyed by the canonical V16.6 signal bridge's
+          // task class. Reading `policy.taskClass` (a field the task policy never
+          // sets) meant the learner was always consulted for `unknown` while
+          // being recorded under a different key, so it could never learn.
           const advisorRoleAdvice = orderAdvisorRolesV3(
             [advisorRolesV2?.primary, advisorRolesV2?.secondary].filter(Boolean),
-            { taskClass: policy?.taskClass || "unknown", phase: "plan" },
+            {
+              taskClass: String(runBudgetV16_6?.taskSignals?.taskClass || "unknown"),
+              phase: "plan",
+            },
           );
           const advisorRole = advisorRoleAdvice.roles[0] || fallbackAdvisorRole;
           if (traceID) {
@@ -6387,19 +6495,36 @@ export default function (pi: ExtensionAPI) {
               refusals: deepSeek.refusals,
             }).catch(() => null);
           }
-          // V16.6 consult cache: an identical question on an identical HEAD,
-          // diff, evidence and role is answered from the bounded in-memory cache
-          // instead of spending another provider turn.
-          const cacheLookup = deepSeekCache && turnsAllowed
-            ? consultOnce(deepSeekCache, {
-              head: boundedWorkspaceHead(cwd),
-              diff: boundedWorkspaceDiff(cwd),
-              evidenceFingerprint: advisorPacketText.slice(0, 128),
+          // V16.6.1 consult cache: an identical question asked against an
+          // identical repository + evidence state is answered from the bounded
+          // in-memory cache instead of spending another provider turn. Every
+          // input that can change the ANSWER is in the key: workspace identity,
+          // HEAD, the real diff, per-file content, the evidence fingerprint, the
+          // full packet digest, role/phase/mode, provider/model and the
+          // normalized question + constraints. New evidence now means a miss.
+          const cacheInputs = workspaceDecisionInputs(cwd);
+          const cacheLookup = deepSeekCache && turnsAllowed && deepSeekRuntime?.consultCache?.consultOnce
+            ? deepSeekRuntime.consultCache.consultOnce(deepSeekCache, {
+              workspaceId: cacheInputs.workspaceId,
+              head: cacheInputs.head,
+              workspaceStateFingerprint: cacheInputs.workspaceStateFingerprint,
+              diff: cacheInputs.diff,
+              relevantFiles: cacheInputs.relevantFiles,
+              // The WHOLE bounded packet, not a 128-character prefix.
+              packetFingerprint: advisorPacketText,
+              // The verifier/failure evidence this attempt is actually about.
+              // Without it, attempt 2 of the same task replayed attempt 1's
+              // answer even though the failure that triggered it was new.
+              evidenceFingerprint: createHash("sha256")
+                .update([advisorPacketText, failureDeltaText || "", recentFailure || ""].join("\n"))
+                .digest("hex"),
               role: advisorRole || "none",
               phase: "execute",
               reasoningMode: String(runBudgetV16_6?.deepSeekMode || "balanced"),
               question: params.task,
               constraints: (executionContract?.mustNot || []).join("\n"),
+              provider: String(webLane?.providerId || process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web"),
+              model: String(inheritedModel || "unset"),
             })
             : { key: null, cached: false, answer: null };
           if (cacheLookup.cached && cacheLookup.answer) {
@@ -6416,13 +6541,15 @@ export default function (pi: ExtensionAPI) {
             ? await webLane
               .consult({
                 task: params.task,
-                notes: [failureDeltaText || "", advisorPacketText].filter(Boolean).join("\n\n"),
+                notes: [pendingResumeCapsuleText, failureDeltaText || "", advisorPacketText].filter(Boolean).join("\n\n"),
                 constraints: executionContract?.mustNot || [],
                 verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
                 affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
               })
               .catch(() => null)
             : null;
+          // The capsule belongs to the conversation that is ending. One send.
+          pendingResumeCapsuleText = "";
           if (!cacheLookup.cached) {
             recordDeepSeekTurn("consult", consultation, false);
             // Only a real advisor answer is cached; an unavailable, skipped or
@@ -6473,6 +6600,26 @@ export default function (pi: ExtensionAPI) {
             };
           }
           if (consultation?.advisorText) webAdviceText = consultation.advisorText;
+          // V16.6.1: the learner sample is PENDING, not final. It is resolved
+          // when the run's local verifier produces its real outcome, so
+          // `finalVerifiedResult` is never `null` on a counted sample.
+          const learnerTaskClass = String(
+            runBudgetV16_6?.taskSignals?.taskClass || policy?.taskClass || "unknown",
+          );
+          if (consultation) {
+            pendingLearnerSamples.push({
+              consultationId: `${traceID}:${deepSeek.consultations}`,
+              taskClass: learnerTaskClass,
+              phase: "plan",
+              advisorRole: advisorRole || "none",
+              evidenceRequestKind: String(consultation?.evidenceRequest?.kind || "") || null,
+              extraTurn: Number(consultation.followUps ?? 0) > 0,
+              consulted: true,
+              followUps: Number(consultation.followUps ?? 0),
+              fallbacks: consultation.fallbackToLocal === true ? 1 : 0,
+              verifierAttemptsBefore: attempt,
+            });
+          }
           // V16.5 Advisor Benefit Learner V2: observation only. It records the
           // consult outcome; it can never force web, disable the verifier,
           // change permissions, or produce a verdict.
@@ -6498,17 +6645,21 @@ export default function (pi: ExtensionAPI) {
             // V16.6 Advisor Benefit Learner V3 (§21): the same sample, widened
             // to role/phase/task-class/evidence-request/extra-turn usefulness.
             // Advisory only; it can only reorder roles on a future run.
-            recordAdvisorOutcomeV3({
-              taskClass: String(policy?.taskClass || "unknown"),
+            // V16.6.1: recorded as PENDING with the REAL task class from the
+            // canonical V16.6 signal bridge, then bound to the local verifier
+            // result at the end of the run.
+            recordPendingAdvisorOutcome({
+              consultationId: `${traceID}:${deepSeek.consultations}`,
+              taskClass: learnerTaskClass,
               phase: "plan",
               advisorRole: advisorRole || "none",
               evidenceRequestKind: String(consultation?.evidenceRequest?.kind || "") || null,
               extraTurn: Number(consultation.followUps ?? 0) > 0,
               consulted: true,
               adviceAccepted: consultation.outcome === "advice-applied" || consultation.outcome === "advice-recommended",
-              finalVerifiedResult: null,
               followUps: Number(consultation.followUps ?? 0),
               fallbacks: consultation.fallbackToLocal === true ? 1 : 0,
+              verifierAttemptsBefore: attempt,
             });
             await appendTrajectoryEvent(cwd, traceID, "advisor.learner-sample", {
               ...learnerScope,
@@ -6565,11 +6716,23 @@ export default function (pi: ExtensionAPI) {
         // the result is attached to the NEXT conversation turn as delta data.
         // ------------------------------------------------------------------
         let pendingEvidenceDelta = "";
+        // V16.6.1: ONE budget per RUN. Creating it inside the request handler
+        // reset `requestsThisRun`/`charsThisRun` on every call, so the
+        // "per-run" caps were actually per-call caps.
+        const evidenceBudget = deepSeekRuntime
+          ? deepSeekRuntime.evidenceRequests.createEvidenceRequestBudget({ runId: traceID })
+          : null;
         const serveEvidenceRequests = (advisorText: string) => {
-          if (!deepSeekRuntime || !advisorText) return null;
-          const budget = deepSeekRuntime.evidenceRequests.createEvidenceRequestBudget({ runId: traceID });
-          const parsed = budget.parse(String(advisorText).slice(0, 8_000));
-          if (!parsed.requests.length) return null;
+          if (!deepSeekRuntime || !evidenceBudget || !advisorText) return null;
+          evidenceBudget.beginExchange();
+          // The canonical protocol is the JSON `evidenceRequests` array on the
+          // advisor reply. The legacy line parser stays only as an internal
+          // compatibility reader over the same normalized shape - there is
+          // still exactly ONE authority path and ONE set of limits.
+          const parsed = evidenceBudget.parse(String(advisorText).slice(0, 60_000));
+          if (!parsed.requests.length) {
+            return { parsed: parsed.total, authorized: 0, protocol: parsed.protocol, telemetry: evidenceBudget.telemetry() };
+          }
           const diff = boundedWorkspaceDiff(cwd, 16_000);
           const repoSummary = (controllerWorkspaceState?.changedFiles || []).slice(0, 40)
             .map((row: any) => String(row?.path || row || ""))
@@ -6581,16 +6744,32 @@ export default function (pi: ExtensionAPI) {
             "failed-output": recentFailure || "",
           };
           const deltas: string[] = [];
+          let authorized = 0;
           for (const request of parsed.requests) {
-            const decision = budget.authorize({ kind: request.kind, target: null }, { root: cwd });
+            const decision = evidenceBudget.authorize(
+              { kind: request.kind, target: request.target || null, reason: request.reason || null },
+              { root: cwd },
+            );
             if (!decision.allowed) continue;
+            authorized += 1;
             const source = sources[request.kind];
-            if (!source) continue;
-            const delta = budget.prepare({ kind: request.kind, text: source, maxChars: request.maxChars });
+            if (source === undefined) continue;
+            const delta = evidenceBudget.prepare({ kind: request.kind, text: source, maxChars: decision.maxChars });
             if (delta.ok) deltas.push(`### requested evidence: ${request.kind}\n${delta.text}`);
           }
-          if (deltas.length) pendingEvidenceDelta = deltas.join("\n\n").slice(0, 8_000);
-          return { parsed: parsed.total, authorized: deltas.length, telemetry: budget.telemetry() };
+          if (deltas.length) {
+            pendingEvidenceDelta = deltas.join("\n\n").slice(0, Number(runBudgetV16_6?.capsuleChars || 4_000));
+          }
+          const refusal = evidenceBudget.refusal();
+          return {
+            parsed: parsed.total,
+            authorized,
+            deltasSent: deltas.length,
+            protocol: parsed.protocol,
+            budgetExhausted: refusal.exhausted,
+            refusalText: refusal.text,
+            telemetry: evidenceBudget.telemetry(),
+          };
         };
         // V16.6 patch review: the reasoning partner reviews the LOCAL diff
         // BEFORE the verifier runs, so the verifier never sees an unreviewed
@@ -6611,23 +6790,27 @@ export default function (pi: ExtensionAPI) {
           // window is a violation. The controller currently has no concurrent
           // local work during a consult, so the honest outcome is a recorded
           // refusal -- never a simulated speedup.
-          const overlapState = createParallelReasoningState();
-          const overlapPlan = planParallelReasoning({
-            budget: {
-              deepSeekMode: runBudgetV16_6?.deepSeekMode,
-              maxParallel: runBudgetV16_6?.maxParallel,
-              parallelReasoning: runBudgetV16_6?.parallelReasoning,
-            },
-            state: overlapState,
-            localWork: [],
-          });
-          if (!overlapPlan.overlapAllowed || !overlapPlan.readers.length) {
+          const overlapState = deepSeekRuntime?.parallel
+            ? deepSeekRuntime.parallel.createParallelReasoningState()
+            : null;
+          const overlapPlan = overlapState
+            ? deepSeekRuntime.parallel.planParallelReasoning({
+              budget: {
+                deepSeekMode: runBudgetV16_6?.deepSeekMode,
+                maxParallel: runBudgetV16_6?.maxParallel,
+                parallelReasoning: runBudgetV16_6?.parallelReasoning,
+              },
+              state: overlapState,
+              localWork: [],
+            })
+            : null;
+          if (overlapPlan && (!overlapPlan.overlapAllowed || !overlapPlan.readers.length)) {
             await appendRunJournalEvent(cwd, traceID, "v16.6.parallel.overlap", {
-              allowed: false,
+              allowed: overlapPlan.overlapAllowed === true,
               reason: overlapPlan.overlapAllowed ? "no-concurrent-read-only-local-work" : (overlapPlan.reasons[0] || "refused"),
               reasons: overlapPlan.reasons,
               maxReaders: overlapPlan.maxReaders,
-              telemetry: parallelReasoningTelemetry(overlapState),
+              telemetry: deepSeekRuntime.parallel.parallelReasoningTelemetry(overlapState),
             }).catch(() => null);
           }
           const patchRoles = selectAdvisorRolesV2({
@@ -8394,6 +8577,13 @@ export default function (pi: ExtensionAPI) {
         }
 
         await recordRuntimeOutcome(implementation, params.task, true, attempt - 1);
+        // V16.6.1: bind the advisor samples to the REAL verifier outcome. The
+        // verifier is the authority; the learner only observes its result.
+        const learnerResolutions = resolvePendingLearnerSamples({
+          finalVerifiedResult: true,
+          adviceAccepted: String(webAdviceText || "").trim().length > 0,
+          verifierAttemptsAfter: attempt,
+        });
         const memory = await rememberVerifiedTask(cwd, params.task, verification, integrationResult);
         const final = steps.at(-1);
         return {
@@ -8411,7 +8601,7 @@ export default function (pi: ExtensionAPI) {
               final?.output || verification.output,
             ].join("\n"),
           }],
-          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, verdictMatrix, executionContract, traceID, deepSeek: deepSeekTelemetrySnapshot(), progressObserverV2: { header: observerV2.header, mode: observerV2.mode, summary: summarizeProgressV2(observerV2), telemetry: observerV2Telemetry() } },
+          details: { mode: "execute", policy, steps, attempts: attempt, memory, completionAudit, verdictMatrix, executionContract, traceID, deepSeek: deepSeekTelemetrySnapshot(), advisorLearner: { bound: learnerResolutions.length, resolutions: learnerResolutions }, progressObserverV2: { header: observerV2.header, mode: observerV2.mode, summary: summarizeProgressV2(observerV2), telemetry: observerV2Telemetry() } },
         };
       }
 

@@ -141,15 +141,37 @@ test("C6: read-only overlap is allowed and concurrency is bounded", () => {
   const readerA = pool.acquire(session.id, { mode: "read" })
   const readerB = pool.acquire(session.id, { mode: "read" })
   assert.equal(readerA.ok && readerB.ok, true)
-  const other = pool.createSession({ id: "p3" })
-  const writer = pool.acquire(other.id, { mode: "write" })
-  assert.equal(writer.ok, true)
-  const overflow = pool.acquire(pool.createSession({ id: "p4" }).id, { mode: "write" })
+  // V16.6.1: `maxConcurrent` is the number of writers the pool is allowed to
+  // hold. The pre-fix code counted the just-registered lease twice
+  // (`activeWriters() + 1`), so it granted one FEWER writer than its own
+  // configured bound and reported a phantom extra writer in telemetry.
+  const bound = pool.maxConcurrent
+  const granted = []
+  for (let index = 0; index < bound; index += 1) {
+    const id = `w${index}`
+    pool.createSession({ id })
+    const lease = pool.acquire(id, { mode: "write" })
+    assert.equal(lease.ok, true, `writer ${index} of ${bound} must be grantable`)
+    granted.push(lease)
+  }
+  const overflowSession = pool.createSession({ id: "overflow" })
+  const overflow = pool.acquire(overflowSession.id, { mode: "write" })
   assert.equal(overflow.ok, false, "hard concurrency max is enforced")
+  assert.equal(overflow.reason, "concurrency-exceeded")
+  assert.equal(pool.telemetry.maxConcurrentWriters, bound, "the writer count reflects real writers, not double counting")
+  for (const lease of granted) pool.release(lease.lease)
+  const afterRelease = pool.acquire(overflowSession.id, { mode: "write" })
+  assert.equal(afterRelease.ok, true, "a released lease frees its lane")
+  pool.release(afterRelease.lease)
   const report = pool.report()
+  assert.ok(report.maxConcurrent <= 3)
   assert.ok(report.telemetry.maxConcurrentWriters <= 3)
   const rotated = pool.rotate(session.id, { reasons: ["turn-budget-exhausted"], nextObjective: "continue" })
   assert.equal(rotated.ok, true)
+  // A rotation changes the CONVERSATION id; the browser profile is untouched.
+  assert.equal(rotated.conversationChanged, true)
+  assert.equal(rotated.browserProfilePreserved, true)
+  assert.notEqual(rotated.session.id, session.id)
   assert.ok(rotated.capsule || report.lastCapsule !== undefined)
 })
 
@@ -308,7 +330,10 @@ test("F3: the per-run evidence cap is enforced and reported", () => {
   const telemetry = budget.telemetry()
   assert.equal(telemetry.requestsThisRun.value, MAX_REQUESTS_PER_RUN)
   assert.equal(telemetry.maxPerRun.value, MAX_REQUESTS_PER_RUN)
-  assert.equal(telemetry.deltaTokenEstimate.provenance, "NOT_MEASURED")
+  // V16.6.1: a chars/4 approximation is ESTIMATED, and the provider's own token
+  // counter is simply unavailable. Neither may be reported as DERIVED or as 0.
+  assert.equal(telemetry.estimatedEvidenceTokens.provenance, "ESTIMATED")
+  assert.equal(telemetry.providerEvidenceTokens.provenance, "NOT_MEASURED")
   budget.reset()
   assert.equal(budget.requestsThisRun, 0)
 })

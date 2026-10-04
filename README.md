@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![CI](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml)
 
-`opencode-agent-skill` · version **16.6.0** · host **Pi Agent** · runtime **Node.js >= 22.19**
+`opencode-agent-skill` · version **16.6.1** · host **Pi Agent** · runtime **Node.js >= 22.19**
 
-<!-- ues-version: 16.6.0 -->
+<!-- ues-version: 16.6.1 -->
 
 ---
 

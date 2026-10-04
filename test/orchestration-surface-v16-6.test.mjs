@@ -33,6 +33,7 @@ import {
 import {
   PROGRESS_MODES,
   createProgressObserverV2,
+  observerSecretScan,
   observerHeaderV2,
   progressTelemetryV2,
   recordProgressV2,
@@ -218,15 +219,37 @@ test("I3: notes are redacted and bounded, and lanes are capped", () => {
   assert.ok(!/hunter2hunter2/.test(sanitizeNote("password=hunter2hunter2")))
 })
 
-test("I4: observer telemetry claims zero chain-of-thought and zero secrets", () => {
+test("I4: observer telemetry is honest about secrets and chain-of-thought", () => {
   const observer = createProgressObserverV2({ mode: "detailed", profile: "DEEP", phase: "execute" })
   recordProgressV2(observer, "phase", { note: "api_key=sk-abcdef1234567890abcdef" })
   const telemetry = progressTelemetryV2(observer)
-  assert.equal(telemetry.chainOfThoughtEmitted.value, 0)
+  // V16.6.1: `secretsEmitted` is now the result of a REAL post-render scan over
+  // the exact lines the observer prints - not an asserted constant. The redaction
+  // path means the scan finds nothing.
+  assert.equal(telemetry.secretsEmitted.provenance, "MEASURED")
   assert.equal(telemetry.secretsEmitted.value, 0)
+  assert.ok(telemetry.renderedLinesScanned.value >= 1)
+  assert.deepEqual(telemetry.secretScanHits, [])
+  // Chain of thought is a POLICY INVARIANT, not an empirical zero. Reporting it
+  // as `measured(0)` claimed a measurement that never ran.
+  assert.equal(telemetry.chainOfThoughtEmitted.provenance, "NOT_MEASURED")
+  assert.equal(telemetry.chainOfThoughtEmitted.value, null)
+  assert.equal(telemetry.chainOfThought.possible, false)
+  assert.equal(telemetry.chainOfThought.basis, "policy-invariant")
   assert.ok(telemetry.redactions.value >= 1)
   assert.equal(renderProgressV2(observer)[0].startsWith("UES 16.6 ·"), true)
   assert.match(summarizeProgressV2(observer), /phase=execute/)
+})
+
+test("I4b: the observer secret scan really scans (a leak would be reported)", () => {
+  // The scan is a function over the rendered lines, so it can be proven live
+  // rather than asserted: feed it a real leak and it must be reported.
+  const clean = observerSecretScan(["nothing sensitive here", "phase=execute"]);
+  assert.equal(clean.hits.length, 0);
+  assert.equal(clean.lines, 2);
+  const leak = observerSecretScan(["token sk-abcdef1234567890abcdef"]);
+  assert.equal(leak.hits.length, 1, "a real leak must be measured, not assumed away");
+  assert.match(leak.hits[0], /sk-abcdef/);
 })
 
 test("J1: overlap requires read-only local work and exactly one DeepSeek writer", () => {
@@ -296,15 +319,32 @@ test("J4: overlap telemetry measures only what it can measure", () => {
   assert.equal(unmeasured.overlapMs.provenance, "NOT_MEASURED")
 })
 
-test("K1: known noise families are detected", () => {
+test("K1: known noise families are detected, and unique warnings are NOT noise", () => {
   const noisy = [
+    "added 120 packages",
+    "audited 121 packages in 400ms",
+    "packages are looking for funding",
+    "npm audit: no vulnerabilities found",
+  ].join("\n")
+  const families = detectNoiseFamilies(noisy)
+  assert.ok(families.includes("dependency-install"), families.join(","))
+
+  // V16.6.1: three DIFFERENT deprecation warnings are unique evidence. The
+  // previous PRESERVE pattern let them through the noise path where the
+  // consecutive-family collapse merged them into a single line, losing three
+  // distinct package names.
+  const uniqueDeprecations = [
     "npm WARN deprecated package@1.0.0",
     "npm WARN deprecated other@2.0.0",
     "npm WARN deprecated third@3.0.0",
     "npm ERR! code ELIFECYCLE",
   ].join("\n")
-  const families = detectNoiseFamilies(noisy)
-  assert.ok(families.length >= 1)
+  const deprecationResult = compressRepetitiveOutput(uniqueDeprecations, { enabled: true })
+  assert.equal(deprecationResult.compressed, false, "unique deprecation evidence is never collapsed")
+  assert.equal(deprecationResult.text, uniqueDeprecations)
+  assert.ok(deprecationResult.families.length === 0)
+  // The `up to date` typo fix: npm's real line is now recognised.
+  assert.ok(detectNoiseFamilies("up to date in 2s").includes("dependency-install"))
 })
 
 test("K2: compression is byte-identical when nothing qualifies", () => {
@@ -318,20 +358,26 @@ test("K2: compression is byte-identical when nothing qualifies", () => {
 
 test("K3: compression keeps every preserved line and is provably lossless", () => {
   const noisy = [
-    ...Array.from({ length: 12 }, (_, index) => `npm WARN deprecated pkg-${index}@1.0.0`),
+    // Genuinely no-signal repetition: the same progress shape over and over.
+    ...Array.from({ length: 12 }, (_, index) => `[██████░░░░] ${index % 3 + 1}/12 resolving dependencies`),
     "src/lib/x.mjs:42:13 something broke",
     "npm ERR! code ELIFECYCLE",
+    // Unique deprecation evidence interleaved with the noise.
+    "npm WARN deprecated pkg-a@1.0.0",
+    "npm WARN deprecated pkg-b@2.0.0",
   ].join("\n")
   const result = compressRepetitiveOutput(noisy, { enabled: true })
   const audit = assertNoLossyTransform(noisy, result.text)
   assert.equal(audit.ok, true, audit.violations.join("; "))
   assert.ok(result.text.includes("src/lib/x.mjs:42:13"), "the real error line survives")
   assert.ok(result.text.includes("npm ERR!"), "the failure line survives")
+  assert.ok(result.text.includes("npm WARN deprecated pkg-a@1.0.0"), "unique deprecation evidence survives")
+  assert.ok(result.text.includes("npm WARN deprecated pkg-b@2.0.0"), "a second unique deprecation survives")
   assert.ok(result.text.length < noisy.length, "compression must actually shrink the output")
 })
 
 test("K4: economy telemetry reports measured savings, not invented ones", () => {
-  const noisy = Array.from({ length: 40 }, (_, index) => `npm WARN deprecated pkg-${index}@1.0.0`).join("\n")
+  const noisy = Array.from({ length: 40 }, (_, index) => `[████████░░] ${index % 5 + 1}/40 installing packages`).join("\n")
   const result = compressRepetitiveOutput(noisy, { enabled: true })
   const telemetry = toolOutputEconomyTelemetry(result)
   assert.equal(telemetry.rawOutputChars.value, noisy.length)
@@ -340,6 +386,9 @@ test("K4: economy telemetry reports measured savings, not invented ones", () => 
   assert.ok(telemetry.runsCollapsed.value >= 1)
   assert.equal(telemetry.providerTokensSaved.provenance, "NOT_MEASURED", "no invented provider savings")
   assert.equal(telemetry.transformMs.provenance, "NOT_MEASURED")
+  // V16.6.1: chars/4 is an ESTIMATE. Reporting it as DERIVED overstated it.
+  assert.equal(telemetry.estimatedSavedTokens.provenance, "ESTIMATED")
+  assert.equal(telemetry.savedChars.provenance, "DERIVED")
 })
 
 test("K5: the task telemetry v16_6 block is additive and provenance-labelled", () => {

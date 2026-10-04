@@ -578,14 +578,39 @@ test("V16.4 J2b: an explicit maxFollowUps of 2 still honors the hard max", async
   const { calls, adapter } = fakeAdapter();
   const lane = createWebReasoningLane({ mode: "auto", adapters: [adapter], maxFollowUps: 2 });
   await lane.consult({ task: "ambiguous root cause across modules", knownFiles: ["lib/browser-lane.mjs"] });
+  // V16.6.1: the SECOND follow-up is gated on verified fresh evidence by
+  // lib/followup-budget.mjs. Declaring maxFollowUps:2 sets the ceiling, not the
+  // grant. The first is always allowed; the second needs the gate.
+  const withoutGate = [];
   for (let index = 0; index < 4; index += 1) {
-    await lane.followUp({
+    withoutGate.push(await lane.followUp({
       task: "ambiguous root cause across modules",
       evidence: [{ kind: "verifier", text: `failure evidence ${index}` }],
-    });
+    }));
   }
+  assert.equal(calls.followUp, 1, "a second follow-up without verified fresh evidence is refused");
+  assert.equal(lane.state().followUps, 1);
+  assert.equal(withoutGate.at(-1).reason, "no-fresh-verifier-evidence");
+  // With the gate satisfied, the second follow-up IS allowed - and only the second.
+  const gated = await lane.followUp({
+    task: "ambiguous root cause across modules",
+    evidence: [{ kind: "verifier", text: "new failure evidence" }],
+    freshVerifierEvidence: true,
+    evidenceFingerprintChanged: true,
+    benefitExceedsCost: true,
+  });
   assert.equal(calls.followUp, 2, "the hard-max follow-up budget is 2");
   assert.equal(lane.state().followUps, 2);
+  assert.equal(gated.outcome !== "skipped", true);
+  const overBudget = await lane.followUp({
+    task: "ambiguous root cause across modules",
+    evidence: [{ kind: "verifier", text: "yet more evidence" }],
+    freshVerifierEvidence: true,
+    evidenceFingerprintChanged: true,
+    benefitExceedsCost: true,
+  });
+  assert.equal(overBudget.reason, "follow-up-budget-exhausted", "the hard max is never exceeded");
+  assert.equal(calls.followUp, 2);
 });
 
 // ---------------------------------------------------------------------------
