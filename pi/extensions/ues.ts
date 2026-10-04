@@ -28,6 +28,28 @@ import { PiRpcWorkerPool } from "../../lib/pi-rpc-pool.mjs";
 import { resolvePiChildInvocation } from "../../lib/pi-child-invocation.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-compiler.mjs";
+import { buildMicroSkillContext, phaseToolPriorities } from "../../lib/v16-5-runtime.mjs";
+import {
+  DELEGATION_ROLES,
+  buildChildContext,
+  cancelAllChildren,
+  createDelegationSession,
+  decideDelegation,
+  delegationSummary,
+  finalizeChild,
+  registerChild,
+} from "../../lib/subagent-fabric.mjs";
+import { assessParallelSafety, classifyScope } from "../../lib/delegation-safety.mjs";
+import {
+  createDelegationFleetTelemetry,
+  delegationFleetTelemetry,
+  resolveFleetConcurrency,
+  runDelegationWave,
+} from "../../lib/delegation-fleet.mjs";
+import { createHandoffCapsule, renderHandoffCapsule } from "../../lib/verified-handoff.mjs";
+import { buildAdvisorPacket, selectAdvisorRole } from "../../lib/deepseek-advisor-roles.mjs";
+import { advisorWeightV2, recordAdvisorOutcomeV2 } from "../../lib/advisor-benefit-learner-v2.mjs";
+import { createProgressObserver, renderProgress, upsertLane } from "../../lib/agent-progress-observer.mjs";
 import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
 import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
@@ -1255,6 +1277,14 @@ async function runAgentCli(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
+  // V16.5 task-phase tool priority. The V16.2 compileToolSurface call below
+  // stays the final advertised-surface authority and stable-prefix owner; this
+  // only ranks tools the current phase actually needs.
+  const phasePriority = phaseToolPriorities({
+    task,
+    universe: candidateTools,
+    writer: WRITE_AGENTS.has(agent),
+  }).priority;
   const coreTools = coreToolPriorities(candidateTools, {
     task,
     writer: WRITE_AGENTS.has(agent),
@@ -1262,7 +1292,7 @@ async function runAgentCli(
     editStrategy: modelProfile?.editStrategy || "",
     platform: process.platform,
     compactToolOutput: runtimeOptions.compactToolOutput === true,
-    extraTools,
+    extraTools: [...extraTools, ...phasePriority],
   });
   const toolSurfaceEconomy = compileToolSurface(candidateTools, modelProfile, coreTools, {
     task,
@@ -1740,6 +1770,14 @@ async function runAgentRpc(
     ...extraTools,
     ...(runtimeOptions.compactToolOutput ? ["ues_evidence_get"] : []),
   ])];
+  // V16.5 task-phase tool priority. The V16.2 compileToolSurface call below
+  // stays the final advertised-surface authority and stable-prefix owner; this
+  // only ranks tools the current phase actually needs.
+  const phasePriority = phaseToolPriorities({
+    task,
+    universe: candidateTools,
+    writer: WRITE_AGENTS.has(agent),
+  }).priority;
   const coreTools = coreToolPriorities(candidateTools, {
     task,
     writer: WRITE_AGENTS.has(agent),
@@ -1747,7 +1785,7 @@ async function runAgentRpc(
     editStrategy: modelProfile?.editStrategy || "",
     platform: process.platform,
     compactToolOutput: runtimeOptions.compactToolOutput === true,
-    extraTools,
+    extraTools: [...extraTools, ...phasePriority],
   });
   const toolSurfaceEconomy = compileToolSurface(candidateTools, modelProfile, coreTools, {
     task,
@@ -2742,10 +2780,11 @@ async function runRoutedAgent(
 
     const [microSkillResult, affectedTestResult, reusableVerificationResult] = await Promise.all([
       MICRO_SKILLS_ENABLED
-        ? compileSkillContext(taskPolicy, role, {
-            maxSkills: Math.min(Number(taskPolicy.maxSkills || modelProfile.maxSkillMetadata || 12), Number(modelProfile.maxSkillMetadata || 12)),
-            totalChars: taskPolicy.executionProfile === "fast" ? 1800 : 3200,
-            taskText: task,
+        ? buildMicroSkillContext({
+            taskPolicy,
+            role,
+            task,
+            repoEvidence: (workspaceState.changedFiles || []).slice(0, 40),
           }).catch(() => null)
         : Promise.resolve(null),
       AFFECTED_TEST_HINTS_ENABLED &&
@@ -2889,6 +2928,55 @@ async function runRoutedAgent(
   });
   const startedAt = Date.now();
   const artifactRoot = telemetryRoot;
+
+  // V16.5 Subagent Fabric V2: this specialist run IS a bounded delegation.
+  // The session records identity, depth, cycle guard and no-orphan teardown;
+  // it never spawns a process (the Pi child spawn below remains the only one).
+  const delegationDecision = decideDelegation({
+    task,
+    requestedRole: Object.entries(DELEGATION_ROLES).find(([, spec]) => spec.agent === agent)?.[0] || null,
+    repoEvidence: workspaceState.changedFiles || [],
+  });
+  const delegationSession = createDelegationSession({
+    parentId: `${traceID || "ues-run"}:parent`,
+    runId: String(traceID || ""),
+    parentAgent: "parent",
+  });
+  const progressObserver = createProgressObserver({ phase: "delegation" });
+  const childRegistration = registerChild(delegationSession, {
+    role: Object.entries(DELEGATION_ROLES).find(([, spec]) => spec.agent === agent)?.[0] || "explore",
+    agent,
+    readOnly: !WRITE_AGENTS.has(agent),
+    task,
+    timeoutMs: taskPolicy.risk === "high" ? 900_000 : 600_000,
+  });
+  // Parallelism is only allowed when the scope classifier proves it safe. This
+  // run is serialized with the parent by construction; the report is recorded so
+  // a future wave scheduler inherits a proven-safe baseline.
+  const scopeReport = assessParallelSafety(
+    [classifyScope({ role: childRegistration.ok ? childRegistration.child.role : "explore", readOnly: !WRITE_AGENTS.has(agent), files: workspaceState.changedFiles || [], task })],
+    { maxParallel: 2 },
+  );
+  await appendTrajectoryEvent(traceRoot, traceID, "delegation.decision", {
+    decision: delegationDecision.decision,
+    reasons: delegationDecision.reasons,
+    childRegistered: childRegistration.ok,
+    childId: childRegistration.ok ? childRegistration.child.childId : null,
+    depth: delegationSession.depth,
+    maxActiveChildren: delegationSession.maxActiveChildren,
+    parallelSafe: scopeReport.decision,
+    overlappingScopeBlocks: scopeReport.overlappingScopeBlocks,
+    observerOnly: true,
+  }).catch(() => {});
+  if (childRegistration.ok) {
+    upsertLane(progressObserver, {
+      id: childRegistration.child.role || agent,
+      state: "running",
+      action: `${agent} · depth ${childRegistration.child.depth}`,
+      now: startedAt,
+    });
+  }
+
   const childArtifact = await createSubagentArtifact(artifactRoot, {
     agent,
     role,
@@ -2898,6 +2986,17 @@ async function runRoutedAgent(
     model: selectedModel,
     modelTier: effectiveModelTier,
     workspaceFingerprint,
+    childId: childRegistration.ok ? childRegistration.child.childId : null,
+    freshContextBrief: buildChildContext({
+      role: childRegistration.ok ? childRegistration.child.role : "explore",
+      task,
+      constraints: [
+        "Stay inside the approved task/write scope.",
+        "Do not publish, push, deploy, or weaken a verification gate.",
+      ],
+      relevantFiles: (workspaceState.changedFiles || []).slice(0, 24),
+      skillCapsuleText: microSkills?.v16_5?.active ? microSkills.v16_5.capsuleChars + " bounded capsule chars" : "",
+    }).fingerprint,
   }).catch(() => null);
   if (childArtifact?.handle) {
     try {
@@ -3080,13 +3179,72 @@ async function runRoutedAgent(
       postRun: true,
     }).catch(() => {});
   }
+    // V16.5 Verified Handoff Capsule: raw child output goes to the Evidence
+    // Store; the parent receives a bounded, redacted, non-authoritative summary.
+    let handoffRef: string | null = null;
+    if (childRegistration.ok) {
+      const capsule = await createHandoffCapsule(telemetryRoot, {
+        childId: childRegistration.child.childId,
+        parentId: delegationSession.parentId,
+        role: childRegistration.child.role || role,
+        agent,
+        task,
+        rawOutput: result.output || "",
+        findings: String(result.output || "")
+          .split(/\r?\n/)
+          .map((line: string) => line.replace(/^[-*\s]+/, "").trim())
+          .filter((line: string) => line.length > 24)
+          .slice(0, 10),
+        relevantFiles: (workspaceState.changedFiles || []).slice(0, 20),
+        risks: [`exit ${result.exitCode}`],
+        unresolvedQuestions: Number(result.exitCode || 0) === 0 ? [] : ["child run did not complete; inspect the raw evidence ref"],
+        fileCount: (workspaceState.changedFiles || []).length,
+        evidenceCount: Number(result.toolCalls || 0),
+      }).catch(() => null);
+      if (capsule) {
+        handoffRef = capsule.rawEvidenceRef;
+        const rendered = renderHandoffCapsule(capsule);
+        finalizeChild(delegationSession, childRegistration.child.childId, {
+          exitCode: result.exitCode,
+          stopReason: result.stopReason,
+          outputRef: capsule.rawEvidenceRef,
+          handoffRef,
+        });
+        upsertLane(progressObserver, {
+          id: childRegistration.child.role || agent,
+          state: Number(result.exitCode || 0) === 0 ? "completed" : "failed",
+          action: `${agent} · ${result.toolCalls || 0} tool call(s) · handoff ${rendered.chars} chars`,
+          now: Date.now(),
+        });
+        await appendTrajectoryEvent(traceRoot, traceID, "delegation.handoff", {
+          childId: capsule.childId,
+          role: capsule.role,
+          rawChildChars: capsule.measurements.rawChildChars,
+          handoffChars: capsule.measurements.handoffChars,
+          handoffRatio: capsule.measurements.handoffRatio,
+          rawEvidenceAvailable: capsule.rawEvidenceAvailable,
+          canProducePass: capsule.canProducePass,
+          fingerprint: capsule.fingerprint,
+          progress: renderProgress(progressObserver).summary,
+        }).catch(() => {});
+      }
+    }
     const finalizedChildArtifact = childArtifact?.handle
-    ? await finalizeSubagentArtifact(artifactRoot, childArtifact.handle, {
+      ? await finalizeSubagentArtifact(artifactRoot, childArtifact.handle, {
         ...result,
+        handoffRef,
         durationMs: Date.now() - startedAt,
         verdict: verdictFromOutput(result.output),
       }).catch(() => null)
-    : null;
+      : null;
+    await appendTrajectoryEvent(traceRoot, traceID, "delegation.summary", {
+      ...delegationSummary(delegationSession),
+      decision: delegationDecision.decision,
+      parallelSafe: scopeReport.decision,
+      progress: renderProgress(progressObserver).summary,
+    }).catch(() => {});
+    // No orphan is ever left behind: every non-terminal child is terminated.
+    cancelAllChildren(delegationSession);
   await PARENT_RUNTIME_HOOKS.emit("finalize.before", {
     agent,
     role,
@@ -3455,6 +3613,35 @@ async function executeStructuredPlan(input: {
   );
   const results: any[] = [];
   const integrations: any[] = [];
+
+  // V16.5 bounded parallel delegation.
+  //
+  // The task graph still owns wave ORDER and the writer-isolation worktrees;
+  // lib/delegation-safety.mjs still owns whether a wave is safe. This session
+  // adds the missing runtime half: one bounded, concurrent wave executor with a
+  // measured concurrency budget, per-child timeout/watchdog, cancellation,
+  // no-orphan teardown and deterministic result ordering. It spawns no process
+  // -- every child is still the existing Pi child runtime below.
+  const delegationTelemetry = createDelegationFleetTelemetry();
+  const delegationSession = createDelegationSession({
+    parentId: `${input.traceID || "ues-run"}:controller`,
+    runId: String(input.traceID || ""),
+    parentAgent: "controller",
+    maxActiveChildren: resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
+  });
+  const scheduleReport = () => ({
+    safeWaves: safe.waves,
+    serialized: safe.serialized,
+    dynamic,
+    parallelDelegation: delegationFleetTelemetry(delegationTelemetry),
+    delegationSession: {
+      sessionId: delegationSession.sessionId,
+      depth: delegationSession.depth,
+      hardMaxDepth: delegationSession.hardMaxDepth,
+      maxActiveChildren: delegationSession.maxActiveChildren,
+    },
+  });
+
   const gitProbe = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], input.root, input.signal);
   const gitCapable = gitProbe.exitCode === 0 && gitProbe.stdout.trim() === "true";
 
@@ -3540,15 +3727,18 @@ async function executeStructuredPlan(input: {
 
         let completed = 0;
         const writerCount = prepared.filter((item) => item.writeFiles.length > 0).length;
-        const waveConcurrency = !gitCapable
+        const requestedParallel = !gitCapable
           ? 1
           : writerCount > 0
             ? Math.min(MAX_CONCURRENCY, MAX_WRITER_CONCURRENCY)
             : MAX_CONCURRENCY;
-        const waveResults = await mapLimit(
-          prepared,
-          waveConcurrency,
-          async (item) => {
+        // V16.5 bound: the fleet resolves the request to at most
+        // UES_MAX_ACTIVE_CHILDREN (default 2) and never above the hard max (3).
+        const waveConcurrency = Math.min(
+          requestedParallel,
+          resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
+        );
+        const runPreparedChild = async (item: any, childContext: any) => {
             const taskText = [
               "Execute exactly this structured plan task.",
               "Do not broaden file scope. If the declared write file list is empty, do not edit files.",
@@ -3986,9 +4176,56 @@ async function executeStructuredPlan(input: {
               verification,
               passed,
               aborted: isAbortedRun(verification),
+              delegationChildId: childContext?.childId || null,
             };
-          },
-        );
+        };
+
+        // One bounded, proven-safe wave. delegation-safety already decided the
+        // wave contents; this executes it concurrently, or serially when the
+        // scope is unsafe, without ever exceeding the configured budget.
+        const waveScopes = prepared.map((item: any) => ({
+          id: String(item.task.id),
+          key: String(item.task.id),
+          role: item.writeFiles.length > 0 ? "implement" : "review",
+          agent: item.writeFiles.length > 0 ? "ues-executor" : "ues-verifier",
+          readOnly: item.writeFiles.length === 0,
+          files: item.writeFiles,
+          task: [item.task.title, item.task.summary].filter(Boolean).join(" "),
+          timeoutMs: leafTaskPolicy(item.task, input.rootPolicy || {}).risk === "high" ? 900_000 : 600_000,
+          original: item,
+        }));
+        const scopeByTaskId = new Map(waveScopes.map((scope: any) => [scope.id, scope]));
+        const waveExecution = await runDelegationWave({
+          session: delegationSession,
+          telemetry: delegationTelemetry,
+          scopes: waveScopes,
+          maxParallel: waveConcurrency,
+          signal: input.signal,
+          execute: async (scope: any, childContext: any) =>
+            runPreparedChild(scope.original, childContext),
+        });
+        // Deterministic ordering: waveExecution.ordered is sorted by task id, so
+        // completion order can never leak into the wave result order.
+        const waveResults = waveExecution.ordered.map((row: any) => {
+          if (row.ok && row.result) return row.result;
+          // A refused/failed child is an honest failure row, never a silent
+          // omission and never a PASS. The parent decides recovery.
+          return {
+            item: scopeByTaskId.get(row.id)?.original || null,
+            implementation: null,
+            verification: null,
+            passed: false,
+            // A cancelled/reaped child is an abort when the parent asked for it;
+            // a watchdog timeout on an otherwise healthy run stays a retryable
+            // wave failure so the parent can decide recovery.
+            aborted: row.status === "cancelled" || input.signal?.aborted === true,
+            failureText: row.error
+              || `delegated child ${row.id} did not complete (${row.status}: ${row.stopReason || "unknown"})`,
+            delegationChildId: row.childId,
+            delegationStatus: row.status,
+            delegationStopReason: row.stopReason,
+          };
+        });
 
         const aborted = waveResults.find((item) => item.aborted === true);
         if (aborted) {
@@ -4008,7 +4245,7 @@ async function executeStructuredPlan(input: {
             attempt,
             failure: abortFailure,
             validation,
-            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            schedule: scheduleReport(),
             results,
             integrations,
           };
@@ -4017,7 +4254,7 @@ async function executeStructuredPlan(input: {
         const failed = waveResults.filter((item) => !item.passed);
         if (failed.length) {
           for (const row of failed) {
-            const rawFailure = row.verification?.output || row.implementation?.output || "unknown failure";
+            const rawFailure = row.failureText || row.verification?.output || row.implementation?.output || "unknown failure";
             failureByTask.set(String(row.item?.task?.id || "unknown"), failureDelta(rawFailure));
           }
           lastWaveFailure = failed
@@ -4033,7 +4270,7 @@ async function executeStructuredPlan(input: {
             attempt,
             failure: lastWaveFailure,
             validation,
-            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            schedule: scheduleReport(),
             results,
             integrations,
           };
@@ -4096,7 +4333,7 @@ async function executeStructuredPlan(input: {
             attempt,
             failure: lastWaveFailure,
             validation,
-            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            schedule: scheduleReport(),
             results,
             integrations,
           };
@@ -4130,7 +4367,7 @@ async function executeStructuredPlan(input: {
             attempt,
             failure: error instanceof Error ? error.message : String(error),
             validation,
-            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            schedule: scheduleReport(),
             results,
             integrations,
           };
@@ -4155,7 +4392,7 @@ async function executeStructuredPlan(input: {
             attempt,
             failure: lastWaveFailure || "UES structured execution aborted by user.",
             validation,
-            schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+            schedule: scheduleReport(),
             results,
             integrations,
           };
@@ -4168,7 +4405,7 @@ async function executeStructuredPlan(input: {
           attempt,
           failure: lastWaveFailure,
           validation,
-          schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+          schedule: scheduleReport(),
           results,
           integrations,
         };
@@ -4179,7 +4416,7 @@ async function executeStructuredPlan(input: {
   return {
     passed: true,
     validation,
-    schedule: { safeWaves: safe.waves, serialized: safe.serialized, dynamic },
+    schedule: scheduleReport(),
     results,
     integrations,
   };
@@ -5675,10 +5912,29 @@ export default function (pi: ExtensionAPI) {
         let webAdviceText = "";
         let failureDeltaText = failure || "";
         if (webLane && agent === "ues-executor" && attempt === 1 && !failure) {
+          // V16.5: the advisor is asked ONE specialist question, not a generic
+          // "what should I do". The packet is bounded and stays untrusted data.
+          const advisorRole = selectAdvisorRole({
+            taskClass: policy?.taskClass || undefined,
+            intent: policy?.intent || undefined,
+            ambiguity: Number(policy?.decision?.confidence === "low" ? 3 : policy?.decision?.confidence === "medium" ? 2 : 0),
+            changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any).diff).slice(0, 4_000) : "",
+            symptoms: [params.task],
+          });
+          const advisorPacket = advisorRole
+            ? buildAdvisorPacket({
+              role: advisorRole,
+              symptoms: [params.task],
+              constraints: (executionContract?.mustNot || []).slice(0, 8),
+              evidence: [params.task].concat((structuredPlan?.steps || []).slice(0, 4)),
+              changedDiff: Array.isArray((structuredPlan as any)?.diff) ? String((structuredPlan as any).diff).slice(0, 4_000) : "",
+              maxChars: 6_000,
+            })
+            : null;
           const consultation = await webLane
             .consult({
               task: params.task,
-              notes: failureDeltaText || "",
+              notes: [failureDeltaText || "", advisorPacket?.text || ""].filter(Boolean).join("\n\n"),
               constraints: executionContract?.mustNot || [],
               verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
               affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
@@ -5706,6 +5962,35 @@ export default function (pi: ExtensionAPI) {
             };
           }
           if (consultation?.advisorText) webAdviceText = consultation.advisorText;
+          // V16.5 Advisor Benefit Learner V2: observation only. It records the
+          // consult outcome; it can never force web, disable the verifier,
+          // change permissions, or produce a verdict.
+          if (consultation) {
+            const learnerScope = {
+              taskClass: String(policy?.taskClass || "unknown"),
+              subsystemBucket: `s${Math.min(9, Number((structuredPlan as any)?.subsystems || 1))}`,
+              ambiguityClass: policy?.decision?.confidence === "low" ? "high" : "low",
+              failureClass: "none",
+              provider: String(consultation.provider || "deepseek-web"),
+              model: String(inheritedModel || "unset"),
+              advisorRole: advisorRole || "none",
+            };
+            const learnerWeight = advisorWeightV2(learnerScope);
+            recordAdvisorOutcomeV2({
+              ...learnerScope,
+              consulted: true,
+              adviceAccepted: consultation.outcome === "advice-applied" || consultation.outcome === "advice-recommended",
+              finalVerifiedResult: null,
+              followUps: Number(consultation.followUps ?? 0),
+              fallbacks: consultation.fallbackToLocal === true ? 1 : 0,
+            });
+            await appendTrajectoryEvent(cwd, traceID, "advisor.learner-sample", {
+              ...learnerScope,
+              weight: learnerWeight.weight,
+              weightReason: learnerWeight.reason,
+              effect: learnerWeight.effect,
+            }).catch(() => null);
+          }
           await appendRunJournalEvent(cwd, traceID, "web-reasoning.consulted", {
             provider: consultation?.provider,
             mode: consultation?.mode,
@@ -7532,6 +7817,7 @@ export default function (pi: ExtensionAPI) {
         "V16.3 adaptive editing: on (model/task edit + search strategy; reasoned retry dimension shift)",
         "V16.4 delta context: on (same-runtime read/search dedup + reversible Evidence Store recovery)",
         "V16.5 cache-stable context: on (stable schema prefix telemetry + live-zone compaction policy)",
+        "V16.5 bounded parallel delegation: on (safe waves only; max " + (resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)) + " active children, hard max 3; writers/external side effects stay serial)",
         "V16.6 strategy learning: on (model x task x tool/context/edit/execution outcome history)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",

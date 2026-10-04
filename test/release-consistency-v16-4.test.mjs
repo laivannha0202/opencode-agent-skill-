@@ -68,7 +68,20 @@ async function writeValidTree(write, version) {
   const lock = { version, packages: { "": { version, bin: { ues: "bin/ocskill.mjs", ocskill: "bin/ocskill.mjs" } } } };
   await write("package.json", JSON.stringify(pkg));
   await write("package-lock.json", JSON.stringify(lock));
-  await write("README.md", `**Phiên bản package hiện tại:** <code>${version}</code>\n**Pi Agent** ues_execute ues_dispatch ues_cli V14.2 Turbo Weak-Model Runtime **15.6.0:** Measured Runtime & Durable Execution **15.7.0:** Adaptive Efficiency Intelligence **15.8.0:** Measured Hardening **15.9.0:** Adaptive Agent Intelligence **16.0.0:** Deterministic Trust & Correctness Hardening ues optimize-report ues context-report ues replay ues trial --require-promotion npm view opencode-agent-skill version --registry=https://registry.npmjs.org/`);
+  await write("README.md", `<!-- ues-version: ${version} -->
+Pi Agent npm install -g opencode-agent-skill pi package add opencode-agent-skill ues version ues doctor ues status ues trial docs/PI-COMPAT.md npm run eval:v16.5
+## What is UES?
+## Why UES?
+## Highlights
+## Architecture
+## Quick Start
+## Safety Model
+## Commands
+## Documentation
+## Development
+## Release Philosophy
+## License
+`);
   await write("CHANGELOG.md", `# Changelog\n\n## [${version}] - 2026-10-04\n\nnotes\n\n## [16.0.0] - 2026-10-02\n\nnotes\n`);
   await write("evals/routing.json", JSON.stringify({ scenarios: [] }));
   await write("evals/router-triggers.json", JSON.stringify({ cases: [] }));

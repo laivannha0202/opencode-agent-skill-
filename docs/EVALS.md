@@ -156,3 +156,65 @@ The harness prints a start line and heartbeat for an active model run. Hard time
 V8 long-suite UES mode requires **receipt-backed verification for every planned task**, a structured plan receipt bound to the current plan hash, and a structured integration receipt bound to the verified workspace fingerprint. Strict task completion additionally rejects a successful command receipt if the workspace changed after that receipt.
 
 This intentionally raises the benchmark bar: final code correctness + durable orchestration + current machine-observable verification are all required.
+
+---
+
+## V16.5 agent skill & delegation evaluation
+
+Deterministic evaluation for the V16.5 slice. No model, no network, no live provider.
+
+```bash
+npm run eval:v16.5            # bounded test files + routing matrix + measurement report
+npm run eval:v16.5:measure    # full measurement report only
+npm run eval:v16.5:routing    # skill routing matrix only
+```
+
+| Artifact | Path |
+| --- | --- |
+| Skill routing matrix | `evals/v16.5-routing-matrix.json` |
+| Routing evaluator | `scripts/eval-skill-routing-v16-5.mjs` |
+| Baseline-vs-V16.5 measurement | `scripts/eval-v16-5.mjs` |
+| Test files | `test/skill-registry-v16-5.test.mjs`, `test/skill-router-v16-5.test.mjs`, `test/skill-capsule-v16-5.test.mjs`, `test/tool-surface-v3.test.mjs`, `test/subagent-fabric-v16-5.test.mjs`, `test/delegation-fleet-v16-5.test.mjs`, `test/verified-handoff-v16-5.test.mjs`, `test/deepseek-advisors-v16-5.test.mjs`, `test/agent-observer-v16-5.test.mjs`, `test/readme-v16-5.test.mjs` |
+
+The routing matrix covers Next.js, NestJS, React Native, auth/security, payment, database,
+performance, generic bug, docs-only, ambiguous, Vietnamese, and mixed Vietnamese/English tasks.
+Each case asserts the skills that **must** activate and the skills that **must not**.
+
+The measurement script runs a 15-task corpus through both the V16.4 baseline path and the V16.5
+pipeline and reports skill counts, capsule characters, advertised tool counts, estimated tool
+schema characters, delegation decisions, and handoff ratios.
+
+It also runs **four bounded-parallel-delegation fixtures through the production executor**
+(`lib/delegation-fleet.mjs`, the module `pi/extensions/ues.ts` calls): a safe read-only pair, a
+four-lane bounded-concurrency case, overlapping writers, and an external-side-effect pair.
+Reported counters: `safeWaveCount`, `parallelDelegations`, `serializedDelegations`,
+`maxObservedChildConcurrency`, `childQueueMs`, `childExecutionMs`, `parallelWallMs`,
+`sequentialEquivalentMs`, `overlapSavingsMs`.
+
+**Provenance rules for V16.5 results**
+
+| Metric | Provenance |
+| --- | --- |
+| Skill / tool / handoff counts and characters | `MEASURED` |
+| Tool schema characters | `ESTIMATED` (stable per-tool table) |
+| Bounded-parallel dispatch overlap (`overlapSavingsMs`) | `MEASURED` (child execution windows in this process only) |
+| Provider tokens | `NOT_MEASURED` in the deterministic fixture |
+| Wall-clock speed | `NOT_MEASURED` |
+| Model quality | `NOT_MEASURED` |
+
+`overlapSavingsMs` is **not** a speedup claim. `delegationFleetTelemetry()` sets
+`speedupClaim: null` unconditionally, and the eval check `no-speedup-claim` fails closed if that
+ever changes. End-to-end task duration and provider tokens still require a live `ues trial` run.
+
+`test/delegation-fleet-v16-5.test.mjs` is the production-path regression. It proves overlap with a
+deterministic rendezvous barrier (a serial executor deadlocks on it), the concurrency cap, the
+third child waiting, writer and external-side-effect serialization, failure never becoming a
+global PASS, deterministic ordering under differing completion order, cancellation cleanup,
+no surviving OS process (real supervised child processes), cycle/depth guards, and the shipped
+extension really importing and calling the fleet.
+
+Promotion requires `false PASS = 0`. The V16.5 deterministic fixture produces no task verdict at
+all, so it cannot produce a false PASS; a real-task A/B must be run separately before any
+model-quality or token-savings claim is made.
+
+Design and measurement tables: [`V16.5-AGENT-SKILL-DELEGATION.md`](./V16.5-AGENT-SKILL-DELEGATION.md).

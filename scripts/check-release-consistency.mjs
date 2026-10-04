@@ -99,15 +99,33 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
 
   const readme = requireText(errors, readText(root, "README.md"), "README.md")
   if (readme) {
+    // Version comes from a machine-readable marker, not from prose layout.
     const versionMatches = [
+      readme.match(/<!--\s*ues-version:\s*([^\s>]+)\s*-->/i),
+      readme.match(/\*\*Current package version:\*\*\s*`?([0-9][^`\s<]*)/i),
       readme.match(/Phiên bản package hiện tại:\*\*\s*<code>([^<]+)<\/code>/i),
-      readme.match(/Phiên bản hiện tại:\s*\n```text\n(\S+)/i),
     ].filter(Boolean)
     const readmeVersion = versionMatches[0]?.[1] || null
-    if (!readmeVersion) errors.push("README.md: could not find current package version")
+    if (!readmeVersion) errors.push("README.md: could not find a machine-readable current-version marker (<!-- ues-version: X.Y.Z -->)")
     else if (readmeVersion !== version) errors.push(`README.md: current version says ${readmeVersion}, expected ${version}`)
-    for (const marker of ["**Pi Agent**", "ues_execute", "ues_dispatch", "ues_cli", "V14.2 Turbo Weak-Model Runtime", "**15.6.0:** Measured Runtime & Durable Execution", "**15.7.0:** Adaptive Efficiency Intelligence", "**15.8.0:** Measured Hardening", "**15.9.0:** Adaptive Agent Intelligence", "**16.0.0:** Deterministic Trust & Correctness Hardening", "ues optimize-report", "ues context-report", "ues replay", "ues trial", "--require-promotion", "npm view opencode-agent-skill version --registry=https://registry.npmjs.org/"]) {
+
+    // Semantic section contract for the public landing page.
+    for (const section of ["## What is UES?", "## Why UES?", "## Highlights", "## Architecture", "## Quick Start", "## Safety Model", "## Commands", "## Documentation", "## Development", "## Release Philosophy", "## License"]) {
+      if (!readme.includes(section)) errors.push(`README.md: missing required section ${section}`)
+    }
+    // Pi runtime surface markers that must stay documented. The Pi-side command
+    // contract (ues_execute / ues_dispatch / ues_cli) is asserted against
+    // docs/PI-COMPAT.md below; the landing page only has to link that contract.
+    for (const marker of ["Pi Agent", "npm install -g opencode-agent-skill", "pi package add opencode-agent-skill", "ues version", "ues doctor", "ues status", "ues trial", "docs/PI-COMPAT.md", "npm run eval:v16.5"]) {
       if (!readme.includes(marker)) errors.push(`README.md: missing Pi runtime marker ${marker}`)
+    }
+    // Anti-bloat gate: the landing page must stay a landing page.
+    const readmeLines = readme.split(/\r?\n/).length
+    if (readmeLines > 450) errors.push(`README.md: must stay under 450 lines for a public landing page (found ${readmeLines})`)
+    if (/^>\s*\*\*\d+\.\d+\.\d+/m.test(readme)) errors.push("README.md: per-version release history must live in CHANGELOG.md, not in the landing page")
+    if (/\b\d+% faster\b/i.test(readme)) errors.push("README.md: unmeasured speed claims are not allowed")
+    for (const link of [...readme.matchAll(/\]\((\.[^)]+)\)/g)].map((match) => match[1])) {
+      if (!existsSync(path.join(root, link))) errors.push(`README.md: broken relative link ${link}`)
     }
   }
 

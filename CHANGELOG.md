@@ -1,5 +1,94 @@
 # Changelog
 
+## [Unreleased]
+
+### Added (V16.5 — agent skill & delegation intelligence)
+
+- Micro-skill registry, evidence-driven skill router, bounded skill capsules, phase-scoped tool surface.
+- Subagent Fabric V2: delegate-vs-parent-direct decision, fresh-context child briefs, bounded session lifecycle.
+- Verified Handoff Capsules: raw child output to the Evidence Store, bounded capsule to the parent.
+- Five DeepSeek advisor question types with consultant-only authority.
+- Advisor benefit learner (bounded AUTO consult weight only), reasoning doctor, progress observer.
+- `lib/delegation-fleet.mjs` — bounded concurrent wave executor wired into the production
+  controller's structured-plan wave loop (`executeStructuredPlan` in `pi/extensions/ues.ts`).
+
+### Changed (V16.5)
+
+- Independent children in a proven-safe wave now execute **concurrently** instead of serially.
+  Wave order still comes from the task graph (`computeSafeWaves`); wave safety still comes from
+  `lib/delegation-safety.mjs`; the child runtime is still the existing Pi child spawn plus
+  `lib/process-supervisor.mjs`. The fleet spawns no process and is not a scheduler.
+- Concurrency for a delegation wave is bounded to `UES_MAX_ACTIVE_CHILDREN` (default 2, hard
+  max 3) instead of the raw `MAX_CONCURRENCY` request.
+- Delegation telemetry (`safeWaveCount`, `parallelDelegations`, `serializedDelegations`,
+  `maxObservedChildConcurrency`, `childQueueMs`, `childExecutionMs`, `parallelWallMs`,
+  `sequentialEquivalentMs`, `overlapSavingsMs`) is reported on every scheduler return path.
+
+### Safety invariants
+
+- Parallelism is fail-closed. Overlapping writers, destructive shell, external side effects, and
+  shared mutable services stay serial; writer conflicts are isolated through the existing
+  per-task Git worktree.
+- A child that throws, is aborted, is reaped by the watchdog, or returns a non-zero exit code is
+  a failure. `runDelegationWave()` always returns `passed: false` and `canProduceVerdict: false`.
+- One child failing never cancels an unrelated read-only sibling; the parent decides recovery.
+- Results are emitted in deterministic task-id order regardless of completion order.
+- Cancellation and the inactivity watchdog abort the child's own signal, so the real process
+  tree is terminated and no orphan process survives.
+
+### Measurement honesty
+
+- `overlapSavingsMs` is a measured dispatch overlap of child execution windows inside this
+  process. It is not called a speedup anywhere, and `speedupClaim` is always `null`.
+- Provider tokens, real-model wall clock, and model quality remain `NOT_MEASURED`; they require
+  a live `ues trial` run.
+
+## [16.5.0] - 2026-10-04
+
+### Added
+
+- Skill Registry V2 with bounded machine-readable contracts for the complete skill catalog.
+- Adaptive Skill Router V3 with evidence-driven minimal skill activation.
+- Skill Capsules with bounded composition, provenance and preserved constraints.
+- Tool Surface V3 with task-scoped tool advertisement and capability hydration.
+- Subagent Fabric V2 with fresh-context specialist delegation, bounded depth and lifecycle guards.
+- Verified Handoff Capsules backed by reversible Evidence Store references.
+- Bounded parallel delegation with safe-wave execution and deterministic result ordering.
+- DeepSeek specialist advisor roles for root cause, architecture, alternative fixes, adversarial review and verifier failures.
+- Advisor Benefit Learner V2 with bounded provider/model-scoped AUTO-routing influence.
+- Read-only reasoning diagnostics and agent progress observability.
+- Professional README rewrite focused on current installation, architecture, safety and usage.
+
+### Changed
+
+- Specialist delegation defaults to 2 active children with a hard maximum of 3.
+- Unsafe writer, destructive, mutable-service and external-side-effect work remains serialized.
+- Parent context receives bounded handoff capsules instead of full child transcripts by default.
+- Skill and tool exposure are reduced per task while runtime safety policy remains authoritative.
+- V16.5 production controller now executes proven-safe specialist waves concurrently instead of degenerating to serial child dispatch.
+
+### Measurement
+
+- Skill routing evaluation: 20/20 cases.
+- Average activated skills: approximately 2 from the 48-skill catalog.
+- Advertised tools/task in the deterministic corpus: 8.0 → 5.8.
+- Estimated model-facing tool-schema surface: 12,287 → 7,873 characters.
+- Measured bounded delegation fixture:
+  sequential-equivalent child execution: 1,526 ms
+  overlapped dispatch wall time: 1,013 ms
+  overlap savings: 514 ms.
+- These are runtime/corpus measurements only.
+- No real-model token, quality or end-to-end speedup claim is made without provider telemetry.
+
+### Safety / quality invariants
+
+- Local verifier remains final task authority.
+- DeepSeek remains consultant-only and cannot produce PASS.
+- Child agents cannot grant permissions or global verdicts.
+- External side effects retain zero automatic replay.
+- Evidence Store, static diagnostics, dirty-work protection, workspace containment, execution ownership and secret boundaries remain authoritative.
+- No automatic push, publish or deploy capability was added.
+
 ## [16.4.0] - 2026-10-04
 
 ### Added
@@ -165,6 +254,49 @@ All notable changes to this project are documented here.
 The project follows Semantic Versioning.
 
 ## [Unreleased]
+
+### Added
+
+- **V16.5 Agent Skill & Delegation Intelligence.** `lib/skill-registry.mjs` compiles a machine-readable contract (intents, task classes, required/optional capabilities and tools, forbidden actions, context class, side-effect class, output contract, verification requirements, derived composability, host support) for every one of the 48 shipped skills, bounded per contract and in aggregate, validated fail-closed, with registry-to-package drift detection.
+- **Adaptive Skill Router V3** (`lib/skill-router.mjs`) ranks all 48 contracts from task intent, stack token, repository evidence, task class, required capability, risk domain, learned usefulness, context cost and negative guards, then activates a relative-cutoff minimal set (normally 1-3). Diacritic-insensitive English/Vietnamese/mixed language classification. Going past the default target is only possible through a recorded `expandedReason` (`above-default-cutoff` or `composition-with-independent-evidence`).
+- **Skill Utility** telemetry with a minimum sample floor of 8, bounded hysteresis, and a bounded store. It can reorder candidates only: it cannot delete a skill and cannot change safety policy.
+- **Skill Capsule** (`lib/skill-capsule.mjs`) composes several skills into one bounded block with deterministic ordering, per-section provenance, a cache fingerprint, guaranteed constraint preservation under a tight budget, and an explicit `expandSkillCapsule()` escape hatch.
+- **Tool Surface V3** (`lib/tool-surface-v3.mjs`) predicts the capabilities a task phase needs and advertises only those. `SAFETY_CAPABILITIES` stay runtime-enforced regardless of what is advertised; hiding a tool never removes a permission. A deferred capability hydrates once on explicit evidence with a deterministic hash-bound receipt; denied capabilities stay denied with an explicit reason.
+- **Subagent Fabric V2** (`lib/subagent-fabric.mjs`) reuses the existing 12-agent catalog for six delegation roles, with fresh child context, an explicit `notCopied` list, depth 1 default / hard max 2, a cycle guard, 2 concurrent children (hard max 3), bounded timeout and inactivity sweeps, cancellation that leaves no orphan, and completion receipts carrying `canProduceVerdict: false`.
+- **Verified Handoff Capsules** (`lib/verified-handoff.mjs`) store raw child transcripts in the Evidence Store and return a bounded, secret-redacted, provenance-bound capsule to the parent (2k-6k chars, default 4k). A child can never grant a permission or mark a task verified.
+- **Bounded parallel delegation** (`lib/delegation-safety.mjs`) classifies scopes and fails closed on writer overlap, overlapping files, destructive shell, external side effects, mutable services, and capacity.
+- **DeepSeek specialist advisors** (`lib/deepseek-advisor-roles.mjs`): five bounded question types (`root-cause`, `architecture`, `alternative-fix`, `adversarial-review`, `verifier-failure`) with required inputs, explicit forbids, and consultant-only authority.
+- **Advisor Benefit Learner V2** (`lib/advisor-benefit-learner-v2.mjs`): provider/model-scoped, bounded, GC'd, persisted. Its only allowed effect is the AUTO consultation weight.
+- **Reasoning Doctor**: `ues doctor --reasoning` (and `--json`) reports web-reasoning readiness read-only, with no prompt submission, no state mutation, no credential/cookie output, and unavailable values reported as unavailable.
+- **Agent Progress Observer** (`lib/agent-progress-observer.mjs`): an observer-only fleet view with bounded, redacted actions. No chain-of-thought, no runtime authority.
+- `ues skills registry` and `ues skills route <task>` CLI commands.
+- `evals/v16.5-routing-matrix.json`, `scripts/eval-skill-routing-v16-5.mjs`, `scripts/eval-v16-5.mjs`, and `npm run eval:v16.5`.
+- `docs/V16.5-AGENT-SKILL-DELEGATION.md` and `docs/V16.5-RESEARCH-NOTES.md`.
+
+### Changed
+
+- Pi micro-skill context is now built through `lib/v16-5-runtime.mjs` (registry -> router -> capsule), with the legacy `lib/skill-compiler.mjs` path retained as an automatic fallback whenever the router activates nothing or the capsule fails.
+- Both Pi child-spawn paths now receive a task-phase tool priority list. The V16.2 `compileToolSurface` remains the final advertised-surface authority and stable-prefix owner; V16.5 only ranks phase-relevant tools.
+- The release-consistency checker now reads a machine-readable README version marker and a semantic section contract instead of matching historical prose, and additionally enforces an anti-bloat line limit, rejects per-version release dumps, rejects unmeasured speed claims, and validates relative README links.
+
+### README
+
+- Complete rewrite. The release-history wall, the 31-item Vietnamese table of contents, and the internal implementation chronology moved to `CHANGELOG.md` and `docs/`. The landing page is now a professional English README (318 lines) that answers what/why/install/start immediately, links to deep internals, and keeps measurement provenance explicit.
+- Release-consistency tests and fixtures were updated to the new machine-readable version marker.
+
+### Measured (deterministic 15-task corpus; not a real-model claim)
+
+- Skills considered per task: 48. Skills activated per task: 1.8 average, 3 maximum.
+- Advertised tools per task: 8.0 -> 5.8. Estimated tool schema chars per task: 12,287 -> 7,873 (-4,413, -35.9%). Provenance: `MEASURED` for counts, `ESTIMATED` for schema characters.
+- Handoff raw -> capsule: 88,000 -> 423 chars (0.48%). Provenance: `MEASURED`.
+- Skill context chars per task: 1,196 baseline vs 1,220 for V16.5. Provenance: `MEASURED`. V16.5 is NOT smaller here; its value is provenance, guaranteed constraint preservation, and bounded composition of four skills without concatenating four bodies.
+- Provider tokens, wall-clock speed, and model quality: `NOT_MEASURED`. No claim is made.
+
+### Unchanged
+
+- Local final verifier, integration verifier, visual verifier, Evidence Store, static diagnostics completeness, dirty-work guard, `.env` protection, workspace containment, destructive-shell policy, execution ownership, process-tree cleanup, Windows cleanup barrier, browser action taxonomy, external-side-effect zero automatic replay, DeepSeek consultant-only (`canProducePass = false`), untrusted external content boundary, secret redaction, selected thinking level, and no automatic publish/push/deploy.
+- Repo Map, Semantic Index, LSP architecture, browser taxonomy, process supervisor and verification architecture were not modified: no V16.5 benchmark proved a regression in them.
+
 
 ## [15.6.0] - 2026-10-01
 

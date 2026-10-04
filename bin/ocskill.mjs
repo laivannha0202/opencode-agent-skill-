@@ -79,6 +79,10 @@ import { inspectBrowserPage, summarizeBrowserInspection } from "../lib/browser-r
 import { comparePngFiles, cropPngFile } from "../lib/png-diff.mjs"
 import { createGeometryReceipt, responsiveViewportMatrix, validateVisualSpec } from "../lib/visual-spec.mjs"
 import { planDynamicWorkflow } from "../lib/dynamic-workflow.mjs"
+import { reasoningDoctor, renderReasoningDoctor } from "../lib/reasoning-doctor.mjs"
+import { advisorLearnerV2Report } from "../lib/advisor-benefit-learner-v2.mjs"
+import { skillRegistryDrift, skillRegistrySurface } from "../lib/skill-registry.mjs"
+import { routeSkills } from "../lib/skill-router.mjs"
 import { lintSkillCatalog } from "../lib/skill-quality.mjs"
 import { designTokenEvidence, extractDesignTokens, inspectResponsiveLayout } from "../lib/ui-inspector.mjs"
 import { listWriteCheckpoints, rollbackWriteCheckpoint } from "../lib/write-checkpoints.mjs"
@@ -441,6 +445,22 @@ async function status() {
 }
 
 async function doctor() {
+  const wantsReasoning = args.slice(1).includes("--reasoning")
+  if (wantsReasoning) {
+    // Read-only: never submits a prompt, never mutates state, never prints credentials.
+    const report = reasoningDoctor({
+      mode: optionValue(args, "--mode") || process.env.UES_WEB_REASONING_MODE || "AUTO",
+      provider: "deepseek-web",
+      adapterAvailable: Boolean(process.env.UES_WEB_REASONING_ENABLED) ? process.env.UES_WEB_REASONING_ENABLED !== "0" : undefined,
+      profileConfigured: Boolean(process.env.UES_WEB_REASONING_MODEL),
+      authenticated: undefined,
+      sessionReady: undefined,
+      learnerKeys: advisorLearnerV2Report().keys,
+    })
+    if (jsonOutput) printJson(report)
+    else console.log(renderReasoningDoctor(report))
+    return
+  }
   console.log("OpenCode Universal Engineering System - doctor")
   console.log(`Package:  ${PACKAGE_NAME}`)
   console.log(`Version:  ${await getPackageVersion()}`)
@@ -1857,8 +1877,23 @@ async function workflowPlanControl() {
 
 async function skillsControl() {
   const action = args[1] || "lint"
+  if (action === "registry") {
+    const surface = skillRegistrySurface()
+    const drift = skillRegistryDrift()
+    printJson({ schemaVersion: surface.schemaVersion, skillCount: surface.skillCount, chars: surface.chars, fingerprint: surface.fingerprint, drift })
+    return
+  }
+  if (action === "route") {
+    const task = positionalArg(args, 2)
+    if (!task) {
+      printCliError(Object.assign(new Error("Usage: ocskill skills route <task text>"), { code: "UES_USAGE", exitCode: 2 }))
+      return
+    }
+    printJson(routeSkills({ task }))
+    return
+  }
   if (action !== "lint") {
-    printCliError(Object.assign(new Error("Usage: ocskill skills lint [dir]"), { code: "UES_USAGE", exitCode: 2 }))
+    printCliError(Object.assign(new Error("Usage: ocskill skills lint|registry|route [task]"), { code: "UES_USAGE", exitCode: 2 }))
     return
   }
   try {

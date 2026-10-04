@@ -1,0 +1,131 @@
+{
+  "schemaVersion": 1,
+  "release": "v16.5",
+  "description": "Deterministic skill-routing matrix. Every case asserts the skills that MUST be activated and the skills that MUST NOT be activated. Language and stack coverage is explicit.",
+  "cases": [
+    {
+      "id": "nextjs-route-fix",
+      "task": "Fix the Next.js app router route handler that returns 500 on POST",
+      "expect": ["nextjs-engineering"],
+      "reject": ["nestjs-engineering", "react-native-engineering", "documentation-engineering"]
+    },
+    {
+      "id": "nestjs-di",
+      "task": "NestJS dependency injection fails after upgrading to @nestjs/core v11",
+      "expect": ["nestjs-engineering"],
+      "reject": ["nextjs-engineering", "react-native-engineering"]
+    },
+    {
+      "id": "react-native-build",
+      "task": "React Native Android build fails after upgrading Expo SDK",
+      "expect": ["react-native-engineering"],
+      "reject": ["nestjs-engineering", "django-engineering"]
+    },
+    {
+      "id": "auth-authorization",
+      "task": "Authorization check lets a normal user read another tenant's records",
+      "expect": ["auth-security", "web-security-review"],
+      "reject": ["documentation-engineering", "visual-fidelity"]
+    },
+    {
+      "id": "payment-webhook",
+      "task": "Payment webhook is not idempotent and double-charges on retry",
+      "expect": ["payment-engineering"],
+      "reject": ["nextjs-engineering", "documentation-engineering"]
+    },
+    {
+      "id": "database-migration",
+      "task": "Database migration locks a large table and needs a safe online strategy",
+      "expect": ["database-engineering"],
+      "reject": ["ui-ux-engineering", "skill-authoring"]
+    },
+    {
+      "id": "performance-hot-path",
+      "task": "Endpoint latency is 900ms; profile the hot path and reduce query cost",
+      "expect": ["performance-engineering"],
+      "reject": ["documentation-engineering", "skill-authoring"]
+    },
+    {
+      "id": "generic-bug",
+      "task": "A function sometimes returns the wrong value and the failing case is not reproducible",
+      "expect": ["bug-diagnosis"],
+      "reject": ["documentation-engineering", "performance-engineering"]
+    },
+    {
+      "id": "docs-only",
+      "task": "Rewrite the installation section of the README",
+      "expect": ["documentation-engineering"],
+      "reject": ["nextjs-engineering", "nestjs-engineering", "payment-engineering", "database-engineering", "ui-ux-engineering"]
+    },
+    {
+      "id": "docs-only-vi",
+      "task": "Viết lại phần cài đặt trong README cho người dùng mới",
+      "expect": ["documentation-engineering"],
+      "language": "vi",
+      "reject": ["payment-engineering", "database-engineering"]
+    },
+    {
+      "id": "ambiguous",
+      "task": "Make it better",
+      "expect": [],
+      "maxActivated": 3,
+      "ambiguous": true
+    },
+    {
+      "id": "vietnamese-bug",
+      "task": "Sửa lỗi đăng nhập bị lỗi sau khi cập nhật, nhanh giúp tôi tìm nguyên nhân",
+      "expect": ["bug-diagnosis"],
+      "language": "vi",
+      "reject": ["documentation-engineering"]
+    },
+    {
+      "id": "vietnamese-mixed",
+      "task": "Fix lỗi race condition trong payment webhook (sửa lỗi implement mới)",
+      "language": "mixed",
+      "expect": ["payment-engineering"],
+      "reject": ["documentation-engineering"]
+    },
+    {
+      "id": "mixed-stack-payment-next",
+      "task": "Next.js checkout page calls the payment API without idempotency key",
+      "expect": ["payment-engineering", "nextjs-engineering"],
+      "reject": ["documentation-engineering", "django-engineering"]
+    },
+    {
+      "id": "mixed-stack-rn-auth",
+      "task": "React Native OAuth callback fails token refresh in the auth screen",
+      "expect": ["react-native-engineering"],
+      "reject": ["nestjs-engineering", "documentation-engineering"]
+    },
+    {
+      "id": "security-review",
+      "task": "Review the file upload endpoint for SSRF and path traversal",
+      "expect": ["web-security-review", "file-upload-engineering"],
+      "reject": ["documentation-engineering"]
+    },
+    {
+      "id": "visual-verification",
+      "task": "Verify the responsive layout at mobile breakpoints in the browser",
+      "expect": ["responsive-verification"],
+      "reject": ["documentation-engineering", "payment-engineering"]
+    },
+    {
+      "id": "code-review",
+      "task": "Review the staged diff for correctness regressions before merge",
+      "expect": ["code-review"],
+      "reject": ["documentation-engineering", "ui-ux-engineering"]
+    },
+    {
+      "id": "planning-architecture",
+      "task": "Plan the architecture for splitting the monolith into services",
+      "expect": ["software-architect"],
+      "reject": ["documentation-engineering", "visual-fidelity"]
+    },
+    {
+      "id": "verification-gate",
+      "task": "Run the failing integration tests and report whether the fix is verified",
+      "expect": ["test-verification"],
+      "reject": ["documentation-engineering", "performance-engineering"]
+    }
+  ]
+}

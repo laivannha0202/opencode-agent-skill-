@@ -128,7 +128,15 @@ function productionImporters(moduleRelative) {
     for (const file of walkFiles(absolute)) {
       if (!/\.(?:mjs|js|ts)$/.test(file)) continue;
       if (file === target) continue;
-      const source = readFileSync(file, "utf8");
+      let source;
+      try {
+        source = readFileSync(file, "utf8");
+      } catch (error) {
+        // A concurrent test may remove its temporary probe file between readdir
+        // and read; a vanished file carries no importers anyway.
+        if (error && error.code === "ENOENT") continue;
+        throw error;
+      }
       const specifiers = [
         ...source.matchAll(/(?:^|[\s;])import\s+(?:[^'"]*?\s+from\s+)?["']([^"']+)["']/g),
         ...source.matchAll(/(?:^|[\s;])export\s+[^'"]*?\s+from\s+["']([^"']+)["']/g),
