@@ -568,7 +568,23 @@ test("V16.3 J2: the follow-up budget is bounded and a no-delta follow-up is skip
       evidence: [{ kind: "verifier", text: `failure evidence ${index}` }],
     });
   }
-  assert.equal(calls.followUp, 2, "the follow-up budget is 2");
+  // V16.4 canonical default: one bounded follow-up (hard max 2).
+  assert.equal(calls.followUp, 1, "the default follow-up budget is 1");
+  assert.equal(lane.state().followUps, 1);
+});
+
+test("V16.4 J2b: an explicit maxFollowUps of 2 still honors the hard max", async () => {
+  clearDecisionPacketCache();
+  const { calls, adapter } = fakeAdapter();
+  const lane = createWebReasoningLane({ mode: "auto", adapters: [adapter], maxFollowUps: 2 });
+  await lane.consult({ task: "ambiguous root cause across modules", knownFiles: ["lib/browser-lane.mjs"] });
+  for (let index = 0; index < 4; index += 1) {
+    await lane.followUp({
+      task: "ambiguous root cause across modules",
+      evidence: [{ kind: "verifier", text: `failure evidence ${index}` }],
+    });
+  }
+  assert.equal(calls.followUp, 2, "the hard-max follow-up budget is 2");
   assert.equal(lane.state().followUps, 2);
 });
 

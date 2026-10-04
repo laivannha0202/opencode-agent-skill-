@@ -112,6 +112,16 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
   }
 
   const changelog = requireText(errors, readText(root, "CHANGELOG.md"), "CHANGELOG.md")
+  let changelogVersion = null
+  if (changelog) {
+    const match = changelog.match(/^## \[(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)\]/m)
+    changelogVersion = match?.[1] || null
+    if (!changelogVersion) errors.push("CHANGELOG.md: could not find latest release version")
+    else if (changelogVersion !== version) errors.push(`CHANGELOG.md: latest release says ${changelogVersion}, expected ${version}`)
+  }
+  if (lock && lock.version !== version) {
+    errors.push(`package-lock.json version (${lock.version}) != package.json version (${version})`)
+  }
   if (changelog && !changelog.includes("## [16.0.0] - 2026-10-02")) {
     errors.push("CHANGELOG.md: missing V16.0.0 release entry")
   }
@@ -373,11 +383,41 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (!String(scripts["release:verify"] || "").includes("npm run eval:v16")) {
       errors.push("package.json: release:verify must include eval:v16")
     }
+    const focusedV164 = String(scripts["eval:v16.4"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV164Tests = [
+      "test/release-consistency-v16-4.test.mjs",
+      "test/lazy-runtime-v16-4.test.mjs",
+      "test/lazy-runtime-production-v16-4.test.mjs",
+      "test/structural-escalation-v16-4.test.mjs",
+      "test/fresh-evidence-v16-4.test.mjs",
+      "test/decision-packet-tiers-v16-4.test.mjs",
+      "test/verified-cost-learner-v16-4.test.mjs",
+      "test/web-reasoning-corpus-v16-4.test.mjs",
+      "test/consult-prep-v16-4.test.mjs",
+      "test/repo-map-measurements-v16-4.test.mjs",
+      "test/release-coordinator-v16-4.test.mjs",
+    ]
+    if (
+      focusedV164[0] !== "node" ||
+      focusedV164[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV164Tests.every((file) => focusedV164.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.4 must use the bounded runner and include the V16.4 adaptive-runtime suites")
+    }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.4")) {
+      errors.push("package.json: release:verify must include eval:v16.4")
+    }
+    if (scripts["release:coordinator"] !== "node scripts/release-test-coordinator.mjs") {
+      errors.push("package.json: missing V16.4 release test coordinator command")
+    }
     if (!pkg.files.includes("docs/V16-DETERMINISTIC-HARDENING.md")) {
       errors.push("package.json: V16 runtime documentation must be packed")
     }
     if (!pkg.files.includes("docs/V16.3-BROWSER-WEB-REASONING.md")) {
       errors.push("package.json: V16.3 browser/web-reasoning documentation must be packed")
+    }
+    if (!pkg.files.includes("docs/V16.4-MEASURED-ADAPTIVE-RUNTIME.md")) {
+      errors.push("package.json: V16.4 measured-adaptive-runtime documentation must be packed")
     }
   }
 

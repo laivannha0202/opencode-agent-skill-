@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "name": "v16.4-real-task-corpus",
+  "notes": "Seed corpus for real Pi + DeepSeek AUTO A/B. Deterministic regression stays in scripts/bench-web-reasoning-ab.mjs built-ins; this file adds real-task coverage. Extend toward 30-50 tasks by appending entries with the same shape. Promotion rules: false PASS must remain 0, quality cannot regress beyond tolerance, efficiency claims require measured token data.",
+  "tasks": [
+    { "id": "bug-diagnosis-01", "class": "bug-diagnosis", "task": "Flaky retry loop in the service client keeps failing after the third attempt; root cause unclear.", "affectedSubsystems": 2, "ambiguous": true },
+    { "id": "bug-diagnosis-02", "class": "bug-diagnosis", "task": "Không rõ nguyên nhân: request timeout chỉ xảy ra khi tải cao, cần kiểm tra kiến trúc retry.", "affectedSubsystems": 3, "ambiguous": true },
+    { "id": "multi-file-fix-01", "class": "multi-file-fix", "task": "Rename the shared config key across the CLI, runtime and tests without breaking stored state.", "affectedSubsystems": 3 },
+    { "id": "architecture-01", "class": "architecture", "task": "How should we split the monolithic task runner into planner, executor and verifier modules? Trade-offs needed.", "architecturalWork": true, "affectedSubsystems": 3 },
+    { "id": "api-backend-01", "class": "api-backend", "task": "Design a paginated list endpoint with validation errors and idempotent retries.", "affectedSubsystems": 2 },
+    { "id": "frontend-01", "class": "frontend", "task": "Fix the settings form that loses focus on every keystroke and mislabels required fields.", "affectedSubsystems": 1 },
+    { "id": "monorepo-01", "class": "monorepo", "task": "A shared utility change breaks two packages; determine the blast radius and the safe fix order.", "affectedSubsystems": 3 },
+    { "id": "refactor-01", "class": "refactor", "task": "Extract the duplicated polling logic into one helper with identical behavior and full test coverage.", "affectedSubsystems": 2 },
+    { "id": "security-01", "class": "security", "task": "Audit the file-upload endpoint for traversal and unsafe type handling; propose a minimal safe fix.", "affectedSubsystems": 2 },
+    { "id": "ambiguous-root-cause-01", "class": "ambiguous-root-cause", "task": "Conflicting symptoms: cache hit rate dropped while latency improved. Multiple possible causes.", "ambiguous": true, "affectedSubsystems": 2 },
+    { "id": "failing-tests-01", "class": "failing-tests", "task": "Test vẫn fail sau khi sửa: verifier still fails on the worker pool shutdown path.", "verifierRetries": 2, "affectedSubsystems": 2 },
+    { "id": "trivial-local-01", "class": "trivial", "task": "Fix typo in readme", "affectedSubsystems": 1 }
+  ]
+}

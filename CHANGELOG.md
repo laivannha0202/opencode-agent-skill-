@@ -1,5 +1,56 @@
 # Changelog
 
+## [16.4.0] - 2026-10-04
+
+### Added
+
+- Lazy Runtime Hydration for heavy browser, DeepSeek, code-intelligence and repo-intelligence paths.
+- Evidence-first Structural Escalation V2 with Vietnamese fallback signals.
+- Fresh-evidence DeepSeek follow-up protocol with fingerprint-bound deltas.
+- Adaptive Decision Packet tiers with progressive disclosure.
+- Verified Task Cost with explicit measurement provenance.
+- Advisor Benefit Learner for bounded observational consultation telemetry.
+- Parallel read-only consultation preparation.
+- Release Test Coordinator with deduplicated test execution.
+- Repo Map quality measurements and V16.4 real-task corpus support.
+
+### Changed
+
+- Default DeepSeek follow-up budget reduced to one; a second follow-up requires fresh verified evidence.
+- CI coverage aligned across Node 22/24 and Windows Node 24.
+- Heavy production boot graph reduced through lazy hydration.
+- Release consistency now validates package, lockfile, README and latest CHANGELOG version.
+
+### Performance / measurement
+
+- Static production boot graph: 127 → 106 modules.
+- Static eager runtime bytes: 1,576,012 → 1,005,013 bytes (~36% reduction).
+- Heavy browser/web/code modules in eager boot set: 13 → 0.
+- Release test file slots: 83 → 56 unique executions.
+- No real-model token/speed/quality uplift claimed without live measured telemetry.
+
+### Safety / quality invariants
+
+- Local verifier remains final authority.
+- DeepSeek remains consultant-only and cannot produce PASS.
+- External side effects remain zero automatic retry.
+- Safety, permission, ownership, dirty-work, workspace and verifier policy remain eager/fail-closed.
+
+## [16.3.1] - 2026-10-04
+
+### Fixed
+
+- Preserve DeepSeek consult → follow-up session lifecycle across verifier retries.
+- Bounded read-only follow-up dispatch confirmation before any follow-up submit.
+- Async UI hydration race handling in follow-up dispatch.
+- Follow-up dispatch regressions.
+- Advisor/verifier accuracy validation (`validate:v16.3:accuracy`).
+
+### Safety / quality invariants
+
+- DeepSeek remains consultant-only; local verifier is the final authority.
+- External submits keep zero automatic retry; every submit is bounded and accounted.
+
 ## [16.3.0] - 2026-10-03
 
 ### Added

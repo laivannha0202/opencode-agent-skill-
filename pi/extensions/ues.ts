@@ -80,31 +80,33 @@ import {
 } from "../../lib/browser-mcp-routing.mjs";
 // V16.3 runtime integration. These modules carry the browser reliability policy
 // and the web-reasoning policy; the controller only sequences them.
-import { createBrowserLane } from "../../lib/browser-lane.mjs";
-import { createWebReasoningLane, WEB_LANE_OUTCOME } from "../../lib/web-reasoning-lane.mjs";
+//
+// V16.4 Lazy Runtime Hydration: `WEB_REASONING_UNAVAILABLE` stays EAGER because
+// it is a control-flow contract the controller must be able to test BEFORE any
+// provider exists, exactly like the permission and destructive-command policy
+// below. The provider implementation is NOT eager: `lib/web-reasoning-lane.mjs`,
+// `lib/deepseek-web-adapter.mjs`, `lib/browser-lane.mjs`,
+// `lib/browser-worker-client.mjs`, `lib/repo-map.mjs`,
+// `lib/code-intelligence/index.mjs` and
+// `lib/code-intelligence/model-payload.mjs` hydrate on first real use through
+// `lib/lazy-runtime.mjs` (see `hydrateRuntimeModule` below).
 import { WEB_REASONING_UNAVAILABLE } from "../../lib/web-reasoning-provider.mjs";
-import { createDeepSeekWebAdapter } from "../../lib/deepseek-web-adapter.mjs";
-import { createBrowserWorkerClient, spawnBrowserWorkerTransport } from "../../lib/browser-worker-client.mjs";
 import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
-import { buildRepoMap } from "../../lib/repo-map.mjs";
 import { contentArtifactStoreStats } from "../../lib/content-artifacts.mjs";
 import { clearSemanticIndexRuntimeCache } from "../../lib/semantic-index.mjs";
+import { shutdownLspPool } from "../../lib/code-intelligence/lsp-provider.mjs";
 import {
-  SINGLE_FILE_WRITE_TOOLS,
-  MULTI_FILE_WRITE_TOOLS,
-  createWriteFeedbackController,
-  diagnoseCode,
-  extractWrittenFiles,
-  lspOperation,
-  lspPoolStatus,
-  probeCodeIntelligence,
-  readAnchoredCode,
-  searchCodeIntelligence,
-  shutdownLspPool,
-  writeFeedbackMetrics,
-  WRITE_FEEDBACK_TOOLS,
-} from "../../lib/code-intelligence/index.mjs";
-import { reduceCodePayload } from "../../lib/code-intelligence/model-payload.mjs";
+  LAZY_RUNTIME_MODULES,
+  hydrateRuntimeModule,
+  isLazyModuleLoaded,
+  lazyRuntimeTelemetry,
+  loadedLazyModules,
+} from "../../lib/lazy-runtime.mjs";
+// V16.4 Verified Task Cost (production caller: recordRuntimeOutcome).
+import { reportVerifiedTaskCost } from "../../lib/verified-task-cost.mjs";
+// V16.4 repo-map measurement wrapper (observational; production caller: the
+// ues_code repo-map action). It measures, it never changes ranking.
+import { measureRepoMapQuery, summarizeRepoMapMeasurement } from "../../lib/repo-map-measurements.mjs";
 import { ingestDocument } from "../../lib/document-ingestion.mjs";
 import { compactContext, expandContext, searchContext } from "../../lib/reversible-context.mjs";
 import {
@@ -144,6 +146,34 @@ const MAX_WRITER_CONCURRENCY = Math.max(
   Math.min(4, Number(process.env.UES_MAX_WRITER_CONCURRENCY || (process.platform === "win32" ? 2 : 3))),
 );
 const OUTPUT_LIMIT = 512 * 1024;
+
+// ---------------------------------------------------------------------------
+// V16.4 Lazy Runtime Hydration -- production accessors
+//
+// These four accessors are the ONLY way the controller reaches the browser,
+// DeepSeek/web-reasoning and code-intelligence stacks. A call that hydrates
+// nothing is a cache hit, so a hot path costs a Map lookup and not an import.
+//
+// Failure posture is the same posture the eager imports had, expressed for a
+// module that can now fail AFTER boot:
+//   - a lane/adapter that cannot hydrate -> no lane -> AUTO falls back to local
+//     and FORCE reports WEB_REASONING_UNAVAILABLE, which is exactly what a
+//     missing provider already reported;
+//   - a code-intelligence module that cannot hydrate -> the tool call that
+//     needed it fails with that error instead of silently returning less;
+//   - nothing is ever stubbed. A failed hydration is never a fake success.
+// ---------------------------------------------------------------------------
+async function hydrateLazy(name: string): Promise<any | null> {
+  return hydrateRuntimeModule(name, { fallback: null });
+}
+
+const loadBrowserLaneModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.BROWSER_LANE);
+const loadBrowserWorkerClientModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.BROWSER_WORKER_CLIENT);
+const loadDeepSeekWebAdapterModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.DEEPSEEK_ADAPTER);
+const loadWebReasoningLaneModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.WEB_REASONING_LANE);
+const loadCodeIntelligenceModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.CODE_INTELLIGENCE);
+const loadCodePayloadModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.CODE_PAYLOAD);
+const loadRepoMapModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.REPO_MAP);
 
 function configuredDuration(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name] || "");
@@ -411,12 +441,14 @@ function browserLaneKey(cwd: string, runId: string) {
   return `${path.resolve(String(cwd || ""))}::${String(runId || "default")}`;
 }
 
-function resolveBrowserLane(cwd: string, runId: string, pi: ExtensionAPI, overrides: Record<string, any> = {}) {
+async function resolveBrowserLane(cwd: string, runId: string, pi: ExtensionAPI, overrides: Record<string, any> = {}) {
   const key = browserLaneKey(cwd, runId);
   const existing = ACTIVE_BROWSER_LANES.get(key);
   if (existing) return existing;
   const tools = typeof (pi as any).getAllTools === "function" ? (pi as any).getAllTools() : [];
-  const lane = createBrowserLane({
+  const browserLaneModule = await loadBrowserLaneModule();
+  if (!browserLaneModule) return null;
+  const lane = browserLaneModule.createBrowserLane({
     tools,
     healthTracker: MCP_HEALTH,
     providerName: "host-browser-mcp",
@@ -451,6 +483,22 @@ function boundedWorkspaceDiff(cwd: string, maxChars = 6_000) {
 
 function activeBrowserLane(cwd: string, runId: string) {
   return ACTIVE_BROWSER_LANES.get(browserLaneKey(cwd, runId)) || null;
+}
+
+/**
+ * V16.4 fresh-evidence snapshot for a follow-up. It is a local fact about the
+ * CURRENT repository state -- the live diff plus the verifier evidence that
+ * caused this attempt -- and it is the input `lib/fresh-evidence.mjs` compares
+ * against what the provider already saw. It is never derived from the
+ * provider's own claims.
+ */
+function snapshotFollowUpEvidence(diff: string, verifierText: string) {
+  return {
+    files: {},
+    diff: String(diff || ""),
+    diagnostics: [],
+    failingTests: verifierText ? [String(verifierText).slice(0, 6_000)] : [],
+  };
 }
 
 /**
@@ -506,42 +554,59 @@ function webReasoningLiveEnabled() {
 
 const ACTIVE_WEB_LANES = new Map<string, any>();
 const ACTIVE_WEB_WORKERS = new Map<string, any>();
+// Populated when the web-reasoning lane module hydrates. See webLaneOutcomeSkipped().
+let ACTIVE_WEB_LANE_OUTCOME: any = null;
 
 function browserWorkerScript() {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "browser-worker-v16-3.mjs");
 }
 
-function resolveManagedBrowserWorker(cwd: string, runId: string) {
+async function resolveManagedBrowserWorker(cwd: string, runId: string) {
   const key = browserLaneKey(cwd, `web:${runId}`);
-  const existing = ACTIVE_WEB_WORKERS.get(key);
-  if (existing) return existing;
+  if (ACTIVE_WEB_WORKERS.has(key)) return ACTIVE_WEB_WORKERS.get(key);
   if (!webReasoningLiveEnabled()) {
     // No live flag -> no worker, no cost, and an honest `unavailable` capability.
     ACTIVE_WEB_WORKERS.set(key, null);
     return null;
   }
-  const transport = spawnBrowserWorkerTransport(browserWorkerScript(), {
-    spawnImpl: spawn,
-    cwd: path.resolve(String(cwd || process.cwd())),
-  });
-  const client = transport
-    ? createBrowserWorkerClient({ transport, process: transport.process })
-    : null;
-  ACTIVE_WEB_WORKERS.set(key, client);
+  // The pending promise is cached under the same key so two concurrent callers
+  // spawn ONE worker instead of racing two browser processes.
+  const pending = (async () => {
+    const workerClientModule = await loadBrowserWorkerClientModule();
+    if (!workerClientModule) return null;
+    const transport = workerClientModule.spawnBrowserWorkerTransport(browserWorkerScript(), {
+      spawnImpl: spawn,
+      cwd: path.resolve(String(cwd || process.cwd())),
+    });
+    return transport
+      ? workerClientModule.createBrowserWorkerClient({ transport, process: transport.process })
+      : null;
+  })();
+  ACTIVE_WEB_WORKERS.set(key, pending);
+  const client = await pending;
+  if (client) ACTIVE_WEB_WORKERS.set(key, client);
+  else ACTIVE_WEB_WORKERS.delete(key);
   return client;
 }
 
 async function releaseManagedBrowserWorker(cwd: string, runId: string) {
   const key = browserLaneKey(cwd, `web:${runId}`);
-  const client = ACTIVE_WEB_WORKERS.get(key);
+  const pending = ACTIVE_WEB_WORKERS.get(key);
   ACTIVE_WEB_WORKERS.delete(key);
+  if (!pending) return null;
+  // A release racing an in-flight hydration must close the worker that
+  // hydration produces, not leak it. Awaiting the pending promise is safe:
+  // `close()` is idempotent and a null client is a no-op.
+  const client = typeof pending?.then === "function" ? await pending.catch(() => null) : pending;
   if (!client) return null;
   return client.close().catch(() => null);
 }
 
-function buildWebReasoningAdapter(cwd: string, runId: string) {
-  const worker = resolveManagedBrowserWorker(cwd, runId);
-  return createDeepSeekWebAdapter({
+async function buildWebReasoningAdapter(cwd: string, runId: string) {
+  const adapterModule = await loadDeepSeekWebAdapterModule();
+  if (!adapterModule) return null;
+  const worker = await resolveManagedBrowserWorker(cwd, runId);
+  return adapterModule.createDeepSeekWebAdapter({
     capability: worker
       ? {
         provider: "browser-worker",
@@ -558,17 +623,42 @@ function buildWebReasoningAdapter(cwd: string, runId: string) {
   });
 }
 
-function createRunWebLane(cwd: string, runId: string) {
+async function createRunWebLane(cwd: string, runId: string) {
   const mode = webReasoningMode();
-  const lane = createWebReasoningLane({
+  const adapters: any[] = [];
+  if (mode !== "off") {
+    const adapter = await buildWebReasoningAdapter(cwd, runId);
+    if (adapter) adapters.push(adapter);
+  }
+  const laneModule = await loadWebReasoningLaneModule();
+  if (!laneModule) {
+    // The lane could not hydrate: there is no consultation to perform, and the
+    // controller must not invent one. FORCE surfaces this as an explicit
+    // WEB_REASONING_UNAVAILABLE result through the existing `webLane == null`
+    // guard, and AUTO simply executes locally.
+    ACTIVE_WEB_LANES.set(browserLaneKey(cwd, `web:${runId}`), null);
+    return null;
+  }
+  ACTIVE_WEB_LANE_OUTCOME = laneModule.WEB_LANE_OUTCOME || null;
+  const lane = laneModule.createWebReasoningLane({
     mode,
     live: webReasoningLiveEnabled(),
     provider: String(process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web").trim(),
     maxPacketChars: configuredCount("UES_WEB_PACKET_MAX_CHARS", 48_000, 2_000, 400_000),
-    adapters: mode === "off" ? [] : [buildWebReasoningAdapter(cwd, runId)],
+    adapters,
   });
   ACTIVE_WEB_LANES.set(browserLaneKey(cwd, `web:${runId}`), lane);
   return lane;
+}
+
+/**
+ * `WEB_LANE_OUTCOME` lives in `lib/web-reasoning-lane.mjs`, which is hydrated on
+ * first web use. A lane outcome can only exist after that hydration, so the
+ * constant is always populated by then; the literal is a defensive default that
+ * matches the frozen enum and cannot change any decision.
+ */
+function webLaneOutcomeSkipped(outcome: any) {
+  return outcome === (ACTIVE_WEB_LANE_OUTCOME?.SKIPPED ?? "skipped");
 }
 
 function activeWebLane(cwd: string, runId: string) {
@@ -3132,8 +3222,31 @@ async function runRoutedAgent(
 }
 
 async function recordRuntimeOutcome(result: RunResult, task: string, passed: boolean, retries: number) {
+  // V16.4 Verified Task Cost. A cost number is only meaningful next to a
+  // verified PASS, so the report is computed with `verifiedPass` and refuses to
+  // publish a number without one (`costAvailable:false` when it did not pass).
+  // Every component carries its provenance; a missing token field is reported
+  // as NOT_MEASURED, never as zero.
+  const cost = reportVerifiedTaskCost({
+    verifiedPass: passed === true,
+    providerInputTokens: result.usage?.inputTokens ?? result.usage?.promptTokens,
+    providerOutputTokens: result.usage?.outputTokens ?? result.usage?.completionTokens,
+    cacheReadTokens: result.usage?.cacheReadTokens ?? result.usage?.cachedInputTokens,
+    cacheWriteTokens: result.usage?.cacheWriteTokens,
+    toolCalls: result.usage?.toolCalls ?? result.toolCalls,
+    retries,
+    wallTimeMs: result.durationMs,
+  });
+  await appendRunJournalEvent(result.cwd || process.cwd(), "runtime", "runtime.verified-task-cost", {
+    verifiedPass: cost.verifiedPass,
+    costAvailable: cost.costAvailable,
+    verifiedTaskCost: cost.verifiedTaskCost,
+    partial: cost.partial ?? null,
+    provenance: cost.provenance,
+    tokensTotal: cost.verifiedTaskCost?.providerTokensTotal ?? null,
+  }).catch(() => null);
   const performanceModel = result.modelSelection?.diversitySelectedModel || result.modelSelection?.model || result.model;
-  if (!performanceModel) return;
+  if (!performanceModel) return cost;
   try {
     const aggregateUsage = aggregateUsageSamples(result.usageSamples);
     await recordModelPerformance(getUesConfigDir(), {
@@ -3149,6 +3262,7 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
   } catch {
     // Telemetry must never make the engineering task fail.
   }
+  return cost;
 }
 
 async function rememberVerifiedTask(
@@ -4160,6 +4274,9 @@ export default function (pi: ExtensionAPI) {
     lspEnriched: 0,
     degraded: 0,
     lastContextChars: 0,
+    // V16.4 observational: the last ranking measurement (recall / rank / bytes
+    // before first correct edit / query latency). Recorded, never used to rank.
+    lastMeasurement: null,
   };
   const NL = String.fromCharCode(10);
 
@@ -4193,7 +4310,7 @@ export default function (pi: ExtensionAPI) {
   const contentArtifactDigest = () => contentArtifactStoreStats();
   const repoMapStats = () => ({ ...REPO_MAP_STATUS });
 
-  const parentWriteFeedback = (root: string) => {
+  const parentWriteFeedback = async (root: string) => {
     if (!WRITE_FEEDBACK_ENABLED) return null;
     const resolved = root || process.cwd();
     if (writeFeedbackController && writeFeedbackRoot === resolved) return writeFeedbackController;
@@ -4201,11 +4318,13 @@ export default function (pi: ExtensionAPI) {
       void writeFeedbackController.shutdown?.().catch(() => {});
       writeFeedbackController = null;
     }
+    const codeIntelligence = await loadCodeIntelligenceModule();
+    if (!codeIntelligence) return null;
     writeFeedbackRoot = resolved;
-    writeFeedbackController = createWriteFeedbackController({
+    writeFeedbackController = codeIntelligence.createWriteFeedbackController({
       root: resolved,
       runDiagnostics: (target: { root: string; relative: string }) =>
-        diagnoseCode(target.root, target.relative, {
+        codeIntelligence.diagnoseCode(target.root, target.relative, {
           timeoutMs: 5_000,
           maxResults: 60,
           persistent: true,
@@ -4711,8 +4830,9 @@ export default function (pi: ExtensionAPI) {
     if (writeFeedbackInHandler) return undefined;
 
     const root = String(eventCtx?.cwd || process.cwd());
-    const controller = parentWriteFeedback(root);
+    const controller = await parentWriteFeedback(root);
     if (!controller) return undefined;
+    const codeIntelligence = await loadCodeIntelligenceModule();
 
     // Deliver anything a coalesced write is still owed, on ANY tool result.
     // Without this, a model that edits one file three times in a row is told
@@ -4722,10 +4842,10 @@ export default function (pi: ExtensionAPI) {
     let feedback: any = null;
     if (event?.isError !== true) {
       const input = (event && typeof event.input === "object" && event.input ? event.input : {}) as Record<string, unknown>;
-      const knownWrite = WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase());
+      const knownWrite = codeIntelligence.WRITE_FEEDBACK_TOOLS.includes(toolName.toLowerCase());
       const mutation = detectMutationShape(toolName, input);
       if (knownWrite || mutation.mutation === "yes") {
-        const discovered = knownWrite ? extractWrittenFiles(toolName, input) : mutation.files;
+        const discovered = knownWrite ? codeIntelligence.extractWrittenFiles(toolName, input) : mutation.files;
         if (!discovered.length) {
           if (!writeFeedbackCoverage.unsupportedSurfaces.includes(toolName)) writeFeedbackCoverage.unsupportedSurfaces.push(toolName);
         } else {
@@ -4824,9 +4944,12 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
       try {
+        // The code-intelligence surface is hydrated by the FIRST ues_code call
+        // and cached from then on. Nothing here is eager at boot.
+        const codeIntelligence = await loadCodeIntelligenceModule();
         let result: any;
         if (params.action === "status") {
-          result = probeCodeIntelligence(params.file || "");
+          result = codeIntelligence.probeCodeIntelligence(params.file || "");
           result = {
             ...result,
             mode: "parent-lite",
@@ -4835,14 +4958,14 @@ export default function (pi: ExtensionAPI) {
             lsp: {
               ...result.lsp,
               persistentPool: {
-                ...lspPoolStatus({ includeSessions: params.includeSessions === true, persistent: true }),
+                ...codeIntelligence.lspPoolStatus({ includeSessions: params.includeSessions === true, persistent: true }),
                 policy: { enabled: true, source: "parent-lite" },
               },
             },
           };
         } else if (params.action === "search") {
           if (!params.query) throw new Error("ues_code search requires query");
-          result = await searchCodeIntelligence(ctx.cwd, params.query, {
+          result = await codeIntelligence.searchCodeIntelligence(ctx.cwd, params.query, {
             structuralPattern: params.structuralPattern,
             language: params.language,
             file: params.file,
@@ -4855,7 +4978,7 @@ export default function (pi: ExtensionAPI) {
           if (!params.file) throw new Error("ues_code read requires file");
           const startLine = Math.max(1, Math.trunc(Number(params.startLine || 1)));
           const endLine = Math.max(startLine, Math.min(startLine + 399, Math.trunc(Number(params.endLine || startLine + 199))));
-          const read = await readAnchoredCode(ctx.cwd, params.file, { startLine, endLine });
+          const read = await codeIntelligence.readAnchoredCode(ctx.cwd, params.file, { startLine, endLine });
           const rawRead = [
             `file: ${read.file}; lines: ${read.startLine}-${read.endLine}/${read.lineCount}; sourceHash: ${read.sourceHash}`,
             "",
@@ -4899,7 +5022,7 @@ export default function (pi: ExtensionAPI) {
           };
         } else if (params.action === "diagnostics") {
           if (!params.file) throw new Error("ues_code diagnostics requires file");
-          result = await diagnoseCode(ctx.cwd, params.file, {
+          result = await codeIntelligence.diagnoseCode(ctx.cwd, params.file, {
             timeoutMs: 5000,
             maxResults: 80,
             persistent: true,
@@ -4911,7 +5034,7 @@ export default function (pi: ExtensionAPI) {
         } else if (["definition", "references", "symbols", "hover", "rename-preview", "incoming-calls", "outgoing-calls"].includes(params.action)) {
           if (!params.file) throw new Error(`ues_code ${params.action} requires file`);
           if (params.action === "rename-preview" && !params.newName) throw new Error("ues_code rename-preview requires newName");
-          result = await lspOperation(ctx.cwd, params.file, params.action, {
+          result = await codeIntelligence.lspOperation(ctx.cwd, params.file, params.action, {
             line: params.line || 1,
             character: params.character || 1,
             newName: params.newName,
@@ -4966,15 +5089,35 @@ export default function (pi: ExtensionAPI) {
           // The map is read-only and budgeted: it ranks files and names the
           // symbols in them, it never inlines source. Ranking quality is gated
           // by scripts/bench-repo-map.mjs.
-          result = await buildRepoMap(ctx.cwd, params.query, {
-            declaredFiles: params.declaredFiles,
-            changedFiles: params.changedFiles,
-            contextBudgetChars: params.contextBudgetChars,
-            limit: 12,
-            maxFiles: 6000,
-          });
+          const repoMapModule = await loadRepoMapModule();
+          // V16.4 observational measurement. `buildRepoMap` is unchanged; the
+          // wrapper only records top-K recall, first-correct-file rank, bytes
+          // read before the first correct edit, repeated-retrieval rate and
+          // query latency, so any future ranking change must beat these
+          // numbers. It never influences which files are returned.
+          const measured = await measureRepoMapQuery(
+            (args) => repoMapModule.buildRepoMap(ctx.cwd, args.query, args),
+            {
+              query: params.query,
+              declaredFiles: params.declaredFiles,
+              changedFiles: params.changedFiles,
+              contextBudgetChars: params.contextBudgetChars,
+              limit: 12,
+              maxFiles: 6000,
+            },
+            // The caller's declared edit surface is the only ground truth the
+            // controller actually has; it is stated, never inferred.
+            params.declaredFiles || [],
+          );
+          result = measured.ranked;
           result.mode = "parent-lite";
+          result.measurement = measured.measurement;
           REPO_MAP_STATUS.queries += 1;
+          REPO_MAP_STATUS.lastMeasurement = summarizeRepoMapMeasurement({
+            ranked: result.files || [],
+            knownEditSites: params.declaredFiles || [],
+            elapsedMs: measured.measurement.queryLatencyMs,
+          });
           REPO_MAP_STATUS.candidateCount += Number(result.stats?.candidateCount || 0);
           REPO_MAP_STATUS.selectedCount += Number(result.stats?.selectedCount || 0);
           REPO_MAP_STATUS.graphExpansionCount += Number(result.stats?.graphExpansionCount || 0);
@@ -4995,7 +5138,8 @@ export default function (pi: ExtensionAPI) {
         // Compact model-facing payload; the exact pre-reduction JSON is preserved
         // in reversible context so a verifier can still recover full evidence.
         const rawEncoded = JSON.stringify(payload, null, 2);
-        const reduction = reduceCodePayload(params.action, payload, { file: params.file || payload?.file || null });
+        const codePayload = await loadCodePayloadModule();
+        const reduction = codePayload.reduceCodePayload(params.action, payload, { file: params.file || payload?.file || null });
         const reducedPayload: any = reduction.reduction.applied
           ? { ...reduction.payload }
           : { ...payload };
@@ -5439,7 +5583,7 @@ export default function (pi: ExtensionAPI) {
       // task-scoped tools, and is the SAME object the tool_call gate consults --
       // so the surface the model sees is the surface the policy enforced.
       const managedBrowserLane = browserLaneRequested
-        ? resolveBrowserLane(cwd, traceID, pi)
+        ? await resolveBrowserLane(cwd, traceID, pi)
         : null;
       const managedBrowserLaneReport = managedBrowserLane
         ? managedBrowserLane.describe({
@@ -5466,14 +5610,15 @@ export default function (pi: ExtensionAPI) {
       }
       // Web-reasoning lane for this run. Created here so OFF costs nothing and
       // AUTO only probes when a real escalation signal exists.
-      const webLane = createRunWebLane(cwd, traceID);
+      const webLane = await createRunWebLane(cwd, traceID);
       const webLanePreflight = {
-        mode: webLane.mode,
-        provider: webLane.providerId,
-        probesProvider: webLane.probesProvider(),
+        mode: webLane?.mode ?? webReasoningMode(),
+        provider: webLane?.providerId ?? String(process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web").trim(),
+        probesProvider: webLane ? webLane.probesProvider() : false,
         live: webReasoningLiveEnabled(),
-        maxConsultations: webLane.maxConsultations,
-        maxFollowUps: webLane.maxFollowUps,
+        maxConsultations: webLane?.maxConsultations ?? 0,
+        maxFollowUps: webLane?.maxFollowUps ?? 0,
+        laneAvailable: webLane != null,
       };
       const requestedAttempts = Number(params.maxAttempts || policy.maxAttempts || 2);
       const maxAttempts = Math.max(1, Math.min(3, requestedAttempts));
@@ -5574,7 +5719,7 @@ export default function (pi: ExtensionAPI) {
             authorityAttempts: consultation?.authorityAttempts || [],
             fallbackToLocal: consultation?.fallbackToLocal === true,
           }).catch(() => null);
-          if (consultation && consultation.outcome !== WEB_LANE_OUTCOME.SKIPPED) {
+          if (consultation && !webLaneOutcomeSkipped(consultation.outcome)) {
             onUpdate?.({
               content: [{
                 type: "text",
@@ -6834,12 +6979,38 @@ export default function (pi: ExtensionAPI) {
         // every turn.
         let webFollowUpText = "";
         if (webLane && attempt > 1 && recentFailure) {
+          // V16.4 fresh evidence BEFORE a follow-up. The local side snapshots
+          // the CURRENT repository state (real diff + real verification
+          // evidence) and the follow-up is refused when that refresh failed or
+          // proved nothing changed.
+          const liveDiff = boundedWorkspaceDiff(cwd);
+          const knownFilesForFollowUp = Array.isArray(structuredPlan?.files)
+            ? structuredPlan.files.map((f: any) => String(f?.path || f)).filter(Boolean)
+            : [];
           const followUp = await webLane
             .followUp({
               task: params.task,
               evidence: [{ kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) }],
               previousAttempts: [cap(recentFailure, 2_000)],
-              diff: boundedWorkspaceDiff(cwd),
+              diff: liveDiff,
+              // V16.4: the controller opts into the verified second-follow-up
+              // rule. Every field below is a fact the controller already knows.
+              requireVerifiedSecondFollowUp: true,
+              repositoryRefreshOk: true,
+              providerSeenEvidence: webLane.state()?.lastPacketFingerprint
+                ? { fingerprint: webLane.state().lastPacketFingerprint }
+                : null,
+              currentEvidence: snapshotFollowUpEvidence(liveDiff, recentFailure),
+              ...(knownFilesForFollowUp.length ? { knownFiles: knownFilesForFollowUp } : {}),
+              followUpsSent: attempt - 1,
+              freshVerifierEvidence: Boolean(recentFailure),
+              fingerprintChanged: liveDiff.length > 0,
+              firstResolved: false,
+              // A second external submit is only worth its cost when the delta
+              // the verifier produced is larger than the packet we saved.
+              benefitExceedsCost: cap(recentFailure, 6_000).length > 0,
+              submitBudgetAllows: attempt - 1 <= 2,
+              sessionHealthy: webLane.state()?.sessionReusable === true,
             })
             .catch(() => null);
           if (followUp?.code === WEB_REASONING_UNAVAILABLE && webLane.mode === "force") {
@@ -6859,7 +7030,7 @@ export default function (pi: ExtensionAPI) {
             flagged: followUp?.flagged === true,
             fallbackToLocal: followUp?.fallbackToLocal === true,
           }).catch(() => null);
-          if (followUp && followUp.outcome !== WEB_LANE_OUTCOME.SKIPPED) {
+          if (followUp && !webLaneOutcomeSkipped(followUp.outcome)) {
             onUpdate?.({
               content: [{
                 type: "text",
@@ -7371,7 +7542,8 @@ export default function (pi: ExtensionAPI) {
       // Runtime metrics are appended as structured details rather than folded
       // into the human-readable block, so /ues-status stays readable while the
       // numbers remain machine-readable. The readable tail is a one-line digest.
-      const writeFeedbackStats = writeFeedbackMetrics();
+      const codeIntelligence = await loadCodeIntelligenceModule();
+      const writeFeedbackStats = codeIntelligence.writeFeedbackMetrics();
       const contentArtifacts = contentArtifactDigest();
       const telemetry = await taskTelemetrySummary(ctx.cwd || process.cwd()).catch(() => null);
       const compactionRecall = await summarizeCompactionRecall(ctx.cwd || process.cwd()).catch(() => null);
@@ -7402,17 +7574,26 @@ export default function (pi: ExtensionAPI) {
             coverage: {
               instrumentedWriteTools: [...writeFeedbackCoverage.instrumentedWriteTools].sort(),
               unrecognisedWriteSurfaces: [...writeFeedbackCoverage.unsupportedSurfaces].sort(),
-              supportedWriteTools: [...WRITE_FEEDBACK_TOOLS].sort(),
+              supportedWriteTools: [...codeIntelligence.WRITE_FEEDBACK_TOOLS].sort(),
               // Pi 0.87.1 ships only `edit` and `write`, and both take one path
               // per call (verified against the tool schemas). Every other name
               // comes from another host or an MCP server, so a call through one
               // of those may mutate many files and reports its coverage.
-              piSingleFileTools: [...SINGLE_FILE_WRITE_TOOLS].sort(),
-              multiFileCapableTools: [...MULTI_FILE_WRITE_TOOLS].sort(),
+              piSingleFileTools: [...codeIntelligence.SINGLE_FILE_WRITE_TOOLS].sort(),
+              multiFileCapableTools: [...codeIntelligence.MULTI_FILE_WRITE_TOOLS].sort(),
             },
           },
           contentArtifacts: contentArtifacts,
           repoMap: repoMapStats(),
+          // V16.4 Lazy Runtime Hydration: what this process actually hydrated.
+          // An empty `hydrated` list on a local-only run is the proof that the
+          // browser / DeepSeek / repo-map / code-intelligence stacks were never
+          // loaded, and it is measured, not asserted.
+          lazyRuntime: {
+            telemetry: lazyRuntimeTelemetry(),
+            hydrated: loadedLazyModules(),
+            pending: Object.values(LAZY_RUNTIME_MODULES).filter((name) => !isLazyModuleLoaded(name)).sort(),
+          },
           taskTelemetry: telemetry,
           compactionRecall,
           efficiency,

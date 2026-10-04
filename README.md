@@ -4,7 +4,7 @@
 
 **Package:** <code>opencode-agent-skill</code>  
 **Host chính:** Pi Agent  
-**Phiên bản package hiện tại:** <code>16.3.1</code>\
+**Phiên bản package hiện tại:** <code>16.4.0</code>\
 **Nhánh phát triển hiện tại:** V16 Deterministic Trust & Correctness Hardening  
 **Stable npm registry:** kiểm tra bằng <code>npm view opencode-agent-skill version --registry=https://registry.npmjs.org/</code>  
 **Runtime:** Node.js 22.19+  
