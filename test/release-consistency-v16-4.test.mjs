@@ -52,7 +52,8 @@ async function writeValidTree(write, version) {
       "eval:v16.3.workers": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-3-controller-integration.test.mjs",
       "bench:web-reasoning": "node scripts/bench-web-reasoning-ab.mjs",
       "smoke:deepseek-web": "node scripts/smoke-deepseek-web-v16-3.mjs",
-      "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4",
+      "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.7",
+      "eval:v16.7": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/deepseek-profile-v16-7.test.mjs",
       "eval:v16.4": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/release-consistency-v16-4.test.mjs test/lazy-runtime-v16-4.test.mjs test/lazy-runtime-production-v16-4.test.mjs test/structural-escalation-v16-4.test.mjs test/fresh-evidence-v16-4.test.mjs test/decision-packet-tiers-v16-4.test.mjs test/verified-cost-learner-v16-4.test.mjs test/web-reasoning-corpus-v16-4.test.mjs test/consult-prep-v16-4.test.mjs test/repo-map-measurements-v16-4.test.mjs test/release-coordinator-v16-4.test.mjs",
       "release:coordinator": "node scripts/release-test-coordinator.mjs",
       "inspect:run": "node scripts/inspect-run.mjs",
@@ -63,7 +64,7 @@ async function writeValidTree(write, version) {
       skills: ["./global-config/skills"],
       prompts: ["./pi/prompts/*.md"],
     },
-    files: ["bin/ocskill.mjs", "lib/", "global-config/AGENTS.md", "docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md", "docs/V15-MANAGED-RUNTIME.md", "docs/V15.6-MEASURED-DURABLE-RUNTIME.md", "docs/V15.7-ADAPTIVE-EFFICIENCY-INTELLIGENCE.md", "docs/V15.8-MEASURED-HARDENING.md", "docs/V15.9-ADAPTIVE-AGENT-INTELLIGENCE.md", "docs/V16-DETERMINISTIC-HARDENING.md", "docs/V16.3-BROWSER-WEB-REASONING.md", "docs/V16.4-MEASURED-ADAPTIVE-RUNTIME.md", "lib/browser-profile.mjs", "lib/browser-worker-mode.mjs", "lib/browser-dom-inspect.mjs", "scripts/browser-worker-v16-3.mjs", "scripts/smoke-deepseek-web-v16-3.mjs"],
+    files: ["bin/ocskill.mjs", "lib/", "global-config/AGENTS.md", "docs/V14.2-TURBO-WEAK-MODEL-RUNTIME.md", "docs/V15-MANAGED-RUNTIME.md", "docs/V15.6-MEASURED-DURABLE-RUNTIME.md", "docs/V15.7-ADAPTIVE-EFFICIENCY-INTELLIGENCE.md", "docs/V15.8-MEASURED-HARDENING.md", "docs/V15.9-ADAPTIVE-AGENT-INTELLIGENCE.md", "docs/V16-DETERMINISTIC-HARDENING.md", "docs/V16.3-BROWSER-WEB-REASONING.md", "docs/V16.4-MEASURED-ADAPTIVE-RUNTIME.md", "docs/V16.7-DEEPSEEK-ACCOUNT-PROFILE-AUTH.md", "lib/browser-profile.mjs", "lib/browser-worker-mode.mjs", "lib/browser-dom-inspect.mjs", "scripts/browser-worker-v16-3.mjs", "scripts/smoke-deepseek-web-v16-3.mjs"],
   };
   const lock = { version, packages: { "": { version, bin: { ues: "bin/ocskill.mjs", ocskill: "bin/ocskill.mjs" } } } };
   await write("package.json", JSON.stringify(pkg));

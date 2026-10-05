@@ -2,6 +2,64 @@
 
 ## [Unreleased]
 
+## [16.7.0] - 2026-10-05
+
+### Added
+
+DeepSeek account, profile and authentication lifecycle. Multiple independent DeepSeek
+profiles (`personal`, `work`, `test`, or any valid custom name) with an explicit active
+profile, a bounded manual login, and a mid-task expiry path that continues the task without
+losing state. The full design and safety contract are in
+`docs/V16.7-DEEPSEEK-ACCOUNT-PROFILE-AUTH.md`; the invariants are asserted by
+`test/deepseek-profile-v16-7.test.mjs` (38 tests).
+
+- **Profile registry** (`lib/deepseek-profile-registry.mjs`). Profiles live under
+  `<ues-config>/browser-profiles/<name>`, OUTSIDE the repository. Writes are atomic; names
+  are validated (no traversal, no reserved names); the resolved directory is contained to
+  the profiles root; the active profile is EXPLICIT with no auto-fallback; a corrupt
+  registry is reported, never silently repaired. The opaque profile id is a SHA-256 of the
+  name and carries no path or credential.
+- **Per-profile lock** (`lib/deepseek-profile-lock.mjs`). One writer per profile via an
+  atomic exclusive create; stale locks (TTL passed, or owner pid provably dead on this host)
+  are reclaimed and the reclaim is reported; release is token-safe.
+- **Auth lifecycle** (`lib/deepseek-auth-lifecycle.mjs`). Fail-closed classification that
+  wraps the V16.3 evidence contract; `ready` is the ONLY state that continues; a bounded
+  manual-login wait (90 probes / 180 s) that treats a dead browser as terminal; a prior
+  `ready` followed by a login wall becomes `expired` and yields a credential-free
+  `expiryResumeRequest` for the existing bounded Resume Capsule. No account substitution.
+- **Profile doctor** (`lib/deepseek-profile-doctor.mjs`). READ-ONLY diagnostics with
+  `ok`/`info`/`warn`/`error` severities; `error` fails the command. It never launches a
+  browser unless `--probe` was explicitly requested, never mutates a profile, never reads or
+  prints a credential.
+- **CLI** `ues deepseek status|profiles|doctor|login|use|switch|logout|remove-profile|help`.
+  `status` and `profiles` are read-only and launch no browser.
+
+### Changed
+
+- **Consult cache isolation.** `consultCacheKey` now includes `profile:<opaque id>` (or
+  `none`). A consultation answered for one DeepSeek account can never be replayed for
+  another, even when the workspace, diff, packet and question are byte-identical. Applied at
+  the runtime call site in `pi/extensions/ues.ts` via a metadata-only, credential-free
+  profile-id resolver.
+- **Lazy runtime.** The profile registry is registered as a lazy module so it is only read
+  when a run actually consults.
+
+### Security
+
+- UES never reads a cookie, token, `storageState`, password or credential; never prints or
+  stores one; never autofills credentials, solves a CAPTCHA or injects an OTP; never copies a
+  cookie or session between profiles; never auto-falls-back to another account; never grants
+  DeepSeek filesystem, Git or terminal rights. Login stays manual and human-driven.
+- Asserted by test sections E–F and reported by `ues deepseek doctor`.
+
+### Notes for upgrade
+
+- No widening of any session/eval/token budget. No new persistent store beyond the profile
+  registry metadata. No credential read path of any kind. `profileForMode` is unchanged: it
+  still returns `null` unless a live run supplies a name.
+- Existing single-profile users are unaffected: with no registry, `resolveActiveProfile`
+  returns `no-active-profile` and the runtime behaves as before until a profile is chosen.
+
 ## [16.6.1] - 2026-10-05
 
 ### Fixed

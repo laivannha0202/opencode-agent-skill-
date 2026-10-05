@@ -437,6 +437,15 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (!pkg.files.includes("docs/V16.4-MEASURED-ADAPTIVE-RUNTIME.md")) {
       errors.push("package.json: V16.4 measured-adaptive-runtime documentation must be packed")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.7")) {
+      errors.push("package.json: release:verify must include eval:v16.7")
+    }
+    if (!pkg.files.includes("docs/V16.7-DEEPSEEK-ACCOUNT-PROFILE-AUTH.md")) {
+      errors.push("package.json: V16.7 DeepSeek account/profile/auth documentation must be packed")
+    }
+    if (!scripts["eval:v16.7"] || !String(scripts["eval:v16.7"]).includes("test/deepseek-profile-v16-7.test.mjs")) {
+      errors.push("package.json: eval:v16.7 must run test/deepseek-profile-v16-7.test.mjs")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)

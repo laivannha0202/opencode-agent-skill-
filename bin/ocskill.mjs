@@ -16,6 +16,22 @@ import { compareVersions } from "../lib/version.mjs"
 import { resolveLatestPublishedVersion } from "../lib/update-resolver.mjs"
 import { readRouterConfig, writeRouterConfig } from "../lib/router-config.mjs"
 import { getUesConfigDir } from "../lib/runtime-config.mjs"
+import {
+  describeRegistry,
+  registerProfile,
+  setActiveProfile,
+  removeProfileRecord,
+  recordProbeResult,
+  resolveActiveProfile,
+  PROFILE_STATE,
+} from "../lib/deepseek-profile-registry.mjs"
+import { inspectProfileLock } from "../lib/deepseek-profile-lock.mjs"
+import {
+  AUTH_STATE,
+  buildAuthReport,
+  classifyLifecycleAuthState,
+} from "../lib/deepseek-auth-lifecycle.mjs"
+import { profileDoctor, renderProfileDoctor } from "../lib/deepseek-profile-doctor.mjs"
 import { resolveWindowsCommand } from "../lib/windows-shim.mjs"
 import {
   detectStack,
@@ -169,6 +185,7 @@ Universal Engineering System for Pi Agent\n\nUsage (preferred CLI: ues; ocskill 
   ocskill memory <action> ...      Verified persistent project memory and hybrid retrieval
   ocskill visual <action> ...     Geometry receipts, PNG diff/crop and viewport matrix
   ocskill browser <action> ...    Browser capability, plan and bounded Playwright inspection
+  ocskill deepseek <action> ...  DeepSeek account/profile lifecycle (status, profiles, login, use, logout, doctor)
   ocskill ui <tokens|layout> ...  Extract design tokens or verify responsive geometry
   ocskill workflow-plan <plan>    Cost-aware deterministic/LLM/vision wave schedule
   ocskill skills lint [dir]       Lint skill size, metadata and routing-description collisions
@@ -1717,6 +1734,242 @@ async function visualControl() {
   }
 }
 
+const DEEPSEEK_PROFILE_USAGE = `Usage: ocskill deepseek <action> ...
+  status [--profile <name>] [--json]
+  profiles [--json]              List registered profiles and the active one
+  doctor [--profile <name>] [--json]
+  login --profile <name> [--json]
+  use|switch <name> [--json]     Select the active profile (never auto-selects)
+  logout [--profile <name>] [--json]
+  remove-profile <name> [--json]  Drop a profile record (--purge also deletes its browser dir)
+  help                           Show this help
+
+DeepSeek profiles keep independent logins (personal / work / test / custom) in a
+browser profile directory OUTSIDE the repository. UES never reads, stores or
+prints a password, cookie, token or storageState. Login is MANUAL: a live run
+opens a real browser window and waits for you to sign in.
+
+These commands never launch a browser. A live auth probe runs only inside a real
+DeepSeek consultation (ues eval-live or a UES DeepSeek task), never here.`
+
+function deepseekAuthReportFor(profileName, options = /** @type {any} */ ({})) {
+  const configDir = getUesConfigDir()
+  const registry = describeRegistry(configDir)
+  const row = registry.profiles.find((entry) => entry.name === profileName)
+  const lock = inspectProfileLock(profileName, { configDir })
+  const storedState = row?.state
+  // Map the registry's recorded classification into a canonical auth state. A
+  // profile that has never been probed stays NOT_PROBED; we never guess READY.
+  const mapRecorded = (state) => {
+    if (state === PROFILE_STATE.READY) return AUTH_STATE.READY
+    if (state === PROFILE_STATE.NEEDS_AUTH) return AUTH_STATE.NEEDS_AUTH
+    if (state === PROFILE_STATE.INDETERMINATE) return AUTH_STATE.INDETERMINATE
+    if (state === PROFILE_STATE.MISSING) return AUTH_STATE.INDETERMINATE
+    return AUTH_STATE.NOT_PROBED
+  }
+  const state = mapRecorded(storedState)
+  const report = buildAuthReport({
+    profile: profileName,
+    profileId: row?.id || null,
+    state,
+    midTask: options.midTask === true,
+    probe: row?.lastProbeAt ? { state: row.lastProbeState, reason: null } : null,
+  })
+  report.profile = profileName
+  report.profileId = row?.id || null
+  report.directoryPresent = Boolean(row?.directoryPresent)
+  report.lock = lock.locked ? { locked: true, stale: false, owner: lock.owner } : { locked: false, stale: Boolean(lock.stale), reason: lock.reason }
+  report.registryPath = registry.path
+  report.legacyDefaultName = registry.legacyDefaultName
+  report.recordedState = storedState || null
+  report.readOnly = true
+  return report
+}
+
+async function deepseekControl() {
+  const action = args[1] || "status"
+  const configDir = getUesConfigDir()
+  try {
+    if (action === "help") {
+      console.log(DEEPSEEK_PROFILE_USAGE)
+      return
+    }
+
+    if (action === "profiles") {
+      const registry = describeRegistry(configDir)
+      if (jsonOutput) {
+        printJson(registry)
+        return
+      }
+      console.log("DeepSeek profiles")
+      console.log(`  registry: ${registry.corrupt ? "CORRUPT" : "ok"}  (${registry.path})`)
+      console.log(`  active:   ${registry.active || "(none)"}`)
+      if (!registry.count) {
+        console.log("  (no profiles yet - run: ocskill deepseek login --profile personal)")
+      } else {
+        for (const row of registry.profiles) {
+          const mark = row.isActive ? "*" : " "
+          console.log(`  ${mark} ${row.name}  state=${row.state}  dir=${row.directoryPresent ? "present" : "MISSING"}`)
+        }
+      }
+      if (registry.activeDangling) {
+        console.log(`  WARNING: active profile "${registry.activeDangling}" is not registered; run "ocskill deepseek use <name>"`)
+        process.exitCode = 1
+      }
+      if (registry.corrupt) process.exitCode = 1
+      return
+    }
+
+    if (action === "status") {
+      const requested = optionValue(args, "--profile")
+      const resolved = resolveActiveProfile({ configDir, profile: requested })
+      const names = requested ? [requested] : (resolved.ok ? [resolved.name] : [])
+      const profiles = names.map((name) => deepseekAuthReportFor(name))
+      const payload = {
+        schemaVersion: 1,
+        policy: "deepseek-profile-status-v16-7",
+        configDir,
+        registryPath: describeRegistry(configDir).path,
+        profileSource: resolved.source,
+        resolvedProfile: resolved.ok ? resolved.name : null,
+        reason: resolved.reason,
+        browserProbe: false,
+        credentialFree: true,
+        profiles,
+      }
+      if (!resolved.ok && !requested) {
+        payload.hint = resolved.reason === "no-active-profile"
+          ? 'No active profile. Create one: ocskill deepseek login --profile personal'
+          : "Profile registry unreadable; run: ocskill deepseek doctor"
+      }
+      if (jsonOutput) {
+        printJson(payload)
+      } else {
+        console.log("DeepSeek account status (read-only; no browser launched)")
+        console.log(`  registry: ${payload.registryPath}`)
+        console.log(`  profile:  ${payload.resolvedProfile || "(none)"}  [${payload.profileSource}]`)
+        if (!profiles.length) console.log(`  ${payload.hint || "No profile resolved."}`)
+        for (const row of profiles) {
+          console.log(`  - ${row.profile}: auth=${row.state}  dir=${row.directoryPresent ? "present" : "MISSING"}  next=${row.nextAction}`)
+          if (row.lock?.locked) console.log(`      locked by pid ${row.lock.owner?.pid ?? "?"}`)
+        }
+        console.log("  note: state is the last RECORDED probe, not a live check; a live probe runs only inside a real consultation.")
+      }
+      if (!resolved.ok && !requested) process.exitCode = 1
+      return
+    }
+
+    if (action === "doctor") {
+      const requested = optionValue(args, "--profile")
+      const report = profileDoctor({ configDir, profile: requested })
+      if (jsonOutput) printJson(report)
+      else console.log(renderProfileDoctor(report))
+      if (!report.ok) process.exitCode = 1
+      return
+    }
+
+    if (action === "login") {
+      const name = optionValue(args, "--profile") || positionalArg(args, 2)
+      if (!name) {
+        throw new Error("Usage: ocskill deepseek login --profile <name>")
+      }
+      // Registering does NOT write a browser dir and does NOT log in. It only
+      // records the intent; the actual sign-in is driven by a live run.
+      const result = registerProfile(name, { configDir })
+      const auth = deepseekAuthReportFor(name)
+      const payload = {
+        schemaVersion: 1,
+        policy: "deepseek-profile-login-v16-7",
+        profile: name,
+        profileId: result.profile.id,
+        created: result.created,
+        active: result.active,
+        authState: auth.state,
+        humanActionRequired: true,
+        // The exact instruction the human must follow. Login is manual.
+        instruction: `Run a live DeepSeek consultation (ues eval-live or a UES DeepSeek task) and sign in to the opened browser window as ${name}. UES never asks for or stores your password.`,
+        credentialFree: true,
+      }
+      if (jsonOutput) printJson(payload)
+      else {
+        console.log(`DeepSeek profile "${name}" ${result.created ? "registered" : "already registered"}.`)
+        console.log(`  active: ${result.active}`)
+        console.log(`  next:   ${payload.instruction}`)
+        console.log("  note:   UES never reads, stores or prints your password, cookies or tokens.")
+      }
+      return
+    }
+
+    if (action === "use" || action === "switch") {
+      const name = positionalArg(args, 2) || optionValue(args, "--profile")
+      if (!name) throw new Error("Usage: ocskill deepseek use <name>")
+      const result = setActiveProfile(name, { configDir })
+      if (jsonOutput) printJson({ schemaVersion: 1, active: result.active, profile: result.profile, credentialFree: true })
+      else {
+        console.log(`Active DeepSeek profile is now "${result.active}".`)
+        console.log("  note: switching profiles does not copy cookies or sessions between them.")
+      }
+      return
+    }
+
+    if (action === "logout") {
+      const requested = optionValue(args, "--profile")
+      const resolved = resolveActiveProfile({ configDir, profile: requested })
+      if (!resolved.ok) {
+        const payload = { schemaVersion: 1, ok: false, reason: resolved.reason, credentialFree: true }
+        if (jsonOutput) printJson(payload)
+        else console.log(`No profile to log out: ${resolved.reason}`)
+        process.exitCode = 1
+        return
+      }
+      // Logout is a STATE reset only. UES never touches cookies or the browser
+      // profile directory here; a fresh probe will observe the login wall.
+      recordProbeResult(resolved.name, PROFILE_STATE.NEEDS_AUTH, { configDir })
+      const payload = {
+        schemaVersion: 1,
+        ok: true,
+        profile: resolved.name,
+        authState: AUTH_STATE.NEEDS_AUTH,
+        instruction: "To fully sign out, open the DeepSeek UI and sign out, then run a live probe. UES never clears cookies for you.",
+        credentialFree: true,
+      }
+      if (jsonOutput) printJson(payload)
+      else {
+        console.log(`Profile "${resolved.name}" marked signed-out in the registry.`)
+        console.log(`  ${payload.instruction}`)
+      }
+      return
+    }
+
+    if (action === "remove-profile") {
+      const name = positionalArg(args, 2) || optionValue(args, "--profile")
+      if (!name) throw new Error("Usage: ocskill deepseek remove-profile <name> [--purge]")
+      const purge = args.includes("--purge")
+      const result = removeProfileRecord(name, { configDir, deleteDirectory: purge })
+      const payload = {
+        schemaVersion: 1,
+        ok: true,
+        removed: result.removed.name,
+        clearedActive: result.clearedActive,
+        directoryRemoved: result.directoryRemoved,
+        active: result.registry.active,
+        credentialFree: true,
+      }
+      if (jsonOutput) printJson(payload)
+      else {
+        console.log(`Removed profile record "${result.removed.name}".`)
+        if (result.directoryRemoved) console.log("  browser directory deleted (contents never read).")
+        if (result.clearedActive) console.log("  active profile cleared; run \"ocskill deepseek use <name>\" to select another.")
+      }
+      return
+    }
+
+    printCliError({ code: "UES_USAGE", message: DEEPSEEK_PROFILE_USAGE, exitCode: 2 })
+  } catch (error) {
+    printCliError(error)
+  }
+}
+
 async function browserControl() {
   const action = args[1] || "capability"
   try {
@@ -2122,6 +2375,9 @@ async function main() {
     break
   case "browser":
     await browserControl()
+    break
+  case "deepseek":
+    await deepseekControl()
     break
   case "workflow-plan":
     await workflowPlanControl()

@@ -21,9 +21,9 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const require = createRequire(path.join(root, "package.json"));
 const pkg = require(path.join(root, "package.json"));
 
-// V16.6.1: extended through V16.6. This list is the ONLY place that decides
-// which evals are coordinated, so adding a release means adding its name here
-// and nowhere else.
+// V16.6.1: extended through V16.6. V16.7: extended through V16.7. This list is
+// the ONLY place that decides which evals are coordinated, so adding a release
+// means adding its name here and nowhere else.
 export const COORDINATED_EVALS = [
   "eval:v15",
   "eval:v15.4",
@@ -37,6 +37,7 @@ export const COORDINATED_EVALS = [
   "eval:v16.4",
   "eval:v16.5",
   "eval:v16.6",
+  "eval:v16.7",
 ];
 
 /**

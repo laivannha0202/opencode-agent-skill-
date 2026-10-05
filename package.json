@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.6.1",
+  "version": "16.7.0",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
@@ -38,6 +38,7 @@
     "docs/V16.5-AGENT-SKILL-DELEGATION.md",
     "docs/V16.5-RESEARCH-NOTES.md",
     "docs/V16.6-UNIFIED-ADAPTIVE-ORCHESTRATION.md",
+    "docs/V16.7-DEEPSEEK-ACCOUNT-PROFILE-AUTH.md",
     "lib/browser-profile.mjs",
     "lib/browser-worker-mode.mjs",
     "lib/browser-dom-inspect.mjs",
@@ -65,7 +66,7 @@
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
-    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.5 && npm run eval:v16.6",
+    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.5 && npm run eval:v16.6 && npm run eval:v16.7",
     "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
     "bench:code": "node scripts/benchmark-code-intelligence.mjs",
     "bench:write-feedback": "node scripts/bench-write-feedback.mjs",
@@ -100,6 +101,7 @@
     "eval:v16.5:routing": "node scripts/eval-skill-routing-v16-5.mjs",
     "eval:v16.6": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/unified-budget-v16-6.test.mjs test/deepseek-session-v16-6.test.mjs test/orchestration-surface-v16-6.test.mjs test/v16-6-measured-regressions.test.mjs test/v16-6-1-regressions.test.mjs test/release-coordinator-v16-6.test.mjs && node scripts/eval-v16-6.mjs > /dev/null",
     "eval:v16.6:measure": "node scripts/eval-v16-6.mjs",
+    "eval:v16.7": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/deepseek-profile-v16-7.test.mjs",
     "release:coordinator": "node scripts/release-test-coordinator.mjs"
   },
   "keywords": [

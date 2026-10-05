@@ -11,6 +11,8 @@ import { automaticUesAdmission, automaticUesContinuation, classifyEngineeringTas
 import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
+import { resolveActiveProfile, resolveDeepSeekProfileId as registryDeepSeekProfileId } from "../../lib/deepseek-profile-registry.mjs";
+import { acquireProfileLock } from "../../lib/deepseek-profile-lock.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
 import { computeSafeWaves, normalizePlanForValidation, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
@@ -521,6 +523,31 @@ async function resolveBrowserLane(cwd: string, runId: string, pi: ExtensionAPI, 
 }
 
 /**
+ * Resolve the OPAQUE DeepSeek profile id that scopes the consult cache (V16.7).
+ *
+ * Explicit env first (`UES_DEEPSEEK_PROFILE`), then the registry's active
+ * profile. Returns `null` when there is no profile, which keeps a profile-less
+ * run in its own cache bucket rather than reusing a profiled answer.
+ *
+ * This reads the registry METADATA file only. It never opens a browser profile,
+ * never reads a cookie/token/storageState, and never launches a browser. Any
+ * error degrades to `null` (its own bucket), which can only cost an extra
+ * provider turn, never a cross-account replay.
+ */
+function resolveDeepSeekProfileId(env: any, cwd: string): string | null {
+  // V16.7: delegate to the registry so the consult cache is scoped by the
+  // CRYPTO-RANDOM opaque profile id (128 bits, stable for the profile's
+  // lifetime) — never a name hash. The registry remains a metadata-only read:
+  // only active / profiles[].id are inspected, never cookies, tokens,
+  // storageState or any directory contents. Errors degrade to null (own bucket).
+  try {
+    return registryDeepSeekProfileId(env || process.env, cwd);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * ONE workspace snapshot for every cache-key input.
  *
  * V16.6.1: `boundedWorkspaceDiff()` returned `${status} ${path}` lines and
@@ -670,6 +697,9 @@ function webReasoningLiveEnabled() {
 
 const ACTIVE_WEB_LANES = new Map<string, any>();
 const ACTIVE_WEB_WORKERS = new Map<string, any>();
+// Lock handles owned by the production persistent browser workers; released on
+// worker release so a long-lived worker never leaves a stale profile lease.
+const ACTIVE_PROFILE_LOCK_HANDLES = new Map<string, any>();
 // Populated when the web-reasoning lane module hydrates. See webLaneOutcomeSkipped().
 let ACTIVE_WEB_LANE_OUTCOME: any = null;
 
@@ -687,34 +717,64 @@ async function resolveManagedBrowserWorker(cwd: string, runId: string) {
   }
   // The pending promise is cached under the same key so two concurrent callers
   // spawn ONE worker instead of racing two browser processes.
+  const configDir = getUesConfigDir();
+  const profile = resolveActiveProfile({ configDir });
+  // Only launch the PERSISTENT worker (with an exclusive profile lease) when a
+  // profile is actually configured; otherwise run the lane ephemeral.
+  const profileName = profile.ok && profile.name ? profile.name : "";
   const pending = (async () => {
     const workerClientModule = await loadBrowserWorkerClientModule();
     if (!workerClientModule) return null;
     const transport = workerClientModule.spawnBrowserWorkerTransport(browserWorkerScript(), {
       spawnImpl: spawn,
       cwd: path.resolve(String(cwd || process.cwd())),
+      scriptArgs: profileName ? ["--live", `--profile=${profileName}`] : undefined,
     });
-    return transport
-      ? workerClientModule.createBrowserWorkerClient({ transport, process: transport.process })
-      : null;
+    if (!transport) return null;
+    const client = workerClientModule.createBrowserWorkerClient({ transport, process: transport.process });
+    // P0: the production persistent browser is protected by an exclusive lease.
+    // The lock owner is the worker process itself, so a crashed worker is
+    // reclaimed via owner-process-dead — never stolen by TTL alone.
+    if (profileName) {
+      const lockHandle = await acquireProfileLock(profileName, {
+        configDir,
+        kill: transport.process.kill.bind(transport.process),
+      });
+      ACTIVE_PROFILE_LOCK_HANDLES.set(key, lockHandle);
+    }
+    return client;
   })();
-  ACTIVE_WEB_WORKERS.set(key, pending);
-  const client = await pending;
-  if (client) ACTIVE_WEB_WORKERS.set(key, client);
-  else ACTIVE_WEB_WORKERS.delete(key);
-  return client;
+  try {
+    ACTIVE_WEB_WORKERS.set(key, pending);
+    const client = await pending;
+    if (client) ACTIVE_WEB_WORKERS.set(key, client);
+    else ACTIVE_WEB_WORKERS.delete(key);
+    return client;
+  } catch (error) {
+    ACTIVE_WEB_WORKERS.delete(key);
+    ACTIVE_PROFILE_LOCK_HANDLES.delete(key);
+    throw error;
+  }
 }
 
 async function releaseManagedBrowserWorker(cwd: string, runId: string) {
   const key = browserLaneKey(cwd, `web:${runId}`);
   const pending = ACTIVE_WEB_WORKERS.get(key);
+  const lockHandle = ACTIVE_PROFILE_LOCK_HANDLES.get(key);
   ACTIVE_WEB_WORKERS.delete(key);
+  ACTIVE_PROFILE_LOCK_HANDLES.delete(key);
   if (!pending) return null;
   // A release racing an in-flight hydration must close the worker that
   // hydration produces, not leak it. Awaiting the pending promise is safe:
   // `close()` is idempotent and a null client is a no-op.
   const client = typeof pending?.then === "function" ? await pending.catch(() => null) : pending;
   if (!client) return null;
+  // Release the exclusive profile lease alongside the worker. The lock handle
+  // is best-effort here: a release failure is not fatal because the lock's
+  // owner-dead reclaim still guarantees forward progress on worker death.
+  try {
+    lockHandle?.release();
+  } catch {}
   return client.close().catch(() => null);
 }
 
@@ -6525,6 +6585,10 @@ export default function (pi: ExtensionAPI) {
               constraints: (executionContract?.mustNot || []).join("\n"),
               provider: String(webLane?.providerId || process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web"),
               model: String(inheritedModel || "unset"),
+              // V16.7 account isolation: the OPAQUE profile id (never a
+              // credential or path) scopes the cache so a consultation answered
+              // for one DeepSeek account is never replayed for another.
+              profileId: resolveDeepSeekProfileId(process.env, cwd),
             })
             : { key: null, cached: false, answer: null };
           if (cacheLookup.cached && cacheLookup.answer) {
@@ -6537,6 +6601,18 @@ export default function (pi: ExtensionAPI) {
               turnsUsed: deepSeek.turnsUsed,
             }).catch(() => null);
           }
+          // P0 #9: bind this in-flight consult to the execution context it
+          // belongs to. The identity tuple below (profile, session, generation
+          // and trace) is verified immediately before the result is committed -
+          // never only at dispatch time, so a stale response can never be
+          // re-attached to a rotated conversation or a re-authenticated run.
+          const dispatchedContext = {
+            profileId: resolveDeepSeekProfileId(process.env, cwd),
+            sessionId: deepSeekSession?.id || null,
+            generationId: deepSeekSession?.generationId || null,
+            traceId,   
+            consultId: crypto.randomUUID(),
+          };
           const consultation = turnsAllowed && !cacheLookup.cached
             ? await webLane
               .consult({
@@ -6545,9 +6621,63 @@ export default function (pi: ExtensionAPI) {
                 constraints: executionContract?.mustNot || [],
                 verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
                 affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+                requestId: dispatchedContext.consultId,
               })
               .catch(() => null)
             : null;
+          // P0 #9: stale/late-response isolation. The consult was dispatched
+          // under dispatchedContext. If it still belongs to that context,
+          // commit it; otherwise discard it completely - it must never touch
+          // the current conversation, cache, evidence, budget or auth state.
+          let staleConsultation = false;
+          if (consultation) {
+            if (consultation.requestId !== dispatchedContext.consultId) {
+              staleConsultation = true; // request identity mismatch
+            } else if (
+              resolveDeepSeekProfileId(process.env, cwd) !== dispatchedContext.profileId
+            ) {
+              staleConsultation = true; // active profile switched
+            } else if (
+              (deepSeekSession?.id ?? null) !== dispatchedContext.sessionId
+            ) {
+              staleConsultation = true; // generation rotated
+            } else if (
+              (deepSeekSession?.generationId ?? null) !== dispatchedContext.generationId
+            ) {
+              staleConsultation = true; // generation identity changed
+            } else if (dispatchedContext.traceId !== traceID) {
+              staleConsultation = true; // trace mismatch
+            }
+          }
+          if (staleConsultation) {
+            await appendRunJournalEvent(cwd, traceID,
+              "v16.7.deepseek.stale-response-discarded", {
+                traceId,
+                consultId: dispatchedContext.consultId,
+                profileIdAtDispatch: dispatchedContext.profileId,
+                profileIdAtArrival: resolveDeepSeekProfileId(process.env, cwd),
+                sessionIdAtDispatch: dispatchedContext.sessionId,
+                sessionIdAtArrival: deepSeekSession?.id ?? null,
+                generationIdAtDispatch: dispatchedContext.generationId,
+                generationIdAtArrival: deepSeekSession?.generationId ?? null,
+                requestIdAtDispatch: dispatchedContext.consultId,
+                requestIdAtArrival: consultation.requestId ?? null,
+                reason:
+                  consultation.requestId !== dispatchedContext.consultId
+                    ? "request-identity-mismatch"
+                  : resolveDeepSeekProfileId(process.env, cwd) !== dispatchedContext.profileId
+                    ? "profile-switched"
+                  : (deepSeekSession?.id ?? null) !== dispatchedContext.sessionId
+                    ? "conversation-rotated"
+                  : (deepSeekSession?.generationId ?? null) !== dispatchedContext.generationId
+                    ? "generation-identity-changed"
+                    : "trace-mismatch",
+              }).catch(() => null);
+            webLane.undoConsultation();
+            pendingResumeCapsuleText = "";
+            consultation = null; // DISCARD: nothing below commits it
+          } else {
+
           // The capsule belongs to the conversation that is ending. One send.
           pendingResumeCapsuleText = "";
           if (!cacheLookup.cached) {
@@ -6563,6 +6693,7 @@ export default function (pi: ExtensionAPI) {
                 turn: deepSeek.turnsUsed,
               });
             }
+          }
           }
           if (cacheLookup.cached && cacheLookup.answer) {
             // A cache hit still records the standard consultation event, so a
