@@ -21,7 +21,7 @@ const CONTRACTS = [
   {
     file: "pi/extensions/ues.ts",
     minBytes: 80_000,
-    startsWith: "import { spawn }",
+    startsWith: "import { execFileSync, spawn }",
     required: [
       "ues_code",
       "UES Code Intelligence Lite",
@@ -233,6 +233,170 @@ const CONTRACTS = [
       "recoverRunJournal",
       "journalAdmission?.idempotent === true",
       "modelRuntimeProfile: modelProfile",
+      // V16.7.1: the production DeepSeek adapter wiring. The live hooks the
+      // proven smoke/bench path binds must be assembled by the shipped
+      // extension, and the testable factory must stay exported.
+      "buildWebReasoningAdapterDeps",
+      "WEB_REASONING_ANSWER_SELECTORS",
+      "WEB_REASONING_ENTRY_URL",
+      "warmManagedBrowserWorker",
+      "await warmManagedBrowserWorker(client)",
+      "createDeepSeekWebAdapter(buildWebReasoningAdapterDeps(worker))",
+      // V16.7.1 Part 7: lazy browser launch. The lane is created without a
+      // browser; the managed worker is resolved (spawned + warmed) only on the
+      // first REAL adapter interaction, and a browser-free run never spawns one.
+      "createLazyBrowserWorker",
+      "createLazyBrowserWorker(() => resolveManagedBrowserWorker(cwd, runId))",
+      "worker-never-launched",
+      "transitionBegin: async () => worker.domInspect({ mode: \"send-transition-begin\"",
+      "transitionMeasure: async () => worker.domInspect({ mode: \"send-transition-measure\"",
+      // V16.7.1 P0 grounding fix: the primary consult (and the patch review) must
+      // build a truthful local grounding capsule from runtime state and pass it,
+      // and the follow-up must use the same builder instead of the nonexistent
+      // `structuredPlan.files`.
+      "buildPrimaryConsultGrounding",
+      "function localGroundingForConsult(",
+      "const consultGrounding = localGroundingForConsult(",
+      "knownFiles: consultGrounding.knownFiles",
+      "relevantFiles: consultGrounding.relevantFiles",
+      "const patchGrounding = localGroundingForConsult(",
+      "knownFiles: patchGrounding.knownFiles",
+      // V16.7.1 agent loop guard: the watchdog is created, fed by the parent
+      // hooks, recovered once with a bounded context edit, and emits the
+      // structured telemetry the report reads.
+      "createAgentProgressWatchdog(",
+      "parentAgentWatchdog.observeTurn(",
+      "parentAgentWatchdog.observeAction(\"tool-call\")",
+      "parentAgentWatchdog.observeAction(\"file-mutation\")",
+      "parentAgentWatchdog.observeCompaction()",
+      "parentAgentWatchdog.beginRecovery()",
+      "renderLoopRecoveryInstruction(checkpoint)",
+      "agent.no-progress-warning",
+      "agent.generation-loop-detected",
+      "agent.loop-recovery-started",
+      "AGENT_LOOP_UNRECOVERED",
+      // V16.7.1 Part 2: WITHIN-generation streaming loop detection. The parent
+      // observes the real token stream and aborts the CURRENT generation with
+      // `ctx.abort()` BEFORE `message_end`, instead of only after a whole turn.
+      'pi.on("message_start"',
+      'pi.on("message_update"',
+      "assistantMessageEvent",
+      'streamEvent.type !== "text_delta"',
+      "parentAgentWatchdog.observeStreamDelta(",
+      "parentAgentWatchdog.beginStream()",
+      "ctx.abort()",
+      "agent.stream-loop-warning",
+      // V16.7.1 Part 3: the loop guard scope is wider than `uesModeActive()` but
+      // still excludes casual chat (engineering turns + real tool use only).
+      "const loopGuardActive = ()",
+      "uesModeActive() || parentEngineeringTurn || parentRunToolCalls > 0",
+      "if (text && loopGuardActive())",
+      // V16.7.1 process/timeout hygiene: the run-scoped web lane, managed browser
+      // lane and persistent worker + profile lease are released in `finally`.
+      "await releaseRunScopedResources(cwd, runScopedTraceID)",
+      "export async function releaseRunScopedResources(",
+      "await releaseWebLane(cwd, traceID)",
+      "await releaseBrowserLane(cwd, traceID)",
+      "await releaseManagedBrowserWorker(cwd, traceID)",
+      // V16.7.1 workspace-root call-site fix: `resolveGitWorkspaceRoot` returns
+      // `{ ok, root }`, but three production call sites used the raw object where
+      // a string/boolean was required, so the durable compaction resume guard
+      // silently never ran and the V15.12 git-workspace admission check was
+      // defeated. Every call site must read `.root`.
+      "const root = resolveGitWorkspaceRoot(ctx.cwd || \"\")?.root;",
+      "? resolveGitWorkspaceRoot(ctx.cwd || \"\")?.root",
+      "parentAgentWatchdogRoot = resolveGitWorkspaceRoot((ctx as any)?.cwd || \"\")?.root",
+    ],
+  },
+  {
+    // V16.7.1 workspace-root call-site regression: proves the resolver contract,
+    // that the compaction helpers reject the raw object root, that a non-Git
+    // directory does not look like a worktree, and that the shipped extension
+    // reads `.root` at every call site.
+    file: "test/ues-workspace-root-callsites-v16-7-1.test.mjs",
+    minBytes: 4_000,
+    startsWith: "// V16.7.1 workspace-root call-site regression.",
+    required: [
+      "V16.7.1 workspace root: resolveGitWorkspaceRoot returns { ok, root }, never a string",
+      "V16.7.1 workspace root: the compaction helpers reject the raw object root",
+      "V16.7.1 workspace root: the compaction helpers accept the .root string",
+      "V16.7.1 workspace root: a non-Git directory must not look like a worktree",
+      "V16.7.1 workspace root source: the extension never passes the raw object root",
+    ],
+  },
+  {
+    // V16.7.1 Part 13: the consultation cache identity. The key must fold in the
+    // opaque profile id, the task fingerprint, the evidence digest, the repo
+    // fingerprint and the session identity, so a materially different
+    // consultation can never collide; and a cache replay must be labelled
+    // distinctly from a live provider answer.
+    file: "test/deepseek-consult-cache-identity-v16-7-1.test.mjs",
+    minBytes: 4_000,
+    startsWith: "// V16.7.1 Part 13: consultation cache identity + replay-vs-live distinction.",
+    required: [
+      "V16.7.1 cache identity: the policy and schema are versioned for the complete key",
+      "V16.7.1 cache identity: profile, task, evidence, repo and session are all folded in",
+      "V16.7.1 cache identity: an absent repo/session keeps its own bucket (never reuses a bound answer)",
+      "V16.7.1 cache identity: no secret, path or raw prompt is recoverable from a key",
+      "V16.7.1 cache replay: the consulted event distinguishes cache-replay from provider",
+      "V16.7.1 cache replay: the shipped call site passes the complete identity",
+    ],
+  },
+  {
+    // V16.7.1 Part 14: the adapter keeps the proven live hooks, and the failure
+    // vocabulary classifies every provider failure family separately without ever
+    // returning the raw message. A dropped hook fails the real consultation
+    // closed; a collapsed vocabulary hides the operator's actual remedy.
+    file: "test/deepseek-failure-classification-v16-7-1.test.mjs",
+    minBytes: 4_000,
+    startsWith: "// V16.7.1 Part 14: preserved adapter hooks + a closed, secret-free failure",
+    required: [
+      "V16.7.1 failure vocabulary: the closed set is complete and every entry is a fixed literal",
+      "V16.7.1 failure vocabulary: each provider failure family classifies SEPARATELY",
+      "V16.7.1 failure vocabulary: profile-locked wins over the generic provider bucket",
+      "V16.7.1 failure vocabulary: an unclassifiable error stays the honest catch-all",
+      "V16.7.1 failure vocabulary: no raw message, path or secret is ever returned",
+      "V16.7.1 adapter hooks: the production wiring preserves authProbe/domInspect/transitionBegin/transitionMeasure",
+    ],
+  },
+  {
+    // V16.7.1 Parts 8-12 and 16-18: the bounded consultation policy, the parallel
+    // read-only prep lane, the compact packet + capsule, the bounded follow-up
+    // budget, the benchmark's NOT_MEASURED honesty and the AUTO/OFF/FORCE posture.
+    file: "test/deepseek-consultation-policy-v16-7-1.test.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.7.1 Parts 8-12 and 16-18: the bounded consultation policy, the parallel",
+    required: [
+      "V16.7.1 Part 8: a substantive engineering task with a real trigger is consulted proactively",
+      "V16.7.1 Part 8: the skip list keeps trivial / grounded work local",
+      "V16.7.1 Part 8: OFF never consults and FORCE is never the default posture",
+      "V16.7.1 Part 9: Lane A and Lane B run concurrently and are joined",
+      "V16.7.1 Part 9: an incomplete lane never yields ok:true, and AUTO falls back to local",
+      "V16.7.1 Part 10: an accepted consult reports packetChars, packetFiles and packetEvidenceCount",
+      "V16.7.1 Part 11: the compact capsule carries the bounded structured advice",
+      "V16.7.1 Part 11: the capsule is null unless the advice was accepted, and it is bounded",
+      "V16.7.1 Part 12: the lane allows exactly one initial consult and a bounded follow-up",
+      "V16.7.1 Part 12: a second follow-up requires materially new evidence, never a re-send",
+      "V16.7.1 Part 15: the telemetry snapshot is counters-only and never carries a secret",
+      "V16.7.1 Part 15: the run journal records structured web-reasoning events without prose",
+      "V16.7.1 Part 16: the A/B benchmark reports unmeasured tokens as null + reason, never a fabricated number",
+      "V16.7.1 Part 17: the README documents the daily flow and the three modes",
+      "V16.7.1 Part 18: the default persisted posture is AUTO, not FORCE",
+    ],
+  },
+  {
+    // V16.7.1 process/timeout hygiene: the run-scoped teardown is called from a
+    // `finally`, so a throw or a parent timeout/abort still releases the managed
+    // browser worker and the exclusive profile lease (no zombies, no stale lock).
+    file: "test/ues-run-teardown-v16-7-1.test.mjs",
+    minBytes: 4_000,
+    startsWith: "// V16.7.1 process/timeout hygiene regression.",
+    required: [
+      "V16.7.1 teardown: the shipped extension exports releaseRunScopedResources",
+      "V16.7.1 teardown: releasing an unknown run is a no-op that never throws",
+      "V16.7.1 teardown: a missing run id is refused instead of releasing an arbitrary lane",
+      "V16.7.1 teardown: releasing twice is idempotent",
+      "V16.7.1 teardown source: the controller releases run-scoped resources from a finally",
     ],
   },
   {
@@ -1922,6 +2086,19 @@ const CONTRACTS = [
       "WEB_REASONING_UNAVAILABLE",
       "fallbackToLocal",
       "canProducePass: false",
+      // V16.7.1: the single `notes` normalization boundary and the closed
+      // consultation-error vocabulary the controller journals.
+      "normalizeNotes",
+      "WEB_CONSULTATION_ERROR",
+      "classifyConsultationError",
+      // V16.7.1 Part 14: the closed failure vocabulary splits each provider
+      // failure family so an operator can alert on the exact remedy.
+      "NEEDS_AUTH: \"needs-auth\"",
+      "UI_CHANGED: \"ui-changed\"",
+      "BROWSER_UNAVAILABLE: \"browser-unavailable\"",
+      "SERVICE_UNAVAILABLE: \"service-unavailable\"",
+      "RATE_LIMITED: \"rate-limited\"",
+      "PROFILE_LOCKED: \"profile-locked\"",
     ],
   },
   {
@@ -2006,6 +2183,18 @@ const CONTRACTS = [
       "follow-up-budget-exhausted",
       "ADVISORY EVIDENCE ONLY",
       "canProducePass: false",
+      // V16.7.1: the lane re-exposes the closed classifier and the `consulted`
+      // boolean so the controller never statically imports the lazy escalation
+      // module and never re-derives provider participation.
+      "classifyConsultationError",
+      "consulted: result.consulted === true",
+      // V16.7.1 Part 10/11: the bounded packet reports its evidence count, and
+      // the compact advisor capsule is a bounded structured view of the SAME
+      // accepted advice (`null` unless accepted).
+      "evidenceCount: Array.isArray(packet.sections?.[DECISION_PACKET_SECTION.FAILING_EVIDENCE])",
+      "advisorCapsuleFor",
+      "ues-advisor-capsule",
+      "advisorCapsule: advisorCapsuleFor(result)",
     ],
   },
   {
@@ -2071,6 +2260,11 @@ const CONTRACTS = [
       "yes-i-have-authorized-a-live-consultation",
       "SYNTHETIC_CONTEXT",
       "Do not request secrets and do not perform external actions",
+      // V16.7.1 Part 21: the live PASS report captures the exact production
+      // fields the release report requires.
+      "selectionReason: result.escalation?.reason",
+      "packetEvidenceCount: result.packet?.evidenceCount",
+      "advisorCapsuleChars: result.advisorCapsule?.chars ?? 0",
     ],
     forbidden: ["ci must NOT", "release:verify must NOT"],
   },
@@ -2244,6 +2438,263 @@ const CONTRACTS = [
       "V16.3 J: a follow-up sends only the delta and reuses the session",
       "V16.3 K: the lanes never emit a task verdict and never widen permissions",
       "V16.3 L: a degraded browser provider blocks browser work without retry spam",
+      "V16.7.1 regression: a joined-STRING notes payload escalates instead of throwing",
+      "V16.7.1 regression: a hard task through the production-equivalent lane yields non-empty advisorText",
+      "V16.7.1 classifyConsultationError maps every failure class without leaking a message",
+      "V16.7.1 an escalation throw is tagged, classified, and never becomes an unhandled rejection",
+    ],
+  },
+  {
+    // V16.7.1: the production-path proof. It boots the SHIPPED extension, drives
+    // the lane through the REAL lazy registry with the controller's exact
+    // STRING `notes` shape, and asserts the chain ends in non-empty advisorText.
+    file: "test/deepseek-web-production-path-v16-7-1.test.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.7.1 production-path proof for the DeepSeek Web consultation.",
+    required: [
+      "V16.7.1 production path: the shipped extension boots and exposes activate()",
+      "V16.7.1 production path: a joined-STRING notes payload completes with non-empty advisorText",
+      "V16.7.1 production path: a successful consult sets the packet fingerprint so a follow-up is admitted",
+      "V16.7.1 error matrix: a provider that THROWS falls back in AUTO and never rejects",
+      "V16.7.1 error matrix: FORCE keeps the fail-loud contract when the provider is unavailable",
+      "V16.7.1 error matrix: an escalation throw is tagged and classified, never swallowed to null",
+      "V16.7.1 controller source: the silent `.catch(() => null)` on web consults is gone",
+      "V16.7.1 controller source: web-reasoning.consulted is discriminated, not provider:undefined",
+    ],
+  },
+  {
+    // V16.7.1: the production adapter WIRING regression. It boots the SHIPPED
+    // extension and drives the REAL `buildWebReasoningAdapterDeps` through the
+    // REAL `createDeepSeekWebAdapter` against a fake worker, proving the live
+    // hooks (authProbe/domInspect/transitionBegin/transitionMeasure) are bound
+    // and that a full round trip resolves composer, transition-send and answer.
+    file: "test/deepseek-web-adapter-wiring-v16-7-1.test.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.7.1 production adapter WIRING regression.",
+    required: [
+      "V16.7.1 wiring: the shipped deps bind authProbe/domInspect/transitionBegin/transitionMeasure/invoke/closeBrowser",
+      "V16.7.1 wiring: authProbe passes the live answer selectors and never asserts an authenticated boolean",
+      "V16.7.1 wiring: loginProbe reports the OBSERVED worker state and never asserts authenticated",
+      "V16.7.1 wiring: domInspect is mode-routed and transition hooks use the send-transition modes",
+      "V16.7.1 wiring: a null worker yields an honest unavailable adapter, never an asserted-auth shortcut",
+      "V16.7.1 wiring: the production deps resolve composer, transition-send, and read the answer region",
+      "V16.7.1 wiring: the built adapter identifies itself as deepseek-web and the lane reports provider participation",
+      "V16.7.1 warm-up: warmManagedBrowserWorker navigates once and settles the real auth path",
+      "V16.7.1 warm-up: the adapter reports needs-auth on an un-navigated worker and ready after warm-up",
+      "V16.7.1 warm-up: the production deps pin the entry URL the warm-up navigates to",
+      "V16.7.1 warm-up: a worker whose navigation or probe throws is not fatal and never asserts READY",
+      "V16.7.1 wiring source: buildWebReasoningAdapter delegates to buildWebReasoningAdapterDeps",
+      "V16.7.1 wiring source: closeBrowser closes the managed worker exactly once",
+      // V16.7.1 Part 7: lazy browser launch.
+      "V16.7.1 lazy launch: constructing the worker does NOT spawn; the first use does, exactly once",
+      "V16.7.1 lazy launch: a never-used lane closes for free and never spawns",
+      "V16.7.1 lazy launch: a failed resolution fails CLOSED (rejects), never a false READY",
+      "V16.7.1 lazy launch: the production adapter built at run start spawns NO browser until consulted",
+    ],
+  },
+  {
+    // V16.7.1 P0: the primary-consult GROUNDING regression. It boots the SHIPPED
+    // extension, drives the REAL `buildPrimaryConsultGrounding` and the REAL
+    // lazy-hydrated lane, and proves the chain reaches `packetFiles > 0` and a
+    // non-empty advisorText, while a claim outside the local set is still
+    // rejected. This is the proof that DeepSeek can actually advise in production.
+    file: "test/deepseek-web-grounding-v16-7-1.test.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.7.1 P0 regression: primary-consultation grounding starvation.",
+    required: [
+      "V16.7.1 grounding: the shipped extension exports buildPrimaryConsultGrounding",
+      "V16.7.1 grounding: the capsule is truthful, normalized and bounded",
+      "V16.7.1 grounding: the broken follow-up source is genuinely populated (plan tasks, not plan.files)",
+      "V16.7.1 grounding: primary consult with real grounding reaches packetFiles>0 and a non-empty advisorText",
+      "V16.7.1 grounding: the telemetry the controller journals shows a grounded packet",
+      "V16.7.1 grounding: advice naming a file OUTSIDE the local set is rejected (advisorText null)",
+      "V16.7.1 grounding: with NO grounding at all the historical starvation still rejects",
+      "V16.7.1 grounding Part 1: only real in-repo files enter knownFiles",
+      "V16.7.1 grounding source: the primary consult passes knownFiles + relevantFiles",
+    ],
+  },
+  {
+    // V16.7.1: the agent generation-loop guard. Bounded, side-effect-free, and
+    // proven to NEVER trip on real progress while catching the exact
+    // repetitive-narration pathology that stalled real runs.
+    file: "lib/agent-progress-watchdog.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.7.1 agent generation-loop watchdog.",
+    required: [
+      "export const AGENT_LOOP_LIMITS",
+      "export const AGENT_WATCHDOG_STATUS",
+      "export const AGENT_WATCHDOG_REASON",
+      "export function normalizeNarration",
+      "export function narrationFingerprint",
+      "export function declaresActionIntent",
+      "export function createAgentProgressWatchdog",
+      "export function renderLoopRecoveryInstruction",
+      "export function trailingRepeatCount",
+      "observeStreamDelta",
+      "beginStream",
+      "streamSnapshot",
+      "streamMinChars",
+      "maxStreamRepeats",
+      "streamWindowChars",
+      "AGENT_LOOP_UNRECOVERED",
+      "agent-generation-loop-detected",
+      "agent-tool-intent-stalled",
+      "maxNoProgressTurns",
+      "maxRepeatedNarration",
+      "maxLoopRecoveries",
+      "maxCompactionRecoveries",
+      "maxCheckpointBytes",
+      "ues-agent-loop-checkpoint",
+    ],
+  },
+  {
+    // V16.7.1: the loop-guard regression. It proves legitimate work never trips,
+    // the real pathological traces ARE detected, recovery is bounded and fails
+    // closed, and the SHIPPED extension really wires the guard into the hooks.
+    file: "test/agent-progress-watchdog-v16-7-1.test.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.7.1 agent generation-loop guard regression.",
+    required: [
+      "V16.7.1 loop guard: a single long reasoning message never trips",
+      "V16.7.1 loop guard: many DISTINCT reasoning messages with tool progress never trip",
+      "V16.7.1 loop guard: repeated chatter WITH tool progress never trip",
+      "V16.7.1 loop guard: repeated identical narration with no progress is detected",
+      "V16.7.1 loop guard: a declared action intent that never becomes an action is detected",
+      "V16.7.1 loop guard: a warning fires BEFORE the abort",
+      "V16.7.1 loop guard: recovery is bounded and fails closed with AGENT_LOOP_UNRECOVERED",
+      "V16.7.1 loop guard source: the parent hooks observe turns, actions and compactions",
+      "V16.7.1 loop guard source: the structured telemetry events are emitted",
+      "V16.7.1 stream guard: a legitimate long, DISTINCT stream never trips",
+      "V16.7.1 stream guard: a legitimate repeated CODE fragment never trips",
+      "V16.7.1 stream guard: a pathological narration stream warns then aborts EXACTLY once",
+      "V16.7.1 stream guard: real tool progress mid-stream resets the window",
+      "V16.7.1 stream guard: memory is bounded by the window, not the stream length",
+      "V16.7.1 stream guard: beginStream clears the once-per-generation latch",
+      "V16.7.1 stream guard source: the extension observes message_update and aborts via ctx.abort()",
+      "V16.7.1 Part 3 source: the loop guard scope is wider than uesModeActive but excludes casual chat",
+    ],
+  },
+  {
+    // V16.7.1 Part 2 integration: the SHIPPED extension aborts a streaming
+    // generation loop through its REAL hooks. The module-level and source-string
+    // proofs live in `agent-progress-watchdog-v16-7-1.test.mjs`; this file boots
+    // the extension against a fake `pi`, drives real `message_update` deltas, and
+    // proves `ctx.abort()` fires EXACTLY once BEFORE `message_end`, plus the
+    // no-false-positive cases (distinct reasoning, real tool progress, casual
+    // chat) and the Part 3 widened engineering scope.
+    file: "test/agent-progress-watchdog-integration-v16-7-1.test.mjs",
+    minBytes: 12_000,
+    startsWith: "// V16.7.1 Part 2 integration: the SHIPPED extension aborts a streaming",
+    required: [
+      "V16.7.1 stream integration: the shipped extension aborts a narration loop exactly once before message_end",
+      "V16.7.1 stream integration: the once-per-generation latch holds across a new generation",
+      "V16.7.1 stream integration: a long DISTINCT reasoning stream never aborts",
+      "V16.7.1 stream integration: repetitive status with real tool progress never aborts",
+      "V16.7.1 stream integration: casual chat is never aborted",
+      "V16.7.1 stream integration: an admitted normal engineering turn aborts a loop",
+      "V16.7.1 stream integration source: the shipped handler reads text_delta and aborts inside the stream",
+    ],
+  },
+  {
+    // V16.7.1 Part 4: the Level-B (external/uncooperative death) cleanup proof.    // It kills a REAL child owner from outside, proves the lock survives on
+    // disk, that it is stale for exactly `owner-process-dead`, and that a
+    // SECOND worker reclaims it -- while a LIVE owner is never stolen, not even
+    // on TTL expiry or an unverifiable remote host.
+    file: "test/deepseek-profile-lock-external-death-v16-7-1.test.mjs",
+    minBytes: 6_000,
+    startsWith: "// V16.7.1 Part 4: two-level cleanup with EXTERNAL / uncooperative process death.",
+    required: [
+      "V16.7.1 Part 4: an externally-killed owner leaves a lock a second worker can reclaim",
+      "V16.7.1 Part 4: TTL expiry alone NEVER reclaims a live owner's lock",
+      "V16.7.1 Part 4: a lock on a DIFFERENT host is never reclaimed (unverifiable owner)",
+      "external termination must leave no surviving descendant",
+      "V16.7.1 Part 4 source: the worker lock owner is the worker process itself",
+      "V16.7.1 Part 4: the lock module documents the never-steal-a-live-owner invariant",
+    ],
+  },
+  {
+    // V16.7.1 Part 5: the REAL manual login flow module. Bounded, secret-free,
+    // fail-closed. Never reads/fills/logs a credential; never switches profile.
+    file: "lib/deepseek-login-flow.mjs",
+    minBytes: 6_000,
+    startsWith: "// V16.7.1 Part 5: the REAL manual DeepSeek login flow.",
+    required: [
+      "export const LOGIN_OUTCOME",
+      "export function loginSafetyContract",
+      "export async function runManualLogin",
+      "AUTH_READY",
+      "HUMAN_ACTION_REQUIRED",
+      "BROWSER_UNAVAILABLE",
+      "BROWSER_CLOSED",
+      "NAVIGATION_FAILED",
+      "storageStateRead",
+      "captchaSolved",
+      "profileSwitched",
+    ],
+  },
+  {
+    // V16.7.1 Part 5: the login-flow regression. It proves every outcome and the
+    // all-false safety contract on every path, plus the shipped CLI wiring.
+    file: "test/deepseek-login-flow-v16-7-1.test.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.7.1 Part 5: the REAL headed manual DeepSeek login flow.",
+    required: [
+      "V16.7.1 login: a READY observation yields AUTH_READY and a clean close",
+      "V16.7.1 login: a login that never completes is HUMAN_ACTION_REQUIRED, never success",
+      "V16.7.1 login: the wait is bounded in BOTH probe count and wall clock",
+      "V16.7.1 login: a closed window is BROWSER_CLOSED",
+      "V16.7.1 login: a navigation failure is NAVIGATION_FAILED",
+      "V16.7.1 login: a non-interactive lane is BROWSER_UNAVAILABLE",
+      "V16.7.1 login: the safety contract is all-false on EVERY outcome",
+      "V16.7.1 login source: the shipped CLI spawns a HEADED persistent browser and closes it cleanly",
+      "V16.7.1 login source: the flow never switches the active profile",
+    ],
+  },
+  {
+    // V16.7.1 Part 6: the persisted, secret-free web-reasoning enablement
+    // metadata module. It stores enabled/mode/profile NAME only and resolves
+    // the documented precedence env override > persisted config > default.
+    file: "lib/deepseek-web-config.mjs",
+    minBytes: 6_000,
+    startsWith: "// V16.7.1 DeepSeek web-reasoning ENABLEMENT metadata.",
+    required: [
+      "export const WEB_CONFIG_SCHEMA_VERSION",
+      "export const WEB_CONFIG_POLICY",
+      "export const WEB_CONFIG_MODE",
+      "export const DEFAULT_WEB_ENABLED",
+      "export const DEFAULT_WEB_MODE",
+      "export function isValidWebProfileName",
+      "export function normalizeWebMode",
+      "export function normalizeWebConfig",
+      "export function webConfigFile",
+      "export async function readWebConfig",
+      "export async function writeWebConfig",
+      "export function resolveWebEnablement",
+      "deepseek-web-config-v16-7-1",
+      "web-reasoning.json",
+      "env override",
+    ],
+  },
+  {
+    // V16.7.1 Part 6: the enablement regression. It proves the metadata-only
+    // schema, atomic writes, corrupt-file fallback, the exact precedence, and
+    // the shipped CLI wiring for `ues deepseek on/off/mode`.
+    file: "test/deepseek-web-config-v16-7-1.test.mjs",
+    minBytes: 8_000,
+    startsWith: "// V16.7.1 Part 6: persisted, secret-free web-reasoning enablement metadata.",
+    required: [
+      "V16.7.1 web-config: the schema is bounded metadata only",
+      "V16.7.1 web-config: default is OFF (optional, backwards compatible) and mode default is AUTO, never FORCE",
+      "V16.7.1 web-config: an invalid mode normalizes to AUTO and a hostile profile name is dropped",
+      "V16.7.1 web-config: read of a missing file is not an error and normalizes to defaults",
+      "V16.7.1 web-config: a corrupt file is reported invalid and falls back to defaults, never a half-parse",
+      "V16.7.1 web-config: write is atomic (no temp file left) and round-trips metadata",
+      "V16.7.1 web-config: write ignores unknown keys entirely (no smuggling)",
+      "V16.7.1 web-config precedence: env override beats persisted beats default",
+      "V16.7.1 web-config precedence: a malformed env value is treated as ABSENT, never coerced",
+      "V16.7.1 web-config: `live` is derived and a disabled or OFF config can never launch a browser",
+      "V16.7.1 web-config: `ues deepseek on/off/mode` persists the same bounded file",
+      "V16.7.1 web-config: the shipped extension reads the persisted config and derives the worker profile from it",
     ],
   },
 ]

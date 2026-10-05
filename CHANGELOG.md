@@ -2,6 +2,136 @@
 
 ## [Unreleased]
 
+### Fixed
+
+Production correctness and runtime hardening follow-ups to 16.7.1.
+
+- **DeepSeek Web grounding starvation.** The primary `webLane.consult()` (and the
+  patch-review consult) passed no local grounding, so `knownFiles` was empty, the
+  decision packet carried `packetFiles: 0`, every provider claim was classified
+  `unverified`, and the fail-closed binder rejected the advice (`advisorText: null`).
+  The controller now builds a TRUTHFUL, bounded local grounding capsule from runtime
+  state that already exists (plan task files, planning-recovery referenced files, and
+  the run's changed files) and passes `knownFiles` + `relevantFiles`. `knownFiles`
+  stays local-only; `relevantFiles` drives the outbound packet. No repo rescan and no
+  fabricated paths.
+- **The follow-up consult read `structuredPlan.files`, which never exists** (files live
+  at `plan.tasks[].files`). It now uses the same grounding builder, so the resume
+  capsule is genuinely populated.
+- **Agent generation-loop guard.** A new self-contained watchdog
+  (`lib/agent-progress-watchdog.mjs`) detects the repetitive-narration stall
+  (`"Let me write. Go."` repeated with zero tool calls or file mutations) from the
+  ABSENCE of action progress plus a repeated narration fingerprint — never vocabulary
+  alone. It warns first, then performs at most a bounded context-edit recovery, then
+  fails closed with `AGENT_LOOP_UNRECOVERED`. Detection is bounded (fixed rolling
+  window, fixed counters), side-effect-free, and only active during a UES run.
+- **Process/timeout hygiene.** The run-scoped web lane, managed browser lane, and the
+  persistent browser worker + exclusive profile lease are now released in a `finally`
+  block on every exit path, including a throw and a parent timeout/abort, so a
+  timed-out controller leaves no zombie worker and no stale profile lock.
+- **Workspace-root call sites read the resolver object as a string.**
+  `resolveGitWorkspaceRoot(start)` returns `{ ok, requested, root, error }`, not a
+  string. Three production call sites used the raw object: the two compaction hooks
+  passed it to helpers that require a path string, so they threw
+  `The "paths[0]" argument must be of type string` and every caller swallowed the
+  throw — the durable compaction resume guard therefore never ran in production;
+  and the `input` auto-admission test treated the always-truthy object as a Git
+  workspace, defeating the V15.12 fail-closed admission check for non-Git
+  directories. All three now read `.root`.
+
+No safety, budget, quality, escalation or permission behavior is changed.
+
+### Added
+
+V16.7.1 release parts that close the remaining proof gaps on the DeepSeek Web lane.
+
+- **Verified local grounding (Part 1).** `knownFiles`/`relevantFiles` now pass a real
+  filesystem existence + repo-containment check (`resolveVerifiedRepoFile`): absolute paths,
+  `..` escapes, and non-files are dropped, so a planner hallucination can never become local
+  truth. `verifyLocalAdvice` is unchanged and is never weakened.
+- **Streaming generation-loop guard (Part 2).** The parent watchdog observes the real Pi
+  `message_update` / `assistantMessageEvent.text_delta` events, warns on a repeated trailing
+  window, then aborts the CURRENT generation with `ctx.abort()` BEFORE `message_end` — bounded
+  memory, deterministic, no false positive on a legitimate long stream or a stream with real
+  tool progress. Detection is TWO bounded candidates: a word-token trailing repetition (period
+  up to `maxStreamPeriod`) and a PHRASE trailing repetition (sentences/clauses, period up to
+  `maxStreamPhrasePeriod`). The phrase candidate is required because the real defect streamed a
+  CYCLE of five short phrases (`"Let me write. / Go. / OK. / Writing. / Let me output."`, nine
+  normalized tokens) which a token-period bound alone can never see. Both candidates only
+  qualify when the repeating block is a declared imminent action, so a repeated code fragment or
+  ordinary prose repetition is never treated as a loop.
+- **Watchdog scope (Part 3).** The loop guard now protects any engineering/tool-capable turn
+  (`uesModeActive()` OR an admitted engineering turn OR a turn that already used a tool), not
+  only an explicit UES run. Casual chat is never guarded.
+- **Two-level cleanup (Part 4).** Level A is cooperative `try/finally`; Level B covers an
+  uncooperative external process death with dead-owner lock reclaim. A live-owner lock is
+  NEVER stolen, and TTL expiry alone never reclaims a live owner.
+- **Real manual login (Part 5).** `ues deepseek login --profile <name>` opens a HEADED
+  persistent browser and waits, bounded, for the human to sign in. It NEVER reads, fills or
+  logs a password, cookie, token, OTP, CAPTCHA or storageState, and never switches the active
+  profile. An incomplete login is `HUMAN_ACTION_REQUIRED` (exit 2), never a fake success.
+- **Persisted, secret-free enablement (Parts 6-7, 18).** Only safe metadata
+  (`enabled`/`mode`/`profile` NAME) is persisted to `<ues-config>/.ues/web-reasoning.json`.
+  Precedence is env override > persisted config > default; the default posture is `AUTO`
+  (`FORCE` is never a default). The browser is launched lazily, only when a consultation is
+  actually about to be sent, and closed cleanly; the daily flow is just `cd <project>; pi`.
+- **Bounded consultation policy and accounting (Parts 8-13).** Documented proactive triggers
+  and a skip list; parallel read-only prep with no irreversible write on incomplete advice; a
+  compact outbound packet that records `packetChars`/`packetFiles`/`packetEvidenceCount`; a
+  compact advisor capsule (`hypotheses`/`approach`/`evidence`/`risks`/`alternatives`/
+  `questions`/`confidence`, plus `advisorCapsuleChars`); one initial consult with at most one
+  bounded, novelty-gated follow-up; and a consultation cache identity that includes the profile
+  ID, task fingerprint, evidence digest, repo fingerprint and session identity, with a
+  replay-vs-live `source` discriminator.
+- **Closed, secret-free failure classification (Part 14).** `needs-auth`, `ui-changed`,
+  `browser-unavailable`, `service-unavailable`, `rate-limited` and `profile-locked` are now
+  distinct from the generic `provider-error`, classified from stable provider tokens only; the
+  raw message is never returned or logged, and the adapter hooks (`authProbe`/`domInspect`/
+  `transitionBegin`/`transitionMeasure`) are preserved.
+- **Telemetry and measurement honesty (Parts 15-16).** Structured, secret-free journal fields
+  for each consultation; the A/B benchmark reports `NOT_MEASURED` (null + reason) wherever a
+  metric is unavailable instead of a fabricated number.
+
+No safety, budget, quality, escalation or permission behavior is changed. `verifyLocalAdvice`
+and every previously verified safety/budget/verifier invariant is preserved.
+
+## [16.7.1] - 2026-10-05
+
+### Fixed
+
+DeepSeek Web consultations could never complete on the production path. The controller
+passed the escalation router a `notes` payload as a JOINED STRING, while the router
+assumed an ARRAY and called `.join()` on it. That threw
+`TypeError: (intermediate value).join is not a function` for every non-empty string, the
+async throw became a rejected promise, and the controller swallowed it with
+`.catch(() => null)`, so the consultation result was always `null` and no reason was ever
+recorded.
+
+- The escalation router now normalizes `notes` at its single canonical boundary
+  (`normalizeNotes`): an array is preserved, a non-empty string becomes a one-element array,
+  and `null`/`undefined`/`""` become an empty array. No caller has to know the router's
+  preferred shape and no layer re-normalizes.
+- A thrown consultation is never swallowed to `null`. The controller journals a structured,
+  secret-free reason (`web-reasoning.consultation-error`) using the closed vocabulary
+  `consultation-error` | `escalation-error` | `provider-error` | `unavailable` | `timeout`,
+  then honors the mode: AUTO falls back to local, FORCE keeps its fail-loudly contract with an
+  explicit `WEB_REASONING_UNAVAILABLE` result. The raw error message is never logged.
+- The `web-reasoning.consulted` journal event is now discriminated. It distinguishes a cache
+  replay, a real provider consultation, a skip, an unavailable provider and a thrown error via
+  a `source` field and always-defined `provider`/`outcome`. A live provider consultation
+  reports `provider: deepseek-web`, `outcome: success`, and the old
+  `provider: undefined, outcome: undefined` ambiguity is gone. A fake success is never emitted
+  when `consultation === null`.
+- The reassigned consult binding is `let`, not `const`. The stale/late-response isolation path
+  reassigns `consultation = null`; with `const` this threw
+  `TypeError: Assignment to constant variable` on a real response race.
+- The lane now reports `consulted` and re-exposes the error classifier, so the controller never
+  statically imports the lazy escalation module and never re-derives provider participation.
+
+No safety, budget, quality, escalation or permission behavior is changed. Turn budgets,
+FAST/EASY suppression, the default `UES_WEB_REASONING_MODE=auto`, and the default
+`UES_WEB_REASONING_LIVE=false` are unchanged.
+
 ## [16.7.0] - 2026-10-05
 
 ### Added

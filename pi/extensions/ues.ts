@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -12,10 +12,19 @@ import { resolveCapabilityModel } from "../../lib/model-policy.mjs";
 import { readModelPolicy, recordModelPerformance } from "../../lib/model-config.mjs";
 import { getUesConfigDir } from "../../lib/runtime-config.mjs";
 import { resolveActiveProfile, resolveDeepSeekProfileId as registryDeepSeekProfileId } from "../../lib/deepseek-profile-registry.mjs";
+// V16.7.1 Part 6: the SAFE persisted web-enablement metadata (enabled/mode/
+// profile only) with documented precedence env > persisted > default. Daily UX
+// is `cd <project>; pi`, so the enablement decision is remembered instead of
+// requiring `UES_WEB_REASONING_LIVE=1` in every shell.
+import { readWebConfig, resolveWebEnablement } from "../../lib/deepseek-web-config.mjs";
+// V16.7.1: the bounded SPA hydration settle the proven live path runs before
+// consulting. `browser-profile.mjs` is already eager (the profile registry
+// statically imports it), so this adds nothing to the boot graph.
+import { waitForAuthenticatedPage } from "../../lib/browser-profile.mjs";
 import { acquireProfileLock } from "../../lib/deepseek-profile-lock.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
-import { computeSafeWaves, normalizePlanForValidation, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
+import { computeSafeWaves, normalizePlanForValidation, taskFiles, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { gcEvidenceStore } from "../../lib/evidence-store.mjs";
@@ -106,7 +115,7 @@ import { sessionNameFromUesInput, uesSessionName } from "../../lib/session-displ
 import { requireGitWorkspaceRoot, resolveGitWorkspaceRoot } from "../../lib/workspace-root.mjs";
 import { createAdaptiveDeadline } from "../../lib/activity-deadline.mjs";
 import { extractValidatedPlan } from "../../lib/plan-salvage.mjs";
-import { classifyPlanningFailure, directLaneDecision, plannerSelfCheck, planningFailureFingerprint, planningRecoveryDecision, PLANNING_ERROR } from "../../lib/planning-recovery.mjs";
+import { classifyPlanningFailure, directLaneDecision, plannerSelfCheck, planningFailureFingerprint, planningRecoveryDecision, referencedPlanningFiles, PLANNING_ERROR } from "../../lib/planning-recovery.mjs";
 import { auditCompletion } from "../../lib/completion-auditor.mjs";
 import { mcpExecutionPolicy } from "../../lib/mcp-tool-policy.mjs";
 import { PermissionPolicyStore, compilePolicyLattice, permissionRecoveryHint, toolPermissionRequest } from "../../lib/permission-policy.mjs";
@@ -133,6 +142,13 @@ import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
 import { captureWorkspaceHygieneBaseline, postRunFileHygiene, preFinalWorkspaceAudit } from "../../lib/workspace-hygiene.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
+import {
+  AGENT_LOOP_LIMITS,
+  AGENT_WATCHDOG_REASON,
+  AGENT_WATCHDOG_STATUS,
+  createAgentProgressWatchdog,
+  renderLoopRecoveryInstruction,
+} from "../../lib/agent-progress-watchdog.mjs";
 import {
   browserEvidenceNeeded,
   selectBrowserMcpToolNames,
@@ -624,6 +640,134 @@ function boundedWorkspaceHead(cwd: string): string {
   }
 }
 
+/**
+ * Normalize one repository path to the canonical representation the local
+ * evidence binder uses: slash form, repository-relative, no leading `./`. An
+ * absolute path, a `..` escape or an empty value is dropped, never repaired.
+ */
+function normalizeLocalEvidencePath(value: unknown): string {
+  const raw = String(value ?? "").replaceAll("\\", "/").trim();
+  if (!raw) return "";
+  if (raw.startsWith("/") || /^[A-Za-z]:\//.test(raw)) return "";
+  const normalized = raw.replace(/^\.\//, "");
+  if (!normalized || normalized === "." || normalized.includes("../")) return "";
+  return normalized;
+}
+
+/**
+ * V16.7.1 Part 1: verify ONE candidate grounding path against the real
+ * filesystem AND the repository boundary.
+ *
+ * `knownFiles` is the set the LOCAL VERIFIER treats as "these files exist in
+ * this repository". A planner or workspace snapshot that names a path which is
+ * not actually on disk must NEVER become local truth, because that is exactly
+ * the case where a hallucinated file would be bound PRESENT and an invalid
+ * DeepSeek claim accepted.
+ *
+ * A candidate survives only when ALL of these hold:
+ *   1. it normalizes to a repository-relative slash path (no absolute, no `..`),
+ *   2. it resolves INSIDE the repository root (after `realpath`, so a symlink
+ *      that escapes the root is rejected),
+ *   3. it exists on disk and is a regular file.
+ *
+ * Returns the repository-relative slash path, or "" when any check fails.
+ * Read-only: it never creates, repairs or rewrites anything.
+ */
+function resolveVerifiedRepoFile(root: string, candidate: unknown): string {
+  const relative = normalizeLocalEvidencePath(candidate);
+  if (!relative) return "";
+  const base = path.resolve(String(root || process.cwd()));
+  let absolute = "";
+  try {
+    absolute = path.resolve(base, relative);
+  } catch {
+    return "";
+  }
+  // Cheap lexical containment first (defeats `..` that survived normalization).
+  if (absolute !== base && !absolute.startsWith(base + path.sep)) return "";
+  let stats: any;
+  try {
+    stats = fs.statSync(absolute);
+  } catch {
+    return ""; // does not exist
+  }
+  if (!stats?.isFile?.()) return "";
+  // Symlink-escape containment: the REAL path must also stay inside the root.
+  try {
+    const realBase = fs.realpathSync(base);
+    const realFile = fs.realpathSync(absolute);
+    if (realFile !== realBase && !realFile.startsWith(realBase + path.sep)) return "";
+  } catch {
+    return "";
+  }
+  return relative;
+}
+
+/**
+ * V16.7.1 P0 grounding fix (hardened in Part 1). The primary consultation used
+ * to pass ONLY task / notes / constraints / verification / affectedSubsystems,
+ * so the lane derived `knownFiles: []` and `verifyLocalAdvice()` had no
+ * repository facts to bind a DeepSeek claim against. Every otherwise-valid
+ * answer was rejected as `no-local-grounding` (`packetFiles: 0`).
+ *
+ * This assembles the SMALLEST SUFFICIENT, TRUTHFUL grounding capsule from state
+ * the controller ALREADY computed -- no repository rescan, no file contents:
+ *
+ *   1. the structured plan's declared files (the task's own write/read scope),
+ *   2. paths the task text itself references,
+ *   3. the controller's workspace change set (already snapshotted).
+ *
+ * Part 1 hardening: every candidate must additionally pass a REAL filesystem
+ * existence check and a REAL repository-containment check (`resolveVerifiedRepoFile`).
+ * A planner hallucination (`src/does-not-exist.mjs`) or an escape
+ * (`../outside.mjs`) is dropped BEFORE it can enter `knownFiles`, so it can
+ * never be bound PRESENT by the verifier. `verifyLocalAdvice` is unchanged; it
+ * still binds every claim against whatever real set it is handed.
+ */
+function localGroundingForConsult(options: {
+  task?: string;
+  plan?: any;
+  changedFiles?: unknown;
+  root?: string;
+}): { knownFiles: string[]; relevantFiles: Array<{ path: string }>; dropped: string[] } {
+  const root = String(options.root || process.cwd());
+  const seen = new Set<string>();
+  const dropped = new Set<string>();
+  const push = (value: unknown) => {
+    const normalized = normalizeLocalEvidencePath(value);
+    if (!normalized) return;
+    const verified = resolveVerifiedRepoFile(root, normalized);
+    if (verified) seen.add(verified);
+    else dropped.add(normalized);
+  };
+  // 1. Structured plan scope (create/modify/test/delete/read), bounded.
+  const planTasks = Array.isArray(options.plan?.tasks) ? options.plan.tasks.slice(0, 40) : [];
+  for (const planTask of planTasks) {
+    for (const file of taskFiles(planTask)) push(file);
+  }
+  // 2. Files named directly in the task text (already-normalized, bounded).
+  for (const file of referencedPlanningFiles(String(options.task || ""))) push(file);
+  // 3. The controller's observed change set.
+  for (const file of Array.isArray(options.changedFiles) ? options.changedFiles.slice(0, 40) : []) push(file);
+  const knownFiles = [...seen].slice(0, 60);
+  return { knownFiles, relevantFiles: knownFiles.map((path) => ({ path })), dropped: [...dropped].slice(0, 60) };
+}
+
+/**
+ * Test-visible alias of the primary-consult grounding builder. Exported so the
+ * V16.7.1 regression test can drive the SAME function the shipped controller
+ * uses, instead of re-implementing its normalization and proving nothing about
+ * production.
+ */
+export function buildPrimaryConsultGrounding(options: {
+  task?: string;
+  plan?: any;
+  changedFiles?: unknown;
+  root?: string;
+}) {
+  return localGroundingForConsult(options || {});
+}
+
 function activeBrowserLane(cwd: string, runId: string) {
   return ACTIVE_BROWSER_LANES.get(browserLaneKey(cwd, runId)) || null;
 }
@@ -686,12 +830,55 @@ async function releaseBrowserLane(cwd: string, runId: string) {
 // router then handles exactly as specified: AUTO falls back locally, FORCE fails
 // loudly with WEB_REASONING_UNAVAILABLE. Nothing here can fake a consultation.
 // ---------------------------------------------------------------------------
+// V16.7.1 Part 6: the persisted enablement decision, resolved with precedence
+// env > persisted > default. It is read once per session (and lazily on first
+// use) and cached, because these helpers are synchronous call sites all over the
+// controller. `null` means "not resolved yet": the helpers then fall back to
+// the env-only historical behavior so boot never blocks on a config read.
+let RESOLVED_WEB_ENABLEMENT: any = null;
+let WEB_ENABLEMENT_PENDING: Promise<any> | null = null;
+
+function envWebOverrides() {
+  const mode = String(process.env.UES_WEB_REASONING_MODE ?? "").trim().toLowerCase();
+  // `enabled` has no dedicated env var historically; the live flag IS the
+  // enablement signal. A caller that sets UES_WEB_REASONING_LIVE=1 explicitly
+  // enables web reasoning regardless of the persisted decision.
+  const liveRaw = String(process.env.UES_WEB_REASONING_LIVE ?? "").trim().toLowerCase();
+  const enabled = liveRaw ? ["1", "true", "yes", "on"].includes(liveRaw) : undefined;
+  const profile = String(process.env.UES_WEB_REASONING_PROFILE ?? "").trim() || undefined;
+  return { mode: mode || undefined, enabled, profile };
+}
+
+async function resolveWebEnablementCached(force = false) {
+  if (!force && RESOLVED_WEB_ENABLEMENT) return RESOLVED_WEB_ENABLEMENT;
+  if (!force && WEB_ENABLEMENT_PENDING) return WEB_ENABLEMENT_PENDING;
+  const pending = (async () => {
+    try {
+      const persisted = await readWebConfig(getUesConfigDir());
+      RESOLVED_WEB_ENABLEMENT = resolveWebEnablement({ persisted, env: envWebOverrides() });
+    } catch {
+      // A config read failure must never break the turn: fall back to the
+      // env-only decision (which is exactly the pre-V16.7.1 behavior).
+      RESOLVED_WEB_ENABLEMENT = resolveWebEnablement({ persisted: null, env: envWebOverrides() });
+    }
+    return RESOLVED_WEB_ENABLEMENT;
+  })();
+  WEB_ENABLEMENT_PENDING = pending;
+  try {
+    return await pending;
+  } finally {
+    if (WEB_ENABLEMENT_PENDING === pending) WEB_ENABLEMENT_PENDING = null;
+  }
+}
+
 function webReasoningMode() {
+  if (RESOLVED_WEB_ENABLEMENT) return RESOLVED_WEB_ENABLEMENT.mode;
   const raw = String(process.env.UES_WEB_REASONING_MODE || "auto").trim().toLowerCase();
   return raw === "off" || raw === "force" ? raw : "auto";
 }
 
 function webReasoningLiveEnabled() {
+  if (RESOLVED_WEB_ENABLEMENT) return RESOLVED_WEB_ENABLEMENT.live === true;
   return configuredBoolean("UES_WEB_REASONING_LIVE", false);
 }
 
@@ -718,7 +905,15 @@ async function resolveManagedBrowserWorker(cwd: string, runId: string) {
   // The pending promise is cached under the same key so two concurrent callers
   // spawn ONE worker instead of racing two browser processes.
   const configDir = getUesConfigDir();
-  const profile = resolveActiveProfile({ configDir });
+  // V16.7.1 Part 6: the persisted/env profile (resolved with precedence
+  // env > persisted > default) wins over the registry's active profile, so a
+  // user who ran `ues deepseek mode --profile work` gets `work` even if the
+  // registry active flag says otherwise. When no profile is configured the lane
+  // runs ephemeral (no lease, no persistent browser).
+  const persistedProfile = RESOLVED_WEB_ENABLEMENT?.profile;
+  const profile = persistedProfile
+    ? { ok: true, name: persistedProfile, source: RESOLVED_WEB_ENABLEMENT?.sources?.profile || "persisted" }
+    : resolveActiveProfile({ configDir });
   // Only launch the PERSISTENT worker (with an exclusive profile lease) when a
   // profile is actually configured; otherwise run the lane ephemeral.
   const profileName = profile.ok && profile.name ? profile.name : "";
@@ -742,6 +937,12 @@ async function resolveManagedBrowserWorker(cwd: string, runId: string) {
       });
       ACTIVE_PROFILE_LOCK_HANDLES.set(key, lockHandle);
     }
+    // V16.7.1 P0: warm the page BEFORE the adapter probes it. The worker is
+    // spawned on `about:blank`, and `adapter.capability()` gates on a REAL auth
+    // observation of the CURRENT page. Without this warm-up the first probe
+    // observes `no-url-observed` -> UNKNOWN -> `deepseek-auth-required`, so AUTO
+    // fell back to local on every run even against an authenticated profile.
+    await warmManagedBrowserWorker(client);
     return client;
   })();
   try {
@@ -778,28 +979,193 @@ async function releaseManagedBrowserWorker(cwd: string, runId: string) {
   return client.close().catch(() => null);
 }
 
+// V16.7.1: the SAME answer-region selectors the live smoke and the auth-settle
+// path observe. Binding them keeps the composer-fill and answer-read cascades
+// reading the real DeepSeek assistant regions instead of a whole-page guess.
+const WEB_REASONING_ANSWER_SELECTORS = Object.freeze([
+  "[data-message-role='assistant']",
+  ".ds-markdown",
+  "[class*='assistant']",
+]);
+
+// V16.7.1: the entry URL the proven smoke/bench navigate to before consulting.
+// Declared once and passed to the adapter so the warm-up and `startSession`
+// navigation can never drift apart.
+const WEB_REASONING_ENTRY_URL = "https://chat.deepseek.com/";
+
+/**
+ * V16.7.1 P0: the ONE read-only warm-up the proven live path performs before it
+ * ever asks the adapter for a capability.
+ *
+ * The managed worker is spawned on `about:blank`. `adapter.capability()` gates
+ * on a REAL auth observation of the CURRENT page, so an un-navigated worker
+ * reports `no-url-observed` -> UNKNOWN -> `deepseek-auth-required`, and AUTO
+ * falls back to local on EVERY run even against an authenticated profile. The
+ * V16.3 smoke and the A/B bench both navigate to the entry URL and run the
+ * bounded SPA hydration settle BEFORE consulting; this is that same step, moved
+ * into the production wiring.
+ *
+ * READ-ONLY and bounded: ONE navigation, then `waitForAuthenticatedPage`'s
+ * bounded probe loop. No click, no type, no submit. A failure is not fatal --
+ * the adapter still reports the honest observed state -- so this never throws.
+ */
+export async function warmManagedBrowserWorker(worker: any) {
+  if (!worker || typeof worker.invoke !== "function") return null;
+  try {
+    await worker.invoke("navigate", { url: WEB_REASONING_ENTRY_URL, waitUntil: "domcontentloaded" });
+  } catch {
+    return null;
+  }
+  try {
+    return await waitForAuthenticatedPage(worker, { answerSelectors: WEB_REASONING_ANSWER_SELECTORS });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * V16.7.1 P0: assemble the EXACT dependency object the production adapter is
+ * built from. Extracted from `buildWebReasoningAdapter` so the wiring is
+ * directly testable without a live browser: a regression here is otherwise only
+ * observable during a real consultation.
+ *
+ * The production adapter must bind the SAME live hooks the proven real DeepSeek
+ * path (smoke + bench) binds:
+ *   - `authProbe` -- the real READ-ONLY observation. Without it `probeAuthState`
+ *     reports UNKNOWN (never READY), and the old `loginProbe` asserted
+ *     `authenticated` from a bare state check, which is the exact shortcut the
+ *     adapter contract forbids.
+ *   - `domInspect` -- routed by mode; without it the composer-fill cascade
+ *     fails.
+ *   - `transitionBegin` / `transitionMeasure` -- same-node pre/post-fill
+ *     evidence; without them an otherwise-ambiguous send target never resolves.
+ */
+export function buildWebReasoningAdapterDeps(worker: any) {
+  if (!worker) {
+    // No worker -> no live hooks -> an honest unavailable adapter. There is no
+    // asserted-auth shortcut: `loginProbe` reports the OBSERVED absence.
+    return {
+      capability: { provider: "browser-worker", interactive: false, readOnlyAvailable: false, reason: "browser-worker-unavailable" },
+      invoke: null,
+      loginProbe: async () => ({ authenticated: false, url: "https://chat.deepseek.com/" }),
+      closeBrowser: null,
+    };
+  }
+  const countingDomInspect = async (options: any) => {
+    const mode = String(options?.mode || "composer-vicinity");
+    return worker.domInspect({ mode: "composer-vicinity", ...(options || {}), mode });
+  };
+  return {
+    capability: {
+      provider: "browser-worker",
+      interactive: true,
+      readOnlyAvailable: true,
+      reason: "managed-browser-worker",
+    },
+    // The warm-up and `startSession` must navigate to the SAME entry URL.
+    entryUrl: WEB_REASONING_ENTRY_URL,
+    invoke: (action: string, context: any) => worker.invoke(action, context),
+    // The REAL read-only auth probe. No observation -> NEEDS_AUTH, never READY.
+    authProbe: (options: any) => worker.authProbe({
+      timeoutMs: options?.timeoutMs,
+      answerSelectors: WEB_REASONING_ANSWER_SELECTORS,
+      composerSelector: options?.composerSelector || "",
+    }),
+    // Measured locator + scoped answer evidence, routed by mode.
+    domInspect: countingDomInspect,
+    // Same-node pre/post-fill transition evidence (read-only; handles stay
+    // worker-side). This is what resolves an otherwise-ambiguous send target.
+    transitionBegin: async () => worker.domInspect({ mode: "send-transition-begin", timeoutMs: 30_000 }),
+    transitionMeasure: async () => worker.domInspect({ mode: "send-transition-measure", timeoutMs: 30_000 }),
+    // Retained for the adapter contract's embedder-observation fallback; it is
+    // only consulted when `authProbe` is absent, and it reports the OBSERVED
+    // worker state rather than asserting `authenticated: true`.
+    loginProbe: async () => {
+      const observed = worker.state();
+      return {
+        state: observed?.state === "needs-auth" ? "NEEDS_AUTH" : "UNKNOWN",
+        authenticated: false,
+        url: "https://chat.deepseek.com/",
+      };
+    },
+    closeBrowser: async () => { await worker.close(); },
+  };
+}
+
+/**
+ * V16.7.1 Part 7: lazy browser launch.
+ *
+ * The managed browser worker is spawned ONLY on the first REAL use of the
+ * adapter -- an auth probe, a DOM inspection, a browser action or a close. The
+ * lane can therefore be created at run start cheaply, with no browser process,
+ * no profile lease and no navigation, and a run that never actually needs to
+ * consult DeepSeek never pays for a browser at all.
+ *
+ * The facade is statically interactive (`buildWebReasoningAdapterDeps` still
+ * sees a usable worker, so `capability.interactive` stays true), and it fails
+ * CLOSED: if resolution yields no worker, the delegated call rejects, which the
+ * adapter already maps to a bounded needs-auth/degraded state -- never a false
+ * READY. `close()` is a no-op when the worker was never resolved, so tearing
+ * down a browser-free run is free and can never spawn one.
+ *
+ * Exported so the lazy contract is directly regression-tested without a live
+ * browser: the resolver is injected and call-counted.
+ */
+export function createLazyBrowserWorker(resolveWorker: () => Promise<any>) {
+  let resolved: any = null;
+  let pending: Promise<any> | null = null;
+  let attempted = false;
+  const ensure = async () => {
+    if (!attempted) {
+      attempted = true;
+      pending = Promise.resolve().then(() => resolveWorker());
+    }
+    const client = await pending;
+    if (!client) throw new Error("browser-worker-unavailable");
+    resolved = client;
+    return client;
+  };
+  return {
+    __lazyBrowserWorker: true,
+    get resolved() { return resolved; },
+    get launched() { return attempted; },
+    // Every interaction resolves on first use. The deps builder reads these as
+    // plain functions, so nothing here spawns a browser at construction time.
+    invoke: (action: string, context: any) => ensure().then((client) => client.invoke(action, context)),
+    authProbe: (options: any) => ensure().then((client) => client.authProbe(options)),
+    domInspect: (options: any) => ensure().then((client) => client.domInspect(options)),
+    // Synchronous by contract (the adapter's embedder fallback calls it without
+    // awaiting); it must NEVER spawn a browser, so it reports the un-launched
+    // state rather than resolving.
+    state: () => (resolved ? resolved.state() : { state: "unknown" }),
+    async close() {
+      if (!attempted) return { closed: false, reason: "worker-never-launched" };
+      const client = await pending.catch(() => null);
+      if (!client) return { closed: false, reason: "worker-unavailable" };
+      return client.close();
+    },
+  };
+}
+
 async function buildWebReasoningAdapter(cwd: string, runId: string) {
   const adapterModule = await loadDeepSeekWebAdapterModule();
   if (!adapterModule) return null;
-  const worker = await resolveManagedBrowserWorker(cwd, runId);
-  return adapterModule.createDeepSeekWebAdapter({
-    capability: worker
-      ? {
-        provider: "browser-worker",
-        interactive: true,
-        readOnlyAvailable: true,
-        reason: "managed-browser-worker",
-      }
-      : { provider: "browser-worker", interactive: false, readOnlyAvailable: false, reason: "browser-worker-unavailable" },
-    invoke: worker ? (action, context) => worker.invoke(action, context) : null,
-    loginProbe: worker
-      ? async () => ({ authenticated: worker.state().state !== "needs-auth" })
-      : async () => ({ authenticated: false, url: "https://chat.deepseek.com/" }),
-    closeBrowser: worker ? async () => { await worker.close(); } : null,
-  });
+  if (!webReasoningLiveEnabled()) {
+    // No live lane -> no browser will ever be launched. Keep the honest
+    // `unavailable` capability (a null worker) instead of a lazy facade that
+    // could only ever throw, so AUTO still reads "unavailable", not "degraded".
+    return adapterModule.createDeepSeekWebAdapter(buildWebReasoningAdapterDeps(null));
+  }
+  // Lazy: the browser worker is resolved (spawned + warmed) only when the
+  // adapter first actually touches the browser, i.e. at the first real consult.
+  const worker = createLazyBrowserWorker(() => resolveManagedBrowserWorker(cwd, runId));
+  return adapterModule.createDeepSeekWebAdapter(buildWebReasoningAdapterDeps(worker));
 }
 
 async function createRunWebLane(cwd: string, runId: string, budget?: any) {
+  // V16.7.1 Part 6: resolve env > persisted > default ONCE before reading mode
+  // or the live flag, so the lane, the worker spawn and the mode all agree.
+  await resolveWebEnablementCached();
   const mode = webReasoningMode();
   const adapters: any[] = [];
   if (mode !== "off") {
@@ -849,6 +1215,78 @@ function webLaneOutcomeSkipped(outcome: any) {
   return outcome === (ACTIVE_WEB_LANE_OUTCOME?.SKIPPED ?? "skipped");
 }
 
+/**
+ * V16.7.1: the single classifier for a thrown consultation error. The closed
+ * vocabulary is owned by `lib/web-reasoning-escalation.mjs`; the (lazy) lane
+ * exposes it so the controller never statically imports the escalation module.
+ * A missing classifier degrades to the generic bucket rather than throwing.
+ */
+function webConsultationErrorReason(lane: any, error: any) {
+  try {
+    if (lane && typeof lane.classifyConsultationError === "function") {
+      return String(lane.classifyConsultationError(error));
+    }
+  } catch {
+    // fall through to the generic bucket
+  }
+  return "consultation-error";
+}
+
+/** A bounded, non-secret code. The raw error message is deliberately never kept. */
+function boundedConsultationErrorCode(error: any) {
+  const raw = String(error?.code || error?.name || "").trim();
+  return raw ? raw.slice(0, 80) : null;
+}
+
+/**
+ * Journal a consultation failure with a structured, secret-free reason and
+ * return that reason. Replaces the historical `.catch(() => null)`, which left
+ * no trace of why a production consultation silently produced nothing.
+ */
+async function journalConsultationFailure(
+  cwd: string,
+  traceID: string,
+  lane: any,
+  phase: string,
+  error: any,
+  requestId: string | null = null,
+) {
+  const reason = webConsultationErrorReason(lane, error);
+  await appendRunJournalEvent(cwd, traceID, "web-reasoning.consultation-error", {
+    phase,
+    provider: lane?.providerId ?? null,
+    mode: lane?.mode ?? webReasoningMode(),
+    reason,
+    code: boundedConsultationErrorCode(error),
+    requestId,
+  }).catch(() => null);
+  return reason;
+}
+
+/**
+ * The FORCE fail-loud synthesis. When a dispatched consultation THROWS, FORCE
+ * must still surface `WEB_REASONING_UNAVAILABLE` rather than a silent `null`.
+ * The `requestId` is carried through so the caller's stale-response isolation
+ * does not misclassify the synthetic result as a late answer from a different
+ * context.
+ */
+function forceUnavailableConsultation(lane: any, reason: string, requestId: string | null = null) {
+  return {
+    schemaVersion: 1,
+    kind: "ues-web-consultation",
+    consulted: false,
+    outcome: "unavailable",
+    mode: "force",
+    provider: lane?.providerId ?? "deepseek-web",
+    reason,
+    code: WEB_REASONING_UNAVAILABLE,
+    fallbackToLocal: false,
+    requestId,
+    isTaskVerdict: false,
+    canProducePass: false,
+  };
+}
+
 function activeWebLane(cwd: string, runId: string) {
   return ACTIVE_WEB_LANES.get(browserLaneKey(cwd, `web:${runId}`)) || null;
 }
@@ -859,6 +1297,29 @@ async function releaseWebLane(cwd: string, runId: string) {
   ACTIVE_WEB_LANES.delete(key);
   if (lane) await lane.close().catch(() => null);
   await releaseManagedBrowserWorker(cwd, runId);
+}
+
+/**
+ * V16.7.1 process/timeout hygiene: the ONE teardown the controller runs in a
+ * `finally`, on every exit path. It releases the run-scoped web lane (which
+ * closes its browser adapter), the managed browser lane, and the persistent
+ * browser worker together with its exclusive profile lease.
+ *
+ * It is idempotent (every step is a `Map` delete + a null-tolerant close), it
+ * never throws (each step is best-effort), and it is exported so the release
+ * contract is directly regression-tested instead of only source-asserted.
+ */
+export async function releaseRunScopedResources(cwd: string, runId: string) {
+  const traceID = String(runId || "");
+  if (!traceID) return { released: false, reason: "missing-run-id" };
+  const steps: string[] = [];
+  await releaseWebLane(cwd, traceID).catch(() => null);
+  steps.push("web-lane");
+  await releaseBrowserLane(cwd, traceID).catch(() => null);
+  steps.push("browser-lane");
+  await releaseManagedBrowserWorker(cwd, traceID).catch(() => null);
+  steps.push("browser-worker");
+  return { released: true, steps };
 }
 
 function stopChildTree(proc: any) {
@@ -4814,6 +5275,76 @@ export default function (pi: ExtensionAPI) {
   const PARENT_PROVIDER_RECOVERY_MAX_CONSECUTIVE = 1;
   const PARENT_PROVIDER_RECOVERY_MAX_TOTAL = 3;
 
+  // V16.7.1 agent generation-loop guard. A real run could narrate intent
+  // ("Let me write. Go.") for thousands of turns with no tool call, no file
+  // change and no phase advance. The watchdog is bounded and side-effect free:
+  // it classifies a completed assistant turn, and the controller decides
+  // whether to inject a bounded recovery context edit. It never restarts work,
+  // never touches git and never deletes anything.
+  const parentAgentWatchdog = createAgentProgressWatchdog({
+    maxNoProgressTurns: Number(process.env.UES_AGENT_MAX_NO_PROGRESS_TURNS || AGENT_LOOP_LIMITS.maxNoProgressTurns),
+    maxRepeatedNarration: Number(process.env.UES_AGENT_MAX_REPEATED_NARRATION || AGENT_LOOP_LIMITS.maxRepeatedNarration),
+    maxLoopRecoveries: Number(process.env.UES_AGENT_MAX_LOOP_RECOVERIES || AGENT_LOOP_LIMITS.maxLoopRecoveries),
+    maxCompactionRecoveries: Number(process.env.UES_AGENT_MAX_COMPACTION_RECOVERIES || AGENT_LOOP_LIMITS.maxCompactionRecoveries),
+    maxCheckpointBytes: Number(process.env.UES_AGENT_MAX_CHECKPOINT_BYTES || AGENT_LOOP_LIMITS.maxCheckpointBytes),
+  });
+  let parentAgentWatchdogObjective = "";
+  let parentAgentWatchdogRoot = "";
+  let parentAgentLoopRecoveryPending = false;
+  let parentAgentLoopExhausted = false;
+  let parentAgentRecoveryInFlight = false;
+  let parentAgentLastAssistantText = "";
+  // V16.7.1 Part 3: the loop guard must also protect a NORMAL `pi`
+  // engineering/tool-using turn, not only an explicit `/ues-*` run. This flag
+  // is set when the current parent run has been classified as engineering work
+  // (or has already used a tool), and is cleared for casual chat. It is a
+  // NARROW guard: pure conversation is never classified, aborted or journalled.
+  let parentEngineeringTurn = false;
+  // V16.7.1 Part 2: whether the streaming guard already requested an abort for
+  // the current generation, so the controller aborts EXACTLY ONCE.
+  let parentStreamAbortRequested = false;
+
+  /**
+   * Emit a structured loop-guard telemetry event to the trace journal. Best
+   * effort: a missing root or a failed write must never block the loop. The
+   * payload is secret-free and bounded.
+   */
+  const emitParentAgentEvent = async (ctx: any, type: string, payload: any) => {
+    const root = parentAgentWatchdogRoot || resolveGitWorkspaceRoot(ctx?.cwd || "")?.root || "";
+    if (!root) return;
+    await appendTrajectoryEvent(root, "agent-loop-guard", type, {
+      ...payload,
+      objective: parentAgentWatchdogObjective.slice(0, 200),
+      recoveryAttempt: parentAgentWatchdog.snapshot().recoveryAttempts,
+    }).catch(() => null);
+  };
+
+  /**
+   * Build the bounded loop-recovery checkpoint from state the controller
+   * already owns. Never includes full prompts, credentials or unbounded logs.
+   */
+  const parentAgentCheckpoint = (blocker: string) => {
+    let gitStatus = "";
+    try {
+      const root = parentAgentWatchdogRoot;
+      if (root) {
+        gitStatus = String(
+          execFileSync("git", ["status", "--porcelain=v1", "-uno"], { cwd: root, encoding: "utf8", timeout: 5_000 }) || "",
+        ).slice(0, 1_000);
+      }
+    } catch {
+      gitStatus = "";
+    }
+    return parentAgentWatchdog.checkpoint({
+      objective: parentAgentWatchdogObjective,
+      phase: promptUesActive ? "ues-active" : "idle",
+      changedFiles: gitStatus.split("\n").map((line) => line.slice(3)).filter(Boolean),
+      remainingObjective: parentAgentWatchdogObjective,
+      gitStatus,
+      blocker,
+    });
+  };
+
   // V15.3 incremental write intelligence.
   //
   // One controller per workspace root, created lazily on the first observed
@@ -4928,6 +5459,16 @@ export default function (pi: ExtensionAPI) {
   const uesModeActive = () =>
     promptUesActive || Boolean(directControllerAbort && !directControllerAbort.signal.aborted);
 
+  /**
+   * V16.7.1 Part 3: the generation-loop guard scope. It protects an explicit UES
+   * run AND a normal `pi` engineering/tool-using turn. A run qualifies when it
+   * is an active UES run, has already used a tool, or the turn was classified
+   * as engineering work. Pure casual chat never qualifies, so the guard never
+   * classifies, aborts or journals a conversation.
+   */
+  const loopGuardActive = () =>
+    uesModeActive() || parentEngineeringTurn || parentRunToolCalls > 0;
+
   const syncSessionIdentity = (name: string, ctx: any) => {
     if (!name) return;
     try { pi.setSessionName(name); } catch {}
@@ -4936,10 +5477,18 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("session_start", async () => {
     deactivateParentUesTools();
+    // V16.7.1 Part 6: a new session re-reads the persisted enablement so a
+    // `ues deepseek on|off|mode` performed between sessions takes effect without
+    // requiring a process restart.
+    RESOLVED_WEB_ENABLEMENT = null;
+    await resolveWebEnablementCached(true).catch(() => null);
   });
 
   pi.on("session_before_compact", async (event, ctx) => {
-    const root = resolveGitWorkspaceRoot(ctx.cwd || "");
+    // `resolveGitWorkspaceRoot` returns `{ ok, root }`; passing the OBJECT to the
+    // guard helpers used to throw on `path.resolve(object)` and the throw was
+    // swallowed, so the durable pre-compaction checkpoint NEVER ran. Use `.root`.
+    const root = resolveGitWorkspaceRoot(ctx.cwd || "")?.root;
     if (!root) return undefined;
     await PARENT_RUNTIME_HOOKS.emit("compaction.before", {
       reason: event.reason,
@@ -4953,7 +5502,14 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("session_compact", async (event, ctx) => {
-    const root = resolveGitWorkspaceRoot(ctx.cwd || "");
+    // V16.7.1 compaction hardening: a compaction is only useful if it is
+    // followed by ACTION progress. Record it so a run that compacts repeatedly
+    // while narrating without progress is caught by the loop guard instead of
+    // looping through compaction forever.
+    parentAgentWatchdog.observeCompaction();
+    // Same object-vs-string defect as `session_before_compact`: without `.root`
+    // the resume guard threw and the compaction resume packet was never sent.
+    const root = resolveGitWorkspaceRoot(ctx.cwd || "")?.root;
     if (!root) return;
     const packet = await buildCompactionResumeGuard(root, {
       reason: event.reason,
@@ -5024,6 +5580,19 @@ export default function (pi: ExtensionAPI) {
       activateParentUesTools();
     }
 
+    // V16.7.1 Part 3: extend the loop guard to a NORMAL `pi` engineering turn.
+    // The scope is deliberately narrow: an explicit `/ues-*` command is always
+    // in scope, and otherwise the turn must classify as an engineering task
+    // (action + target, or a structured/long request) inside a Git workspace.
+    // Pure casual chat leaves the flag false, so the guard never classifies,
+    // aborts or journals a conversation. It is cleared on the next casual turn.
+    if (promptUesActive) {
+      parentEngineeringTurn = true;
+    } else {
+      const admitted = automaticUesAdmission(text, { inGitWorkspace: Boolean(resolveGitWorkspaceRoot(ctx.cwd || "")?.root) });
+      parentEngineeringTurn = admitted.admit === true;
+    }
+
     if (/^(?:stop|cancel|abort|dừng|dung|hủy|huy)(?:\s|$)/i.test(text)) {
       if (!uesModeActive()) return { action: "continue" };
       let directAborted = 0;
@@ -5076,8 +5645,11 @@ export default function (pi: ExtensionAPI) {
         !(Array.isArray((event as any).images) && (event as any).images.length > 0)
       ) {
         const preliminaryAdmission = automaticUesAdmission(text);
+        // `.root` is a non-empty string inside a Git worktree and null outside
+        // it. Testing the raw object always looked truthy, which defeated the
+        // V15.12 fail-closed admission check for non-Git workspaces.
         const workspaceRoot = preliminaryAdmission.admit === true
-          ? resolveGitWorkspaceRoot(ctx.cwd || "")
+          ? resolveGitWorkspaceRoot(ctx.cwd || "")?.root
           : null;
         const admission = workspaceRoot
           ? automaticUesAdmission(text, { inGitWorkspace: true })
@@ -5135,7 +5707,7 @@ export default function (pi: ExtensionAPI) {
     return { action: "continue" };
   });
 
-  pi.on("before_agent_start", async () => {
+  pi.on("before_agent_start", async (event, ctx) => {
     // Pi may start another provider request inside the same parent run when
     // agent_before_settle asks to continue. Preserve recovery accounting for
     // that continuation, but reset it for a genuinely new parent run.
@@ -5147,26 +5719,167 @@ export default function (pi: ExtensionAPI) {
       parentRunLastAssistant = null;
       parentProviderRecoveryConsecutive = 0;
       parentProviderRecoveryTotal = 0;
+      // A genuinely new parent run starts a fresh loop-guard window. A
+      // continuation keeps its accounting (the loop is the SAME loop).
+      parentAgentWatchdog.reset();
+      parentAgentLoopRecoveryPending = false;
+      parentAgentLoopExhausted = false;
+      parentAgentRecoveryInFlight = false;
+      parentAgentWatchdogObjective = String((ctx as any)?.task || (event as any)?.task || parentAgentWatchdogObjective || "").slice(0, 1_000);
+      parentAgentWatchdogRoot = resolveGitWorkspaceRoot((ctx as any)?.cwd || "")?.root || parentAgentWatchdogRoot;
     }
     if (uesModeActive()) activateParentUesTools();
     else deactivateParentUesTools();
   });
 
-  pi.on("message_end", async (event) => {
+  pi.on("message_start", async (event) => {
+    // V16.7.1 Part 2: a new assistant generation begins. Reset the bounded
+    // streaming window so this generation is judged on its own stream, and clear
+    // the once-per-generation abort latch.
+    if ((event as any)?.message?.role !== "assistant") return;
+    parentAgentWatchdog.beginStream();
+    parentStreamAbortRequested = false;
+  });
+
+  pi.on("message_update", async (event, ctx) => {
+    // V16.7.1 Part 2: observe the real token stream. A pathological narration
+    // loop is aborted DURING streaming -- before `message_end` -- instead of
+    // only after the whole turn (by which time thousands of repeats were
+    // emitted). The guard is narrow and scoped to engineering/tool-using turns
+    // (Part 3), so a casual chat is never classified, aborted or journalled.
+    if ((event as any)?.message?.role !== "assistant") return;
+    if (!loopGuardActive()) return;
+    const streamEvent = (event as any).assistantMessageEvent;
+    if (!streamEvent || streamEvent.type !== "text_delta") return;
+    const delta = typeof streamEvent.delta === "string" ? streamEvent.delta : "";
+    if (!delta) return;
+    const decision = parentAgentWatchdog.observeStreamDelta(delta);
+    if (decision.status === AGENT_WATCHDOG_STATUS.WARNING) {
+      void emitParentAgentEvent(ctx, "agent.stream-loop-warning", {
+        reason: decision.reason,
+        repeats: decision.repeats,
+        streamChars: decision.streamChars,
+      });
+    } else if (decision.status === AGENT_WATCHDOG_STATUS.LOOP_DETECTED) {
+      if (decision.abort === true && !parentStreamAbortRequested) {
+        // Abort the CURRENT generation exactly once. `ctx.abort()` cancels the
+        // in-flight provider stream, so `message_end` is never reached for this
+        // looped generation. The recovery context edit is injected at
+        // `agent_before_settle` on the NEXT turn, which is where a context edit
+        // is legal and cannot itself become another loop.
+        parentStreamAbortRequested = true;
+        parentAgentLoopRecoveryPending = true;
+        const checkpoint = parentAgentCheckpoint("generation-loop-detected");
+        parentAgentRecoveryInFlight = true;
+        void emitParentAgentEvent(ctx, "agent.generation-loop-detected", {
+          reason: decision.reason,
+          repeats: decision.repeats,
+          streamChars: decision.streamChars,
+          checkpointBytes: checkpoint.bytes,
+        });
+        try { ctx.abort(); } catch {}
+      }
+    }
+  });
+
+  pi.on("message_end", async (event, ctx) => {
     if ((event as any)?.message?.role !== "assistant") return;
     parentRunLastAssistant = (event as any).message;
+
+    const text = extractAssistantText(parentRunLastAssistant).trim();
+
+    // V16.7.1 loop guard. Classify the completed assistant turn. This is
+    // observational and bounded; the decision is applied in
+    // `agent_before_settle`, where a context edit is legal. Any tool/phase/file
+    // progress since the previous turn already reset the no-progress window, so
+    // legitimate long work never trips it. The guard is scoped (Part 3) to an
+    // ACTIVE UES run OR a normal `pi` engineering/tool-using turn: pure casual
+    // chat is never classified, recovered or journalled.
+    if (text && loopGuardActive()) {
+      parentAgentLastAssistantText = text;
+      const loopDecision = parentAgentWatchdog.observeTurn(text);
+      if (loopDecision.status === AGENT_WATCHDOG_STATUS.WARNING) {
+        void emitParentAgentEvent(ctx, "agent.no-progress-warning", {
+          reason: loopDecision.reason,
+          turnsWithoutProgress: loopDecision.turnsWithoutProgress,
+          repeatedFingerprintCount: loopDecision.repeatedFingerprintCount,
+        });
+      } else if (loopDecision.status === AGENT_WATCHDOG_STATUS.LOOP_DETECTED) {
+        parentAgentLoopRecoveryPending = true;
+        void emitParentAgentEvent(ctx, "agent.generation-loop-detected", {
+          reason: loopDecision.reason,
+          turnsWithoutProgress: loopDecision.turnsWithoutProgress,
+          repeatedFingerprintCount: loopDecision.repeatedFingerprintCount,
+          declaredIntent: loopDecision.declaredIntent === true,
+        });
+      } else if (parentAgentRecoveryInFlight && loopDecision.progressed === true) {
+        // The turn after a recovery moved state again: the loop is broken.
+        parentAgentRecoveryInFlight = false;
+        parentAgentLoopExhausted = false;
+        void emitParentAgentEvent(ctx, "agent.loop-recovery-completed", {
+          reason: AGENT_WATCHDOG_REASON.RECOVERED,
+          recoveryAttempt: loopDecision.recoveryAttempt,
+        });
+      }
+    }
 
     // A substantive assistant response proves the previous empty-response
     // incident recovered. Reset only the consecutive incident budget; keep the
     // total run budget bounded so a flaky provider cannot loop forever.
-    const text = extractAssistantText(parentRunLastAssistant).trim();
     if (text && parentRunLastAssistant?.stopReason !== "error") {
       parentProviderRecoveryConsecutive = 0;
       parentProviderRecoveryPending = false;
     }
   });
 
-  pi.on("agent_before_settle", async (event) => {
+  pi.on("agent_before_settle", async (event, ctx) => {
+    // V16.7.1 loop guard. A confirmed generation loop is recovered ONCE with a
+    // bounded context edit that forces action, then the ceiling fails closed.
+    // This is the ONLY place a loop recovery may run: it is a context edit, so
+    // it can never itself become another loop, and it never restarts work.
+    if (parentAgentLoopRecoveryPending && loopGuardActive()) {
+      parentAgentLoopRecoveryPending = false;
+      const recovery = parentAgentWatchdog.beginRecovery();
+      if (!recovery.allowed) {
+        parentAgentLoopExhausted = true;
+        parentAgentRecoveryInFlight = false;
+        const finalCheckpoint = parentAgentCheckpoint("AGENT_LOOP_UNRECOVERED");
+        void emitParentAgentEvent(ctx, "agent.loop-recovery-failed", {
+          reason: AGENT_WATCHDOG_REASON.UNRECOVERED,
+          recoveryAttempt: recovery.attempt,
+          maxRecoveries: parentAgentWatchdog.limits.maxLoopRecoveries,
+          checkpointBytes: finalCheckpoint.bytes,
+        });
+        return {
+          contextEdit: {
+            label: "ues-agent-loop-unrecovered",
+            text: [
+              "UES agent loop guard: the generation loop persisted through the bounded recovery budget.",
+              "No further automatic recovery will be attempted.",
+              "Return a final answer NOW: state the blocker explicitly and what you completed.",
+              "Do not narrate intent. Do not claim success you cannot verify.",
+            ].join(NL),
+          },
+        };
+      }
+      const checkpoint = parentAgentCheckpoint("generation-loop-detected");
+      parentAgentRecoveryInFlight = true;
+      void emitParentAgentEvent(ctx, "agent.loop-recovery-started", {
+        reason: recovery.reason,
+        recoveryAttempt: recovery.attempt,
+        maxRecoveries: recovery.maxRecoveries,
+        checkpointBytes: checkpoint.bytes,
+      });
+      // A tool call in response proves recovery; `message_end` will observe the
+      // next turn against the rotated window and emit the completed event.
+      return {
+        contextEdit: {
+          label: "ues-agent-loop-recovery",
+          text: renderLoopRecoveryInstruction(checkpoint),
+        },
+      };
+    }
+
     // Before the agent is allowed to finalise, tell it about any post-write
     // feedback it has not been shown. This is a CONTEXT EDIT, not a `continue`:
     // it injects the verdict into the transcript without requesting another model
@@ -5263,11 +5976,21 @@ export default function (pi: ExtensionAPI) {
     parentProviderRecoveryPending = false;
     parentProviderRecoveryConsecutive = 0;
     parentProviderRecoveryTotal = 0;
+    parentAgentWatchdog.reset();
+    parentAgentLoopRecoveryPending = false;
+    parentAgentLoopExhausted = false;
+    parentAgentRecoveryInFlight = false;
+    parentAgentLastAssistantText = "";
+    parentEngineeringTurn = false;
+    parentStreamAbortRequested = false;
     deactivateParentUesTools();
   });
 
   pi.on("tool_call", async (event, ctx) => {
     const toolName = String(event.toolName || "");
+    // V16.7.1 loop guard: a tool call is real action progress. It resets the
+    // no-progress window on the NEXT completed assistant turn.
+    parentAgentWatchdog.observeAction("tool-call");
     if (!uesModeActive()) parentRunToolCalls += 1;
     if (!uesModeActive()) {
       if (toolName.startsWith("ues_") && !ALWAYS_ON_PARENT_TOOLS.has(toolName)) {
@@ -5347,6 +6070,17 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("tool_result", async (event, eventCtx) => {
     const toolName = String((event as any).toolName || "");
+    // V16.7.1 loop guard: a completed tool result and a write are action
+    // progress. The write-tool detection reuses the same write-tool set the
+    // post-write feedback path already trusts.
+    parentAgentWatchdog.observeAction("tool-completion");
+    {
+      // Reuse the SAME write-shape detector the post-write feedback path uses,
+      // so loop-guard progress and post-write feedback agree on what a write is.
+      const input = ((event as any) && typeof (event as any).input === "object" && (event as any).input ? (event as any).input : {}) as Record<string, unknown>;
+      const mutation = detectMutationShape(toolName, input);
+      if (mutation.mutation === "yes") parentAgentWatchdog.observeAction("file-mutation");
+    }
     const postWrite = await appendPostWriteFeedback(event as any, eventCtx as any, toolName);
     if (!uesModeActive()) return postWrite;
     if (!toolName || toolName === "bash" || toolName === "powershell") return postWrite;
@@ -6058,6 +6792,14 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       const hostBrowserTools = refreshHostBrowserToolNames(pi);
       const cwd = requireGitWorkspaceRoot(params.cwd || ctx.cwd, "ues_execute");
+      // V16.7.1 process/timeout hygiene. Every run-scoped resource the
+      // controller owns (managed browser lane, persistent browser worker,
+      // exclusive profile lease, DeepSeek conversation session) is released in
+      // `finally`, on EVERY exit path including a throw and an abort. The
+      // `finally` runs even when the parent times out and aborts the run, so a
+      // timed-out controller leaves no zombie worker and no stale profile lock.
+      let runScopedTraceID = "";
+      try {
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
       const controllerWorkspaceState = captureWorkspaceStateV2(cwd);
@@ -6103,6 +6845,7 @@ export default function (pi: ExtensionAPI) {
       ).v16_6;
       policy.v16_6 = runBudgetV16_6;
       const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
+      runScopedTraceID = traceID;
       const controllerWorkspaceFingerprint = String(
         runtimeWorkspaceSnapshot(cwd, { workspaceState: controllerWorkspaceState }).fingerprint || "unknown",
       );
@@ -6246,6 +6989,13 @@ export default function (pi: ExtensionAPI) {
       };
       if (deepSeekCache) deepSeekCache.beginRun(traceID);
       let pendingResumeCapsuleText = "";
+      // V16.7.1: `webAdviceText` is declared inside the `run()` closure (it only
+      // ever feeds that call's governed task). The learner binding at the end of
+      // the attempt loop reads it from THIS outer scope, so it must be recorded
+      // here when the executor consult actually applies advice. A bare
+      // `webAdviceText` reference there was an undeclared name
+      // (TypeScript TS2304) that threw ReferenceError on every successful run.
+      let executorAdviceAccepted = false;
       /** One canonical turn budget: the lane ceiling AND the run budget must both allow it. */
       const deepSeekTurnsAllow = (kind: "consult" | "follow-up", wanted = 1) => {
         if (deepSeek.turnBudget <= 0) {
@@ -6589,10 +7339,25 @@ export default function (pi: ExtensionAPI) {
               // credential or path) scopes the cache so a consultation answered
               // for one DeepSeek account is never replayed for another.
               profileId: resolveDeepSeekProfileId(process.env, cwd),
+              // V16.7.1 Part 13: the complete cache identity. Beyond the profile
+              // id, the TASK fingerprint (the run's normalized task identity),
+              // the REPO fingerprint (the bounded repository identity: workspace
+              // + HEAD + workspace-state) and the SESSION identity (which
+              // conversation/generation this answer belongs to) are folded in.
+              // All three are fingerprints - never a raw path, prompt or
+              // payload - so no secret can be reconstructed from a cache key.
+              taskFingerprint: String(runBudgetV16_6?.fingerprint || traceID),
+              repoFingerprint: createHash("sha256")
+                .update([cacheInputs.workspaceId, cacheInputs.head, cacheInputs.workspaceStateFingerprint].join("|"))
+                .digest("hex"),
+              sessionIdentity: deepSeekSession
+                ? `${deepSeekSession.id || ""}:${deepSeekSession.generationId || ""}`
+                : "none",
             })
             : { key: null, cached: false, answer: null };
           if (cacheLookup.cached && cacheLookup.answer) {
             webAdviceText = String(cacheLookup.answer);
+            executorAdviceAccepted = String(webAdviceText).trim().length > 0;
             recordDeepSeekTurn("consult", null, true);
             await appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.cache-hit", {
               key: cacheLookup.key,
@@ -6610,21 +7375,60 @@ export default function (pi: ExtensionAPI) {
             profileId: resolveDeepSeekProfileId(process.env, cwd),
             sessionId: deepSeekSession?.id || null,
             generationId: deepSeekSession?.generationId || null,
-            traceId,   
+            // V16.7.1: the scoped binding is `traceID`; a bare `traceId` here
+            // was an undeclared reference that threw ReferenceError on the
+            // real stale-response isolation path.
+            traceID,
             consultId: crypto.randomUUID(),
           };
-          const consultation = turnsAllowed && !cacheLookup.cached
-            ? await webLane
-              .consult({
+          // V16.7.1: `let`, not `const`. The stale-response path below reassigns
+          // this to `null`, and the FORCE-error path synthesizes an unavailable
+          // result. A `const` here made the stale path throw
+          // `TypeError: Assignment to constant variable` on a real race.
+          let consultation: any;
+          // The structured, secret-free reason when a dispatched consultation
+          // THREW. It drives the `web-reasoning.consulted` error discriminator
+          // below so a swallowed failure can never look like a clean skip.
+          let consultationErrorReason: string | null = null;
+          // V16.7.1 P0 grounding fix: the primary consultation must carry the
+          // SAME truthful local evidence the follow-up path already builds. The
+          // old call passed only task/notes/constraints, so the lane derived
+          // `knownFiles: []` (`packetFiles: 0`) and the local verifier rejected
+          // every answer as `no-local-grounding`. This is computed ONCE, from
+          // runtime state the controller already owns, and shared with the
+          // consult so the packet and the verifier see the same facts.
+          const consultGrounding = localGroundingForConsult({
+            task: params.task,
+            plan: structuredPlan,
+            changedFiles: (cacheInputs.relevantFiles || []).map((row: any) => row?.path),
+            root: cwd,
+          });
+          if (turnsAllowed && !cacheLookup.cached) {
+            try {
+              consultation = await webLane.consult({
                 task: params.task,
                 notes: [pendingResumeCapsuleText, failureDeltaText || "", advisorPacketText].filter(Boolean).join("\n\n"),
                 constraints: executionContract?.mustNot || [],
                 verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
                 affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+                // V16.7.1 P0: real repository facts, so a DeepSeek claim can be
+                // bound PRESENT/ABSENT instead of being rejected as ungrounded.
+                ...(consultGrounding.knownFiles.length ? { knownFiles: consultGrounding.knownFiles } : {}),
+                ...(consultGrounding.relevantFiles.length ? { relevantFiles: consultGrounding.relevantFiles } : {}),
                 requestId: dispatchedContext.consultId,
-              })
-              .catch(() => null)
-            : null;
+              });
+            } catch (error) {
+              // V16.7.1: never swallow to `null`. Journal a structured, secret-free
+              // reason, then honor the mode: AUTO falls back to local (null), FORCE
+              // keeps its fail-loudly contract with an explicit unavailable result.
+              consultationErrorReason = await journalConsultationFailure(cwd, traceID, webLane, "execute", error, dispatchedContext.consultId);
+              consultation = webLane.mode === "force"
+                ? forceUnavailableConsultation(webLane, consultationErrorReason, dispatchedContext.consultId)
+                : null;
+            }
+          } else {
+            consultation = null;
+          }
           // P0 #9: stale/late-response isolation. The consult was dispatched
           // under dispatchedContext. If it still belongs to that context,
           // commit it; otherwise discard it completely - it must never touch
@@ -6645,14 +7449,14 @@ export default function (pi: ExtensionAPI) {
               (deepSeekSession?.generationId ?? null) !== dispatchedContext.generationId
             ) {
               staleConsultation = true; // generation identity changed
-            } else if (dispatchedContext.traceId !== traceID) {
+            } else if (dispatchedContext.traceID !== traceID) {
               staleConsultation = true; // trace mismatch
             }
           }
           if (staleConsultation) {
             await appendRunJournalEvent(cwd, traceID,
               "v16.7.deepseek.stale-response-discarded", {
-                traceId,
+                traceId: traceID,
                 consultId: dispatchedContext.consultId,
                 profileIdAtDispatch: dispatchedContext.profileId,
                 profileIdAtArrival: resolveDeepSeekProfileId(process.env, cwd),
@@ -6695,18 +7499,65 @@ export default function (pi: ExtensionAPI) {
             }
           }
           }
-          if (cacheLookup.cached && cacheLookup.answer) {
-            // A cache hit still records the standard consultation event, so a
-            // reader can never mistake "no provider call" for "no consultation".
+          // V16.7.1: ONE discriminated consultation event. The old code emitted
+          // two separate events and, when `consultation` was `null`, reported
+          // `provider: undefined, outcome: undefined` -- indistinguishable from
+          // a real provider answer. A reader can now tell cache replay, a real
+          // provider consultation, a skip, an unavailable provider and a thrown
+          // error apart, and a fake success is never emitted.
+          {
+            const cacheReplay = cacheLookup.cached && Boolean(cacheLookup.answer);
+            const consultationUnavailable = consultation?.code === WEB_REASONING_UNAVAILABLE
+              || consultation?.outcome === "unavailable";
+            const providerConsulted = consultation?.consulted === true;
+            const source = cacheReplay
+              ? "cache-replay"
+              : consultationErrorReason
+                ? "error"
+                : consultationUnavailable
+                  ? "unavailable"
+                  : staleConsultation
+                    ? "stale-discarded"
+                    : providerConsulted
+                      ? "provider"
+                      : "skipped";
+            const outcome = source === "provider" ? "success"
+              : source === "cache-replay" ? "advice-replayed"
+                : source === "error" ? "error"
+                  : source === "unavailable" ? "unavailable"
+                    : source === "stale-discarded" ? "stale-discarded"
+                      : "skipped";
+            const eventProvider = cacheReplay
+              ? "consult-cache"
+              : String(consultation?.provider || webLane?.providerId || process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web");
             await appendRunJournalEvent(cwd, traceID, "web-reasoning.consulted", {
-              provider: "consult-cache",
-              mode: webLane?.mode,
-              outcome: "advice-replayed",
-              reason: "v16.6-consult-cache-hit",
-              signals: [],
-              packetChars: 0,
-              packetFiles: 0,
-              fallbackToLocal: false,
+              source,
+              consulted: providerConsulted,
+              provider: eventProvider,
+              mode: consultation?.mode ?? webLane?.mode ?? webReasoningMode(),
+              outcome,
+              laneOutcome: consultation?.outcome ?? null,
+              reason: source === "error"
+                ? consultationErrorReason
+                : source === "cache-replay"
+                  ? "v16.6-consult-cache-hit"
+                  : (consultation?.reason ?? null),
+              signals: consultation?.escalation?.signals || [],
+              packetChars: consultation?.packet?.chars ?? 0,
+              packetFiles: consultation?.packet?.files ?? 0,
+              // V16.7.1 Part 10: the bounded packet also reports its evidence
+              // count, so the journal shows how much local grounding the
+              // consultant actually received.
+              packetEvidenceCount: consultation?.packet?.evidenceCount ?? 0,
+              // V16.7.1 Part 11: the compact advisor capsule is a bounded,
+              // structured view of the SAME accepted advice. Only its CHAR
+              // count is journaled (never the prose), so telemetry stays small
+              // and secret-free.
+              advisorCapsuleChars: consultation?.advisorCapsule?.chars ?? 0,
+              packetCacheHit: consultation?.packet?.cacheHit === true,
+              flagged: consultation?.flagged === true,
+              authorityAttempts: consultation?.authorityAttempts || [],
+              fallbackToLocal: consultation?.fallbackToLocal === true,
             }).catch(() => null);
           }
           if (consultation?.code === WEB_REASONING_UNAVAILABLE) {
@@ -6730,7 +7581,12 @@ export default function (pi: ExtensionAPI) {
               webReasoning: consultation,
             };
           }
-          if (consultation?.advisorText) webAdviceText = consultation.advisorText;
+          if (consultation?.advisorText) {
+            webAdviceText = consultation.advisorText;
+            // Record acceptance for the outer learner binding only for the
+            // executor consult (this is the sole path that sets webAdviceText).
+            executorAdviceAccepted = String(webAdviceText).trim().length > 0;
+          }
           // V16.6.1: the learner sample is PENDING, not final. It is resolved
           // when the run's local verifier produces its real outcome, so
           // `finalVerifiedResult` is never `null` on a counted sample.
@@ -6799,19 +7655,6 @@ export default function (pi: ExtensionAPI) {
               effect: learnerWeight.effect,
             }).catch(() => null);
           }
-          await appendRunJournalEvent(cwd, traceID, "web-reasoning.consulted", {
-            provider: consultation?.provider,
-            mode: consultation?.mode,
-            outcome: consultation?.outcome,
-            reason: consultation?.reason,
-            signals: consultation?.escalation?.signals || [],
-            packetChars: consultation?.packet?.chars ?? 0,
-            packetFiles: consultation?.packet?.files ?? 0,
-            packetCacheHit: consultation?.packet?.cacheHit === true,
-            flagged: consultation?.flagged === true,
-            authorityAttempts: consultation?.authorityAttempts || [],
-            fallbackToLocal: consultation?.fallbackToLocal === true,
-          }).catch(() => null);
           if (consultation && !webLaneOutcomeSkipped(consultation.outcome)) {
             onUpdate?.({
               content: [{
@@ -6962,8 +7805,23 @@ export default function (pi: ExtensionAPI) {
             })
             : null;
           const patchCapsule = deepSeekResumeCapsule("Review the current local diff before verification.");
-          const review = await webLane
-            .consult({
+          // V16.7.1 P0 grounding fix: the patch review consults about the
+          // CURRENT diff, so the real changed files ARE its local evidence. The
+          // old call supplied none, so the review was always `advice-rejected`
+          // for lack of grounding. Reuse the controller's workspace snapshot
+          // (no rescan) plus the plan scope.
+          const patchGrounding = localGroundingForConsult({
+            task: params.task,
+            plan: structuredPlan,
+            changedFiles: (controllerWorkspaceState?.changedFiles || []).map((row: any) => row?.path || row),
+            root: cwd,
+          });
+          // V16.7.1: a thrown patch-review consultation is journaled with a
+          // structured reason, never swallowed. AUTO falls back to local (null);
+          // FORCE synthesizes an unavailable result so the failure is visible.
+          let review: any = null;
+          try {
+            review = await webLane.consult({
               task: params.task,
               notes: [patchPacket?.text || "", patchCapsule?.content || "", pendingEvidenceDelta]
                 .filter(Boolean)
@@ -6971,8 +7829,15 @@ export default function (pi: ExtensionAPI) {
               constraints: executionContract?.mustNot || [],
               verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
               affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
-            })
-            .catch(() => null);
+              ...(patchGrounding.knownFiles.length ? { knownFiles: patchGrounding.knownFiles } : {}),
+              ...(patchGrounding.relevantFiles.length ? { relevantFiles: patchGrounding.relevantFiles } : {}),
+            });
+          } catch (error) {
+            const reason = await journalConsultationFailure(cwd, traceID, webLane, "patch-review", error);
+            review = webLane.mode === "force"
+              ? forceUnavailableConsultation(webLane, reason)
+              : null;
+          }
           recordDeepSeekTurn("consult", review, false);
           if (review?.advisorText) webPatchReviewText = review.advisorText;
           const served = serveEvidenceRequests(review?.advisorText || "");
@@ -8237,9 +9102,18 @@ export default function (pi: ExtensionAPI) {
           // evidence) and the follow-up is refused when that refresh failed or
           // proved nothing changed.
           const liveDiff = boundedWorkspaceDiff(cwd);
-          const knownFilesForFollowUp = Array.isArray(structuredPlan?.files)
-            ? structuredPlan.files.map((f: any) => String(f?.path || f)).filter(Boolean)
-            : [];
+          // V16.7.1 P0 grounding fix: `structuredPlan.files` never existed on a
+          // real plan (files live under `structuredPlan.tasks[].files`), so this
+          // list was ALWAYS empty and the follow-up relied entirely on the
+          // lane's retained `state.knownFiles`. Use the SAME truthful grounding
+          // builder the primary consult now uses, so both stages bind against
+          // identical repository facts.
+          const knownFilesForFollowUp = localGroundingForConsult({
+            task: params.task,
+            plan: structuredPlan,
+            changedFiles: (controllerWorkspaceState?.changedFiles || []).map((row: any) => row?.path || row),
+            root: cwd,
+          }).knownFiles;
           // V16.6 canonical turn budget for follow-ups too. The lane's own
           // ceiling still applies; this is the run-level policy on top.
           const followUpAllowed = deepSeekTurnsAllow("follow-up", 1);
@@ -8249,37 +9123,47 @@ export default function (pi: ExtensionAPI) {
           const capsule = followUpAllowed
             ? deepSeekResumeCapsule(`Resolve the verifier failure for attempt ${attempt}.`)
             : null;
-          const followUp = followUpAllowed
-            ? await webLane
-            .followUp({
-              task: params.task,
-              evidence: [{ kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) }],
-              previousAttempts: [cap(recentFailure, 2_000), ...(capsule?.content ? [cap(capsule.content, 4_000)] : [])],
-              diff: liveDiff,
-              // V16.4: the controller opts into the verified second-follow-up
-              // rule. Every field below is a fact the controller already knows.
-              requireVerifiedSecondFollowUp: true,
-              repositoryRefreshOk: true,
-              providerSeenEvidence: webLane.state()?.lastPacketFingerprint
-                ? { fingerprint: webLane.state().lastPacketFingerprint }
-                : null,
-              currentEvidence: snapshotFollowUpEvidence(liveDiff, recentFailure),
-              ...(knownFilesForFollowUp.length ? { knownFiles: knownFilesForFollowUp } : {}),
-              followUpsSent: attempt - 1,
-              freshVerifierEvidence: Boolean(recentFailure),
-              fingerprintChanged: liveDiff.length > 0,
-              firstResolved: false,
-              // A second external submit is only worth its cost when the delta
-              // the verifier produced is larger than the packet we saved.
-              benefitExceedsCost: cap(recentFailure, 6_000).length > 0,
-              submitBudgetAllows: attempt - 1 <= 2,
-              sessionHealthy: webLane.state()?.sessionReusable === true,
-              // V16.6: the resume capsule keeps the SAME conversation coherent
-              // across rotations and never widens the follow-up budget.
-              ...(capsule ? { resumeCapsule: capsule.content, resumeFingerprint: capsule.fingerprint } : {}),
-            })
-            .catch(() => null)
-            : null;
+          // V16.7.1: a thrown follow-up is journaled with a structured reason,
+          // never swallowed. AUTO falls back to local (null); FORCE synthesizes
+          // an unavailable result so the fail-loud contract still holds.
+          let followUpErrorReason: string | null = null;
+          let followUp: any = null;
+          if (followUpAllowed) {
+            try {
+              followUp = await webLane.followUp({
+                task: params.task,
+                evidence: [{ kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) }],
+                previousAttempts: [cap(recentFailure, 2_000), ...(capsule?.content ? [cap(capsule.content, 4_000)] : [])],
+                diff: liveDiff,
+                // V16.4: the controller opts into the verified second-follow-up
+                // rule. Every field below is a fact the controller already knows.
+                requireVerifiedSecondFollowUp: true,
+                repositoryRefreshOk: true,
+                providerSeenEvidence: webLane.state()?.lastPacketFingerprint
+                  ? { fingerprint: webLane.state().lastPacketFingerprint }
+                  : null,
+                currentEvidence: snapshotFollowUpEvidence(liveDiff, recentFailure),
+                ...(knownFilesForFollowUp.length ? { knownFiles: knownFilesForFollowUp } : {}),
+                followUpsSent: attempt - 1,
+                freshVerifierEvidence: Boolean(recentFailure),
+                fingerprintChanged: liveDiff.length > 0,
+                firstResolved: false,
+                // A second external submit is only worth its cost when the delta
+                // the verifier produced is larger than the packet we saved.
+                benefitExceedsCost: cap(recentFailure, 6_000).length > 0,
+                submitBudgetAllows: attempt - 1 <= 2,
+                sessionHealthy: webLane.state()?.sessionReusable === true,
+                // V16.6: the resume capsule keeps the SAME conversation coherent
+                // across rotations and never widens the follow-up budget.
+                ...(capsule ? { resumeCapsule: capsule.content, resumeFingerprint: capsule.fingerprint } : {}),
+              });
+            } catch (error) {
+              followUpErrorReason = await journalConsultationFailure(cwd, traceID, webLane, "follow-up", error);
+              followUp = webLane.mode === "force"
+                ? forceUnavailableConsultation(webLane, followUpErrorReason)
+                : null;
+            }
+          }
           if (followUpAllowed) recordDeepSeekTurn("follow-up", followUp, false);
           if (!followUpAllowed) {
             await appendRunJournalEvent(cwd, traceID, "v16.6.deepseek.budget-exhausted", {
@@ -8297,9 +9181,17 @@ export default function (pi: ExtensionAPI) {
           }
           if (followUp?.advisorText) webFollowUpText = followUp.advisorText;
           await appendRunJournalEvent(cwd, traceID, "web-reasoning.follow-up", {
-            provider: followUp?.provider,
-            outcome: followUp?.outcome,
-            reason: followUp?.reason,
+            // V16.7.1: a thrown follow-up is never `provider: undefined,
+            // outcome: undefined`. It carries the structured error reason.
+            source: followUpErrorReason
+              ? "error"
+              : followUp?.consulted === true
+                ? "provider"
+                : "skipped",
+            errorReason: followUpErrorReason,
+            provider: String(followUp?.provider || webLane?.providerId || "deepseek-web"),
+            outcome: followUp?.outcome ?? (followUpErrorReason ? "error" : null),
+            reason: followUp?.reason ?? followUpErrorReason,
             deltaChars: followUp?.delta?.chars ?? 0,
             changedSections: followUp?.delta?.changedSections || [],
             savedChars: followUp?.delta?.savedChars ?? 0,
@@ -8712,7 +9604,7 @@ export default function (pi: ExtensionAPI) {
         // verifier is the authority; the learner only observes its result.
         const learnerResolutions = resolvePendingLearnerSamples({
           finalVerifiedResult: true,
-          adviceAccepted: String(webAdviceText || "").trim().length > 0,
+          adviceAccepted: executorAdviceAccepted,
           verifierAttemptsAfter: attempt,
         });
         const memory = await rememberVerifiedTask(cwd, params.task, verification, integrationResult);
@@ -8744,6 +9636,17 @@ export default function (pi: ExtensionAPI) {
         details: { mode: "execute", policy, steps, attempts: maxAttempts, traceID },
         isError: true,
       };
+      } finally {
+        // V16.7.1 process/timeout hygiene: release run-scoped resources on every
+        // path. Each step is bounded and best-effort, so a slow/failed cleanup
+        // cannot turn a successful run into a failure or hang the parent. The
+        // order matters: close the web lane (which closes its browser adapter),
+        // then release the persistent worker + profile lease, then release the
+        // managed browser lane. A timed-out/aborted run reaches this block.
+        if (runScopedTraceID) {
+          await releaseRunScopedResources(cwd, runScopedTraceID);
+        }
+      }
     },
   };
   pi.registerTool(uesExecuteTool);

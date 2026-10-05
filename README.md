@@ -7,9 +7,9 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 [![CI](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml)
 
-`opencode-agent-skill` · version **16.7.0** · host **Pi Agent** · runtime **Node.js >= 22.19**
+`opencode-agent-skill` · version **16.7.1** · host **Pi Agent** · runtime **Node.js >= 22.19**
 
-<!-- ues-version: 16.7.0 -->
+<!-- ues-version: 16.7.1 -->
 
 ---
 
@@ -207,7 +207,8 @@ safe outcome.
 
 ## DeepSeek Web Reasoning
 
-Optional. Off by default.
+Optional. Off by default. The advisor is a *consultant*: it never decides PASS and never
+holds authority over the task.
 
 | Mode | Behavior |
 | --- | --- |
@@ -215,12 +216,43 @@ Optional. Off by default.
 | `AUTO` | Consults only on genuine signals; stays local for grounded or trivial tasks |
 | `FORCE` | Explicitly requests a consultation for a decision packet |
 
+### One-time setup
+
 ```bash
-ues doctor --reasoning                       # read-only readiness, no prompt is submitted
-UES_WEB_REASONING_MODE=AUTO                   # AUTO | OFF | FORCE
+# 1. Sign in once. This opens a REAL headed browser; you sign in yourself.
+#    UES never reads, fills or logs a password, cookie, token, OTP or CAPTCHA.
+ues deepseek login --profile personal
+
+# 2. Enable web reasoning and choose the posture (persisted; AUTO is the default).
+ues deepseek on                 # persist enabled=true
+ues deepseek mode auto          # off | auto | force  (never FORCE by default)
+ues deepseek status             # read-only: enabled, mode, active profile, lock
 ```
 
-Properties, unchanged from V16.3/V16.4:
+`login` persists ONLY safe metadata (`enabled`, `mode`, the profile NAME) to
+`<ues-config>/.ues/web-reasoning.json`. No credential, cookie or storage state is ever written
+by UES. Precedence at runtime is **env override > persisted config > built-in default**.
+
+### Daily use
+
+The daily flow is just:
+
+```bash
+cd <project>; pi
+```
+
+There is nothing else to launch. The browser is started **lazily**, only when a consultation is
+actually about to be sent, and it is closed cleanly when the run ends. If the persisted session
+has expired, `AUTO` observes it and falls back to local execution — it never blocks the task
+and never asserts an authentication it did not observe. Re-run `ues deepseek login` only when a
+consult is reported as needing auth.
+
+```bash
+ues doctor --reasoning          # read-only readiness; submits nothing, launches nothing
+UES_WEB_REASONING_MODE=AUTO     # env override: AUTO | OFF | FORCE
+```
+
+### Properties (unchanged from V16.3/V16.4)
 
 - consultant-only; `canProducePass = false`; never a task verdict
 - no filesystem, no git, no terminal, no permissions, no secrets forwarded
@@ -230,6 +262,23 @@ Properties, unchanged from V16.3/V16.4:
 
 Specialist question types: `root-cause`, `architecture`, `alternative-fix`,
 `adversarial-review`, `verifier-failure`.
+
+### Developer smoke (not part of daily use)
+
+The live smoke and the A/B benchmark are developer tools, separate from the daily flow. They
+are **opt-in** and submit real external messages, so they require an explicit consent flag and
+report `NOT_MEASURED` for anything they cannot observe.
+
+```bash
+npm run smoke:deepseek-web                      # preflight only: observes, submits nothing
+npm run smoke:deepseek-web -- --live --yes-i-have-authorized-a-live-consultation
+                                                # ONE bounded live consultation, real browser
+node scripts/bench-web-reasoning-ab.mjs         # A/B: local-only vs AUTO (deterministic)
+node scripts/bench-web-reasoning-ab.mjs --live --yes-i-have-authorized-a-live-benchmark
+```
+
+A live benchmark run is bounded, single-submit, and never presented as model evidence when only
+the deterministic double ran.
 
 ## Safety Model
 

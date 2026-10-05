@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { existsSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
-import { spawnSync } from "node:child_process"
+import { spawn, spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 import path from "node:path"
 import os from "node:os"
@@ -26,6 +26,11 @@ import {
   PROFILE_STATE,
 } from "../lib/deepseek-profile-registry.mjs"
 import { inspectProfileLock } from "../lib/deepseek-profile-lock.mjs"
+import { LOGIN_OUTCOME, runManualLogin } from "../lib/deepseek-login-flow.mjs"
+// V16.7.1 Part 6: persisted, secret-free web enablement metadata. `ues deepseek
+// on|off|mode` writes this so the daily flow is just `cd <project>; pi`.
+import { readWebConfig, resolveWebEnablement, writeWebConfig, WEB_CONFIG_MODE } from "../lib/deepseek-web-config.mjs"
+import { createBrowserWorkerClient, spawnBrowserWorkerTransport } from "../lib/browser-worker-client.mjs"
 import {
   AUTH_STATE,
   buildAuthReport,
@@ -1738,19 +1743,26 @@ const DEEPSEEK_PROFILE_USAGE = `Usage: ocskill deepseek <action> ...
   status [--profile <name>] [--json]
   profiles [--json]              List registered profiles and the active one
   doctor [--profile <name>] [--json]
-  login --profile <name> [--json]
+  login --profile <name> [--json]  Open a HEADED browser and sign in manually
   use|switch <name> [--json]     Select the active profile (never auto-selects)
   logout [--profile <name>] [--json]
   remove-profile <name> [--json]  Drop a profile record (--purge also deletes its browser dir)
+  on|off [--json]                Persist web reasoning ENABLED / DISABLED
+  mode [off|auto|force] [--profile <name>] [--json]  Show or set the persisted mode
   help                           Show this help
 
 DeepSeek profiles keep independent logins (personal / work / test / custom) in a
 browser profile directory OUTSIDE the repository. UES never reads, stores or
-prints a password, cookie, token or storageState. Login is MANUAL: a live run
-opens a real browser window and waits for you to sign in.
+prints a password, cookie, token, OTP, CAPTCHA answer or storageState. Login is
+MANUAL: "login" opens a real headed window, you sign in yourself, and the flow
+waits (bounded) for a READ-ONLY probe to observe the session.
 
-These commands never launch a browser. A live auth probe runs only inside a real
-DeepSeek consultation (ues eval-live or a UES DeepSeek task), never here.`
+Web reasoning enablement is persisted (enabled + mode + profile NAME only) so
+the daily flow is just:  cd <project>; pi
+Precedence at runtime: env override > persisted config > built-in default.
+
+status/profiles/doctor/use/logout/remove-profile/on/off/mode never launch a
+browser.`
 
 function deepseekAuthReportFor(profileName, options = /** @type {any} */ ({})) {
   const configDir = getUesConfigDir()
@@ -1784,6 +1796,95 @@ function deepseekAuthReportFor(profileName, options = /** @type {any} */ ({})) {
   report.recordedState = storedState || null
   report.readOnly = true
   return report
+}
+
+/**
+ * V16.7.1 Part 5: the REAL headed manual-login flow behind
+ * `ues deepseek login --profile <name>`.
+ *
+ * It registers the profile (intent only, no browser dir), then opens a HEADED
+ * PERSISTENT browser and waits, bounded, for the human to sign in. It NEVER
+ * reads/fills/logs a password, cookie, token, OTP, CAPTCHA or storageState, and
+ * it never switches the active profile. An incomplete login is
+ * HUMAN_ACTION_REQUIRED, never a fake success.
+ */
+async function deepseekLoginFlow(name, configDir) {
+  const registration = registerProfile(name, { configDir })
+  const workerScript = path.join(packageRoot, "scripts", "browser-worker-v16-3.mjs")
+  // HEADED + PERSISTENT: the human needs a real window, and the session must
+  // survive on disk for the next live run. `--headed` makes the browser visible;
+  // `--live --profile=` attaches the persistent profile directory.
+  const transport = spawnBrowserWorkerTransport(workerScript, {
+    spawnImpl: spawn,
+    cwd: packageRoot,
+    scriptArgs: ["--live", `--profile=${name}`, "--headed"],
+  })
+  const base = {
+    schemaVersion: 1,
+    policy: "deepseek-profile-login-v16-7-1",
+    profile: name,
+    profileId: registration.profile.id,
+    created: registration.created,
+    active: registration.active,
+    credentialFree: true,
+  }
+  if (!transport) {
+    return {
+      ...base,
+      outcome: LOGIN_OUTCOME.BROWSER_UNAVAILABLE,
+      humanActionRequired: true,
+      reason: "managed browser worker could not be started",
+    }
+  }
+  const worker = createBrowserWorkerClient({ transport, process: transport.process })
+  let result = null
+  try {
+    result = await runManualLogin({
+      worker,
+      profile: name,
+      onLog: jsonOutput ? null : (line) => console.log(`  ${line}`),
+    })
+  } finally {
+    // Close the persistent context cleanly so the session survives on disk. The
+    // close is bounded and never reads the profile's contents.
+    await worker.close().catch(() => null)
+  }
+  const humanActionRequired = result.outcome !== LOGIN_OUTCOME.AUTH_READY
+  // V16.7.1 Part 6/7: on a SUCCESSFUL login, persist the safe enablement
+  // metadata (enabled + mode + profile NAME only) so the daily flow is just
+  // `cd <project>; pi`. AUTO is chosen deliberately: FORCE is never a default.
+  //
+  // Part 5 contract: the login flow NEVER switches the active profile. The
+  // profile NAME is carried inside the persisted web config instead, and the
+  // user keeps an explicit `ues deepseek use <name>` for changing the active
+  // profile. Persisting enablement is best-effort and never fails a proven login.
+  let enablement = null
+  if (result.outcome === LOGIN_OUTCOME.AUTH_READY) {
+    try {
+      const config = await writeWebConfig(configDir, {
+        enabled: true,
+        mode: WEB_CONFIG_MODE.AUTO,
+        profile: name,
+      })
+      enablement = { enabled: config.enabled, mode: config.mode, profile: config.profile, file: config.file }
+    } catch { /* persistence is best-effort; login success is already proven */ }
+  }
+  const payload = {
+    ...base,
+    outcome: result.outcome,
+    authState: result.authState || null,
+    reason: result.reason || null,
+    attempts: result.attempts,
+    elapsedMs: result.elapsedMs,
+    bound: result.bound || null,
+    humanActionRequired,
+    enablement,
+    safety: result.safety,
+    instruction: result.outcome === LOGIN_OUTCOME.AUTH_READY
+      ? `Profile "${name}" is signed in and web reasoning is ENABLED (mode=auto). Daily use: cd <project>; pi`
+      : `Sign in to the opened browser window as ${name}, then re-run: ues deepseek login --profile ${name}`,
+  }
+  return payload
 }
 
 async function deepseekControl() {
@@ -1859,6 +1960,90 @@ async function deepseekControl() {
       return
     }
 
+    if (action === "on" || action === "off") {
+      const config = await writeWebConfig(configDir, { enabled: action === "on" })
+      const resolved = resolveWebEnablement({ persisted: config, env: {} })
+      const payload = {
+        schemaVersion: 1,
+        policy: "deepseek-web-config-v16-7-1",
+        enabled: config.enabled,
+        mode: config.mode,
+        profile: config.profile,
+        live: resolved.live,
+        file: config.file,
+        credentialFree: true,
+      }
+      if (jsonOutput) printJson(payload)
+      else {
+        console.log(`DeepSeek web reasoning ${config.enabled ? "ENABLED" : "DISABLED"} (persisted).`)
+        console.log(`  mode:    ${config.mode}`)
+        console.log(`  profile: ${config.profile || "(active profile)"}`)
+        console.log(`  file:    ${config.file}`)
+        console.log("  note:    env override (UES_WEB_REASONING_LIVE/MODE) still wins; persisted applies when env is unset.")
+        if (config.enabled && config.mode === WEB_CONFIG_MODE.FORCE) {
+          console.log("  WARNING: FORCE fails loudly when the provider is unavailable. AUTO is recommended.")
+        }
+      }
+      return
+    }
+
+    if (action === "mode") {
+      const requested = String(positionalArg(args, 2) || optionValue(args, "--mode") || "").trim().toLowerCase()
+      const profileFlag = optionValue(args, "--profile")
+      if (!requested) {
+        const config = await readWebConfig(configDir)
+        const resolved = resolveWebEnablement({ persisted: config, env: {} })
+        const payload = {
+          schemaVersion: 1,
+          policy: "deepseek-web-config-v16-7-1",
+          enabled: config.enabled,
+          mode: config.mode,
+          profile: config.profile,
+          live: resolved.live,
+          exists: config.exists,
+          invalid: config.invalid === true,
+          file: config.file,
+          credentialFree: true,
+        }
+        if (jsonOutput) printJson(payload)
+        else {
+          console.log("DeepSeek web reasoning (persisted)")
+          console.log(`  enabled: ${config.enabled}`)
+          console.log(`  mode:    ${config.mode}`)
+          console.log(`  profile: ${config.profile || "(active profile)"}`)
+          console.log(`  live:    ${resolved.live}`)
+          console.log(`  file:    ${config.file}${config.exists ? "" : " (not written yet)"}${config.invalid ? " [INVALID - using defaults]" : ""}`)
+        }
+        if (config.invalid) process.exitCode = 1
+        return
+      }
+      if (![WEB_CONFIG_MODE.OFF, WEB_CONFIG_MODE.AUTO, WEB_CONFIG_MODE.FORCE].includes(requested)) {
+        throw new Error("Usage: ocskill deepseek mode [off|auto|force] [--profile <name>]")
+      }
+      const patch = { mode: requested }
+      if (profileFlag !== undefined && profileFlag !== null) patch.profile = profileFlag
+      const config = await writeWebConfig(configDir, patch)
+      const resolved = resolveWebEnablement({ persisted: config, env: {} })
+      const payload = {
+        schemaVersion: 1,
+        policy: "deepseek-web-config-v16-7-1",
+        enabled: config.enabled,
+        mode: config.mode,
+        profile: config.profile,
+        live: resolved.live,
+        file: config.file,
+        credentialFree: true,
+      }
+      if (jsonOutput) printJson(payload)
+      else {
+        console.log(`DeepSeek web reasoning mode set to ${config.mode} (persisted).`)
+        console.log(`  enabled: ${config.enabled}`)
+        console.log(`  profile: ${config.profile || "(active profile)"}`)
+        console.log(`  live:    ${resolved.live}`)
+      }
+      return
+    }
+
     if (action === "doctor") {
       const requested = optionValue(args, "--profile")
       const report = profileDoctor({ configDir, profile: requested })
@@ -1871,32 +2056,25 @@ async function deepseekControl() {
     if (action === "login") {
       const name = optionValue(args, "--profile") || positionalArg(args, 2)
       if (!name) {
-        throw new Error("Usage: ocskill deepseek login --profile <name>")
+        throw new Error("Usage: ues deepseek login --profile <name>")
       }
-      // Registering does NOT write a browser dir and does NOT log in. It only
-      // records the intent; the actual sign-in is driven by a live run.
-      const result = registerProfile(name, { configDir })
-      const auth = deepseekAuthReportFor(name)
-      const payload = {
-        schemaVersion: 1,
-        policy: "deepseek-profile-login-v16-7",
-        profile: name,
-        profileId: result.profile.id,
-        created: result.created,
-        active: result.active,
-        authState: auth.state,
-        humanActionRequired: true,
-        // The exact instruction the human must follow. Login is manual.
-        instruction: `Run a live DeepSeek consultation (ues eval-live or a UES DeepSeek task) and sign in to the opened browser window as ${name}. UES never asks for or stores your password.`,
-        credentialFree: true,
-      }
+      // Part 5: open a REAL headed persistent browser and wait, bounded, for the
+      // human to sign in. Never reads/fills/logs a credential; never switches
+      // the active profile; incomplete -> HUMAN_ACTION_REQUIRED.
+      const payload = await deepseekLoginFlow(name, configDir)
       if (jsonOutput) printJson(payload)
       else {
-        console.log(`DeepSeek profile "${name}" ${result.created ? "registered" : "already registered"}.`)
-        console.log(`  active: ${result.active}`)
-        console.log(`  next:   ${payload.instruction}`)
-        console.log("  note:   UES never reads, stores or prints your password, cookies or tokens.")
+        console.log(`DeepSeek profile "${name}" ${payload.created ? "registered" : "already registered"}.`)
+        console.log(`  active:  ${payload.active}`)
+        console.log(`  outcome: ${payload.outcome}`)
+        if (payload.authState) console.log(`  auth:    ${payload.authState}`)
+        if (payload.reason) console.log(`  reason:  ${payload.reason}`)
+        if (Number.isFinite(payload.attempts)) console.log(`  probes:  ${payload.attempts}${payload.bound ? `  (bound ${payload.bound})` : ""}`)
+        if (payload.enablement) console.log(`  enabled: web reasoning ON (mode=${payload.enablement.mode})`)
+        console.log(`  next:    ${payload.instruction}`)
+        console.log("  note:    UES never reads, stores or prints your password, cookies, tokens, OTP or CAPTCHA.")
       }
+      if (payload.outcome !== LOGIN_OUTCOME.AUTH_READY) process.exitCode = 2
       return
     }
 

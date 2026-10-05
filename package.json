@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.7.0",
+  "version": "16.7.1",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
@@ -101,7 +101,7 @@
     "eval:v16.5:routing": "node scripts/eval-skill-routing-v16-5.mjs",
     "eval:v16.6": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/unified-budget-v16-6.test.mjs test/deepseek-session-v16-6.test.mjs test/orchestration-surface-v16-6.test.mjs test/v16-6-measured-regressions.test.mjs test/v16-6-1-regressions.test.mjs test/release-coordinator-v16-6.test.mjs && node scripts/eval-v16-6.mjs > /dev/null",
     "eval:v16.6:measure": "node scripts/eval-v16-6.mjs",
-    "eval:v16.7": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/deepseek-profile-v16-7.test.mjs",
+    "eval:v16.7": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/deepseek-profile-v16-7.test.mjs test/deepseek-profile-lock-external-death-v16-7-1.test.mjs test/deepseek-login-flow-v16-7-1.test.mjs test/deepseek-web-config-v16-7-1.test.mjs test/agent-progress-watchdog-v16-7-1.test.mjs test/deepseek-web-grounding-v16-7-1.test.mjs test/deepseek-web-adapter-wiring-v16-7-1.test.mjs test/deepseek-web-production-path-v16-7-1.test.mjs test/ues-run-teardown-v16-7-1.test.mjs test/ues-workspace-root-callsites-v16-7-1.test.mjs test/deepseek-consult-cache-identity-v16-7-1.test.mjs test/deepseek-failure-classification-v16-7-1.test.mjs test/deepseek-consultation-policy-v16-7-1.test.mjs test/agent-progress-watchdog-integration-v16-7-1.test.mjs",
     "release:coordinator": "node scripts/release-test-coordinator.mjs"
   },
   "keywords": [

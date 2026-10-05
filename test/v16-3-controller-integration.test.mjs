@@ -21,10 +21,16 @@ import {
 import {
   WEB_LANE_OUTCOME,
   advisorTextFor,
+  classifyConsultationError,
   createWebReasoningLane,
   packetInputFrom,
 } from "../lib/web-reasoning-lane.mjs"
 import { WEB_REASONING_UNAVAILABLE } from "../lib/web-reasoning-provider.mjs"
+import {
+  WEB_CONSULTATION_ERROR,
+  decideWebEscalation,
+  normalizeNotes,
+} from "../lib/web-reasoning-escalation.mjs"
 import { clearDecisionPacketCache } from "../lib/decision-packet.mjs"
 import { McpHealthTracker } from "../lib/mcp-health.mjs"
 import { classifyBrowserAction } from "../lib/browser-action-taxonomy.mjs"
@@ -801,4 +807,131 @@ test("V16.3 the DeepSeek adapter over the managed worker refuses to consult with
   const capability = await adapter.capability();
   assert.equal(capability.state, "unavailable");
   assert.equal(capability.reason, DEEPSEEK_WEB_FAILURE.BROWSER_UNAVAILABLE);
+});
+// ---------------------------------------------------------------------------
+// V16.7.1 regression: the controller passes `notes` as a JOINED STRING.
+//
+// The escalation router used to call `(input.notes || []).join("\n")`, which
+// threw `TypeError: (intermediate value).join is not a function` for every
+// non-empty string. The lane wrapped the (async) throw into a rejected promise
+// and the controller swallowed it with `.catch(() => null)`, so a production
+// consultation could NEVER complete. These tests fail on the old implementation
+// because `decideWebEscalation` throws before any provider is reached.
+// ---------------------------------------------------------------------------
+
+test("V16.7.1 regression: a joined-STRING notes payload escalates instead of throwing", () => {
+  // The EXACT expression the controller uses at the consult site.
+  const controllerNotes = ["resume capsule", "", "advisor packet"].filter(Boolean).join("\n\n");
+  assert.equal(typeof controllerNotes, "string");
+  assert.ok(controllerNotes.length > 0);
+  // Old impl: this line threw `join is not a function`.
+  const decision = decideWebEscalation({
+    mode: "auto",
+    task: "The verifier still fails across modules; the root cause is ambiguous.",
+    notes: controllerNotes,
+  });
+  assert.equal(decision.escalate, true);
+  assert.ok(decision.signals.length > 0);
+});
+
+test("V16.7.1 normalizeNotes accepts every shape the controller has ever passed", () => {
+  assert.deepEqual(normalizeNotes(["a", "b"]), ["a", "b"]);
+  assert.deepEqual(normalizeNotes("joined\nstring"), ["joined\nstring"]);
+  assert.deepEqual(normalizeNotes(""), []);
+  assert.deepEqual(normalizeNotes(null), []);
+  assert.deepEqual(normalizeNotes(undefined), []);
+  assert.deepEqual(normalizeNotes(42), ["42"]);
+  assert.deepEqual(normalizeNotes(["a", "", null, "b"]), ["a", "b"]);
+});
+
+test("V16.7.1 regression: a hard task through the production-equivalent lane yields non-empty advisorText", async () => {
+  clearDecisionPacketCache();
+  const { calls, adapter } = fakeAdapter();
+  const lane = createWebReasoningLane({ mode: "auto", adapters: [adapter] });
+  // The controller builds `notes` with this exact join, and passes it as a
+  // STRING. The regression must fail on the old router (which threw on the
+  // string) and pass now.
+  const controllerNotes = ["pending resume capsule", "failure delta", "advisor packet"]
+    .filter(Boolean)
+    .join("\n\n");
+  const result = await lane.consult({
+    task: "The verifier still fails across the browser lane and MCP health modules; the root cause is ambiguous and several fixes are plausible.",
+    notes: controllerNotes,
+    relevantFiles: [{ path: "lib/browser-lane.mjs" }],
+    knownFiles: ["lib/browser-lane.mjs"],
+  });
+  assert.equal(result.outcome, WEB_LANE_OUTCOME.ADVISED);
+  assert.equal(result.consulted, true, "the lane must report a REAL provider consultation");
+  assert.equal(calls.consult, 1);
+  assert.ok(result.advisorText && result.advisorText.length > 0, "the chain must end in non-empty advisorText");
+  assert.ok(result.advisorText.includes("ADVISORY EVIDENCE ONLY"));
+});
+
+test("V16.7.1 regression: a string notes payload still lets a follow-up find its prior packet", async () => {
+  clearDecisionPacketCache();
+  const { calls, adapter } = fakeAdapter();
+  const lane = createWebReasoningLane({ mode: "auto", adapters: [adapter] });
+  const controllerNotes = ["capsule", "advisor packet"].filter(Boolean).join("\n\n");
+  const first = await lane.consult({
+    task: "The verifier still fails across modules; the root cause is ambiguous.",
+    notes: controllerNotes,
+    knownFiles: ["lib/browser-lane.mjs"],
+  });
+  assert.equal(first.outcome, WEB_LANE_OUTCOME.ADVISED);
+  // The follow-up must NOT be refused with `skipped:no-prior-packet`; a prior
+  // packet fingerprint must exist after a successful string-notes consult.
+  assert.ok(lane.state().lastPacketFingerprint, "a successful consult must set the packet fingerprint");
+  const followUp = await lane.followUp({
+    task: "The verifier still fails across modules; the root cause is ambiguous.",
+    evidence: [{ kind: "verifier", source: "ues-verifier", text: "verifier still fails after the fix" }],
+    diff: "--- a/lib/browser-lane.mjs\n+++ b/lib/browser-lane.mjs\n+identity check",
+  });
+  assert.notEqual(followUp.reason, "no-prior-packet");
+  assert.equal(followUp.outcome, WEB_LANE_OUTCOME.ADVISED);
+  assert.equal(calls.followUp, 1);
+});
+
+// ---------------------------------------------------------------------------
+// V16.7.1 error classification: the closed, secret-free vocabulary.
+// ---------------------------------------------------------------------------
+
+test("V16.7.1 classifyConsultationError maps every failure class without leaking a message", () => {
+  // A thrown escalation is classified as escalation-error, from the tag OR the
+  // historical `.join is not a function` message.
+  assert.equal(classifyConsultationError({ uesConsultationReason: "escalation-error" }), WEB_CONSULTATION_ERROR.ESCALATION);
+  assert.equal(
+    classifyConsultationError(new Error("(intermediate value).join is not a function")),
+    WEB_CONSULTATION_ERROR.ESCALATION,
+  );
+  assert.equal(classifyConsultationError({ code: WEB_REASONING_UNAVAILABLE }), WEB_CONSULTATION_ERROR.UNAVAILABLE);
+  assert.equal(classifyConsultationError({ code: "ETIMEDOUT" }), WEB_CONSULTATION_ERROR.TIMEOUT);
+  assert.equal(classifyConsultationError(new Error("deepseek-response-timeout")), WEB_CONSULTATION_ERROR.TIMEOUT);
+  assert.equal(classifyConsultationError(new Error("socket closed")), WEB_CONSULTATION_ERROR.PROVIDER);
+  // The classifier returns a fixed literal, never the raw message.
+  const leaky = classifyConsultationError(new Error("SECRET_TOKEN=abc123"));
+  assert.equal(leaky, WEB_CONSULTATION_ERROR.PROVIDER);
+  assert.equal(leaky.includes("SECRET"), false);
+});
+
+test("V16.7.1 an escalation throw is tagged, classified, and never becomes an unhandled rejection", async () => {
+  clearDecisionPacketCache();
+  const { calls, adapter } = fakeAdapter();
+  const lane = createWebReasoningLane({ mode: "auto", adapters: [adapter] });
+  // Force the escalation router to throw by handing it a `notes` whose
+  // `Symbol.iterator`... no: use a value the router must normalize. A bigint
+  // stringifies fine, so instead pass a `notes` getter that throws.
+  const poisoned = {
+    task: "ambiguous root cause across modules",
+    get notes() { throw new Error("boom: notes accessor failed") },
+  };
+  await assert.rejects(
+    () => lane.consult(poisoned),
+    (error) => {
+      // The lane tags the escalation throw so the controller can classify it.
+      assert.equal(error.uesConsultationReason, WEB_CONSULTATION_ERROR.ESCALATION);
+      return true;
+    },
+  );
+  // The provider was never reached, and nothing was left dangling.
+  assert.equal(calls.consult, 0);
 });

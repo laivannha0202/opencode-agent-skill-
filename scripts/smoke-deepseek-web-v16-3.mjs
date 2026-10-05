@@ -1167,7 +1167,19 @@ async function main() {
     verificationRejectionCount: verificationSummary.verificationRejectionCount,
     verificationConfirmations: verificationSummary.verificationConfirmations,
     verificationRejections: JSON.stringify(verificationSummary.verificationRejections),
+    // V16.7.1 Part 21: the exact production fields the release report captures.
+    // `provider` is the lane's resolved provider id; `source` distinguishes a
+    // live provider consultation from a cache replay; `selectionReason` is the
+    // escalation router's own reason (never a guess).
+    provider: result.provider ?? "(none)",
+    source: "live-provider",
+    selectionReason: result.escalation?.reason ?? result.reason ?? "(none)",
+    mode: result.mode ?? "(none)",
     packetChars: result.packet?.chars,
+    packetFiles: result.packet?.files,
+    packetEvidenceCount: result.packet?.evidenceCount,
+    advisorCapsuleChars: result.advisorCapsule?.chars ?? 0,
+    latencyMs: elapsedMs,
     sessionReusable: result.sessionReusable,
     flagged: result.flagged === true,
     authorityAttempts: (result.authorityAttempts || []).join(",") || "(none)",
