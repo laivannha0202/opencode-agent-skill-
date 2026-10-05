@@ -5,6 +5,7 @@ import {
 } from "../../lib/agent-progress-watchdog.mjs";
 
 export const UES_LOOP_RECOVERY_COMPAT_SCHEMA_VERSION = 1;
+export const UES_EXECUTION_ECONOMY_MARKER = "## UES execution economy";
 
 const ENGINEERING_HINT = /(?:^\/ues-|\b(?:code|repo|project|file|function|class|test|debug|fix|bug|error|implement|refactor|build|deploy|api|database|typescript|javascript|python|git)\b|(?:sửa|lỗi|dự án|kiểm tra|tối ưu|nâng cấp|mã nguồn))/iu;
 
@@ -21,6 +22,34 @@ function textFromAssistantMessage(message) {
 export function isEngineeringTurnText(text) {
   const value = String(text || "").trim();
   return value.length >= 8 && ENGINEERING_HINT.test(value);
+}
+
+/**
+ * Keep the local Pi model as a compact executor when UES/DeepSeek has already
+ * supplied accepted strategic advice. This does NOT reduce thinking level and
+ * does NOT weaken verification. It removes duplicate narration/re-analysis and
+ * repeated evidence reads -- the main source of wasted local-model tokens in
+ * long engineering sessions.
+ */
+export function executionEconomyContract() {
+  return [
+    UES_EXECUTION_ECONOMY_MARKER,
+    "For engineering turns, optimize for verified action rather than narrated planning.",
+    "When accepted UES/DeepSeek advisor evidence is present, use it as the strategic analysis seed; do not independently re-derive the same architecture/root-cause discussion.",
+    "Validate only the local claims that can change the edit, then move directly to the next concrete tool call, edit, or verification step.",
+    "Reuse existing tool results and evidence receipts. Do not repeat read/search/audit work unless the relevant repository state or failure evidence changed.",
+    "Prefer tool calls over prose such as 'let me inspect', 'I will check', or repeated status narration.",
+    "Keep model-visible reasoning compact. Do not restate raw tool output or the advisor response when a short decision/action is sufficient.",
+    "If web advice is absent, rejected, stale, unavailable, or contradicted by local evidence, reason locally as much as required; correctness has priority over token savings.",
+    "Never skip permission checks, local evidence binding, tests, verification gates, or final verifier authority to save tokens or time.",
+    "Keep the final user-facing report concise and evidence-based.",
+  ].join("\n");
+}
+
+export function applyExecutionEconomy(systemPrompt) {
+  const base = String(systemPrompt || "");
+  if (!base || base.includes(UES_EXECUTION_ECONOMY_MARKER)) return base;
+  return `${base}\n\n${executionEconomyContract()}`;
 }
 
 export function recoveryInstruction(attempt, maxRecoveries) {
@@ -59,6 +88,10 @@ function customMessage(customType, content, details = {}, display = false) {
  * It does NOT decide when to abort; the shipped UES controller remains the
  * authority for that. This layer mirrors the proven watchdog signal and only
  * delivers a bounded continuation after the aborted run has fully settled.
+ *
+ * It also injects a small execution-economy contract into engineering turns so
+ * the local Pi model behaves as the executor/verifier around accepted web
+ * advice instead of spending another long turn reproducing the same reasoning.
  */
 export default function uesLoopRecoveryCompat(pi) {
   if (!pi || typeof pi.on !== "function") return;
@@ -87,11 +120,19 @@ export default function uesLoopRecoveryCompat(pi) {
     engineeringTurn = isEngineeringTurnText(event?.text);
   });
 
-  pi.on("before_agent_start", async () => {
-    if (recoveryContinuation) {
-      recoveryContinuation = false;
-      return;
-    }
+  pi.on("before_agent_start", async (event, ctx) => {
+    if (recoveryContinuation) recoveryContinuation = false;
+    if (!engineeringTurn) return undefined;
+
+    // Do not touch model selection or thinking level here. The economy gain is
+    // from avoiding duplicate reasoning/retrieval, not from making the model
+    // less capable. Use the exact host-provided system prompt so later handlers
+    // see a normal BeforeAgentStartEventResult.
+    const currentSystemPrompt = String(event?.systemPrompt || ctx?.getSystemPrompt?.() || "");
+    if (!currentSystemPrompt) return undefined;
+    const economical = applyExecutionEconomy(currentSystemPrompt);
+    if (economical === currentSystemPrompt) return undefined;
+    return { systemPrompt: economical };
   });
 
   pi.on("message_start", async (event) => {
