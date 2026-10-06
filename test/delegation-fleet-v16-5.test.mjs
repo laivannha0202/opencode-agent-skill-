@@ -495,8 +495,12 @@ test("V16.5 fleet I: cancellation leaves no orphan OS process", async () => {
 
     const recorded = readFileSync(pidFile, "utf8").trim().split(/\s+/).filter(Boolean).map(Number);
     assert.ok(recorded.length >= 1);
-    // Give the OS a moment to finish the tree kill before asserting.
-    await sleep(500);
+    // Windows may need a short bounded settle window under a saturated suite.
+    // Poll instead of assuming every taskkill tree is observable as dead in 500ms.
+    const settleDeadline = Date.now() + 5_000;
+    while (recorded.some((pid) => processAlive(pid)) && Date.now() < settleDeadline) {
+      await sleep(50);
+    }
     for (const pid of recorded) {
       assert.equal(processAlive(pid), false, `orphan process ${pid} survived cancellation`);
     }

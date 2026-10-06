@@ -16,3 +16,6 @@ Thumbs.db
 
 # npm pack artifacts
 opencode-agent-skill-*.tgz
+
+# transient type-strip probes used only by bounded regression tests
+pi/extensions/__v1671_*_probe_*.mjs
