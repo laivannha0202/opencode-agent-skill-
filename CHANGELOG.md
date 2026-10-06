@@ -2,9 +2,11 @@
 
 ## [Unreleased]
 
+## [16.7.2] - 2026-10-06
+
 ### Fixed
 
-Production correctness and runtime hardening follow-ups to 16.7.1.
+Production correctness and runtime hardening follow-ups shipped in 16.7.2.
 
 - **DeepSeek Web grounding starvation.** The primary `webLane.consult()` (and the
   patch-review consult) passed no local grounding, so `knownFiles` was empty, the

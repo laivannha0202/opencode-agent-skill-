@@ -5,11 +5,10 @@
 [![npm](https://img.shields.io/npm/v/opencode-agent-skill)](https://www.npmjs.com/package/opencode-agent-skill)
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-5FA04E)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
-[![CI](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml/badge.svg)](https://github.com/laivannha0202/opencode-agent-skill/actions/workflows/ci.yml)
 
-`opencode-agent-skill` · version **16.7.1** · host **Pi Agent** · runtime **Node.js >= 22.19**
+`opencode-agent-skill` · version **16.7.2** · host **Pi Agent** · runtime **Node.js >= 22.19**
 
-<!-- ues-version: 16.7.1 -->
+<!-- ues-version: 16.7.2 -->
 
 ---
 
