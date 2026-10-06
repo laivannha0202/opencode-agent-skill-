@@ -1193,6 +1193,13 @@ async function createRunWebLane(cwd: string, runId: string, budget?: any) {
     live: webReasoningLiveEnabled(),
     provider: String(process.env.UES_WEB_REASONING_PROVIDER || "deepseek-web").trim(),
     maxPacketChars: configuredCount("UES_WEB_PACKET_MAX_CHARS", 48_000, 2_000, 400_000),
+    // V16.8: `cwd` is the run's VERIFIED Git root (requireGitWorkspaceRoot at
+    // the admission boundary). Passing it is what lets the decision barrier
+    // prove the grounded files exist inside the real workspace instead of
+    // inferring a root from process.cwd(). Without it the barrier can silently
+    // run unproven, and an advisor target that does not exist can be admitted
+    // as executor-ready. Passing it can only make the barrier STRICTER.
+    workspaceRoot: cwd,
     ...(turnBudget
       ? {
         maxConsultations: Math.max(0, Math.min(3, Number(turnBudget.maxConsultations) || 0)),
@@ -7411,6 +7418,10 @@ export default function (pi: ExtensionAPI) {
                 constraints: executionContract?.mustNot || [],
                 verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
                 affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+                // V16.8: the verified Git root for this run. The decision barrier
+                // binds every grounded file against it and discards advice whose
+                // targets it cannot prove (see createRunWebLane).
+                workspaceRoot: cwd,
                 // V16.7.1 P0: real repository facts, so a DeepSeek claim can be
                 // bound PRESENT/ABSENT instead of being rejected as ungrounded.
                 ...(consultGrounding.knownFiles.length ? { knownFiles: consultGrounding.knownFiles } : {}),
@@ -7829,6 +7840,8 @@ export default function (pi: ExtensionAPI) {
               constraints: executionContract?.mustNot || [],
               verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
               affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+              // V16.8: same verified Git root the primary consultation used.
+              workspaceRoot: cwd,
               ...(patchGrounding.knownFiles.length ? { knownFiles: patchGrounding.knownFiles } : {}),
               ...(patchGrounding.relevantFiles.length ? { relevantFiles: patchGrounding.relevantFiles } : {}),
             });

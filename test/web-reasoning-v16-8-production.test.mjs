@@ -10,6 +10,7 @@ import {
   hydrateRuntimeModule,
   resetLazyRuntimeForTests,
 } from "../lib/lazy-runtime.mjs"
+import { buildExecutorAdvisorCapsule } from "../lib/web-decision-barrier-v16-8.mjs"
 
 const GOOD_ADVICE = {
   summary: "The source contract is inconsistent with the current consumer.",
@@ -163,6 +164,166 @@ test("V16.8 hard deadline aborts the real adapter consult and fences the late re
     assert.equal(result.v16_8.overlapTelemetry.advisor_aborts, 1)
   } finally {
     rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("V16.8 hard deadline leaves the lane reusable and never closes a newer session", async () => {
+  const root = repoFixture()
+  try {
+    const sessions = []
+    const closed = []
+    let consultCalls = 0
+    const flaky = adapter({
+      consult: async (_session, _packet, _options = {}) => {
+        consultCalls += 1
+        if (consultCalls === 1) {
+          // Generation 1 ignores AbortSignal and settles LATE, after the caller
+          // already received the hard-deadline fallback.
+          await new Promise((resolve) => setTimeout(resolve, 400))
+          return { answer: JSON.stringify(GOOD_ADVICE), latencyMs: 400 }
+        }
+        return { answer: JSON.stringify(GOOD_ADVICE), latencyMs: 5 }
+      },
+      startSession: async () => {
+        const session = { sessionId: `v16-8-reuse-${sessions.length + 1}`, state: "ready" }
+        sessions.push(session.sessionId)
+        return session
+      },
+      closeSession: async (session) => {
+        closed.push(session?.sessionId)
+        return true
+      },
+    })
+    const mod = await productionModule()
+    const lane = mod.createWebReasoningLane({
+      mode: "auto",
+      provider: "deepseek-web",
+      adapters: [flaky],
+      workspaceRoot: root,
+      // Generation 1 is fenced quickly: the hard floor is 250ms, which the mock
+      // advisor's 400ms response cannot beat. Generations 2 and 3 override this
+      // PER CONSULTATION with a generous deadline. They must not race a tight
+      // timer under concurrent test load (release:verify runs 4 files at once),
+      // because the defect under test is lane reusability, not deadline latency:
+      // a shared 250ms floor made the later generations time out on their own
+      // real session/packet work and masked the defect with a false failure.
+      softDeadlineMs: 10,
+      hardDeadlineMs: 40,
+      // The run budget must allow a later generation: the defect under test is
+      // lane reusability, not the consultation ceiling.
+      maxConsultations: 3,
+    })
+    const first = await lane.consult(input(root, { requestId: "v16-8-gen1" }))
+    assert.equal(first.reason, "web-advisor-hard-deadline")
+
+    // A later consultation on the SAME lane must still work. The V16.8 defect
+    // was that late cleanup called base.close(), which set `finished = true` and
+    // made every later consult return `skipped/lane-finished`.
+    const second = await lane.consult(input(root, {
+      requestId: "v16-8-gen2",
+      softDeadlineMs: 30_000,
+      hardDeadlineMs: 60_000,
+    }))
+    assert.notEqual(second.reason, "lane-finished")
+    assert.equal(second.outcome, "advised")
+    assert.ok(second.advisorText, "a later generation must still receive advice")
+
+    // Let generation 1's late response land, then confirm the lane is still
+    // usable: late cleanup must not close the lane for a newer generation.
+    await new Promise((resolve) => setTimeout(resolve, 600))
+    assert.equal(lane.state().finished, false)
+    // Generation 2's session must survive generation 1's late cleanup. A
+    // teardown that closes "whatever session the lane holds now" would kill the
+    // NEWER generation's live session and silently break the next follow-up.
+    const secondSession = sessions[1]
+    assert.ok(secondSession, "generation 2 must have started its own session")
+    assert.equal(
+      closed.includes(secondSession),
+      false,
+      `late cleanup closed the newer generation's session (${secondSession}); closed=${JSON.stringify(closed)}`,
+    )
+    const third = await lane.consult(input(root, {
+      requestId: "v16-8-gen3",
+      softDeadlineMs: 30_000,
+      hardDeadlineMs: 60_000,
+    }))
+    assert.notEqual(third.reason, "lane-finished")
+    assert.equal(third.outcome, "advised")
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("V16.8 capsule never admits a target that has no verified workspace proof", () => {
+  const ghost = "src/ghost-that-does-not-exist.mjs"
+  // Exactly what withUpstreamGrounding() fabricates when no workspace root was
+  // proven: a `present` claim derived from the CALLER's own knownFiles list.
+  const fabricated = {
+    outcome: "advice-accepted",
+    requestId: "v16-8-fabricated",
+    advice: {
+      summary: "The contract is inconsistent.",
+      recommendedApproach: ["Update the contract."],
+      filesToInspect: [ghost],
+      verificationSuggestions: ["v"],
+      confidence: 0.9,
+    },
+    evidenceBinding: { claims: [{ path: ghost, status: "present" }] },
+  }
+  // No file rows => no workspace proof was ever obtained.
+  const capsule = buildExecutorAdvisorCapsule(fabricated, { critical: { fileRows: [] } }, { consultGeneration: 1 })
+  assert.notEqual(capsule.status, "accepted")
+  assert.equal(capsule.modelVisible, null)
+  assert.equal(capsule.reason, "unverified-targets")
+  assert.equal(capsule.rejectedTargets[0].path, ghost)
+})
+
+test("V16.8 timeout-path telemetry is not labelled MEASURED when it is synthesized", async () => {
+  const root = repoFixture()
+  try {
+    const blocking = adapter({
+      consult: async (_session, _packet, options = {}) => new Promise((_resolve, reject) => {
+        const stop = () => reject(new Error("aborted by v16.8 deadline"))
+        if (options.signal?.aborted) stop()
+        else options.signal?.addEventListener?.("abort", stop, { once: true })
+      }),
+    })
+    const mod = await productionModule()
+    const lane = mod.createWebReasoningLane({
+      mode: "auto",
+      provider: "deepseek-web",
+      adapters: [blocking],
+      workspaceRoot: root,
+      softDeadlineMs: 10,
+      hardDeadlineMs: 40,
+    })
+    const result = await lane.consult(input(root))
+    assert.equal(result.reason, "web-advisor-hard-deadline")
+    const telemetry = result.v16_8.overlapTelemetry
+    // The advisor never reported a completion time on this path, so the timing
+    // row must not claim to be measured.
+    assert.notEqual(telemetry.measurement_provenance.timings, "MEASURED")
+    assert.equal(telemetry.measurement_provenance.timings, "PARTIAL")
+    assert.equal(telemetry.advisor_completed, false)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("V16.8 production controller passes the verified workspace root to the barrier", () => {
+  const source = readFileSync(new URL("../pi/extensions/ues.ts", import.meta.url), "utf8")
+  // `createRunWebLane` must hand the run's VERIFIED Git root to the lane.
+  // Without it `resolveBarrierWorkspaceRoot` falls back to process.cwd() and the
+  // barrier can run unproven, which lets an advisor target that does not exist
+  // reach the executor capsule as `validated`.
+  assert.match(source, /workspaceRoot: cwd/)
+  const createLane = source.slice(source.indexOf("function createRunWebLane"))
+  assert.match(createLane.slice(0, 2_500), /workspaceRoot: cwd/, "createRunWebLane must pass workspaceRoot")
+  // Both consultation call sites (primary execute + patch review) must too.
+  const callSites = source.split(/webLane\.consult\(\{/).slice(1)
+  assert.ok(callSites.length >= 2, `expected >=2 webLane.consult call sites, found ${callSites.length}`)
+  for (const site of callSites) {
+    assert.match(site.slice(0, 1_200), /workspaceRoot: cwd/, "every webLane.consult call site must pass workspaceRoot")
   }
 })
 
