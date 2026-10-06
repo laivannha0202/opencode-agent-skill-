@@ -301,6 +301,51 @@ test("V16.3 auth-wait the worker client reports a dead process instead of a hung
   assert.equal(after.observations, null);
 });
 
+// ---------------------------------------------------------------------------
+// Dead-worker fast-fail must be uniform across EVERY client entry point.
+//
+// `authProbe()` and `domInspect()` already short-circuited on a dead worker, but
+// `capability()` and `invoke()` did not: they wrote into the closed child's
+// stdin and awaited the FULL send timeout (60s in production) before reporting
+// a misleading `browser-worker-timeout` instead of the true liveness state. The
+// fix is asserted WITHOUT a wall-clock budget: a dead worker must never reach
+// the transport at all.
+// ---------------------------------------------------------------------------
+
+test("V16.3 auth-wait a dead worker fails fast on capability() and invoke() too", async () => {
+  const fakeProcess = {
+    handlers: {},
+    once(event, handler) { this.handlers[event] = handler; return this; },
+    emit(event, value) { this.handlers[event]?.(value); },
+  };
+  let sends = 0;
+  const client = createBrowserWorkerClient({
+    process: fakeProcess,
+    timeoutMs: 60_000,
+    transport: {
+      send() { sends += 1; },
+      onMessage() { return () => {}; },
+      close() {},
+    },
+  });
+
+  // The headed window is closed: the worker process exits.
+  fakeProcess.emit("exit", 0);
+  assert.equal(client.isAlive(), false);
+
+  const sendsBefore = sends;
+  const capability = await client.capability();
+  const invocation = await client.invoke("navigate", { url: "https://chat.deepseek.com/" });
+
+  assert.equal(capability.state, "unavailable");
+  assert.equal(capability.reason, "worker-process-exited");
+  assert.equal(invocation.ok, false);
+  assert.match(String(invocation.error), /worker-process-exited/);
+  // The decisive property: neither call touched the dead transport, so neither
+  // could have burned a 60s timeout. This is timing-independent.
+  assert.equal(sends, sendsBefore, "a dead worker must never receive a new request");
+});
+
 test("V16.3 auth-wait a client with no transport is never alive", async () => {
   const client = createBrowserWorkerClient({});
   assert.equal(client.isAlive(), false);

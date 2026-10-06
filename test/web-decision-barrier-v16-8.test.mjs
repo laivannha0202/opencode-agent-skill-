@@ -115,6 +115,76 @@ test("V16.8 capsule rejects generated targets and never exceeds 1200 chars", asy
   }
 })
 
+test("V16.8 an over-budget capsule fails closed instead of reporting a false accept", () => {
+  // `shrinkCapsule` floors every field (files_to_touch >= 4, concrete_steps >= 1,
+  // test_targets >= 2, root_cause >= 120 chars), so a pathologically large
+  // advisor plan can exceed the JSON budget even after shrinking. The old code
+  // returned status:"accepted" + withinBudget:false; the renderer then returned
+  // null and the lane reported the misleading reason "decision-barrier-rejected"
+  // while silently dropping VERIFIED advice.
+  const files = [0, 1, 2, 3].map((i) => `src/${"x".repeat(206)}${i}.mjs`)
+  const result = {
+    outcome: "advice-accepted",
+    requestId: "over-budget",
+    advice: {
+      summary: "S".repeat(320),
+      hypotheses: ["h"],
+      recommendedApproach: ["a".repeat(168), "b".repeat(168), "c".repeat(168)],
+      filesToInspect: files,
+      verificationSuggestions: ["v"],
+      confidence: 0.9,
+    },
+  }
+  const fileRows = files.map((file) => ({ path: file, exists: true, writable: true, generated: false }))
+  const prep = {
+    critical: { fileRows },
+    optional: { tests: [{ file: `test/${"t".repeat(200)}a.test.mjs` }, { file: `test/${"t".repeat(200)}b.test.mjs` }] },
+    afterFingerprint: { fingerprint: "fp" },
+  }
+  const capsule = buildExecutorAdvisorCapsule(result, prep, { consultGeneration: 1 })
+
+  // It must NOT be advertised as an accepted, renderable capsule.
+  assert.equal(capsule.status, "discarded")
+  assert.equal(capsule.reason, "capsule-over-budget")
+  assert.equal(capsule.withinBudget, false)
+  assert.equal(capsule.modelVisible, null)
+  assert.equal(renderExecutorAdvisorCapsule(capsule), null)
+
+  // The barrier must fail closed with the ACCURATE reason, so the fallback is
+  // never mislabelled "decision-barrier-rejected".
+  const barrier = evaluateDecisionBarrier({
+    result,
+    consultGeneration: 1,
+    activeGeneration: 1,
+    beforeFingerprint: { available: true, fingerprint: "fp" },
+    afterFingerprint: { available: true, fingerprint: "fp" },
+    capsule,
+    workspaceRequired: true,
+  })
+  assert.equal(barrier.passed, false)
+  assert.ok(barrier.reasons.includes("capsule-over-budget"))
+
+  // Defense in depth: a hand-built capsule that carries a modelVisible body but
+  // reports withinBudget:false is rejected too.
+  const handBuilt = {
+    status: "accepted",
+    withinBudget: false,
+    modelVisible: { root_cause: "x", files_to_touch: [], concrete_steps: [], test_targets: [] },
+  }
+  assert.equal(renderExecutorAdvisorCapsule(handBuilt), null)
+  const handBuiltBarrier = evaluateDecisionBarrier({
+    result,
+    consultGeneration: 1,
+    activeGeneration: 1,
+    beforeFingerprint: { available: true, fingerprint: "fp" },
+    afterFingerprint: { available: true, fingerprint: "fp" },
+    capsule: handBuilt,
+    workspaceRequired: true,
+  })
+  assert.equal(handBuiltBarrier.passed, false)
+  assert.ok(handBuiltBarrier.reasons.includes("capsule-over-budget"))
+})
+
 test("V16.8 barrier discards stale generation and workspace mutation", () => {
   const capsule = { status: "accepted", modelVisible: { root_cause: "x", files_to_touch: [], concrete_steps: [], test_targets: [] } }
   const result = acceptedAdvice([])
