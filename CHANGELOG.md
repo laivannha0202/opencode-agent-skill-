@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [16.8.0] - 2026-10-06
+
+### Added
+
+- Async Web Advisor consultation overlapped with deterministic source-read-only local preparation.
+- Decision Barrier with generation and workspace fingerprint fencing.
+- Strict compact executor advisor capsule with feasibility validation.
+- Deterministic circuit breaker, timeout/cancellation fencing, stale-result discard and measured overlap telemetry.
+
+### Fixed
+
+- Concurrent regression-test workspace probe isolation and Windows cancellation settle stability.
+
 ## [16.7.2] - 2026-10-06
 
 ### Fixed
