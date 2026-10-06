@@ -1,3 +1,4 @@
+import { readFileSync, statSync } from "node:fs"
 import { spawnSync } from "node:child_process"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
@@ -9,6 +10,97 @@ const INTENTIONALLY_DISABLED_WORKFLOW_FAILURES = Object.freeze([
   /^\.github\/workflows\/security\.yml: unreadable \(ENOENT:/,
   /^\.github\/workflows\/publish\.yml: unreadable \(ENOENT:/,
 ])
+
+// V16.8 lives outside the historical integrity core so disabling GitHub Actions
+// never weakens the new production contracts. These checks run locally as part
+// of `npm run integrity`; they do not require or create any GitHub workflow.
+const V16_8_CONTRACTS = Object.freeze([
+  {
+    file: "lib/web-decision-barrier-v16-8.mjs",
+    minBytes: 12_000,
+    required: [
+      "phase0FastGrounding",
+      "startReadOnlyLocalPrep",
+      "discoverAffectedTestsOffThread",
+      "evaluateDecisionBarrier",
+      "buildExecutorAdvisorCapsule",
+      "renderExecutorAdvisorCapsule",
+      "deterministicResolutionProof",
+      "workspace-mutated-during-consult",
+      "V16_8_CAPSULE_MAX_CHARS = 1_200",
+      'provider_tokens: "NOT_MEASURED"',
+    ],
+  },
+  {
+    file: "lib/web-reasoning-lane-v16-8.mjs",
+    minBytes: 10_000,
+    required: [
+      "createBaseWebReasoningLane",
+      "raceAdapterOperation",
+      "startReadOnlyLocalPrep",
+      "evaluateDecisionBarrier",
+      "renderExecutorAdvisorCapsule",
+      "web-advisor-hard-deadline",
+      "deterministic-local-resolution",
+      "sourceMutationAllowed: false",
+      "testsExecuted: 0",
+    ],
+  },
+  {
+    file: "test/web-decision-barrier-v16-8.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "V16.8 Phase 0 is bounded shaping only",
+      "V16.8 read-only prep discovers affected tests without executing them",
+      "V16.8 capsule rejects generated targets and never exceeds 1200 chars",
+      "V16.8 barrier discards stale generation and workspace mutation",
+    ],
+  },
+  {
+    file: "test/web-reasoning-v16-8-production.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "V16.8 production consult injects only a compact validated capsule",
+      "V16.8 production barrier discards advice if workspace changes while advisor is running",
+      "V16.8 hard deadline aborts the real adapter consult and fences the late result",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-8-overlap.mjs",
+    minBytes: 5_000,
+    required: [
+      "sequentialEquivalent",
+      "overlapped",
+      "sequential_p95_ms",
+      "overlapped_p95_ms",
+      'provider_tokens_provenance: "NOT_MEASURED"',
+    ],
+  },
+])
+
+export function validateV16_8SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_8_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
 
 export function extractCriticalIntegrityFailures(text = "") {
   const source = String(text || "")
@@ -40,6 +132,13 @@ export function onlyIntentionallyDisabledWorkflowFailures(failures = []) {
 }
 
 export function runSourceIntegrity() {
+  const v16_8Failures = validateV16_8SourceIntegrity(ROOT)
+  if (v16_8Failures.length) {
+    process.stderr.write("V16.8 source-integrity validation failed:\n")
+    for (const failure of v16_8Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
   const run = spawnSync(process.execPath, [CORE], {
     cwd: ROOT,
     encoding: "utf8",
