@@ -886,7 +886,20 @@ function webReasoningLiveEnabled() {
 }
 
 const ACTIVE_WEB_LANES = new Map<string, any>();
+// V16.11 lifecycle ownership.
+//
+// V16.9 built `lib/advisor-session-manager.mjs` (the canonical advisor
+// lifecycle owner) but deliberately did NOT wire it, so the worker lease
+// lifecycle was owned INLINE here (`ACTIVE_WEB_WORKERS`) AND by the manager --
+// the release directive's forbidden DUAL OWNERSHIP. V16.11 makes the manager the
+// SINGLE owner of the worker lease lifecycle (epochs, health, reuse, recycle,
+// teardown) through the per-run `advisor-runtime-v16-11` composition.
+//
+// The maps below are PROCESS REGISTRIES, NOT lifecycle owners: they remember
+// live handles for the teardown path and provide a spawn single-flight. They
+// make NO lifecycle decision -- the manager decides reuse/recycle/epochs.
 const ACTIVE_WEB_WORKERS = new Map<string, any>();
+const ACTIVE_ADVISOR_RUNTIMES = new Map<string, any>();
 // Lock handles owned by the production persistent browser workers; released on
 // worker release so a long-lived worker never leaves a stale profile lease.
 const ACTIVE_PROFILE_LOCK_HANDLES = new Map<string, any>();
@@ -897,7 +910,42 @@ function browserWorkerScript() {
   return path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "..", "scripts", "browser-worker-v16-3.mjs");
 }
 
-async function resolveManagedBrowserWorker(cwd: string, runId: string) {
+async function loadAdvisorRuntimeModule() {
+  return hydrateLazy(LAZY_RUNTIME_MODULES.ADVISOR_RUNTIME);
+}
+
+/**
+ * V16.11: the per-run advisor runtime, or null when the module cannot hydrate.
+ * Exactly ONE runtime exists per run; it owns the advisor lifecycle. The browser
+ * PROCESS stays here and is injected as the `acquireWorker`/`releaseWorker`/
+ * `healthCheck` callbacks, so the lifecycle is deterministically testable while
+ * the process remains owned by the extension.
+ */
+async function getAdvisorRuntime(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, `web:${runId}`);
+  const existing = ACTIVE_ADVISOR_RUNTIMES.get(key);
+  if (existing) return existing;
+  const runtimeModule = await loadAdvisorRuntimeModule();
+  if (!runtimeModule || typeof runtimeModule.createAdvisorRuntime !== "function") return null;
+  const runtime = runtimeModule.createAdvisorRuntime({
+    runId,
+    workspaceRoot: cwd,
+    // The manager owns the LEASE and the epochs; these callbacks own the
+    // PROCESS. A recycle calls `releaseWorker` (close) then `acquireWorker`.
+    acquireWorker: () => acquireManagedBrowserWorkerLease(cwd, runId),
+    releaseWorker: (lease: any) => lease?.close?.() ?? null,
+    healthCheck: (lease: any) => managedBrowserWorkerHealth(lease),
+  });
+  ACTIVE_ADVISOR_RUNTIMES.set(key, runtime);
+  return runtime;
+}
+
+/**
+ * Spawn-or-reuse the browser PROCESS for a run. This is a provider-level
+ * single-flight only (the pending promise is cached so two concurrent callers
+ * spawn ONE worker); it is NOT the lifecycle owner -- the manager is.
+ */
+async function spawnManagedBrowserWorker(cwd: string, runId: string) {
   const key = browserLaneKey(cwd, `web:${runId}`);
   if (ACTIVE_WEB_WORKERS.has(key)) return ACTIVE_WEB_WORKERS.get(key);
   if (!webReasoningLiveEnabled()) {
@@ -961,8 +1009,75 @@ async function resolveManagedBrowserWorker(cwd: string, runId: string) {
   }
 }
 
+/**
+ * Acquire a browser-worker LEASE for the manager. The lease wraps the process
+ * and its profile lock handle so the manager can release BOTH when it recycles.
+ * Returns null (honest unavailable) when no process could be spawned.
+ */
+async function acquireManagedBrowserWorkerLease(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, `web:${runId}`);
+  const client = await spawnManagedBrowserWorker(cwd, runId);
+  if (!client) return null;
+  const lockHandle = ACTIVE_PROFILE_LOCK_HANDLES.get(key) || null;
+  return {
+    workerId: key,
+    client,
+    profileLockHandle: lockHandle,
+    async close() {
+      try { lockHandle?.release(); } catch {}
+      ACTIVE_PROFILE_LOCK_HANDLES.delete(key);
+      try { await client.close(); } catch {}
+      ACTIVE_WEB_WORKERS.delete(key);
+    },
+  };
+}
+
+/**
+ * A cheap, read-only worker health probe. It never submits a prompt: it only
+ * reads the worker's own liveness state, so the manager can recycle a crashed
+ * or exited process instead of reusing it.
+ */
+async function managedBrowserWorkerHealth(lease: any) {
+  try {
+    const observed = lease?.client?.state?.();
+    if (observed?.processExited === true || observed?.closed === true) {
+      return { ok: false, reason: observed?.reason || "worker-process-exited" };
+    }
+    return { ok: true, reason: null };
+  } catch (error) {
+    return { ok: false, reason: `worker-state-read-failed:${String((error as any)?.message || error).slice(0, 120)}` };
+  }
+}
+
+async function resolveManagedBrowserWorker(cwd: string, runId: string) {
+  const key = browserLaneKey(cwd, `web:${runId}`);
+  if (!webReasoningLiveEnabled()) {
+    // No live flag -> no worker, no cost, and an honest `unavailable` capability.
+    ACTIVE_WEB_WORKERS.set(key, null);
+    return null;
+  }
+  // The manager is the SINGLE lifecycle owner: it reuses a healthy warm worker
+  // and only spawns (or recycles) when its policy says so.
+  const runtime = await getAdvisorRuntime(cwd, runId);
+  if (!runtime) return null;
+  const acquired = await runtime.manager().acquireWorker();
+  if (acquired.ok !== true) return null;
+  return acquired.lease?.client ?? null;
+}
+
 async function releaseManagedBrowserWorker(cwd: string, runId: string) {
   const key = browserLaneKey(cwd, `web:${runId}`);
+  // The manager owns teardown: `shutdown()` releases the lease (process +
+  // profile lock) exactly once. The runtime is forgotten first so a racing
+  // release can never double-shutdown.
+  const runtime = ACTIVE_ADVISOR_RUNTIMES.get(key);
+  ACTIVE_ADVISOR_RUNTIMES.delete(key);
+  if (runtime) {
+    try { await runtime.shutdown("run-release"); } catch {}
+  }
+  // Defensive process-registry cleanup: close any handle the runtime did not own
+  // (e.g. a spawn that raced this release), so a run never leaks a process or a
+  // profile lease.
   const pending = ACTIVE_WEB_WORKERS.get(key);
   const lockHandle = ACTIVE_PROFILE_LOCK_HANDLES.get(key);
   ACTIVE_WEB_WORKERS.delete(key);
@@ -973,12 +1088,7 @@ async function releaseManagedBrowserWorker(cwd: string, runId: string) {
   // `close()` is idempotent and a null client is a no-op.
   const client = typeof pending?.then === "function" ? await pending.catch(() => null) : pending;
   if (!client) return null;
-  // Release the exclusive profile lease alongside the worker. The lock handle
-  // is best-effort here: a release failure is not fatal because the lock's
-  // owner-dead reclaim still guarantees forward progress on worker death.
-  try {
-    lockHandle?.release();
-  } catch {}
+  try { lockHandle?.release(); } catch {}
   return client.close().catch(() => null);
 }
 

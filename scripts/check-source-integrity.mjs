@@ -417,6 +417,219 @@ const V16_10_CONTRACTS = Object.freeze([
   },
 ])
 
+// V16.11 lives outside every prior contract set so each release is audited
+// independently. V16.11 makes ONE owner responsible for the advisor lifecycle
+// and adds an event-first answer channel with a bounded poll fallback. The
+// markers below pin the load-bearing invariants (single ownership, event-first
+// honesty, bounded recovery, proven Windows cleanup) and NEVER weaken a prior
+// release: the V16.9 session-manager contract above still pins the byte-stable
+// policy id and the single-writer law.
+const V16_11_CONTRACTS = Object.freeze([
+  {
+    file: "lib/advisor-lifecycle-v16-11.mjs",
+    minBytes: 6_000,
+    required: [
+      'ADVISOR_LIFECYCLE_POLICY = "advisor-lifecycle-v16-11"',
+      "createLifecycleIdentity",
+      "advanceWorkerEpoch",
+      "advanceProfileEpoch",
+      "beginAdvisorRun",
+      "openConversation",
+      "classifyStaleness",
+      "evaluateConversationReuse",
+      "conversationReuseKey",
+    ],
+  },
+  {
+    file: "lib/browser-transport-v16-11.mjs",
+    minBytes: 7_000,
+    required: [
+      'BROWSER_TRANSPORT_V2_POLICY = "browser-transport-v16-11"',
+      "BROWSER_TRANSPORT_V2_VERSION = 2",
+      "decodeTransportMessage",
+      "encodeRequestV2",
+      "negotiateProtocol",
+      "canUseEventChannel",
+      "createCoalescingEventSink",
+      "answer.stable",
+      "answer.completed",
+      "worker.exited",
+    ],
+  },
+  {
+    file: "lib/advisor-event-bridge-v16-11.mjs",
+    minBytes: 6_000,
+    required: [
+      'ADVISOR_EVENT_BRIDGE_POLICY = "advisor-event-bridge-v16-11"',
+      "createAdvisorEventBridge",
+      "OBSERVATION_CHANNEL",
+      "EVENT_THEN_POLL",
+      "eventSilenceMs",
+      "poll_fallback",
+    ],
+  },
+  {
+    file: "lib/advisor-recovery-v16-11.mjs",
+    minBytes: 6_000,
+    required: [
+      'ADVISOR_RECOVERY_POLICY = "advisor-recovery-v16-11"',
+      "planRecovery",
+      "createSubmitGuard",
+      "classifyFailureKind",
+      "RECOVERY_MAX_TOTAL_ATTEMPTS = 3",
+      "RECOVERY_MAX_PER_KIND = 2",
+      "submit-in-flight",
+      "RECOVERY_ACTION",
+    ],
+  },
+  {
+    file: "lib/advisor-latency-metrics-v16-11.mjs",
+    minBytes: 6_000,
+    required: [
+      'ADVISOR_LATENCY_METRICS_POLICY = "advisor-latency-metrics-v16-11"',
+      "buildLatencySample",
+      "aggregateLatencyMetrics",
+      "SIMULATED_ONLY",
+      "byWorkerState",
+      "byChannel",
+      'claimStatus:',
+    ],
+  },
+  {
+    file: "lib/windows-resource-hygiene-v16-11.mjs",
+    minBytes: 6_000,
+    required: [
+      'WINDOWS_HYGIENE_POLICY = "windows-hygiene-v16-11"',
+      "proveBrowserResourceCleanup",
+      "detectRetainedResources",
+      "HYGIENE_VERDICT",
+      "terminateProcessTree",
+      "KILL_PROCESS_TREE",
+    ],
+  },
+  {
+    file: "lib/advisor-runtime-v16-11.mjs",
+    minBytes: 6_000,
+    required: [
+      'ADVISOR_RUNTIME_POLICY = "advisor-runtime-v16-11"',
+      "createAdvisorRuntime",
+      "beginConsult",
+      "observeEvent",
+      "claimSubmit",
+      "onFailure",
+      "shutdown",
+    ],
+  },
+  {
+    file: "lib/lazy-runtime.mjs",
+    minBytes: 5_000,
+    required: [
+      'ADVISOR_RUNTIME: "advisor-runtime-v16-11"',
+      'ADVISOR_SESSION_MANAGER: "advisor-session-manager"',
+      'ADVISOR_LIFECYCLE: "advisor-lifecycle-v16-11"',
+      "ADVISOR_LIFECYCLE: Object.freeze([",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "V16.11 lifecycle ownership",
+      "ACTIVE_ADVISOR_RUNTIMES",
+      "getAdvisorRuntime",
+      "acquireManagedBrowserWorkerLease",
+      "managedBrowserWorkerHealth",
+      "spawnManagedBrowserWorker",
+      'hydrateLazy(LAZY_RUNTIME_MODULES.ADVISOR_RUNTIME)',
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-11.test.mjs",
+    minBytes: 800,
+    required: [
+      "validateV16_11SourceIntegrity",
+      "validateV16_10SourceIntegrity",
+    ],
+  },
+  {
+    file: "test/advisor-session-manager-v16-11.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "the module keeps its stable policy id and evolves the schema",
+      "acquiring a worker advances the worker epoch",
+      "a stale event from an old worker epoch is discarded and counted",
+    ],
+  },
+  {
+    file: "test/browser-transport-v16-11.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "a malformed message fails closed without throwing",
+      "a legacy V1 response (no type) decodes as a response",
+    ],
+  },
+  {
+    file: "test/advisor-recovery-v16-11.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "duplicate",
+      "bounded",
+      "epoch",
+    ],
+  },
+  {
+    file: "test/advisor-resource-hygiene-v16-11.test.mjs",
+    minBytes: 3_000,
+    required: [
+      "cleanup",
+      "retained",
+    ],
+  },
+  {
+    file: "test/web-reasoning-v16-11-production.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "the production module is reachable through the lazy stack",
+      "the first consult is COLD, the second is WARM and reuses the worker",
+      "a stale event from an old worker epoch is refused before the bridge",
+      "re-claiming an in-flight consult submit is refused",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-11-runtime.mjs",
+    minBytes: 3_000,
+    required: [
+      "V16.11 ADVISOR RUNTIME BENCHMARK",
+      'PROVIDER_TOKENS = "NOT_MEASURED"',
+      "measured:",
+    ],
+  },
+])
+
+export function validateV16_11SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_11_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_10SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_10_CONTRACTS) {
@@ -513,6 +726,13 @@ export function runSourceIntegrity() {
   if (v16_10Failures.length) {
     process.stderr.write("V16.10 source-integrity validation failed:\n")
     for (const failure of v16_10Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_11Failures = validateV16_11SourceIntegrity(ROOT)
+  if (v16_11Failures.length) {
+    process.stderr.write("V16.11 source-integrity validation failed:\n")
+    for (const failure of v16_11Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

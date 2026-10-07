@@ -2,6 +2,33 @@
 
 ## [Unreleased]
 
+## [16.11.0] - 2026-10-07
+
+### Added
+
+- Advisor Lifecycle V16.11 (`lib/advisor-lifecycle-v16-11.mjs`): a PURE identity primitive for the three advisor lifecycles (BrowserWorker / Conversation / AdvisorRun). It owns `workerEpoch` / `profileEpoch` / `conversationEpoch` / `runGeneration`, the stale-event classifier (`classifyStaleness` / `isEventOwned`) and the fail-closed conversation-reuse decision (`evaluateConversationReuse` / `conversationReuseKey`). A worker recycle bumps the worker epoch AND the conversation epoch and clears the conversation id; a run generation is never touched by a recycle.
+- Browser Transport V2 (`lib/browser-transport-v16-11.mjs`): a typed `request` / `response` / `event` envelope that is a SUPERSET of the legacy V1 messages, so an old worker keeps working. It negotiates the protocol version, gates the event channel on a worker-advertised capability, never throws on a malformed message (fail-closed value), and bounds + redacts every text-bearing event. `createCoalescingEventSink` keeps only the latest delta in a window while always delivering terminal events.
+- Event-First Answer Bridge (`lib/advisor-event-bridge-v16-11.mjs`): the single place that decides, per consult, whether the event channel or the bounded poll fallback drives the observation. It feeds decoded events straight into the proven `advisor-answer-observer` and reports the honest channel (`event` / `poll` / `event-then-poll` / `none`). An advertised-but-silent channel reports `poll`, never a fabricated event win.
+- Advisor Recovery (`lib/advisor-recovery-v16-11.mjs`): bounded recovery (`RECOVERY_MAX_TOTAL_ATTEMPTS = 3`, `RECOVERY_MAX_PER_KIND = 2`, fail-closed on an unknown kind) and `createSubmitGuard`, a single-flight epoch-scoped idempotency gate that refuses re-claiming an in-flight or completed submit (`submit-in-flight`).
+- Latency Metrics V16.11 (`lib/advisor-latency-metrics-v16-11.mjs`): an honest aggregation that never averages across `workerState` (cold/warm) or `channel` (event/poll). A cell with no MEASURED sample is `NOT_MEASURED`; a cold→warm speedup is only computed when BOTH sides have a MEASURED sample; a simulated run reports `SIMULATED_ONLY` and never claims a live-provider win.
+- Windows Resource Hygiene (`lib/windows-resource-hygiene-v16-11.mjs`): an ordered teardown (kill the process tree BEFORE file removal, then release locks) that returns a receipt (`COMPLETE` / `PARTIAL` / `FAILED` / `NOTHING_TO_DO`) plus `detectRetainedResources`, so cleanup is proven instead of assumed.
+- Advisor Runtime V16.11 (`lib/advisor-runtime-v16-11.mjs`): the single per-run composition. It owns ONE session manager and threads the event bridge, recovery and metrics into it, exposing `beginConsult` / `observeEvent` / `pollOnce` / `completeConsult` / `claimSubmit` / `onFailure` / `shutdown`.
+- `npm run bench:v16.11` (`scripts/bench-v16-11-runtime.mjs`): a deterministic cold/warm + event/poll benchmark over the real composition. It is labelled `SIMULATED_ONLY` and `providerTokens: "NOT_MEASURED"`; a live claim requires an operator-run authenticated profile.
+
+### Changed
+
+- `lib/advisor-session-manager.mjs` is now the SINGLE production owner of all three advisor lifecycles (BrowserWorker / Conversation / AdvisorRun), not just the conversation. It keeps the byte-stable V16.9 policy id (`advisor-session-manager-v16-9`) and the `single-writer` invariant, and evolves via `ADVISOR_SESSION_MANAGER_SCHEMA_VERSION = 2` + `ADVISOR_SESSION_MANAGER_IMPLEMENTATION = "advisor-session-manager-v16-11"`.
+- `pi/extensions/ues.ts` wires the advisor runtime lazily through the new `ADVISOR_LIFECYCLE` stack. `ACTIVE_WEB_WORKERS` becomes a PROCESS REGISTRY (handles only) and `ACTIVE_ADVISOR_RUNTIMES` remembers the per-run owner; the browser process is injected as `acquireWorker` / `releaseWorker` / `healthCheck` callbacks, so the lifecycle is deterministically testable while the process stays owned by the extension. The V16.7.1 lazy-launch and teardown contracts are preserved verbatim.
+- `lib/lazy-runtime.mjs` registers the V16.11 advisor lifecycle stack (lifecycle, session manager, transport, bridge, recovery, latency metrics, hygiene, runtime) so a run that never consults never loads any of it.
+
+### Performance
+
+- Event-first answers remove the per-answer poll round-trip when the worker advertises the event channel; the bounded poll fallback is always enforced. Cold/warm reuse is measured in separate cells and never averaged, so the warm-reuse win is reported honestly (or NOT_MEASURED) rather than fabricated.
+
+### Security
+
+- No change to trust: DeepSeek remains an UNTRUSTED advisor, Pi remains the sole executor and the local verifier remains the correctness authority. Every text-bearing transport event is bounded and redacted; no browser credential is ever surfaced.
+
 ## [16.10.0] - 2026-10-07
 
 ### Added

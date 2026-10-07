@@ -497,6 +497,34 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.10"] !== "node scripts/bench-v16-10-capabilities.mjs") {
       errors.push("package.json: missing V16.10 capability benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.11")) {
+      errors.push("package.json: release:verify must include eval:v16.11")
+    }
+    if (!pkg.files.includes("docs/V16.11-ADVISOR-LIFECYCLE-EVENT-FIRST.md")) {
+      errors.push("package.json: V16.11 advisor-lifecycle/event-first documentation must be packed")
+    }
+    const focusedV1611 = String(scripts["eval:v16.11"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1611Tests = [
+      "test/advisor-worker-epoch-v16-11.test.mjs",
+      "test/browser-transport-v16-11.test.mjs",
+      "test/advisor-session-manager-v16-11.test.mjs",
+      "test/advisor-answer-observer-v16-11.test.mjs",
+      "test/advisor-recovery-v16-11.test.mjs",
+      "test/advisor-latency-metrics-v16-11.test.mjs",
+      "test/advisor-resource-hygiene-v16-11.test.mjs",
+      "test/web-reasoning-v16-11-production.test.mjs",
+      "test/source-integrity-v16-11.test.mjs",
+    ]
+    if (
+      focusedV1611[0] !== "node" ||
+      focusedV1611[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1611Tests.every((file) => focusedV1611.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.11 must use the bounded runner and include the V16.11 advisor-lifecycle suites")
+    }
+    if (scripts["bench:v16.11"] !== "node scripts/bench-v16-11-runtime.mjs") {
+      errors.push("package.json: missing V16.11 advisor-runtime benchmark command")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)
