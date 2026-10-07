@@ -254,6 +254,25 @@ const loadWebReasoningLaneModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.WEB_RE
 const loadCodeIntelligenceModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.CODE_INTELLIGENCE);
 const loadCodePayloadModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.CODE_PAYLOAD);
 const loadRepoMapModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.REPO_MAP);
+// V16.12 Execution Acceleration Runtime. The composition module is the ONLY
+// entry point: it statically imports the other five capabilities, so hydrating
+// it pulls the whole acceleration stack through the same cached, joined
+// hydration. Nothing here re-implements a cache, a scheduler or a ledger; the
+// extension only delegates to the owners.
+//
+// Owned by these modules (resolved through `lib/lazy-runtime.mjs`, never
+// statically imported here so boot pays for none of them):
+//   lib/execution-acceleration-v16-12.mjs      composition / fast-path decision
+//   lib/verification-receipt-cache-v16-12.mjs  receipt reuse
+//   lib/tool-result-reuse-v16-12.mjs           deterministic result reuse
+//   lib/waste-detector-v16-12.mjs              waste + wall attribution
+// (the remaining two, `task-dag-scheduler-v16-12` and
+// `incremental-verification-v16-12`, are reachable only through the composition
+// module, which imports them directly.)
+const loadExecutionAccelerationModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.EXECUTION_ACCELERATION);
+const loadVerificationReceiptCacheModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.VERIFICATION_RECEIPT_CACHE);
+const loadToolResultReuseModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.TOOL_RESULT_REUSE);
+const loadWasteDetectorModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.WASTE_DETECTOR);
 
 function configuredDuration(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name] || "");
@@ -6717,22 +6736,50 @@ export default function (pi: ExtensionAPI) {
           // Executing a rung (running the suite) is NOT done here - this action
           // is read-only - so the plan is advisory and the verdict is never
           // fabricated from an unrun rung.
-          const ladderModule = await import("../../lib/verification-ladder-v16-10.mjs");
+          //
+          // V16.12: `incremental-verification-v16-12` COMPOSES the same V16.10
+          // ladder (the ladder stays the escalation authority) and adds the task
+          // SHAPE and the fast-path/receipt posture. We prefer it when it can
+          // hydrate and fall back to the raw ladder otherwise, so this action
+          // never regresses when the acceleration module is unavailable.
           const changed = params.changedFiles || (params.file ? [params.file] : []);
-          const plan = ladderModule.planVerificationLadder({
-            policy: { risk: params.query || "medium", executionProfile: "standard" },
-            changedFiles: changed,
-          });
-          result = {
-            schemaVersion: plan.schemaVersion,
-            policy: plan.policy,
-            requiredStrength: plan.requiredStrength,
-            targetRung: plan.targetRung,
-            escalationPolicy: plan.escalationPolicy,
-            rungs: plan.rungs,
-            changedFiles: plan.changedFiles,
-            mode: "parent-lite",
-          };
+          const accelModule = await loadExecutionAccelerationModule();
+          if (accelModule && typeof accelModule.planExecutionAcceleration === "function") {
+            const accel = accelModule.planExecutionAcceleration({
+              changedFiles: changed,
+              risk: params.query || undefined,
+              docsOnly: params.docsOnly === true,
+            });
+            result = {
+              schemaVersion: accel.schemaVersion,
+              policy: accel.policy,
+              shape: accel.shape,
+              fastPath: accel.fastPath,
+              requiredStrength: accel.verification.requiredStrength,
+              targetRung: accel.verification.targetRung,
+              escalationPath: accel.verification.escalationPath,
+              rungs: accel.verification.ladder.rungs,
+              receiptReuseEnabled: accel.capabilities.receiptReuse.enabled,
+              changedFiles: changed,
+              mode: "parent-lite",
+            };
+          } else {
+            const ladderModule = await import("../../lib/verification-ladder-v16-10.mjs");
+            const plan = ladderModule.planVerificationLadder({
+              policy: { risk: params.query || "medium", executionProfile: "standard" },
+              changedFiles: changed,
+            });
+            result = {
+              schemaVersion: plan.schemaVersion,
+              policy: plan.policy,
+              requiredStrength: plan.requiredStrength,
+              targetRung: plan.targetRung,
+              escalationPolicy: plan.escalationPolicy,
+              rungs: plan.rungs,
+              changedFiles: plan.changedFiles,
+              mode: "parent-lite",
+            };
+          }
         } else {
           throw new Error("unsupported ues_code action");
         }
@@ -10097,6 +10144,9 @@ export default function (pi: ExtensionAPI) {
         "V16.5 cache-stable context: on (stable schema prefix telemetry + live-zone compaction policy)",
         "V16.5 bounded parallel delegation: on (safe waves only; max " + (resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)) + " active children, hard max 3; writers/external side effects stay serial)",
         "V16.6 strategy learning: on (model x task x tool/context/edit/execution outcome history)",
+        "V16.10 capability economy: on (output budgeter + context kernel + repo intelligence + semantic tool router + verification ladder; honest provenance)",
+        "V16.11 advisor lifecycle: on (single-owner worker/conversation/run epochs; event-first answers with bounded poll fallback; Windows resource hygiene)",
+        "V16.12 execution acceleration: on (receipt reuse + safe-overlap DAG + incremental verification + tool-result reuse + bounded warm services + waste/wall attribution; release path always fresh)",
         "Unicode source hygiene: blocking bidi/zero-width/control/homoglyph audit",
         "Post-run file hygiene: transient cleanup + read-only mutation guard",
         "Pre-final workspace audit: on",
@@ -10115,6 +10165,17 @@ export default function (pi: ExtensionAPI) {
       // V16.10 Metrics V2: per-capability aggregation with honest provenance.
       // A metric with no measured data reads as unmeasured, never as zero.
       const metricsV2 = await buildEfficiencyMetricsV2(ctx.cwd || process.cwd(), { limit: 2000, taskLimit: 500 }).catch(() => null);
+      // V16.12 execution acceleration: the plan for a NORMAL task (the common
+      // case) plus the receipt-cache posture. Read-only; starts nothing. A null
+      // module (unavailable) reads as "unavailable", never as a fake plan.
+      const accelStatus = await (async () => {
+        const accelModule = await loadExecutionAccelerationModule().catch(() => null);
+        if (!accelModule || typeof accelModule.planExecutionAcceleration !== "function") return null;
+        const plan = accelModule.planExecutionAcceleration({ changedFiles: ["lib/example.mjs"] });
+        const receiptModule = await loadVerificationReceiptCacheModule().catch(() => null);
+        const stats = typeof receiptModule?.receiptCacheStats === "function" ? receiptModule.receiptCacheStats() : null;
+        return { plan, stats };
+      })().catch(() => null);
       const digest = [
         "post-write checks/complete/incomplete: " + writeFeedbackStats.postWriteChecks + "/" + writeFeedbackStats.postWriteComplete + "/" + writeFeedbackStats.postWriteIncomplete,
         "post-write errors/coalesced/stale-discarded: " + writeFeedbackStats.postWriteErrors + "/" + writeFeedbackStats.postWriteCoalesced + "/" + writeFeedbackStats.postWriteStaleDiscarded,
@@ -10126,6 +10187,7 @@ export default function (pi: ExtensionAPI) {
         "compaction recalled/created: " + (compactionRecall?.recalledRefs ?? 0) + "/" + (compactionRecall?.compactedRefs ?? 0),
         "efficiency observations/provider-token rows: " + (efficiency?.observations ?? 0) + "/" + (efficiency?.measuredProviderTokenRows ?? 0),
         "v16.10 metrics: observations/task-runs/verified-100k: " + (metricsV2?.observations ?? 0) + "/" + (metricsV2?.taskRuns ?? 0) + "/" + (metricsV2?.verifiedSuccessPer100kTokens?.provenance === "DERIVED" ? metricsV2.verifiedSuccessPer100kTokens.value.toFixed(3) : "unmeasured"),
+        "v16.12 acceleration: shape/fast-path/receipt-reuse: " + (accelStatus?.plan?.shape ?? "unavailable") + "/" + (accelStatus?.plan?.fastPath ?? "unavailable") + "/" + (accelStatus?.plan ? (accelStatus.plan.capabilities.receiptReuse.enabled ? "on" : "off") : "unavailable"),
       ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",
@@ -10135,7 +10197,7 @@ export default function (pi: ExtensionAPI) {
           version: PACKAGE_VERSION,
           packageRoot: PACKAGE_ROOT,
           childRuntime: CHILD_RUNTIME,
-          // Status schema V8 adds V16.2-V16.6 adaptive economy/strategy contracts while retaining earlier counters.
+          // Status schema V8 adds V16.2-V16.6 adaptive economy/strategy contracts while retaining earlier counters. V16.10/V16.11/V16.12 metrics are ADDITIVE detail fields, so the schema version is unchanged.
           statusSchemaVersion: 8,
           incrementalWrite: {
             ...writeFeedbackStats,
@@ -10165,6 +10227,19 @@ export default function (pi: ExtensionAPI) {
           taskTelemetry: telemetry,
           compactionRecall,
           efficiency,
+          // V16.12 execution acceleration: the composition plan for a NORMAL
+          // task plus the receipt-cache stats. Null means the acceleration
+          // module could not hydrate; it is reported as null, never faked.
+          executionAcceleration: accelStatus
+            ? {
+                schemaVersion: accelStatus.plan.schemaVersion,
+                policy: accelStatus.plan.policy,
+                shape: accelStatus.plan.shape,
+                fastPath: accelStatus.plan.fastPath,
+                capabilities: accelStatus.plan.capabilities,
+                receiptCache: accelStatus.stats,
+              }
+            : null,
           // Turns that ended on a post-write verdict the model never saw. A
           // non-empty list means some write was left unverified at the boundary.
           finalWriteVerdictsNotSeen: writeFeedbackFinalVerdicts.map((row) => ({

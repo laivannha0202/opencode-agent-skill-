@@ -606,6 +606,227 @@ const V16_11_CONTRACTS = Object.freeze([
   },
 ])
 
+// V16.12 Execution Acceleration Runtime contracts. Each module owns exactly one
+// question; the markers below pin the LAW each module is built on so a future
+// edit cannot silently weaken it.
+const V16_12_CONTRACTS = Object.freeze([
+  {
+    file: "lib/verification-receipt-cache-v16-12.mjs",
+    minBytes: 12_000,
+    required: [
+      'RECEIPT_CACHE_POLICY = "verification-receipt-cache-v16-12"',
+      "receiptProvesPass",
+      "findReusableReceipt",
+      "recordReceipt",
+      "finalReleaseMode",
+      "ATOMIC_RETRY_CODES",
+      "atomicWriteJson",
+      'REUSED: "REUSED"',
+    ],
+  },
+  {
+    file: "lib/task-dag-scheduler-v16-12.mjs",
+    minBytes: 12_000,
+    required: [
+      'TASK_DAG_POLICY = "task-dag-scheduler-v16-12"',
+      "planTaskDag",
+      "runTaskDag",
+      "NODE_EFFECT",
+      "NODE_STATUS",
+      'SKIPPED: "skipped"',
+      'STALE: "stale"',
+      "DAG_DEADLOCK",
+      "WRITES ARE SERIALIZED",
+    ],
+  },
+  {
+    file: "lib/tool-result-reuse-v16-12.mjs",
+    minBytes: 10_000,
+    required: [
+      'TOOL_RESULT_REUSE_POLICY = "tool-result-reuse-v16-12"',
+      "withResultReuse",
+      "toolResultKey",
+      "TOOL_RESULT_PROVENANCE",
+      'CACHE_HIT: "CACHE_HIT"',
+      "spillBytes",
+    ],
+  },
+  {
+    file: "lib/incremental-verification-v16-12.mjs",
+    minBytes: 8_000,
+    required: [
+      'INCREMENTAL_VERIFICATION_POLICY = "incremental-verification-v16-12"',
+      "planIncrementalVerification",
+      "classifyTaskShape",
+      "TASK_SHAPE",
+      "FAST_PATH",
+      "planVerificationLadder",
+      "buildFailureDelta",
+    ],
+  },
+  {
+    file: "lib/warm-service-reuse-v16-12.mjs",
+    minBytes: 8_000,
+    required: [
+      'WARM_SERVICE_POLICY = "warm-service-reuse-v16-12"',
+      "createWarmServiceRegistry",
+      "WARM_SERVICE_KIND",
+      "LAZY, NEVER ALWAYS-ON",
+      "SINGLE-FLIGHT",
+      "alwaysOn: false",
+    ],
+  },
+  {
+    file: "lib/execution-acceleration-v16-12.mjs",
+    minBytes: 8_000,
+    required: [
+      'EXECUTION_ACCELERATION_POLICY = "execution-acceleration-v16-12"',
+      "planExecutionAcceleration",
+      "createAccelerationContext",
+      "runAcceleratedDag",
+      "assertFreshGateAllowed",
+      "freshGatesRequired",
+      "THE RELEASE PATH IS SACRED",
+    ],
+  },
+  {
+    file: "lib/waste-detector-v16-12.mjs",
+    minBytes: 8_000,
+    required: [
+      'WASTE_DETECTOR_POLICY = "waste-detector-v16-12"',
+      "createWasteDetector",
+      "createWallTimeAttribution",
+      "wallAttributionToEfficiencyEvents",
+      "WALL_CATEGORY",
+      "WASTE_OPERATION",
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-12.test.mjs",
+    minBytes: 800,
+    required: [
+      "validateV16_12SourceIntegrity",
+      "validateV16_11SourceIntegrity",
+    ],
+  },
+  {
+    file: "test/verification-receipt-cache-v16-12.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "final-release mode refuses ALL reuse",
+      "a corrupt entry is treated as a MISS",
+      "atomicWriteJson retries Windows EBUSY/EPERM",
+    ],
+  },
+  {
+    file: "test/task-dag-scheduler-v16-12.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "a stale-generation result is discarded and settles (regression)",
+      "the deadlock guard reports DAG_DEADLOCK instead of spinning",
+      "a SOURCE_WRITE never overlaps anything",
+    ],
+  },
+  {
+    file: "test/tool-result-reuse-v16-12.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "a changed content hash is a MISS",
+      "a large result spills to the evidence store",
+      "concurrent identical operations are coalesced",
+    ],
+  },
+  {
+    file: "test/incremental-verification-v16-12.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "the planner never invents its own rung ordering",
+      "final release targets the full suite, requires release verify",
+      "recommendNextTarget escalates after a failure",
+    ],
+  },
+  {
+    file: "test/warm-service-reuse-v16-12.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "a registry with no use starts NO service",
+      "a warm handle that fails its health check is evicted",
+      "concurrent cold starts for the same key are single-flight",
+    ],
+  },
+  {
+    file: "test/execution-acceleration-v16-12.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "the release path is sacred",
+      "assertFreshGateAllowed refuses a cached receipt",
+      "createAccelerationContext attributes wall time",
+    ],
+  },
+  {
+    file: "test/execution-acceleration-wiring-v16-12.test.mjs",
+    minBytes: 2_000,
+    required: [
+      "the four acceleration modules are registered as lazy",
+      "a boot hydrates NO acceleration module",
+      "resolves acceleration ONLY through the lazy registry",
+    ],
+  },
+  {
+    file: "test/waste-detector-v16-12.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "the efficiency bridge produces observations Metrics V2 can aggregate",
+      "an unobserved category reads NOT_MEASURED",
+      "the same operation at the same workspace generation is waste",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-12-acceleration.mjs",
+    minBytes: 4_000,
+    required: [
+      "V16.12 EXECUTION ACCELERATION BENCHMARK",
+      'PROVIDER_TOKENS = "NOT_MEASURED"',
+      'synthetic: true',
+      "measured:",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "execution-acceleration-v16-12",
+      "verification-receipt-cache-v16-12",
+      "tool-result-reuse-v16-12",
+      "waste-detector-v16-12",
+    ],
+  },
+])
+
+export function validateV16_12SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_12_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -733,6 +954,13 @@ export function runSourceIntegrity() {
   if (v16_11Failures.length) {
     process.stderr.write("V16.11 source-integrity validation failed:\n")
     for (const failure of v16_11Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_12Failures = validateV16_12SourceIntegrity(ROOT)
+  if (v16_12Failures.length) {
+    process.stderr.write("V16.12 source-integrity validation failed:\n")
+    for (const failure of v16_12Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

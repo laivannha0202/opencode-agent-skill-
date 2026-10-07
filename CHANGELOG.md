@@ -2,6 +2,27 @@
 
 ## [Unreleased]
 
+## [16.12.0] - 2026-10-07
+
+### Added
+
+- Verification Receipt Cache V16.12 (`lib/verification-receipt-cache-v16-12.mjs`): a receipt is reusable as a PASS **only** when the workspace content fingerprint AND the full gate identity (name, command, args, cwd, env policy digest, Node runtime identity, verification policy version) match. Any source/test/`package-lock.json`/config/runtime/policy change is a MISS; `FAIL`/`ABORT`/`TIMEOUT`/`PARTIAL`/`UNVERIFIED` are never reusable; a corrupt entry is a MISS; final-release mode disables reuse entirely. Windows-safe `atomicWriteJson` retries `EBUSY`/`EPERM`/`EACCES`/`EEXIST` and degrades a failed write to a miss, never a wrong answer.
+- Task DAG Scheduler V16.12 (`lib/task-dag-scheduler-v16-12.mjs`): declares node effects (`PURE`/`READ_ONLY`/`CACHE_WRITE_SAFE`/`SOURCE_WRITE`/`PROCESS_MUTATION`), overlaps only what is safely independent, and **never overlaps a `SOURCE_WRITE`**. Every node settles to exactly one terminal status (`DONE`/`FAILED`/`CANCELLED`/`STALE`/`SKIPPED`); a critical failure cancels dependents; a deadlock guard reports `DAG_DEADLOCK` instead of spinning.
+- Tool Result Reuse V16.12 (`lib/tool-result-reuse-v16-12.mjs`): a repeated identical read/search is a `CACHE_HIT`; a changed content hash/range/query/path/root is a MISS; a caller can force a fresh reread; large values spill to the Evidence Store (`spillBytes`) so a giant raw evidence blob is not duplicated in memory.
+- Incremental Verification V16.12 (`lib/incremental-verification-v16-12.mjs`): **composes and evolves** the V16.10 Verification Ladder (the ladder stays the escalation authority). It classifies the task shape (`TINY`/`NORMAL`/`DEEP`/`RELEASE`) and asks the ladder for the cheapest sufficient rung; uncertainty escalates; a failure delta is compacted through the V16.10 Tool Output Budgeter.
+- Warm Service Reuse V16.12 (`lib/warm-service-reuse-v16-12.mjs`): services are **lazy** (a registry with no use starts nothing), reuse is bounded (per-kind + total capacity, LRU eviction), a warm handle that fails its health check is evicted, idle handles are cleaned up, and concurrent cold starts for the same key are single-flight. No always-on LSP, no browser pool owner (browser ownership stays with V16.11).
+- Waste Detector + Wall Attribution V16.12 (`lib/waste-detector-v16-12.mjs`): tracks repeated reads, repeated gate executions, repo-index rebuilds, unnecessary browser starts and full-suite counts, each with a provenance (`MEASURED`/`DERIVED`/`ESTIMATED`/`NOT_MEASURED`). It **feeds Metrics V2** via `wallAttributionToEfficiencyEvents()` and is **not a second metrics authority**.
+- Execution Acceleration Runtime V16.12 (`lib/execution-acceleration-v16-12.mjs`): the single **composition owner**. It picks a deterministic fast path (`TINY_FAST_PATH`/`NORMAL_PATH`/`DEEP_PATH`/`RELEASE_PATH`), wires the capabilities into one bounded execution, and holds no cache/ladder/ledger of its own. **The release path is sacred**: `receiptReuse` is disabled, `freshGatesRequired` is true, and `assertFreshGateAllowed()` refuses any release gate backed by a cached receipt.
+- `npm run bench:v16.12` (`scripts/bench-v16-12-acceleration.mjs`): a deterministic benchmark over the real production composition. It is labelled `SIMULATED_ONLY` / `synthetic: true` and `providerTokens: "NOT_MEASURED"`; per-scenario timings are never summed into a task-level speedup.
+- `npm run eval:v16.12`: the V16.12 capability + source-integrity suites.
+
+### Changed
+
+- `lib/efficiency-metrics-v16-10.mjs`: `CAPABILITY_EVENT_KINDS` gains an `executionAcceleration` entry so Metrics V2 can aggregate the V16.12 `execution-acceleration` observations. This **extends** the single metrics authority; it does not add a second one.
+- `lib/lazy-runtime.mjs`: registers `EXECUTION_ACCELERATION`, `VERIFICATION_RECEIPT_CACHE`, `TOOL_RESULT_REUSE` and `WASTE_DETECTOR` as lazy modules. A local-only run hydrates none of them and PI_ONLY spawns zero browser.
+- `pi/extensions/ues.ts`: hydrates the acceleration stack lazily; the read-only `ues_code` `verification-plan` action prefers the V16.12 incremental plan and **falls back to the raw V16.10 ladder** if the module cannot hydrate; `/ues-status` reports the acceleration plan + receipt-cache stats. V16.11 lifecycle/epochs/recovery/poll fallback/submit guard are preserved unchanged.
+- `scripts/check-source-integrity.mjs` adds the V16.12 source contracts; V16.8/V16.9/V16.10/V16.11 remain byte-stable.
+
 ## [16.11.0] - 2026-10-07
 
 ### Added

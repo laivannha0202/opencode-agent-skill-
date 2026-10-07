@@ -6,9 +6,9 @@
 [![Node](https://img.shields.io/badge/node-%3E%3D22.19-5FA04E)](https://nodejs.org)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-`opencode-agent-skill` · version **16.11.0** · host **Pi Agent** · runtime **Node.js >= 22.19**
+`opencode-agent-skill` · version **16.12.0** · host **Pi Agent** · runtime **Node.js >= 22.19**
 
-<!-- ues-version: 16.11.0 -->
+<!-- ues-version: 16.12.0 -->
 
 ---
 
@@ -366,6 +366,9 @@ docs/    design, compatibility, evaluation, and release documentation
 | Measured adaptive runtime | [V16.4](./docs/V16.4-MEASURED-ADAPTIVE-RUNTIME.md) |
 | Agent skill + delegation intelligence | [V16.5](./docs/V16.5-AGENT-SKILL-DELEGATION.md) |
 | Unified adaptive orchestration | [V16.6](./docs/V16.6-UNIFIED-ADAPTIVE-ORCHESTRATION.md) |
+| Context intelligence + economy | [V16.10](./docs/V16.10-CONTEXT-INTELLIGENCE-ECONOMY.md) |
+| Advisor lifecycle + event-first | [V16.11](./docs/V16.11-ADVISOR-LIFECYCLE-EVENT-FIRST.md) |
+| Execution acceleration runtime | [V16.12](./docs/V16.12-EXECUTION-ACCELERATION-RUNTIME.md) |
 | Evaluations | [EVALS](./docs/EVALS.md) |
 | Deterministic tools | [DETERMINISTIC-TOOLS](./docs/DETERMINISTIC-TOOLS.md) |
 | Trace schema | [TRACE-SCHEMA](./docs/TRACE-SCHEMA.md) |
@@ -378,6 +381,7 @@ docs/    design, compatibility, evaluation, and release documentation
 npm ci
 npm test                     # bounded per-file suite
 npm run eval:v16.6           # V16.6 deterministic evaluation
+npm run eval:v16.12          # V16.12 execution-acceleration evaluation
 npm run release:verify       # full release gate chain
 ```
 

@@ -525,6 +525,34 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.11"] !== "node scripts/bench-v16-11-runtime.mjs") {
       errors.push("package.json: missing V16.11 advisor-runtime benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.12")) {
+      errors.push("package.json: release:verify must include eval:v16.12")
+    }
+    if (!pkg.files.includes("docs/V16.12-EXECUTION-ACCELERATION-RUNTIME.md")) {
+      errors.push("package.json: V16.12 execution-acceleration documentation must be packed")
+    }
+    const focusedV1612 = String(scripts["eval:v16.12"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1612Tests = [
+      "test/verification-receipt-cache-v16-12.test.mjs",
+      "test/task-dag-scheduler-v16-12.test.mjs",
+      "test/tool-result-reuse-v16-12.test.mjs",
+      "test/incremental-verification-v16-12.test.mjs",
+      "test/warm-service-reuse-v16-12.test.mjs",
+      "test/execution-acceleration-v16-12.test.mjs",
+      "test/execution-acceleration-wiring-v16-12.test.mjs",
+      "test/waste-detector-v16-12.test.mjs",
+      "test/source-integrity-v16-12.test.mjs",
+    ]
+    if (
+      focusedV1612[0] !== "node" ||
+      focusedV1612[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1612Tests.every((file) => focusedV1612.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.12 must use the bounded runner and include the V16.12 execution-acceleration suites")
+    }
+    if (scripts["bench:v16.12"] !== "node scripts/bench-v16-12-acceleration.mjs") {
+      errors.push("package.json: missing V16.12 execution-acceleration benchmark command")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)
