@@ -102,6 +102,369 @@ export function validateV16_8SourceIntegrity(root = ROOT) {
   return failures
 }
 
+// V16.9 lives outside the V16.8 contract set so the two releases are audited
+// independently. Each module here is a SINGLE owner for one responsibility the
+// V16.8 controller spread across inline closures; the markers below are the
+// load-bearing invariants, not cosmetic strings.
+const V16_9_CONTRACTS = Object.freeze([
+  {
+    file: "lib/workspace-state-owner.mjs",
+    minBytes: 5_000,
+    required: [
+      'WORKSPACE_STATE_OWNER_POLICY = "workspace-state-owner-v16-9"',
+      "captureWorkspaceStateV2",
+      "mutationBetween",
+      "fail-closed",
+    ],
+  },
+  {
+    file: "lib/prewrite-fence.mjs",
+    minBytes: 5_000,
+    required: [
+      'PREWRITE_FENCE_POLICY = "prewrite-fence-v16-9"',
+      "not-applicable",
+      "denied",
+      "allowed",
+    ],
+  },
+  {
+    file: "lib/shared-context-ledger.mjs",
+    minBytes: 4_000,
+    required: [
+      'SHARED_CONTEXT_LEDGER_POLICY = "shared-context-ledger-v16-9"',
+      'savedTokensProvenance: "NOT_MEASURED"',
+      "planShare",
+    ],
+  },
+  {
+    file: "lib/evidence-broker.mjs",
+    minBytes: 5_000,
+    required: [
+      'EVIDENCE_BROKER_POLICY = "evidence-broker-v16-9"',
+      "containsUnmaskedSecret",
+      "unavailableKinds",
+      "never throws",
+    ],
+  },
+  {
+    file: "lib/advisor-answer-observer.mjs",
+    minBytes: 4_000,
+    required: [
+      'ADVISOR_ANSWER_OBSERVER_POLICY = "advisor-answer-observer-v16-9"',
+      "shouldRecoverAnswerRead",
+      "recoverable-read-failure",
+    ],
+  },
+  {
+    file: "lib/advisor-capsule.mjs",
+    minBytes: 4_000,
+    required: [
+      'ADVISOR_CAPSULE_POLICY = "advisor-capsule-v16-9"',
+      "buildExecutorAdvisorCapsule",
+      "renderExecutorAdvisorCapsule",
+    ],
+  },
+  {
+    file: "lib/advisor-session-manager.mjs",
+    minBytes: 5_000,
+    required: [
+      'ADVISOR_SESSION_MANAGER_POLICY = "advisor-session-manager-v16-9"',
+      "single-writer",
+      "maySend",
+    ],
+  },
+  {
+    file: "lib/advisor-admission.mjs",
+    minBytes: 8_000,
+    required: [
+      'ADVISOR_ADMISSION_POLICY = "advisor-admission-v16-9"',
+      "decideAdmission",
+      "ADMISSION_ROUTE",
+      "LOCAL_DETERMINISTIC",
+      "PI_ONLY",
+      "PI_PLUS_ADVISOR",
+    ],
+  },
+  {
+    file: "lib/advisor-dialogue-coordinator.mjs",
+    minBytes: 5_000,
+    required: [
+      'ADVISOR_DIALOGUE_POLICY = "advisor-dialogue-coordinator-v16-9"',
+      "beginTurn",
+      "endTurn",
+      "single-flight",
+    ],
+  },
+  {
+    file: "lib/execution-coordinator.mjs",
+    minBytes: 5_000,
+    required: [
+      'EXECUTION_COORDINATOR_POLICY = "execution-coordinator-v16-9"',
+      "precomputedBarrier",
+      "HANDOFF_STATUS",
+    ],
+  },
+  {
+    file: "lib/web-reasoning-lane-v16-9.mjs",
+    minBytes: 8_000,
+    required: [
+      'V16_9_LANE_POLICY = "web-reasoning-lane-v16-9"',
+      "createV16_8WebReasoningLane",
+      "NON_CONSULTING_ROUTES",
+      "admissionSkips",
+      "prewrite-fence-rejected",
+      "No source mutation before the Decision Barrier",
+    ],
+  },
+  {
+    file: "test/web-reasoning-lane-v16-9-equivalence.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "no-signal stays a SKIP with the V16.8 escalation reason",
+      "MODE OFF stays skipped/web-reasoning-disabled",
+      "a concurrent turn is refused (single-flight invariant)",
+    ],
+  },
+  {
+    file: "test/web-reasoning-v16-9-production.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "lazy loader hydrates the lifecycle wrapper",
+      "reusing the V16.8 barrier",
+      "pre-write fence refuses a generated write target",
+      "evidence broker is the single owner of the evidence loop in ues.ts",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-9-admission.mjs",
+    minBytes: 2_000,
+    required: [
+      "adaptive-admission PRE-GATE",
+      "provider consult() calls",
+      "measured:",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-8-v16-9-representative.mjs",
+    minBytes: 8_000,
+    required: [
+      "V16.9 REPRESENTATIVE V16.8-vs-V16.9 BENCHMARK (classes A-G)",
+      "providerTokens: \"NOT_MEASURED\"",
+      "A-trivial-deterministic",
+      "G-cold-first-task",
+    ],
+  },
+  {
+    file: "test/advisor-dialogue-e2e-v16-9.test.mjs",
+    minBytes: 8_000,
+    required: [
+      "V16.9 STATEFUL DIALOGUE E2E",
+      "stays in ONE conversation",
+      "no duplicate evidence",
+      "max-turn ceiling refuses a second follow-up",
+      "novelty no-op",
+      "epoch bump forces re-send",
+    ],
+  },
+  {
+    file: "test/advisor-admission-weak-models-v16-9.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "V16.9 ADMISSION FOR WEAK MODELS",
+      "INVARIANT to model self-confidence",
+      "deterministic proof found AFTER the advisor started",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "V16.9 strangler",
+      "evidenceBroker.createEvidenceBroker",
+      "evidenceBroker.serve(advisorText, {})",
+    ],
+  },
+])
+
+// V16.10 lives outside the historical integrity core too. These contracts pin
+// the six new capabilities to their single owners and the honesty laws they
+// must not regress (truncation honesty, provably-beneficial compaction,
+// measured-only aggregation, advisory-only routing).
+const V16_10_CONTRACTS = Object.freeze([
+  {
+    file: "lib/tool-output-budgeter-v16-10.mjs",
+    minBytes: 18_000,
+    required: [
+      'TOOL_OUTPUT_BUDGETER_POLICY = "tool-output-budgeter-v16-10"',
+      "shapeToolOutput",
+      "resolveStrategy",
+      "assertToolPairIntegrity",
+      "omissionNotice",
+      "retrieval handle",
+    ],
+  },
+  {
+    file: "lib/context-kernel-v16-10.mjs",
+    minBytes: 14_000,
+    required: [
+      'CONTEXT_KERNEL_POLICY = "context-kernel-v16-10"',
+      "planContextKernel",
+      "applyContextKernel",
+      "compactDeterministically",
+      'orderingLaw: "deterministic-first-llm-last"',
+      "compaction-not-beneficial",
+      "pinned-context-exceeds-budget",
+    ],
+  },
+  {
+    file: "lib/repo-intelligence-cache-v16-10.mjs",
+    minBytes: 9_000,
+    required: [
+      'REPO_INTEL_CACHE_POLICY = "repo-intelligence-cache-v16-10"',
+      "getOrComputeRepoIntel",
+      "repoIntelCacheKey",
+      "coalesced",
+      "schemaVersion",
+    ],
+  },
+  {
+    file: "lib/repo-intelligence-v16-10.mjs",
+    minBytes: 8_000,
+    required: [
+      'REPO_INTELLIGENCE_POLICY = "repo-intelligence-v16-10"',
+      "buildRepoIntelligence",
+      "renderRepoIntelligenceBrief",
+      "getOrComputeRepoIntel",
+    ],
+  },
+  {
+    file: "lib/semantic-tool-router-v16-10.mjs",
+    minBytes: 12_000,
+    required: [
+      'TOOL_ROUTER_POLICY = "semantic-tool-router-v16-10"',
+      "routeToolIntent",
+      "mergeRouteIntoPriorities",
+      "assertRouteRespectsDenied",
+      "discovery-dispatcher",
+    ],
+  },
+  {
+    file: "lib/verification-ladder-v16-10.mjs",
+    minBytes: 12_000,
+    required: [
+      'VERIFICATION_LADDER_POLICY = "verification-ladder-v16-10"',
+      "planVerificationLadder",
+      "runVerificationLadder",
+      "passed-insufficient",
+      'escalationPolicy: "cheapest-sufficient-rung; escalate-only-when-proven-unavailable"',
+    ],
+  },
+  {
+    file: "lib/efficiency-metrics-v16-10.mjs",
+    minBytes: 8_000,
+    required: [
+      'EFFICIENCY_METRICS_POLICY = "efficiency-metrics-v16-10"',
+      "buildEfficiencyMetricsV2",
+      "honestRatio",
+      "verifiedSuccessPer100kTokens",
+      'qualityClaim: "NOT_INFERRED_FROM_EFFICIENCY"',
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-10.test.mjs",
+    minBytes: 800,
+    required: [
+      "validateV16_10SourceIntegrity",
+      "validateV16_9SourceIntegrity",
+    ],
+  },
+  {
+    file: "test/verification-ladder-v16-10.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "shutdownLspPool",
+      "independent rung is only reachable when declared available",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-10-capabilities.mjs",
+    minBytes: 3_000,
+    required: [
+      "V16.10 CAPABILITY BENCHMARK",
+      'providerTokens: "NOT_MEASURED"',
+      "measured:",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "semantic-tool-router-v16-10",
+      "efficiency-metrics-v16-10",
+      "context-kernel-v16-10",
+      "repo-intelligence-v16-10",
+      "verification-ladder-v16-10",
+    ],
+  },
+  {
+    file: "lib/tool-output-governor.mjs",
+    minBytes: 12_000,
+    required: [
+      "tool-output-budgeter-v16-10",
+      "shapeToolOutput",
+      "resolveStrategy",
+    ],
+  },
+])
+
+export function validateV16_10SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_10_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
+export function validateV16_9SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_9_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function extractCriticalIntegrityFailures(text = "") {
   const source = String(text || "")
   const marker = "Critical UES source-integrity validation failed:"
@@ -136,6 +499,20 @@ export function runSourceIntegrity() {
   if (v16_8Failures.length) {
     process.stderr.write("V16.8 source-integrity validation failed:\n")
     for (const failure of v16_8Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_9Failures = validateV16_9SourceIntegrity(ROOT)
+  if (v16_9Failures.length) {
+    process.stderr.write("V16.9 source-integrity validation failed:\n")
+    for (const failure of v16_9Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_10Failures = validateV16_10SourceIntegrity(ROOT)
+  if (v16_10Failures.length) {
+    process.stderr.write("V16.10 source-integrity validation failed:\n")
+    for (const failure of v16_10Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

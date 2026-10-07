@@ -446,6 +446,57 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (!scripts["eval:v16.7"] || !String(scripts["eval:v16.7"]).includes("test/deepseek-profile-v16-7.test.mjs")) {
       errors.push("package.json: eval:v16.7 must run test/deepseek-profile-v16-7.test.mjs")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.9")) {
+      errors.push("package.json: release:verify must include eval:v16.9")
+    }
+    const focusedV169 = String(scripts["eval:v16.9"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV169Tests = [
+      "test/workspace-state-owner-v16-9.test.mjs",
+      "test/evidence-broker-v16-9.test.mjs",
+      "test/advisor-admission-v16-9.test.mjs",
+      "test/advisor-admission-weak-models-v16-9.test.mjs",
+      "test/advisor-runtime-v16-9.test.mjs",
+      "test/advisor-dialogue-e2e-v16-9.test.mjs",
+      "test/web-reasoning-lane-v16-9-equivalence.test.mjs",
+      "test/web-reasoning-v16-9-production.test.mjs",
+      "test/source-integrity-v16-9.test.mjs",
+    ]
+    if (
+      focusedV169[0] !== "node" ||
+      focusedV169[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV169Tests.every((file) => focusedV169.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.9 must use the bounded runner and include the V16.9 lifecycle/evidence suites")
+    }
+    if (scripts["bench:v16.9"] !== "node scripts/bench-v16-9-admission.mjs") {
+      errors.push("package.json: missing V16.9 admission benchmark command")
+    }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.10")) {
+      errors.push("package.json: release:verify must include eval:v16.10")
+    }
+    if (!pkg.files.includes("docs/V16.10-CONTEXT-INTELLIGENCE-ECONOMY.md")) {
+      errors.push("package.json: V16.10 context-intelligence/economy documentation must be packed")
+    }
+    const focusedV1610 = String(scripts["eval:v16.10"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1610Tests = [
+      "test/tool-output-budgeter-v16-10.test.mjs",
+      "test/context-kernel-v16-10.test.mjs",
+      "test/repo-intelligence-v16-10.test.mjs",
+      "test/semantic-tool-router-v16-10.test.mjs",
+      "test/verification-ladder-v16-10.test.mjs",
+      "test/efficiency-metrics-v16-10.test.mjs",
+      "test/source-integrity-v16-10.test.mjs",
+    ]
+    if (
+      focusedV1610[0] !== "node" ||
+      focusedV1610[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1610Tests.every((file) => focusedV1610.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.10 must use the bounded runner and include the V16.10 capability suites")
+    }
+    if (scripts["bench:v16.10"] !== "node scripts/bench-v16-10-capabilities.mjs") {
+      errors.push("package.json: missing V16.10 capability benchmark command")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)

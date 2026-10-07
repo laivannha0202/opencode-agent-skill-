@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.8.0",
+  "version": "16.10.0",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
@@ -39,6 +39,7 @@
     "docs/V16.5-RESEARCH-NOTES.md",
     "docs/V16.6-UNIFIED-ADAPTIVE-ORCHESTRATION.md",
     "docs/V16.7-DEEPSEEK-ACCOUNT-PROFILE-AUTH.md",
+    "docs/V16.10-CONTEXT-INTELLIGENCE-ECONOMY.md",
     "lib/browser-profile.mjs",
     "lib/browser-worker-mode.mjs",
     "lib/browser-dom-inspect.mjs",
@@ -66,7 +67,7 @@
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
-    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.5 && npm run eval:v16.6 && npm run eval:v16.7 && npm run eval:v16.8",
+    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.5 && npm run eval:v16.6 && npm run eval:v16.7 && npm run eval:v16.8 && npm run eval:v16.9 && npm run eval:v16.10",
     "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
     "bench:code": "node scripts/benchmark-code-intelligence.mjs",
     "bench:write-feedback": "node scripts/bench-write-feedback.mjs",
@@ -77,6 +78,9 @@
     "bench:gc": "node --test test/content-artifact-gc-volume-v15-3.stress.mjs",
     "bench:task-ab": "node scripts/bench-task-ab.mjs",
     "bench:v16.8": "node scripts/bench-v16-8-overlap.mjs",
+    "bench:v16.9": "node scripts/bench-v16-9-admission.mjs",
+    "bench:v16.10": "node scripts/bench-v16-10-capabilities.mjs",
+    "bench:v16.9:representative": "node scripts/bench-v16-8-v16-9-representative.mjs",
     "test:node": "node --test",
     "bench:holdout-d": "node scripts/bench-holdout-d.mjs",
     "eval:v15.4": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v15-4-foundation.test.mjs test/permission-policy.test.mjs test/performance-fabric-v2.test.mjs test/performance-fabric-v14.test.mjs",
@@ -104,6 +108,8 @@
     "eval:v16.6:measure": "node scripts/eval-v16-6.mjs",
     "eval:v16.7": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/deepseek-profile-v16-7.test.mjs test/deepseek-profile-lock-external-death-v16-7-1.test.mjs test/deepseek-login-flow-v16-7-1.test.mjs test/deepseek-web-config-v16-7-1.test.mjs test/agent-progress-watchdog-v16-7-1.test.mjs test/deepseek-web-grounding-v16-7-1.test.mjs test/deepseek-web-adapter-wiring-v16-7-1.test.mjs test/deepseek-web-production-path-v16-7-1.test.mjs test/ues-run-teardown-v16-7-1.test.mjs test/ues-workspace-root-callsites-v16-7-1.test.mjs test/deepseek-consult-cache-identity-v16-7-1.test.mjs test/deepseek-failure-classification-v16-7-1.test.mjs test/deepseek-consultation-policy-v16-7-1.test.mjs test/agent-progress-watchdog-integration-v16-7-1.test.mjs test/ues-loop-recovery-v16-7-1.test.mjs test/ues-execution-economy-v16-7-1.test.mjs test/web-reasoning-production-economy-v16-7-1.test.mjs",
     "eval:v16.8": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/web-decision-barrier-v16-8.test.mjs test/web-reasoning-v16-8-production.test.mjs test/source-integrity-v16-8.test.mjs",
+    "eval:v16.9": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/workspace-state-owner-v16-9.test.mjs test/evidence-broker-v16-9.test.mjs test/advisor-admission-v16-9.test.mjs test/advisor-admission-weak-models-v16-9.test.mjs test/advisor-runtime-v16-9.test.mjs test/advisor-dialogue-e2e-v16-9.test.mjs test/web-reasoning-lane-v16-9-equivalence.test.mjs test/web-reasoning-v16-9-production.test.mjs test/source-integrity-v16-9.test.mjs",
+    "eval:v16.10": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/tool-output-budgeter-v16-10.test.mjs test/context-kernel-v16-10.test.mjs test/repo-intelligence-v16-10.test.mjs test/semantic-tool-router-v16-10.test.mjs test/verification-ladder-v16-10.test.mjs test/efficiency-metrics-v16-10.test.mjs test/source-integrity-v16-10.test.mjs test/parent-provider-recovery-v16-10.test.mjs",
     "release:coordinator": "node scripts/release-test-coordinator.mjs"
   },
   "keywords": [

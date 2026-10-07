@@ -2,6 +2,51 @@
 
 ## [Unreleased]
 
+## [16.10.0] - 2026-10-07
+
+### Added
+
+- Context Kernel V2 (`lib/context-kernel-v16-10.mjs`): the single owner of the context ALLOCATION decision. Given a task and a hard char budget it decides, per tier (pinned/task/evidence/memory/history), what rides inline, what is compacted and what is dropped. Deterministic compaction runs first (whitespace -> dedupe-lines -> structural head/tail) and an optional model summarizer is consulted LAST. Compaction that is not strictly smaller is refused (`applied: false`), pinned content is never dropped, and a pinned-overflow is reported as `overBudget` rather than silently cut.
+- Tool Output Budgeter (`lib/tool-output-budgeter-v16-10.mjs`): a PURE shaping primitive that replaces ad-hoc per-tool truncation with strategy-aware shaping (read-file / search / test / diff / generic). Every bounded view carries original/visible/omitted counts and a retrieval handle, so truncation is honest and expandable. It owns no store, no fs and no model call; `lib/tool-output-governor.mjs` remains the single governor and delegates shaping to it.
+- Repo Intelligence V2 (`lib/repo-intelligence-v16-10.mjs` + `lib/repo-intelligence-cache-v16-10.mjs`): one orchestrator that composes `repo-graph`, `semantic-index`, `repo-map` and `affected-tests` through a fingerprint-scoped persistent cache. The cache writes atomically (temp + rename, Windows retry), coalesces in-flight computation per key, evicts by count AND bytes, validates schema version, and degrades corruption to a MISS rather than a wrong answer.
+- Semantic Tool Router (`lib/semantic-tool-router-v16-10.mjs`): an ADVISORY, deterministic ranker over the caller's existing tool universe. It is never a second surface owner (`compileToolSurface` still decides what is advertised), never widens the universe, never advertises a denied tool, and caps the discovery dispatcher below any concrete match. Confidence is DERIVED from the score margin, never fabricated.
+- Verification Ladder (`lib/verification-ladder-v16-10.mjs`): orchestrates the existing verifiers (`verification-broker`, `fast-static-verification`, `affected-tests`) into a cheapest-sufficient rung order (reuse -> static -> affected -> suite -> independent). A rung that PASSES but is too weak is recorded as `passed-insufficient` and the ladder keeps escalating; absence of evidence is UNVERIFIED, never PASS, and only a rung that actually ran and failed yields FAIL.
+- Metrics V2 (`lib/efficiency-metrics-v16-10.mjs`): the single aggregation owner for the V16.10 capability receipts. It sums only over MEASURED rows, refuses a ratio unless its denominator is fully measured, labels char->token savings ESTIMATED, and keeps headline token savings explicitly NOT_MEASURED. It is pure-read: it never writes a ledger and never runs a task.
+
+### Changed
+
+- `pi/extensions/ues.ts` now builds the runtime context pack through Context Kernel V2 (`compactContextPack` delegates the budget decision to `planContextKernel` + `compactDeterministically`), orders candidate tools through the Semantic Tool Router (`mergeRouteIntoPriorities`, ordering-only), surfaces Metrics V2 in the `/ues-status` digest, and exposes two new read-only `ues_code` actions: `repo-intelligence` and `verification-plan`.
+
+### Performance
+
+- Capability benchmark (`npm run bench:v16.10`, `scripts/bench-v16-10-capabilities.mjs`): on a 175 KB repetitive test log the Tool Output Budgeter collapses 175,013 chars to 2,146 (~98.8%) and the Context Kernel to 4,100 chars (~97.7%), both strictly smaller and honest. Wall-clock, char counts and call counts are MEASURED; provider tokens stay `NOT_MEASURED`.
+
+## [16.9.0] - 2026-10-06
+
+### Added
+
+- Stateful DeepSeek advisor lifecycle: single owner for the advisor session, a dialogue coordinator enforcing the single-flight turn invariant, and a dialogue-aware capsule owner.
+- Evidence broker: the single owner of the "advisor ASKS for local evidence" loop, wrapping the V16.6 request primitives behind one bounded `serve()` with a source registry and an honest unavailable-kind receipt.
+- Shared-context ledger: the broker now consumes a run-scoped seen-evidence ledger (keyed by stable request identity, marked with an `evidence_id` content hash) so evidence the advisor already saw is referenced by marker or a bounded line-delta instead of being re-sent. It NEVER forbids the executor from rereading source; a post-write epoch bump invalidates reuse so stale evidence cannot ride. Scope is `evidence:<runId>:<root>`, so evidence never leaks across workspaces.
+- Adaptive admission: a deterministic route decision (LOCAL_DETERMINISTIC / PI_ONLY / PI_PLUS_ADVISOR / ADVISOR_RETRY) that runs BEFORE a browser session or a token is spent, with verifier-feedback re-scoring and de-escalation.
+- Workspace-state owner and pre-write fence: a monotonic generation and a fail-closed last gate before source mutation, refusing writes to generated, out-of-scope or read-only targets.
+- Execution coordinator: one handoff record that reuses the V16.8 Decision Barrier verdict and adds the write-side fence; a refused handoff downgrades to a local fallback (AUTO) or an explicit unavailable (FORCE).
+
+### Changed
+
+- `lib/lazy-runtime.mjs` resolves `WEB_REASONING_LANE` to the V16.9 lifecycle wrapper, which re-exports the V16.8 lane verbatim so every existing caller keeps the same result shape.
+- `pi/extensions/ues.ts` now serves evidence requests through the evidence broker instead of an inline closure; the workspace-diff source is gathered lazily only when the advisor actually asks for it. Served evidence is carried into the follow-up turn as an `evidence-delta`, closing the request loop, and a completed write turn bumps the ledger epoch so later turns cannot reuse evidence invalidated by the mutation.
+
+### Performance
+
+- Adaptive admission pre-gate on a no-signal task: 203.2ms/op (V16.8) to 0.032ms/op (V16.9), ~100% of the pre-consult phase0/local-prep work skipped, 0 provider consultations in both. Measured by `npm run bench:v16.9`.
+- Representative A-G task matrix (`npm run bench:v16.9:representative`): a repeated evidence request drops from 4002 to 134 characters (an `evidence_id` marker), a ~96% reduction on the repeated-evidence path. Wall-clock, char counts and call counts are MEASURED; provider tokens stay `NOT_MEASURED`.
+
+### Notes
+
+- Unmeasured token savings are reported as `NOT_MEASURED`; no optimization is wired without a measured benefit.
+- The admission microbenchmark above is NOT extrapolated into a total task speedup. The representative A-G matrix measures whole-task wall-clock separately, and the two are reported side by side.
+
 ## [16.8.0] - 2026-10-06
 
 ### Added

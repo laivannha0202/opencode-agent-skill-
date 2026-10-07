@@ -125,6 +125,8 @@ import { RuntimeHookBus } from "../../lib/runtime-hooks.mjs";
 import { claimExecutionOwnership, executionOwnerToken, pruneExecutionOwnership, releaseExecutionOwnership, renewExecutionOwnership } from "../../lib/execution-ownership.mjs";
 import { compileModelAciProfile, modelRuntimeProfile } from "../../lib/model-runtime-profile.mjs";
 import { compileToolSurface, coreToolPriorities, learnToolUtilization } from "../../lib/tool-surface-economy.mjs";
+import { routeToolIntent, mergeRouteIntoPriorities } from "../../lib/semantic-tool-router-v16-10.mjs";
+import { planContextKernel, compactDeterministically, CONTEXT_TIER } from "../../lib/context-kernel-v16-10.mjs";
 import { DEFERRED_DISPATCHER_TOOL } from "../../lib/deferred-tool-hydration.mjs";
 import { compileAdaptiveStrategy, renderAdaptiveStrategyContract } from "../../lib/adaptive-strategy.mjs";
 import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
@@ -137,6 +139,7 @@ import { detectMutationShape } from "../../lib/mutation-shape.mjs";
 import { aggregateUsageSamples, recordTaskTelemetry, taskTelemetrySummary } from "../../lib/run-telemetry.mjs";
 import { summarizeCompactionRecall } from "../../lib/compaction-recall.mjs";
 import { efficiencySummary } from "../../lib/efficiency-ledger.mjs";
+import { buildEfficiencyMetricsV2 } from "../../lib/efficiency-metrics-v16-10.mjs";
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
@@ -1925,6 +1928,16 @@ async function runAgentCli(
     universe: candidateTools,
     writer: WRITE_AGENTS.has(agent),
   }).priority;
+  // V16.10 semantic tool routing. The router ORDERS only tools already present
+  // in the universe and can never widen the advertised surface; compileToolSurface
+  // stays the sole authority that trims it. Its ranking is merged into the core
+  // priorities so the correct tool for the stated intent leads.
+  const routePlan = routeToolIntent({
+    task,
+    universe: candidateTools,
+    writer: WRITE_AGENTS.has(agent),
+  });
+  const routedPriority = mergeRouteIntoPriorities(phasePriority, routePlan, candidateTools, []);
   const coreTools = coreToolPriorities(candidateTools, {
     task,
     writer: WRITE_AGENTS.has(agent),
@@ -1932,7 +1945,7 @@ async function runAgentCli(
     editStrategy: modelProfile?.editStrategy || "",
     platform: process.platform,
     compactToolOutput: runtimeOptions.compactToolOutput === true,
-    extraTools: [...extraTools, ...phasePriority],
+    extraTools: [...extraTools, ...routedPriority],
   });
   // V16.6: the unified budget may NARROW the advertised surface only. The
   // profile value below is a cap applied to whatever the model runtime profile
@@ -2445,6 +2458,16 @@ async function runAgentRpc(
     universe: candidateTools,
     writer: WRITE_AGENTS.has(agent),
   }).priority;
+  // V16.10 semantic tool routing. The router ORDERS only tools already present
+  // in the universe and can never widen the advertised surface; compileToolSurface
+  // stays the sole authority that trims it. Its ranking is merged into the core
+  // priorities so the correct tool for the stated intent leads.
+  const routePlan = routeToolIntent({
+    task,
+    universe: candidateTools,
+    writer: WRITE_AGENTS.has(agent),
+  });
+  const routedPriority = mergeRouteIntoPriorities(phasePriority, routePlan, candidateTools, []);
   const coreTools = coreToolPriorities(candidateTools, {
     task,
     writer: WRITE_AGENTS.has(agent),
@@ -2452,7 +2475,7 @@ async function runAgentRpc(
     editStrategy: modelProfile?.editStrategy || "",
     platform: process.platform,
     compactToolOutput: runtimeOptions.compactToolOutput === true,
-    extraTools: [...extraTools, ...phasePriority],
+    extraTools: [...extraTools, ...routedPriority],
   });
   // V16.6: the unified budget may NARROW the advertised surface only. The
   // profile value below is a cap applied to whatever the model runtime profile
@@ -3123,33 +3146,142 @@ function deepExplorationContract(role: string) {
   return common.join("\n");
 }
 
-function compactContextPack(pack: any, recentFailure?: string) {
+// V16.10: Context Kernel V2 owns the budget DECISION for the runtime context
+// pack. Instead of ad-hoc slice()+cap() per section, we build tiered segments,
+// ask the kernel how to allocate the char budget, and run its deterministic
+// ladder (whitespace -> dedupe -> structural head/tail) on any segment the plan
+// chose to compact. Pinned segments (task objective, acceptance, instructions)
+// are never dropped. The output shape is unchanged; a `contextKernel` receipt is
+// added so the allocation is provable and honest.
+function compactContextPack(pack: any, recentFailure?: string, budgetChars?: number) {
   const manifest = pack?.contextManifest || {};
-  const excerpts = (manifest.excerpts || []).slice(0, 8).map((item: any) => ({
+  const rawExcerpts = (manifest.excerpts || []).slice(0, 8);
+  const rawHierarchy = (manifest.hierarchy?.scopes || []).slice(0, 6);
+  const rawMemories = (pack?.memories || []).slice(0, 6);
+
+  // Build the kernel's view: one segment per addressable block, tagged by tier.
+  const segments: any[] = [];
+  for (const item of rawExcerpts) {
+    segments.push({
+      id: `excerpt:${item.path || segments.length}`,
+      tier: CONTEXT_TIER.EVIDENCE,
+      text: String(item.text || ""),
+      path: item.path || null,
+      role: item.role || null,
+      evidenceRef: item.evidenceRef || null,
+      priority: 50,
+    });
+  }
+  for (const item of rawHierarchy) {
+    segments.push({
+      id: `hierarchy:${item.path || segments.length}`,
+      tier: CONTEXT_TIER.EVIDENCE,
+      text: [item.l0 ? `L0: ${item.l0}` : "", item.l1 ? `L1: ${item.l1}` : ""].filter(Boolean).join("\n"),
+      path: item.path || null,
+      priority: Number(item.score) || 40,
+    });
+  }
+  for (const item of rawMemories) {
+    segments.push({
+      id: `memory:${item.id || segments.length}`,
+      tier: CONTEXT_TIER.MEMORY,
+      text: String(item.content || ""),
+      priority: 30,
+    });
+  }
+
+  // Total inline budget: the caller's adaptive context budget when supplied,
+  // otherwise the kernel default. Sections that are not kernel-managed
+  // (instructions/references/pointers) are counted against it as pinned demand.
+  const effectiveBudget = Number.isFinite(Number(budgetChars))
+    ? Number(budgetChars)
+    : 48_000;
+  let plan: any = null;
+  const keptById = new Map<string, { text: string; action: string; omittedChars: number; reason: string | null }>();
+  try {
+    plan = planContextKernel(segments, { budgetChars: effectiveBudget });
+    const decisionById = new Map<string, any>();
+    for (const allocation of plan.allocations) {
+      for (const decision of allocation.decisions || []) decisionById.set(decision.id, decision);
+    }
+    for (const segment of segments) {
+      const decision = decisionById.get(segment.id);
+      if (!decision || decision.action === "keep" || decision.action === "keep-pinned") {
+        keptById.set(segment.id, { text: segment.text, action: "keep", omittedChars: 0, reason: null });
+      } else if (decision.action === "compact") {
+        const originalChars = segment.text.length;
+        const compacted = compactDeterministically(segment.text, { maxChars: Math.max(256, decision.keptChars) });
+        keptById.set(segment.id, {
+          text: compacted.applied ? compacted.text : segment.text,
+          action: compacted.applied ? "compact" : "keep",
+          omittedChars: compacted.applied ? Math.max(0, originalChars - compacted.text.length) : 0,
+          reason: compacted.applied ? compacted.reason : "no-beneficial-compaction",
+        });
+      } else {
+        keptById.set(segment.id, {
+          text: `[context-kernel: dropped ${segment.id}; ${segment.text.length} chars; tier=${segment.tier}]`,
+          action: "drop",
+          omittedChars: segment.text.length,
+          reason: "tier-budget-exhausted",
+        });
+      }
+    }
+  } catch {
+    // Kernel is advisory for the pack shape: on any error fall back to the
+    // proven per-section caps below so a kernel bug can never blank the pack.
+    plan = null;
+  }
+
+  const take = (id: string, fallback: string) => {
+    const kept = keptById.get(id);
+    return kept ? kept.text : fallback;
+  };
+
+  const excerpts = rawExcerpts.map((item: any, index: number) => ({
     path: item.path || null,
     role: item.role || null,
     evidenceRef: item.evidenceRef || null,
-    text: cap(String(item.text || ""), 1800),
+    text: cap(String(take(`excerpt:${item.path || index}`, String(item.text || ""))), 1800),
   }));
+  const hierarchy = rawHierarchy.map((item: any, index: number) => {
+    const merged = take(`hierarchy:${item.path || index}`, [item.l0, item.l1].filter(Boolean).join("\n"));
+    const l0 = item.l0 ? cap(String(item.l0), 320) : null;
+    return {
+      path: item.path || null,
+      score: item.score || 0,
+      l0,
+      l1: cap(String(merged || ""), 1200),
+    };
+  });
+  const memories = rawMemories.map((item: any, index: number) => ({
+    id: item.id,
+    type: item.type,
+    scope: item.scope,
+    content: cap(String(take(`memory:${item.id || index}`, String(item.content || ""))), 1400),
+    confidence: item.confidence,
+    files: (item.files || []).slice(0, 12),
+    retrieval: item.retrieval || null,
+  }));
+
+  const kernelReceipt = plan
+    ? {
+        policy: plan.policy,
+        schemaVersion: plan.schemaVersion,
+        budgetChars: plan.budgetChars,
+        totalDemandChars: plan.totalDemandChars,
+        totalKeptChars: plan.totalKeptChars,
+        overBudget: plan.overBudget,
+        overBudgetReason: plan.overBudgetReason,
+        provenance: plan.provenance,
+      }
+    : { policy: "context-kernel-v16-10", degraded: true };
+
   return {
     contextQuality: pack?.contextQuality || null,
     capabilities: pack?.capabilities || null,
     evidenceBudget: pack?.evidenceBudget || null,
-    hierarchy: (manifest.hierarchy?.scopes || []).slice(0, 6).map((item: any) => ({
-      path: item.path || null,
-      score: item.score || 0,
-      l0: cap(String(item.l0 || ""), 320),
-      l1: cap(String(item.l1 || ""), 1200),
-    })),
-    memories: (pack?.memories || []).slice(0, 6).map((item: any) => ({
-      id: item.id,
-      type: item.type,
-      scope: item.scope,
-      content: cap(String(item.content || ""), 1400),
-      confidence: item.confidence,
-      files: (item.files || []).slice(0, 12),
-      retrieval: item.retrieval || null,
-    })),
+    hierarchy,
+    memories,
     memoryRetrieval: pack?.memoryRetrieval || null,
     providers: (pack?.capabilityFabric?.providers || []).slice(0, 12),
     instructions: (manifest.instructions || []).slice(0, 12),
@@ -3157,6 +3289,7 @@ function compactContextPack(pack: any, recentFailure?: string) {
     evidencePointers: (manifest.evidencePointers || []).slice(0, 16),
     excerpts,
     recentFailure: recentFailure ? cap(recentFailure, 5000) : null,
+    contextKernel: kernelReceipt,
   };
 }
 
@@ -3598,7 +3731,7 @@ async function runRoutedAgent(
       `Adaptive context: ${budgetDecision.budget}/${budgetDecision.baseBudget} chars budget; cache ${contextCacheHit ? "HIT" : "MISS"}.`,
       "Use this bounded evidence pack before broad repository exploration. Treat paths/excerpts as evidence, not as permission to invent missing facts.",
       "```json",
-      JSON.stringify(compactContextPack(pack, recentFailure), null, 2),
+      JSON.stringify(compactContextPack(pack, recentFailure, Number(budgetDecision.budget) || undefined), null, 2),
       "```",
       microSkills?.text
         ? "\n## UES micro-skills (selected, bounded)\nThese are the only skill excerpts preloaded for this role. Apply them when relevant; repository evidence still wins.\n" + microSkills.text
@@ -5580,6 +5713,17 @@ export default function (pi: ExtensionAPI) {
     const text = String(event.text || "").trim();
     if (!text) return { action: "continue" };
 
+    // A genuine new human turn is the ONLY new-state proof that resets the
+    // provider empty-response recovery budget. Recovery continuations
+    // (`continue:true` / `triggerTurn:true`) do NOT produce an `input` event, so
+    // a flaky provider that keeps returning empty responses cannot reset its own
+    // budget by ending a run. Without this, every run boundary wiped the
+    // counters and the bounded recovery degenerated into an unbounded two-step
+    // loop on unchanged state.
+    parentProviderRecoveryConsecutive = 0;
+    parentProviderRecoveryTotal = 0;
+    parentProviderRecoveryPending = false;
+
     const sessionName = sessionNameFromUesInput(text, ctx.cwd || "");
     if (sessionName) syncSessionIdentity(sessionName, ctx);
     if (/^\/ues-(?:resume|fix|feature|debug|review|audit|plan|research|critique|verify)(?:\s|$)/i.test(text)) {
@@ -5724,8 +5868,9 @@ export default function (pi: ExtensionAPI) {
     } else {
       parentRunToolCalls = 0;
       parentRunLastAssistant = null;
-      parentProviderRecoveryConsecutive = 0;
-      parentProviderRecoveryTotal = 0;
+      // The provider empty-response recovery budget is deliberately NOT reset
+      // here. A run boundary is not new state; only a new human turn or a
+      // substantive assistant response resets it (see `input` / `message_end`).
       // A genuinely new parent run starts a fresh loop-guard window. A
       // continuation keeps its accounting (the loop is the SAME loop).
       parentAgentWatchdog.reset();
@@ -5981,8 +6126,9 @@ export default function (pi: ExtensionAPI) {
     }
     promptUesActive = false;
     parentProviderRecoveryPending = false;
-    parentProviderRecoveryConsecutive = 0;
-    parentProviderRecoveryTotal = 0;
+    // Do NOT reset the provider recovery budget here: `agent_end` fires at every
+    // run boundary, including between recovery continuations, so resetting it
+    // made the bounded recovery unbounded on unchanged empty-provider state.
     parentAgentWatchdog.reset();
     parentAgentLoopRecoveryPending = false;
     parentAgentLoopExhausted = false;
@@ -6231,6 +6377,8 @@ export default function (pi: ExtensionAPI) {
         Type.Literal("context-expand"),
         Type.Literal("context-search"),
         Type.Literal("repo-map"),
+        Type.Literal("repo-intelligence"),
+        Type.Literal("verification-plan"),
       ]),
       file: Type.Optional(Type.String()),
       query: Type.Optional(Type.String()),
@@ -6438,6 +6586,43 @@ export default function (pi: ExtensionAPI) {
           REPO_MAP_STATUS.lspEnriched += Number(result.stats?.lspEnriched || 0);
           REPO_MAP_STATUS.lastContextChars = Number(result.stats?.contextChars || 0);
           if (result.stats?.affectedTestsDegraded === true) REPO_MAP_STATUS.degraded += 1;
+        } else if (params.action === "repo-intelligence") {
+          // V16.10 Repo Intelligence V2: composes the repo-graph, semantic-index,
+          // repo-map and affected-tests owners through a fingerprint-scoped cache.
+          // It OWNS only the composition/cache lifecycle; ranking still belongs
+          // to buildRepoMap. The model sees the bounded brief; the full ranked
+          // rows are preserved for the controller/verifier.
+          const repoIntelModule = await import("../../lib/repo-intelligence-v16-10.mjs");
+          result = await repoIntelModule.buildRepoIntelligence(ctx.cwd, params.query || "", {
+            declaredFiles: params.declaredFiles,
+            changedFiles: params.changedFiles,
+            contextBudgetChars: params.contextBudgetChars,
+            limit: 12,
+            maxFiles: 6000,
+          });
+          result.mode = "parent-lite";
+        } else if (params.action === "verification-plan") {
+          // V16.10 Verification Ladder: the read-only PLAN. It names the cheapest
+          // rung that can still prove the claim for the declared changed files.
+          // Executing a rung (running the suite) is NOT done here - this action
+          // is read-only - so the plan is advisory and the verdict is never
+          // fabricated from an unrun rung.
+          const ladderModule = await import("../../lib/verification-ladder-v16-10.mjs");
+          const changed = params.changedFiles || (params.file ? [params.file] : []);
+          const plan = ladderModule.planVerificationLadder({
+            policy: { risk: params.query || "medium", executionProfile: "standard" },
+            changedFiles: changed,
+          });
+          result = {
+            schemaVersion: plan.schemaVersion,
+            policy: plan.policy,
+            requiredStrength: plan.requiredStrength,
+            targetRung: plan.targetRung,
+            escalationPolicy: plan.escalationPolicy,
+            rungs: plan.rungs,
+            changedFiles: plan.changedFiles,
+            mode: "parent-lite",
+          };
         } else {
           throw new Error("unsupported ues_code action");
         }
@@ -6978,6 +7163,33 @@ export default function (pi: ExtensionAPI) {
         })
         : null;
       const deepSeekCache = deepSeekRuntime?.consultCache?.consultCache() || null;
+      // V16.9 shared-context ledger: ONE per run. It records the exact evidence
+      // bytes the advisor has already been shown so a repeated, UNCHANGED
+      // evidence request is delivered once and then referenced by its
+      // `evidence_id` instead of re-sent. It is the evidence broker's internal
+      // dedup primitive (injected into each turn's broker below) - NOT a second
+      // evidence owner: the broker still parses/authorizes/redacts/bounds every
+      // request, and the advisor is never forbidden from re-asking.
+      //
+      // The scope binds the run id AND the verified Git root, so evidence reuse
+      // can never leak across workspaces (a second workspace has a different
+      // scope and therefore a different, empty ledger).
+      const sharedContextLedger = deepSeekRuntime?.sharedContextLedger?.createSharedContextLedger
+        ? deepSeekRuntime.sharedContextLedger.createSharedContextLedger({
+          scope: `evidence:${traceID}:${cwd}`,
+        })
+        : null;
+      // V16.9 evidence-delivery carrier. This holds the bounded evidence the
+      // advisor asked for on the PREVIOUS turn (served by the evidence broker)
+      // so it can be attached to the NEXT conversation turn as delta data.
+      //
+      // It is RUN-scoped, not `run()`-scoped: the broker serves a request on the
+      // patch-review (verifier) turn, and the delta must survive into the
+      // FOLLOW-UP (executor retry) turn - a per-invocation local was reset on
+      // every `run()` call and read before it was written, so the served
+      // evidence never reached the advisor. Hoisting it here is the minimum
+      // change that makes the existing evidence loop actually deliver.
+      let pendingEvidenceDelta = "";
       const deepSeek = {
         turnsUsed: 0,
         turnBudget: Number(runBudgetV16_6?.deepSeekTurnBudget?.effectiveMaxTurns || 0),
@@ -7699,61 +7911,61 @@ export default function (pi: ExtensionAPI) {
         // tools. A request is parsed from its own text, validated against the
         // allowlist, workspace-contained, redacted, bounded and re-scanned, and
         // the result is attached to the NEXT conversation turn as delta data.
+        //
+        // `pendingEvidenceDelta` is RUN-scoped (declared beside
+        // `sharedContextLedger` above) so a delta served on THIS turn survives
+        // into the next one.
         // ------------------------------------------------------------------
-        let pendingEvidenceDelta = "";
-        // V16.6.1: ONE budget per RUN. Creating it inside the request handler
-        // reset `requestsThisRun`/`charsThisRun` on every call, so the
-        // "per-run" caps were actually per-call caps.
-        const evidenceBudget = deepSeekRuntime
-          ? deepSeekRuntime.evidenceRequests.createEvidenceRequestBudget({ runId: traceID })
+        // V16.9 strangler: the evidence-request loop is now owned by
+        // `lib/evidence-broker.mjs` (hydrated with the V16.6 session stack).
+        // The broker wraps the SAME `deepseek-evidence-requests` authority path
+        // (parse / authorize / prepare / per-run budget) - there is still
+        // exactly ONE set of limits - and adds a source REGISTRY so the
+        // controller declares HOW each allowlisted kind is gathered instead of
+        // hand-rolling the gather inline. The gatherers are lazy: a request the
+        // advisor did not make never triggers a workspace diff scan. The broker
+        // owns NO tool execution: the advisor can ASK, it can never TAKE.
+        const evidenceBroker = deepSeekRuntime?.evidenceBroker
+          ? deepSeekRuntime.evidenceBroker.createEvidenceBroker({
+            runId: traceID,
+            root: cwd,
+            // V16.9: the run-scoped shared-context ledger is injected here so the
+            // broker remains the SINGLE owner of the evidence loop. When the
+            // ledger is absent (no web lane / hydration failed) the broker
+            // renders every authorized delta in full, exactly as before.
+            ledger: sharedContextLedger,
+            maxRenderedChars: Number(runBudgetV16_6?.capsuleChars || 4_000),
+            sources: {
+              diff: () => boundedWorkspaceDiff(cwd, 16_000),
+              "repo-summary": () => (controllerWorkspaceState?.changedFiles || []).slice(0, 40)
+                .map((row: any) => String(row?.path || row || ""))
+                .join("\n"),
+              "verifier-output": () => recentFailure || "",
+              "failed-output": () => recentFailure || "",
+            },
+          })
           : null;
         const serveEvidenceRequests = (advisorText: string) => {
-          if (!deepSeekRuntime || !evidenceBudget || !advisorText) return null;
-          evidenceBudget.beginExchange();
-          // The canonical protocol is the JSON `evidenceRequests` array on the
-          // advisor reply. The legacy line parser stays only as an internal
-          // compatibility reader over the same normalized shape - there is
-          // still exactly ONE authority path and ONE set of limits.
-          const parsed = evidenceBudget.parse(String(advisorText).slice(0, 60_000));
-          if (!parsed.requests.length) {
-            return { parsed: parsed.total, authorized: 0, protocol: parsed.protocol, telemetry: evidenceBudget.telemetry() };
-          }
-          const diff = boundedWorkspaceDiff(cwd, 16_000);
-          const repoSummary = (controllerWorkspaceState?.changedFiles || []).slice(0, 40)
-            .map((row: any) => String(row?.path || row || ""))
-            .join("\n");
-          const sources: Record<string, string> = {
-            diff,
-            "repo-summary": repoSummary,
-            "verifier-output": recentFailure || "",
-            "failed-output": recentFailure || "",
-          };
-          const deltas: string[] = [];
-          let authorized = 0;
-          for (const request of parsed.requests) {
-            const decision = evidenceBudget.authorize(
-              { kind: request.kind, target: request.target || null, reason: request.reason || null },
-              { root: cwd },
-            );
-            if (!decision.allowed) continue;
-            authorized += 1;
-            const source = sources[request.kind];
-            if (source === undefined) continue;
-            const delta = evidenceBudget.prepare({ kind: request.kind, text: source, maxChars: decision.maxChars });
-            if (delta.ok) deltas.push(`### requested evidence: ${request.kind}\n${delta.text}`);
-          }
-          if (deltas.length) {
-            pendingEvidenceDelta = deltas.join("\n\n").slice(0, Number(runBudgetV16_6?.capsuleChars || 4_000));
-          }
-          const refusal = evidenceBudget.refusal();
+          if (!evidenceBroker || !advisorText) return null;
+          // `serve()` never throws and never narrows silently: a request it
+          // cannot satisfy is REPORTED in the receipt (`unavailableKinds`),
+          // not padded with a fabricated placeholder.
+          const out = evidenceBroker.serve(advisorText, {});
+          if (out.deltaText) pendingEvidenceDelta = out.deltaText;
           return {
-            parsed: parsed.total,
-            authorized,
-            deltasSent: deltas.length,
-            protocol: parsed.protocol,
-            budgetExhausted: refusal.exhausted,
-            refusalText: refusal.text,
-            telemetry: evidenceBudget.telemetry(),
+            // EQUIVALENCE: the inline loop journaled `parsed.total`
+            // (allowlisted + rejected). The broker splits those into
+            // `requestsRequested` (allowlisted) and `requestsRejectedByParse`,
+            // so re-add them to keep the journaled field byte-identical.
+            parsed: Number(out.receipt?.requestsRequested || 0) + Number(out.receipt?.requestsRejectedByParse || 0),
+            authorized: out.authorized,
+            deltasSent: out.deltasSent,
+            protocol: out.protocol,
+            budgetExhausted: out.refusal?.exhausted === true,
+            refusalText: out.refusal?.text || "",
+            // EQUIVALENCE: the inline loop journaled the raw evidence-budget
+            // telemetry; the broker nests it under `.budget`.
+            telemetry: evidenceBroker.telemetry().budget,
           };
         };
         // V16.6 patch review: the reasoning partner reviews the LOCAL diff
@@ -7870,6 +8082,22 @@ export default function (pi: ExtensionAPI) {
             adviceChars: webPatchReviewText.length,
             capsuleChars: patchCapsule?.sizeChars || 0,
             evidenceRequests: served,
+            // V16.9 shared-context ledger telemetry (MEASURED character lengths
+            // and counts from the broker). `evidenceReused` counts evidence the
+            // advisor had ALREADY been shown (referenced by `evidence_id` rather
+            // than re-sent); `evidenceResent` counts first/forced full sends.
+            // `evidenceDelta` counts bounded line-deltas. These are the numbers
+            // the release report uses for "no measurable reduction => no claim".
+            evidenceLedger: evidenceBroker
+              ? {
+                wired: evidenceBroker.state().ledgerWired === true,
+                evidenceReusedCount: evidenceBroker.telemetry().totalEvidenceReused,
+                evidenceResentCount: evidenceBroker.telemetry().totalEvidenceResent,
+                evidenceDeltaCount: evidenceBroker.telemetry().totalEvidenceDelta,
+                repeatedEvidenceChars: evidenceBroker.telemetry().totalReusedChars,
+                deltaChars: evidenceBroker.telemetry().totalDeltaChars,
+              }
+              : null,
             turnsUsed: deepSeek.turnsUsed,
             turnBudget: deepSeek.turnBudget,
           }).catch(() => null);
@@ -7934,6 +8162,16 @@ export default function (pi: ExtensionAPI) {
           policy,
         );
         steps.push(result);
+        // V16.9 post-write invalidation. When a WRITER agent finishes a turn the
+        // workspace may have changed, so evidence the advisor was shown BEFORE
+        // this turn can no longer be trusted. Advancing the shared-context
+        // ledger epoch makes the next evidence request re-send the full bytes
+        // (NEW against an empty epoch namespace) instead of reusing a stale
+        // `evidence_id`. A failed/aborted writer turn does not bump: nothing is
+        // assumed to have landed.
+        if (sharedContextLedger && WRITE_AGENTS.has(agent) && !result?.stopReason && result?.exitCode !== 130) {
+          sharedContextLedger.bumpEpoch(`post-write:${agent}`);
+        }
         await appendRunJournalEvent(cwd, traceID, "agent.completed", {
           agent,
           attempt,
@@ -9145,7 +9383,18 @@ export default function (pi: ExtensionAPI) {
             try {
               followUp = await webLane.followUp({
                 task: params.task,
-                evidence: [{ kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) }],
+                evidence: [
+                  { kind: "verifier", source: "ues-verifier", text: cap(recentFailure, 6_000) },
+                  // V16.9: the evidence the advisor REQUESTED on a previous turn
+                  // (served by the evidence broker) is attached to THIS turn as
+                  // delta data. This closes the evidence-request loop: the
+                  // advisor asks, the broker serves, the delta reaches the next
+                  // conversation turn. When the ledger reused an `evidence_id`
+                  // the marker rides here instead of the full bytes.
+                  ...(pendingEvidenceDelta
+                    ? [{ kind: "evidence-delta", source: "ues-evidence-broker", text: cap(pendingEvidenceDelta, 6_000) }]
+                    : []),
+                ],
                 previousAttempts: [cap(recentFailure, 2_000), ...(capsule?.content ? [cap(capsule.content, 4_000)] : [])],
                 diff: liveDiff,
                 // V16.4: the controller opts into the verified second-follow-up
@@ -9210,6 +9459,11 @@ export default function (pi: ExtensionAPI) {
             savedChars: followUp?.delta?.savedChars ?? 0,
             flagged: followUp?.flagged === true,
             fallbackToLocal: followUp?.fallbackToLocal === true,
+            // V16.9: the evidence-delta the broker served on a PREVIOUS turn is
+            // attached to THIS turn. Its char count is journaled so the report
+            // can prove the evidence loop actually delivered (or that a reused
+            // `evidence_id` marker rode instead of the full bytes).
+            evidenceDeltaChars: pendingEvidenceDelta ? Math.min(pendingEvidenceDelta.length, 6_000) : 0,
           }).catch(() => null);
           if (followUp && !webLaneOutcomeSkipped(followUp.outcome)) {
             onUpdate?.({
@@ -9748,6 +10002,9 @@ export default function (pi: ExtensionAPI) {
       const telemetry = await taskTelemetrySummary(ctx.cwd || process.cwd()).catch(() => null);
       const compactionRecall = await summarizeCompactionRecall(ctx.cwd || process.cwd()).catch(() => null);
       const efficiency = await efficiencySummary(ctx.cwd || process.cwd(), { limit: 1000 }).catch(() => null);
+      // V16.10 Metrics V2: per-capability aggregation with honest provenance.
+      // A metric with no measured data reads as unmeasured, never as zero.
+      const metricsV2 = await buildEfficiencyMetricsV2(ctx.cwd || process.cwd(), { limit: 2000, taskLimit: 500 }).catch(() => null);
       const digest = [
         "post-write checks/complete/incomplete: " + writeFeedbackStats.postWriteChecks + "/" + writeFeedbackStats.postWriteComplete + "/" + writeFeedbackStats.postWriteIncomplete,
         "post-write errors/coalesced/stale-discarded: " + writeFeedbackStats.postWriteErrors + "/" + writeFeedbackStats.postWriteCoalesced + "/" + writeFeedbackStats.postWriteStaleDiscarded,
@@ -9758,6 +10015,7 @@ export default function (pi: ExtensionAPI) {
         "task telemetry controller-runs/pass-rate/retries: " + (telemetry?.byScope?.["controller-run"]?.runs ?? 0) + "/" + (telemetry?.byScope?.["controller-run"]?.passRate == null ? "n/a" : telemetry.byScope["controller-run"].passRate.toFixed(3)) + "/" + (telemetry?.byScope?.["controller-run"]?.providerRetries ?? 0),
         "compaction recalled/created: " + (compactionRecall?.recalledRefs ?? 0) + "/" + (compactionRecall?.compactedRefs ?? 0),
         "efficiency observations/provider-token rows: " + (efficiency?.observations ?? 0) + "/" + (efficiency?.measuredProviderTokenRows ?? 0),
+        "v16.10 metrics: observations/task-runs/verified-100k: " + (metricsV2?.observations ?? 0) + "/" + (metricsV2?.taskRuns ?? 0) + "/" + (metricsV2?.verifiedSuccessPer100kTokens?.provenance === "DERIVED" ? metricsV2.verifiedSuccessPer100kTokens.value.toFixed(3) : "unmeasured"),
       ].join("\n");
       pi.sendMessage({
         customType: "ues-runtime-status",

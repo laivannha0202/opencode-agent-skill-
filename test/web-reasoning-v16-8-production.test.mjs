@@ -78,7 +78,12 @@ test("V16.8 production lazy loader resolves the barrier wrapper, not the raw V16
   const mod = await productionModule()
   assert.equal(typeof mod.createWebReasoningLane, "function")
   const source = readFileSync(new URL("../lib/lazy-runtime.mjs", import.meta.url), "utf8")
-  assert.match(source, /web-reasoning-lane-v16-8\.mjs/)
+  // V16.9 advances this pointer to the lifecycle wrapper, which re-exports the
+  // V16.8 lane verbatim. The intent is unchanged: the loader must resolve a
+  // VERSIONED WRAPPER (v16-8 or v16-9), never the raw V16.7 lane module, so the
+  // barrier/overlap layer is always in the production path.
+  assert.match(source, /web-reasoning-lane-v16-[89]\.mjs/)
+  assert.doesNotMatch(source, /import\("\.\/web-reasoning-lane\.mjs"\)/)
 })
 
 test("V16.8 production consult injects only a compact validated capsule", async () => {
