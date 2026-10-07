@@ -41,7 +41,14 @@ function parseFlag(name, fallback) {
   return direct.slice(name.length + 1)
 }
 
-const cpuDefault = Math.max(2, Math.min(6, os.availableParallelism?.() || os.cpus().length || 4))
+const cpuCap = process.platform === "win32" ? 4 : 6
+// Windows cap is 4, not 6, by measurement (V16.12 stability proof): the suite
+// is filesystem/process-spawn heavy and thrashes at 6 on NTFS/Defender. Full
+// suite 244/244: c4 green 3/3 (114s/121s/114s) vs c6 flaky with moving
+// failures (2 of 4 c6 runs failed different files) and barely faster when
+// green (109s). Slowest file c4->c6: installer 19s->51s, consistency
+// 28s->40s. Explicit --concurrency / UES_TEST_CONCURRENCY still override.
+const cpuDefault = Math.max(2, Math.min(cpuCap, os.availableParallelism?.() || os.cpus().length || 4))
 const concurrency = bounded(
   parseFlag("--concurrency", process.env.UES_TEST_CONCURRENCY),
   cpuDefault,
