@@ -1,6 +1,6 @@
 {
   "name": "opencode-agent-skill",
-  "version": "16.12.0",
+  "version": "16.13.0",
   "description": "Pi-native UES coding-agent runtime with V16 deterministic correctness gates, durable evidence integrity, external-data provenance, Windows-safe cleanup, and measured cost-aware routing",
   "type": "module",
   "bin": {
@@ -42,6 +42,7 @@
     "docs/V16.10-CONTEXT-INTELLIGENCE-ECONOMY.md",
     "docs/V16.11-ADVISOR-LIFECYCLE-EVENT-FIRST.md",
     "docs/V16.12-EXECUTION-ACCELERATION-RUNTIME.md",
+    "docs/V16.13-EXTERNAL-RESEARCH-INTELLIGENCE.md",
     "lib/browser-profile.mjs",
     "lib/browser-worker-mode.mjs",
     "lib/browser-dom-inspect.mjs",
@@ -69,7 +70,7 @@
     "integrity": "node scripts/check-source-integrity.mjs",
     "runtime:exports": "node scripts/check-runtime-exports.mjs",
     "eval:v15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/lsp-pool-v2.test.mjs test/v15-runtime.test.mjs test/provider-recovery.test.mjs test/semantic-index.test.mjs test/performance-fabric-v2.test.mjs test/pi-rpc-control.test.mjs test/trajectory.test.mjs test/evidence-store-v11.test.mjs test/runtime-events.test.mjs test/v14.3-intelligence.test.mjs test/v14.2-runtime.test.mjs test/pi-package.test.mjs test/execution-contract.test.mjs",
-    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.5 && npm run eval:v16.6 && npm run eval:v16.7 && npm run eval:v16.8 && npm run eval:v16.9 && npm run eval:v16.10 && npm run eval:v16.11 && npm run eval:v16.12",
+    "release:verify": "npm run ci && npm run eval:v15 && npm run eval:v15.4 && npm run eval:v15.5 && npm run eval:v15.6 && npm run eval:v15.7 && npm run eval:v15.8 && npm run eval:v15.9 && npm run eval:v16 && npm run eval:v16.4 && npm run eval:v16.5 && npm run eval:v16.6 && npm run eval:v16.7 && npm run eval:v16.8 && npm run eval:v16.9 && npm run eval:v16.10 && npm run eval:v16.11 && npm run eval:v16.12 && npm run eval:v16.13",
     "bench:lsp": "node scripts/benchmark-lsp-pool.mjs",
     "bench:code": "node scripts/benchmark-code-intelligence.mjs",
     "bench:write-feedback": "node scripts/bench-write-feedback.mjs",
@@ -116,6 +117,8 @@
     "eval:v16.10": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/tool-output-budgeter-v16-10.test.mjs test/context-kernel-v16-10.test.mjs test/repo-intelligence-v16-10.test.mjs test/semantic-tool-router-v16-10.test.mjs test/verification-ladder-v16-10.test.mjs test/efficiency-metrics-v16-10.test.mjs test/source-integrity-v16-10.test.mjs test/parent-provider-recovery-v16-10.test.mjs",
     "eval:v16.11": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/advisor-worker-epoch-v16-11.test.mjs test/browser-transport-v16-11.test.mjs test/advisor-session-manager-v16-11.test.mjs test/advisor-answer-observer-v16-11.test.mjs test/advisor-recovery-v16-11.test.mjs test/advisor-latency-metrics-v16-11.test.mjs test/advisor-resource-hygiene-v16-11.test.mjs test/web-reasoning-v16-11-production.test.mjs test/source-integrity-v16-11.test.mjs",
     "eval:v16.12": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/verification-receipt-cache-v16-12.test.mjs test/task-dag-scheduler-v16-12.test.mjs test/tool-result-reuse-v16-12.test.mjs test/incremental-verification-v16-12.test.mjs test/warm-service-reuse-v16-12.test.mjs test/execution-acceleration-v16-12.test.mjs test/execution-acceleration-wiring-v16-12.test.mjs test/waste-detector-v16-12.test.mjs test/source-integrity-v16-12.test.mjs",
+    "eval:v16.13": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/research-brief-v16-13.test.mjs test/research-provider-router-v16-13.test.mjs test/research-network-policy-v16-13.test.mjs test/research-version-join-v16-13.test.mjs test/research-official-github-v16-13.test.mjs test/research-cache-v16-13.test.mjs test/research-dedup-v16-13.test.mjs test/research-freshness-v16-13.test.mjs test/research-evidence-v16-13.test.mjs test/research-claims-v16-13.test.mjs test/research-speed-path-v16-13.test.mjs test/research-broker-v16-13.test.mjs test/research-production-wiring-v16-13.test.mjs test/source-integrity-v16-13.test.mjs",
+    "bench:v16.13": "node scripts/bench-v16-13-research.mjs",
     "release:coordinator": "node scripts/release-test-coordinator.mjs"
   },
   "keywords": [

@@ -2,6 +2,26 @@
 
 ## [Unreleased]
 
+## [16.13.0] - 2026-10-07
+
+### Added
+
+- ResearchBrief + deterministic admission V16.13 (`lib/research-brief-v16-13.mjs`): `LOCAL_ONLY`/`OFFICIAL_DOC_REQUIRED`/`GITHUB_RESEARCH`/`CURRENT_WEB_RESEARCH`/`DEEP_RESEARCH`/`ADVISOR_SYNTHESIS` classes, speed-first budgets (soft + hard deadlines), stable `briefId` hash, deterministic sufficiency, DeepSeek-not-default and browser-last-resort gates, safe-overlap planner. Model confidence alone never triggers research.
+- Provider router V16.13 (`lib/research-provider-router-v16-13.mjs`): primary-sources-first ordering, smallest high-value initial set (Official + GitHub max 2 concurrent), generic web only on primary insufficiency, DeepSeek only on gated synthesis need, alternate-provider fallback.
+- External research broker V16.13 (`lib/external-research-broker-v16-13.mjs`): parallel Official/GitHub orchestration, first-sufficient-evidence cancellation, cache-first policy, claim/source tracking with `SUPPORTED`/`PARTIALLY_SUPPORTED`/`CONFLICTED`/`UNSUPPORTED`/`UNVERIFIED_ADVISOR_CLAIM`, contradiction resolution order, bounded 8000-char ResearchCapsule, Decision Barrier, Metrics V2 producer events, V16.12 waste-signal feed. Research never produces PASS.
+- Network policy V16.13 (`lib/research-network-policy-v16-13.mjs`): canonicalization, public-HTTPS-only SSRF policy, per-hop redirect validation, secret-redaction egress classification, fetch limits, injection scan with `instructionAuthority: "none"`.
+- Version join V16.13 (`lib/research-version-join-v16-13.mjs`): installed + latest preserved, relation classification, installed-targeted recommendations by default.
+- Official/GitHub/page-fetch/cache helpers V16.13: exact-version primary preference, GitHub token scoping (`UES_RESEARCH_GITHUB_TOKEN` only to GitHub hosts), `CANDIDATE_SOURCE` vs `EXTERNAL_EVIDENCE` law, EvidenceStore body ownership, metadata-only cache with corruption-to-MISS.
+- `npm run bench:v16.13` (`scripts/bench-v16-13-research.mjs`): deterministic 12-scenario speed benchmark, `synthetic: true`, `claimStatus: SIMULATED_ONLY`, `providerTokens: NOT_MEASURED`.
+- `npm run eval:v16.13`: the V16.13 external-research + source-integrity suites.
+
+### Changed
+
+- `lib/efficiency-metrics-v16-10.mjs`: `CAPABILITY_EVENT_KINDS` gains a `researchIntelligence` entry so Metrics V2 aggregates `external-research` observations. Single aggregator preserved.
+- `lib/lazy-runtime.mjs`: registers the `RESEARCH` stack (`RESEARCH_BRIEF`, `RESEARCH_ROUTER`, `RESEARCH_NETWORK_POLICY`, `RESEARCH_BROKER`). `LOCAL_ONLY` and `PI_ONLY` hydrate none of it.
+- `pi/extensions/ues.ts`: thin lazy RESEARCH accessors only; no provider/URL/cache/claim logic inlined.
+- `scripts/check-source-integrity.mjs` adds the V16.13 contracts; all prior releases remain byte-stable.
+
 ## [16.12.0] - 2026-10-07
 
 ### Added

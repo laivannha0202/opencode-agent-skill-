@@ -553,6 +553,39 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.12"] !== "node scripts/bench-v16-12-acceleration.mjs") {
       errors.push("package.json: missing V16.12 execution-acceleration benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.13")) {
+      errors.push("package.json: release:verify must include eval:v16.13")
+    }
+    if (!pkg.files.includes("docs/V16.13-EXTERNAL-RESEARCH-INTELLIGENCE.md")) {
+      errors.push("package.json: V16.13 external-research documentation must be packed")
+    }
+    const focusedV1613 = String(scripts["eval:v16.13"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1613Tests = [
+      "test/research-brief-v16-13.test.mjs",
+      "test/research-provider-router-v16-13.test.mjs",
+      "test/research-network-policy-v16-13.test.mjs",
+      "test/research-version-join-v16-13.test.mjs",
+      "test/research-official-github-v16-13.test.mjs",
+      "test/research-cache-v16-13.test.mjs",
+      "test/research-dedup-v16-13.test.mjs",
+      "test/research-freshness-v16-13.test.mjs",
+      "test/research-evidence-v16-13.test.mjs",
+      "test/research-claims-v16-13.test.mjs",
+      "test/research-speed-path-v16-13.test.mjs",
+      "test/research-broker-v16-13.test.mjs",
+      "test/research-production-wiring-v16-13.test.mjs",
+      "test/source-integrity-v16-13.test.mjs",
+    ]
+    if (
+      focusedV1613[0] !== "node" ||
+      focusedV1613[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1613Tests.every((file) => focusedV1613.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.13 must use the bounded runner and include the V16.13 external-research suites")
+    }
+    if (scripts["bench:v16.13"] !== "node scripts/bench-v16-13-research.mjs") {
+      errors.push("package.json: missing V16.13 external-research benchmark command")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)

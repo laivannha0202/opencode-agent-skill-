@@ -273,6 +273,20 @@ const loadExecutionAccelerationModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.E
 const loadVerificationReceiptCacheModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.VERIFICATION_RECEIPT_CACHE);
 const loadToolResultReuseModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.TOOL_RESULT_REUSE);
 const loadWasteDetectorModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.WASTE_DETECTOR);
+// V16.13 External Research Intelligence. The broker is the ONLY production
+// entry point: it owns concurrent provider orchestration, first-sufficient
+// cancellation, cache policy, claim/source view and the bounded
+// ResearchCapsule. The extension only requests the lazy RESEARCH stack,
+// invokes deterministic admission, invokes the broker, passes the bounded
+// capsule, and exposes read-only status. It never inlines provider logic,
+// URL security, cache logic, freshness, claim resolution, query planning or
+// version matching. LOCAL_ONLY and PI_ONLY hydrate NONE of these modules:
+// external-research-broker-v16-13, research-brief-v16-13,
+// research-provider-router-v16-13, research-network-policy-v16-13.
+const loadResearchBriefModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_BRIEF);
+const loadResearchRouterModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_ROUTER);
+const loadResearchNetworkPolicyModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_NETWORK_POLICY);
+const loadExternalResearchBrokerModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_BROKER);
 
 function configuredDuration(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name] || "");

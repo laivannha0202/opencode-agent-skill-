@@ -827,6 +827,186 @@ export function validateV16_12SourceIntegrity(root = ROOT) {
   return failures
 }
 
+// V16.13 External Research Intelligence contracts. Each module owns exactly
+// one policy question; the markers pin the speed-first laws (zero-research
+// fast path, deterministic admission, primary-sources-first, browser last
+// resort, DeepSeek not default, SEARCH != EVIDENCE, EvidenceStore body
+// ownership, Metrics V2 single authority, Decision Barrier, PI_ONLY zero
+// egress) so a future edit cannot silently weaken them.
+const V16_13_CONTRACTS = Object.freeze([
+  {
+    file: "lib/research-brief-v16-13.mjs",
+    minBytes: 8000,
+    required: [
+      'RESEARCH_BRIEF_POLICY = "research-brief-v16-13"',
+      "decideResearchAdmission",
+      "buildResearchBrief",
+      "isSufficientEvidence",
+      "model-confidence-alone-insufficient",
+      "RESEARCH_CAPSULE_MAX_CHARS = 8_000",
+    ],
+  },
+  {
+    file: "lib/research-provider-router-v16-13.mjs",
+    minBytes: 4000,
+    required: [
+      'RESEARCH_ROUTER_POLICY = "research-provider-router-v16-13"',
+      "routeProviders",
+      "selectFallback",
+      "primary-sources-first",
+    ],
+  },
+  {
+    file: "lib/external-research-broker-v16-13.mjs",
+    minBytes: 12000,
+    required: [
+      'RESEARCH_BROKER_POLICY = "external-research-broker-v16-13"',
+      "createExternalResearchBroker",
+      "trackClaims",
+      "resolveContradictions",
+      "buildResearchCapsule",
+      "checkDecisionBarrier",
+      'providerTokens: "NOT_MEASURED"',
+      "NOT_AVAILABLE",
+    ],
+  },
+  {
+    file: "lib/research-network-policy-v16-13.mjs",
+    minBytes: 5000,
+    required: [
+      'RESEARCH_NETWORK_POLICY = "research-network-policy-v16-13"',
+      "canonicalizeUrl",
+      "checkUrlAllowed",
+      "validateRedirectChain",
+      "classifyOutboundQuery",
+      "BLOCKED_POLICY:private-host",
+    ],
+  },
+  {
+    file: "lib/research-version-join-v16-13.mjs",
+    minBytes: 2000,
+    required: [
+      'RESEARCH_VERSION_JOIN_POLICY = "research-version-join-v16-13"',
+      "joinVersions",
+      "compareVersions",
+      "recommendationTargetsInstalledByDefault",
+    ],
+  },
+  {
+    file: "lib/research-provider-official-v16-13.mjs",
+    minBytes: 3000,
+    required: [
+      'OFFICIAL_PROVIDER_POLICY = "research-provider-official-v16-13"',
+      "resolveOfficialTarget",
+      "exact-version-docs-unavailable-recorded",
+    ],
+  },
+  {
+    file: "lib/research-provider-github-v16-13.mjs",
+    minBytes: 3000,
+    required: [
+      'GITHUB_PROVIDER_POLICY = "research-provider-github-v16-13"',
+      "authHeadersForHost",
+      "UES_RESEARCH_GITHUB_TOKEN",
+      "RATE_LIMIT",
+    ],
+  },
+  {
+    file: "lib/research-page-fetch-v16-13.mjs",
+    minBytes: 5000,
+    required: [
+      'PAGE_FETCH_POLICY = "research-page-fetch-v16-13"',
+      "fetchAndNormalize",
+      "toCandidateSource",
+      "CANDIDATE_SOURCE",
+      "EXTERNAL_EVIDENCE",
+      "instructionAuthority",
+    ],
+  },
+  {
+    file: "lib/research-cache-helper-v16-13.mjs",
+    minBytes: 4000,
+    required: [
+      'RESEARCH_CACHE_POLICY = "research-cache-helper-v16-13"',
+      "researchCacheKey",
+      "readResearchCache",
+      "FORCE_FRESH_BYPASS",
+    ],
+  },
+  {
+    file: "lib/lazy-runtime.mjs",
+    minBytes: 5000,
+    required: [
+      'RESEARCH_BROKER: "external-research-broker-v16-13"',
+      "RESEARCH: Object.freeze([",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "external-research-broker-v16-13",
+      "research-brief-v16-13",
+      "hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_BROKER)",
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-13.test.mjs",
+    minBytes: 800,
+    required: [
+      "validateV16_13SourceIntegrity",
+      "validateV16_12SourceIntegrity",
+    ],
+  },
+  {
+    file: "test/research-brief-v16-13.test.mjs",
+    minBytes: 2000,
+    required: [
+      "model confidence alone cannot trigger research",
+    ],
+  },
+  {
+    file: "test/research-broker-v16-13.test.mjs",
+    minBytes: 2000,
+    required: [
+      "official source alone sufficient",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-13-research.mjs",
+    minBytes: 4000,
+    required: [
+      "V16.13 EXTERNAL RESEARCH BENCHMARK",
+      'PROVIDER_TOKENS = "NOT_MEASURED"',
+      "SIMULATED_ONLY",
+    ],
+  },
+])
+
+export function validateV16_13SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_13_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -961,6 +1141,13 @@ export function runSourceIntegrity() {
   if (v16_12Failures.length) {
     process.stderr.write("V16.12 source-integrity validation failed:\n")
     for (const failure of v16_12Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_13Failures = validateV16_13SourceIntegrity(ROOT)
+  if (v16_13Failures.length) {
+    process.stderr.write("V16.13 source-integrity validation failed:\n")
+    for (const failure of v16_13Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 
