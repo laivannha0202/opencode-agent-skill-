@@ -111,3 +111,62 @@ test("V16.10 metrics: render is bounded and honest about unmeasured values", () 
   assert.ok(text.length < 2000)
   assert.equal(metrics.policy, EFFICIENCY_METRICS_POLICY)
 })
+
+// ---------------------------------------------------------------------------
+// V16.15 parallel coding observations
+//
+// The wave runtime PRODUCES `parallel-coding` observations. Metrics V2 stays the
+// single aggregator, and it must never turn wave activity into a speedup claim.
+// ---------------------------------------------------------------------------
+
+const parallelRow = (operation, count) => ({
+  type: "efficiency.observation",
+  kind: "parallel-coding",
+  operation,
+  metrics: { count },
+  provenance: { count: "MEASURED" },
+})
+
+test("V16.15 metrics: wave activity is aggregated as measured counts", () => {
+  const metrics = aggregateEfficiencyMetrics([
+    parallelRow("waves-planned", 3),
+    parallelRow("posture:PARALLEL_WRITERS", 2),
+    parallelRow("posture:PARENT_DIRECT", 1),
+    parallelRow("integration-transactions", 2),
+  ], [])
+  assert.equal(metrics.parallelCoding.observations, 4)
+  assert.equal(metrics.parallelCoding.operations["waves-planned"], 3)
+  assert.equal(metrics.parallelCoding.operations["posture:PARALLEL_WRITERS"], 2)
+})
+
+test("V16.15 metrics: an unmeasured count is skipped, never counted as zero", () => {
+  const metrics = aggregateEfficiencyMetrics([
+    parallelRow("waves-planned", 2),
+    {
+      type: "efficiency.observation",
+      kind: "parallel-coding",
+      operation: "integration-transactions",
+      metrics: { count: 5 },
+      provenance: { count: "NOT_MEASURED" },
+    },
+  ], [])
+  assert.equal(metrics.parallelCoding.operations["waves-planned"], 2)
+  // The unmeasured row is NOT silently added as a zero-value contribution.
+  assert.equal(metrics.parallelCoding.operations["integration-transactions"], undefined)
+})
+
+test("V16.15 metrics: parallel coding NEVER reports a speedup claim", () => {
+  const metrics = aggregateEfficiencyMetrics([parallelRow("waves-planned", 9)], [])
+  assert.equal(metrics.parallelCoding.speedupClaim, null)
+  assert.equal(metrics.parallelCoding.measuredOverlapSavedMs.provenance, PROVENANCE.NOT_MEASURED)
+  assert.equal(metrics.parallelCoding.measuredOverlapSavedMs.value, null)
+})
+
+test("V16.15 metrics: no parallel observations reads as zero events, not a fabricated saving", () => {
+  const metrics = aggregateEfficiencyMetrics([], [])
+  assert.equal(metrics.parallelCoding.observations, 0)
+  assert.deepEqual(metrics.parallelCoding.operations, {})
+  assert.equal(metrics.parallelCoding.speedupClaim, null)
+  const text = renderEfficiencyMetricsV2(metrics)
+  assert.match(text, /no speedup claim/)
+})

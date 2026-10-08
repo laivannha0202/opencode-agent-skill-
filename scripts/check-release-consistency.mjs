@@ -608,6 +608,55 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.14"] !== "node scripts/bench-v16-14-economy.mjs") {
       errors.push("package.json: missing V16.14 token-economy benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.15")) {
+      errors.push("package.json: release:verify must include eval:v16.15")
+    }
+    if (!pkg.files.includes("docs/V16.15-SINGLE-SHOT-PARALLEL-CODING.md")) {
+      errors.push("package.json: V16.15 parallel-coding documentation must be packed")
+    }
+    const focusedV1615 = String(scripts["eval:v16.15"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1615Tests = [
+      "test/parallel-execution-policy-v16-15.test.mjs",
+      "test/execution-conflict-graph-v16-15.test.mjs",
+      "test/wave-shared-context-v16-15.test.mjs",
+      "test/integration-transaction-v16-15.test.mjs",
+      "test/parallel-coding-runtime-v16-15.test.mjs",
+      "test/parallel-coding-wiring-v16-15.test.mjs",
+      "test/delegation-safety-v16-15.test.mjs",
+      "test/source-integrity-v16-15.test.mjs",
+    ]
+    if (
+      focusedV1615[0] !== "node" ||
+      focusedV1615[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1615Tests.every((file) => focusedV1615.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.15 must use the bounded runner and include the V16.15 parallel-coding suites")
+    }
+    if (scripts["bench:v16.15"] !== "node scripts/bench-v16-15-parallel-coding.mjs") {
+      errors.push("package.json: missing V16.15 parallel-coding benchmark command")
+    }
+    // An eval script naming a test file that does not exist would be silently
+    // dropped by the bounded runner, leaving the release claiming a suite nobody
+    // ran. Every test file an eval script names must exist on disk.
+    //
+    // This rule is only meaningful for a real source tree. Synthetic fixture
+    // roots (e.g. the release-consistency fixture) ship a package.json but no
+    // `test/` directory, so every token would be reported as missing and the
+    // fixture would be testing nothing but its own incompleteness. The contract
+    // is additionally enforced against the real root by
+    // test/source-integrity-v16-15.test.mjs, so it cannot be silently dropped by
+    // removing a file from this script.
+    if (existsSync(path.join(root, "test"))) {
+      for (const [name, command] of Object.entries(scripts)) {
+        if (!name.startsWith("eval:") || typeof command !== "string") continue
+        for (const token of command.split(/\s+/)) {
+          if (!token.startsWith("test/") || !token.endsWith(".mjs")) continue
+          if (!existsSync(path.join(root, token))) {
+            errors.push(`package.json: ${name} names a test file that does not exist: ${token}`)
+          }
+        }
+      }
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)

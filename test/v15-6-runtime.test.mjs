@@ -4,6 +4,7 @@ import os from "node:os"
 import path from "node:path"
 import test from "node:test"
 import { ToolScheduler } from "../lib/tool-scheduler.mjs"
+import { ISOLATED_WRITE_MAX_WIDTH, TOOL_CONCURRENCY_CLASS } from "../lib/tool-concurrency.mjs"
 import { buildRuntimeEpoch, runtimeEpochCompatibility } from "../lib/runtime-epoch.mjs"
 import { MODEL_RUNTIME_SURFACE, applyModelToolBudget, modelRuntimeProfile } from "../lib/model-runtime-profile.mjs"
 import { RuntimeHookBus } from "../lib/runtime-hooks.mjs"
@@ -126,6 +127,61 @@ test("V15.6 preflight admission never waits behind sibling tools", async () => {
   assert.ok(evidence)
   assert.equal(evidence.contract.parallelSafe, true)
   evidence.release()
+})
+
+// ---------------------------------------------------------------------------
+// V16.15: the ToolScheduler's isolated-write lane. Two sandbox writers in
+// different worktrees over disjoint files take the lane concurrently; the lane
+// is bounded, never hosts a root write, and is measured.
+// ---------------------------------------------------------------------------
+test("V16.15 scheduler: two isolated writers in different sandboxes share the lane", () => {
+  const scheduler = new ToolScheduler({ maxParallelReads: 2, maxQueueMs: 2_000, maxParallelIsolatedWrites: 2 })
+  assert.equal(scheduler.maxParallelIsolatedWrites, 2)
+
+  const first = scheduler.tryAcquire("iso-a", "edit", { path: "lib/a.mjs" }, { sandboxId: "sb-a" })
+  const second = scheduler.tryAcquire("iso-b", "edit", { path: "lib/b.mjs" }, { sandboxId: "sb-b" })
+  assert.ok(first, "the first isolated writer must be admitted")
+  assert.ok(second, "a second isolated writer in another sandbox must be admitted")
+  assert.equal(first.contract.class, TOOL_CONCURRENCY_CLASS.ISOLATED_WRITE)
+  assert.equal(second.contract.class, TOOL_CONCURRENCY_CLASS.ISOLATED_WRITE)
+  assert.equal(scheduler.snapshot().active.length, 2)
+  assert.equal(scheduler.snapshot().metrics.maxObservedIsolatedWrites, 2)
+
+  // The lane is full: a third isolated writer waits, it is never admitted.
+  assert.equal(scheduler.tryAcquire("iso-c", "edit", { path: "lib/c.mjs" }, { sandboxId: "sb-c" }), null)
+  // And a ROOT write never joins an isolated lane.
+  assert.equal(scheduler.tryAcquire("root-w", "edit", { path: "lib/d.mjs" }), null)
+
+  first.release()
+  second.release()
+  assert.equal(scheduler.snapshot().active.length, 0)
+})
+
+test("V16.15 scheduler: the isolated lane is bounded and same-sandbox writers conflict", () => {
+  // A request above the hard cap is clamped, never honoured.
+  const wide = new ToolScheduler({ maxParallelIsolatedWrites: 99 })
+  assert.equal(wide.maxParallelIsolatedWrites, ISOLATED_WRITE_MAX_WIDTH)
+
+  const scheduler = new ToolScheduler({ maxParallelIsolatedWrites: 3 })
+  const a = scheduler.tryAcquire("a", "edit", { path: "lib/a.mjs" }, { sandboxId: "sb-1" })
+  assert.ok(a)
+  // Same sandbox: the second writer must NOT be admitted even though the lane
+  // has a free slot - it is the same worktree.
+  assert.equal(scheduler.tryAcquire("b", "edit", { path: "lib/b.mjs" }, { sandboxId: "sb-1" }), null)
+  // Same file in a different sandbox: still two writers on one path.
+  assert.equal(scheduler.tryAcquire("c", "edit", { path: "lib/a.mjs" }, { sandboxId: "sb-2" }), null)
+  a.release()
+})
+
+test("V16.15 scheduler: a model-authored isolated flag does not open the lane", () => {
+  const scheduler = new ToolScheduler({ maxParallelReads: 2, maxQueueMs: 2_000 })
+  const read = scheduler.tryAcquire("read-a", "read", { path: "src/a.ts" })
+  assert.ok(read)
+  // The model puts `isolated` in its own tool INPUT. The contract is still a
+  // root write, so it must not be admitted next to the read.
+  const forged = scheduler.tryAcquire("forged", "edit", { path: "src/b.ts", isolated: true, sandboxId: "sb-x" })
+  assert.equal(forged, null)
+  read.release()
 })
 
 test("V15.6 durable journal admission is idempotent and crash recovery never replays side effects", async () => {

@@ -296,3 +296,139 @@ test("runTaskDag: the deadlock guard reports DAG_DEADLOCK instead of spinning", 
   assert.equal(result.deadlock.code, "DAG_DEADLOCK")
   assertAllTerminal(result)
 })
+
+// ---------------------------------------------------------------------------
+// V16.15: the ISOLATED-WRITE lane. A sandbox/worktree writer cannot be observed
+// by a root read, so it may overlap reads and other isolated writers - but it is
+// still fenced against a ROOT write in BOTH directions, and the lane is bounded.
+// ---------------------------------------------------------------------------
+
+test("runTaskDag: two ISOLATED_WRITE nodes overlap each other", async () => {
+  let active = 0
+  let maxActive = 0
+  const node = (id) => ({
+    id,
+    effect: NODE_EFFECT.SOURCE_WRITE_ISOLATED,
+    run: async () => {
+      active += 1
+      maxActive = Math.max(maxActive, active)
+      await new Promise((r) => setTimeout(r, 25))
+      active -= 1
+      return id
+    },
+  })
+  const result = await runTaskDag([node("w1"), node("w2")])
+  assert.ok(maxActive >= 2, `expected isolated writers to overlap, saw maxActive=${maxActive}`)
+  assert.equal(result.maxIsolatedWriteActive, 2)
+  assertAllTerminal(result)
+})
+
+test("runTaskDag: an ISOLATED_WRITE overlaps reads and stays inside its width", async () => {
+  let readActive = 0
+  let maxReadActive = 0
+  let isolatedActive = 0
+  let maxIsolatedActive = 0
+  let readOverlappedIsolated = false
+  // The read observes the lane WHILE it is running, not just at start: the
+  // scheduler launches in plan order, so the reads begin first and the isolated
+  // writers join them. Sampling at start alone would prove nothing.
+  const sample = async () => {
+    await new Promise((r) => setTimeout(r, 20))
+    if (isolatedActive > 0) readOverlappedIsolated = true
+  }
+  const nodes = [
+    { id: "r1", effect: NODE_EFFECT.READ_ONLY, run: async () => {
+      readActive += 1
+      maxReadActive = Math.max(maxReadActive, readActive)
+      await sample()
+      await new Promise((r) => setTimeout(r, 20))
+      readActive -= 1
+    } },
+    { id: "r2", effect: NODE_EFFECT.READ_ONLY, run: async () => {
+      readActive += 1
+      maxReadActive = Math.max(maxReadActive, readActive)
+      await sample()
+      await new Promise((r) => setTimeout(r, 20))
+      readActive -= 1
+    } },
+    ...["w1", "w2", "w3", "w4"].map((id) => ({
+      id,
+      effect: NODE_EFFECT.SOURCE_WRITE_ISOLATED,
+      run: async () => {
+        isolatedActive += 1
+        maxIsolatedActive = Math.max(maxIsolatedActive, isolatedActive)
+        await new Promise((r) => setTimeout(r, 25))
+        isolatedActive -= 1
+      },
+    })),
+  ]
+  const result = await runTaskDag(nodes, { limits: { [RESOURCE_CLASS.ISOLATED_WRITE]: 2 } })
+  assert.ok(readOverlappedIsolated, "an isolated writer must be allowed to overlap reads")
+  assert.ok(maxReadActive >= 1)
+  assert.ok(maxIsolatedActive <= 2, `isolated width must be honoured, saw ${maxIsolatedActive}`)
+  assert.ok(result.maxIsolatedWriteActive <= 2)
+  assertAllTerminal(result)
+})
+
+test("runTaskDag: an ISOLATED_WRITE never overlaps a ROOT write (both directions)", async () => {
+  let rootWriteActive = false
+  let isolatedActive = 0
+  let violation = null
+  const track = (id, effect) => ({
+    id,
+    effect,
+    run: async () => {
+      if (effect === NODE_EFFECT.SOURCE_WRITE) {
+        if (isolatedActive > 0) violation = `${id} root write started while ${isolatedActive} isolated writer(s) ran`
+        rootWriteActive = true
+        await new Promise((r) => setTimeout(r, 30))
+        rootWriteActive = false
+      } else {
+        if (rootWriteActive) violation = `${id} isolated writer started during a root write`
+        isolatedActive += 1
+        await new Promise((r) => setTimeout(r, 30))
+        isolatedActive -= 1
+      }
+    },
+  })
+  const result = await runTaskDag([
+    track("i1", NODE_EFFECT.SOURCE_WRITE_ISOLATED),
+    track("i2", NODE_EFFECT.SOURCE_WRITE_ISOLATED),
+    track("root", NODE_EFFECT.SOURCE_WRITE),
+    track("r", NODE_EFFECT.READ_ONLY),
+  ])
+  assert.equal(violation, null, String(violation))
+  assertAllTerminal(result)
+})
+
+test("planTaskDag: the isolated-write width cannot be raised past the hard cap", () => {
+  const plan = planTaskDag([{ id: "a", effect: NODE_EFFECT.READ_ONLY }], {
+    limits: { [RESOURCE_CLASS.ISOLATED_WRITE]: 99 },
+  })
+  assert.equal(plan.limits[RESOURCE_CLASS.ISOLATED_WRITE], 3)
+  const lowered = planTaskDag([{ id: "a", effect: NODE_EFFECT.READ_ONLY }], {
+    limits: { [RESOURCE_CLASS.ISOLATED_WRITE]: 1 },
+  })
+  assert.equal(lowered.limits[RESOURCE_CLASS.ISOLATED_WRITE], 1)
+})
+
+test("planTaskDag: isolated writers are reported separately from root writes", () => {
+  const plan = planTaskDag([
+    { id: "w", effect: NODE_EFFECT.SOURCE_WRITE },
+    { id: "i", effect: NODE_EFFECT.SOURCE_WRITE_ISOLATED },
+    { id: "r", effect: NODE_EFFECT.READ_ONLY },
+  ])
+  assert.deepEqual(plan.serialized, ["w"])
+  assert.deepEqual(plan.isolatedWriters, ["i"])
+  assert.deepEqual(plan.overlappable, ["i", "r"])
+})
+
+test("planTaskDag: isWriteEffect does not treat an isolated writer as a root write", async () => {
+  const { isIsolatedWriteEffect, isAnyWriteEffect } = await import("../lib/task-dag-scheduler-v16-12.mjs")
+  assert.equal(isWriteEffect(NODE_EFFECT.SOURCE_WRITE_ISOLATED), false)
+  assert.equal(isIsolatedWriteEffect(NODE_EFFECT.SOURCE_WRITE_ISOLATED), true)
+  assert.equal(isIsolatedWriteEffect(NODE_EFFECT.SOURCE_WRITE), false)
+  assert.equal(isAnyWriteEffect(NODE_EFFECT.SOURCE_WRITE), true)
+  assert.equal(isAnyWriteEffect(NODE_EFFECT.SOURCE_WRITE_ISOLATED), true)
+  assert.equal(isAnyWriteEffect(NODE_EFFECT.READ_ONLY), false)
+})

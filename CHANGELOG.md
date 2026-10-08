@@ -1,6 +1,40 @@
-# Changelog
+﻿# Changelog
 
 ## [Unreleased]
+
+## [16.15.0] - 2026-10-08
+
+### Added
+
+- Single-shot parallel coding runtime V16.15. Four new single owners plus one composition entry point that owns **no** policy:
+  - `lib/parallel-execution-policy-v16-15.mjs` â€” the single parallel-execution authority. `classifyTaskShapeV16_15` (TINY/SMALL/NORMAL/DECOMPOSABLE/COMPLEX/RELEASE), `decideParallelExecution` (PARENT_DIRECT/PARALLEL_READ_ONLY/PARALLEL_WRITERS/SERIAL_STRUCTURED), the economy gate (`estimateParallelEconomy`, `MIN_MEANINGFUL_CHILD_WORK_MS`), the hard writer bound (`WRITER_CONCURRENCY`, `resolveWriterConcurrency` â†’ default 2, hard max 3, `requestedWriters: 99` resolves to 3), the resource-pressure clamp, the research barrier and the release gate. TINY and SMALL never spawn a child, whatever else is true.
+  - `lib/execution-conflict-graph-v16-15.mjs` â€” the pair-verdict authority. `classifyPair`/`buildConflictGraph`/`scopesAreIndependent` decide independence on exact write/write overlap, readâ†”write direction, shared config family, lockfileâ†”manifest interaction, generated output, caller-declared module edges, shared mutable service, external side effect and destructive shell. UNKNOWN is not INDEPENDENT; the same directory is **not** a conflict. `isWriterScope` is the ONE writer rule: only an explicit `readOnly: true`/`writer: false`, or a scope that declared **only** reads, is a reader â€” a scope that declared nothing is a writer with an UNKNOWN scope, so silence is never safety.
+  - `lib/wave-shared-context-v16-15.mjs` â€” one immutable shared snapshot per wave plus a per-child **delta** that references it by id and never repeats it inline, a bounded compact handoff (first-failure body capped at 600 chars, changed files at 40, warnings at 12, raw logs never inlined) and MEASURED char accounting that reports `tokens: "NOT_MEASURED"` and `tokenSavingClaim: null`.
+  - `lib/integration-transaction-v16-15.mjs` â€” transactional integration. PHASE A preflights **every** patch with no root mutation, a childâ†”child same-file collision is refused, PHASE B applies in a deterministic dependency-depth-then-wave-then-key order, and PHASE C recomputes root identity. A later apply failure reverses **every** applied patch and reports `rootUnchanged`. Also owns `classifyChildFailure`/`decideRetry` (at most one automatic retry; an identical fingerprint escalates instead of looping), `planFailureCancellation` (dependents only, never the whole fleet) and `createProgressWatchdog` (refuses to re-enter an identical wave state), plus the single `evaluateCompletion` definition of DONE/BLOCKED/NEEDS_USER_DECISION/CANCELLED/CONTINUE.
+  - `lib/parallel-coding-runtime-v16-15.mjs` â€” composition only. `planWave`, `runIntegration`, `completionDecision`, `retryDecision`, `failureCancellation`, `progressWatchdog` and `pairIndependent` all delegate; `PARALLEL_CODING_OWNERS` reports the ids it delegates to. It is not a fifth authority.
+- Transactional wave integration in the controller (`pi/extensions/ues.ts`): one decision per wave drives concurrency (clamped by the pre-existing V16.5 fleet bound), each child receives the wave snapshot through a delta, integration goes through the transaction with the proven V16.5 loop preserved as the fallback, and the terminal state comes from the ONE completion owner.
+- Bounded loop governor V16.15: the wave loop asks `retryDecision` and `progressWatchdog` before retrying, so a repeated identical failure or a non-advancing wave state stops the loop with a stated reason instead of spending the remaining budget. Infrastructure errors in the outer catch keep the bounded-attempt behavior exactly, because the retry owner classifies **child** failure signatures. `loop-retries-allowed`/`loop-retries-refused`/`loop-stops:*` observations are emitted as MEASURED counts.
+- Isolated write lane V16.15: `lib/task-dag-scheduler-v16-12.mjs` gains `NODE_EFFECT.SOURCE_WRITE_ISOLATED` and `RESOURCE_CLASS.ISOLATED_WRITE`, which overlap reads and other isolated writers up to the isolated lane width but never a root `SOURCE_WRITE` in either direction. `MAX_ISOLATED_WRITE_WIDTH = 3` is clamped inside `planTaskDag`. `lib/tool-concurrency.mjs`/`lib/tool-scheduler.mjs` expose the lane to TRUSTED callers only â€” it is read from the third `options` argument, never from tool input, so a tool cannot widen its own concurrency.
+- Lazy V16.15 stack: five ids (`PARALLEL_CODING_RUNTIME` + the four owners), five loaders and a `PARALLEL_CODING` stack in `lib/lazy-runtime.mjs`. `ues.ts` contains no static import of any V16.15 module, so boot pays for none of it; if hydration fails the wave keeps the V16.5 bound with the `SERIAL_STRUCTURED` posture.
+- `npm run bench:v16.15` (`scripts/bench-v16-15-parallel-coding.mjs`): 52 cells, each labelled `SIMULATED`/`SYNTHETIC`/`MEASURED`/`LIVE`, with `summedSpeedupClaim: null`, `tokenSavingClaim: null`, `qualityClaim: NOT_INFERRED_FROM_BENCH` and `providerTokens: NOT_MEASURED`. The single MEASURED cell runs both arms (the same real child process doing the same deterministic CPU work in real worktrees) and reports both wall times separately plus a ratio scoped to that cell. LIVE cells run real transactions: a clean two-writer integration, a same-file collision refused before any mutation, and a genuine apply failure after a genuine apply that is rolled back with the workspace byte-identical. Cells declare an expectation, the report counts failures, and the bench exits non-zero if any cell fails.
+- `npm run eval:v16.15`: the V16.15 policy, conflict-graph, wave-context, integration-transaction, runtime, production-wiring and source-integrity suites, plus the V16.5 delegation-safety regression.
+- `docs/V16.15-SINGLE-SHOT-PARALLEL-CODING.md`: the V16.15 laws, owners and non-goals.
+
+### Changed
+
+- `lib/worktree-sandbox.mjs` gains `preflightTaskSandbox` (a read-only verdict that mutates neither tree â€” no `git add -N`, no `git apply`, no worktree removal), `rootWorkspaceIdentity` and `patchesOverlap`. `integrateTaskSandbox` remains the single owner of the actual apply.
+- `lib/delegation-safety.mjs` pair verdicts now come from the conflict graph (`PAIR_STRATEGY.CONFLICT_GRAPH`), and `classifyScope` treats a writer that declared no file as `scopeUnknown`/serial-only instead of disjoint. `PAIR_STRATEGY.LEGACY_ROOTS` keeps the previous behavior reachable for diagnosis.
+- `lib/efficiency-metrics-v16-10.mjs` aggregates the `parallel-coding` event kind and reports `speedupClaim: null` and `measuredOverlapSavedMs: NOT_MEASURED`, because a wave count is activity and not a wall-time measurement.
+- `lib/execution-acceleration-v16-12.mjs` pins `ISOLATED_WRITE: 1` in its default limits so an unconfigured caller never widens the isolated lane.
+- `scripts/check-source-integrity.mjs` adds the V16.15 contracts; all prior V16.8â€“V16.14 contracts remain byte-stable.
+
+### Fixed
+
+- A scope that declared no files could previously be launched beside another writer because its root set compared as disjoint. It is now a writer with an UNKNOWN scope and conflicts with everything.
+- Two writers over different files in the same directory were previously serialized by a two-segment root comparison (`packages/a/src/x.ts` â†’ `packages/a`), which refused real parallelism while still missing `package.json` vs `package-lock.json`. Independence is now decided on exact files and real relations.
+- A wave integration could leave the root half-applied when a **later** patch failed after earlier ones had landed. Integration now preflights every patch before mutating anything, refuses childâ†”child same-file collisions, and reverses every applied patch on a later apply failure.
+- Each wave child previously rebuilt the same wave-level facts in its own context. The facts are now written once per wave and referenced by id from a per-child delta.
+- `package.json` `eval:v14` named `test/context-engine-v14-context.test.mjs`, which does not exist; the real file is `test/context-engine-v14.test.mjs`. The bounded runner silently **drops** a test file it cannot find, so the V14 gate was running one fewer suite than it claimed while still exiting 0. `npm run docs:check` now fails closed on any `eval:*` script naming a nonexistent test file, and `test/source-integrity-v16-15.test.mjs` asserts it.
 
 ## [16.14.0] - 2026-10-08
 
@@ -8,7 +42,7 @@
 
 - Bounded external-research HTTPS transport V16.14 (`lib/research-transport-v16-14.mjs`): the single owner of safe research egress. Resolves the hostname, validates **every** resolved address (DNS-based SSRF defense), and pins the connection to the validated addresses via the socket `lookup` so no second resolution can occur between validation and connect. Redirects are manual, bounded, re-validated per hop, and reject credential-bearing `Location` URLs; sensitive headers (including `Authorization`) are stripped on a cross-host redirect. An `AbortSignal` destroys the in-flight socket, so a soft/hard deadline stops the request instead of orphaning it. Bodies are streamed and truncated at a byte cap. `toFetchLike` adapts it to the existing fetch-shaped page-fetch path.
 - Expanded SSRF classification V16.14 (`lib/research-network-policy-v16-13.mjs`): real IPv6 classification (unspecified, loopback, ULA `fc00::/7`, link-local `fe80::/10`, multicast, IPv4-mapped private) plus additional IPv4 ranges (`0.0.0.0/8`, `100.64.0.0/10` CGNAT, `198.18.0.0/15`, multicast, reserved). `checkResolvedAddress`/`checkResolvedAddresses` block a hostname whose DNS answer is private, and treat a mixed public/private answer as hostile.
-- Claim↔evidence content-hash binding V16.14 (`lib/external-research-broker-v16-13.mjs`): `trackClaims` binds a claim to evidence by content hash, not by a `sourceId` string alone. A high-risk claim (`security`/`version`/`breaking`/`install`/`auth`/`config`/`migration`/`api-surface`) supported only by a `sourceId` is downgraded to `PARTIALLY_SUPPORTED` with `binding: "sourceId-only"`.
+- Claimâ†”evidence content-hash binding V16.14 (`lib/external-research-broker-v16-13.mjs`): `trackClaims` binds a claim to evidence by content hash, not by a `sourceId` string alone. A high-risk claim (`security`/`version`/`breaking`/`install`/`auth`/`config`/`migration`/`api-surface`) supported only by a `sourceId` is downgraded to `PARTIALLY_SUPPORTED` with `binding: "sourceId-only"`.
 - Conditional revalidation V16.14 (`lib/research-page-fetch-v16-13.mjs`, `lib/research-cache-helper-v16-13.mjs`): a stale cache entry with an `ETag`/`Last-Modified` performs a conditional GET; a `304` reuses the stored body instead of re-downloading it. `revalidationHeadersFor`, `reuseDecisionFor` and `touchResearchCache` own the decision.
 - DeepSeek economy gate V16.14: `planDeepSeekEconomy` refuses a synthesis turn whose bounded input has no conflict, no unknown and no captured fact, and records an `unnecessary-deepseek-call` waste signal. A request with any real evidence still pays.
 - Honest provider-token telemetry V16.14: `normalizeProviderUsage` accepts a token count **only** from real provider usage telemetry. An unmeasured run reports `providerTokens: "NOT_MEASURED"` and emits no token observation at all, so no downstream aggregate can read it as a measured zero.
@@ -24,7 +58,7 @@
 - `lib/context-kernel-v16-10.mjs`: the head/tail compaction reserves room for its notice and shrinks deterministically until the shaped text fits, so a "compacted" result can no longer exceed the budget it was given. The segment-id fallback is derived from content (`sha256`) instead of `Math.random()`, making identical input produce an identical id.
 - `lib/tool-result-reuse-v16-12.mjs`, `lib/evidence-store.mjs`, `lib/verification-receipt-cache-v16-12.mjs`, `lib/warm-service-reuse-v16-12.mjs`, `lib/task-dag-scheduler-v16-12.mjs`: bounded index/GC maintenance, a real parsed-entry L1 hot cache, disposal of late warm instances, and dependency-scoped DAG cancellation.
 - `lib/lazy-runtime.mjs`: registers `RESEARCH_TRANSPORT` in the `RESEARCH` stack. A `LOCAL_ONLY`/`PI_ONLY` run still hydrates none of it.
-- `scripts/check-source-integrity.mjs` adds the V16.14 contracts; all prior V16.8–V16.13 contracts remain byte-stable.
+- `scripts/check-source-integrity.mjs` adds the V16.14 contracts; all prior V16.8â€“V16.13 contracts remain byte-stable.
 
 ## [16.13.0] - 2026-10-07
 
@@ -75,7 +109,7 @@
 - Browser Transport V2 (`lib/browser-transport-v16-11.mjs`): a typed `request` / `response` / `event` envelope that is a SUPERSET of the legacy V1 messages, so an old worker keeps working. It negotiates the protocol version, gates the event channel on a worker-advertised capability, never throws on a malformed message (fail-closed value), and bounds + redacts every text-bearing event. `createCoalescingEventSink` keeps only the latest delta in a window while always delivering terminal events.
 - Event-First Answer Bridge (`lib/advisor-event-bridge-v16-11.mjs`): the single place that decides, per consult, whether the event channel or the bounded poll fallback drives the observation. It feeds decoded events straight into the proven `advisor-answer-observer` and reports the honest channel (`event` / `poll` / `event-then-poll` / `none`). An advertised-but-silent channel reports `poll`, never a fabricated event win.
 - Advisor Recovery (`lib/advisor-recovery-v16-11.mjs`): bounded recovery (`RECOVERY_MAX_TOTAL_ATTEMPTS = 3`, `RECOVERY_MAX_PER_KIND = 2`, fail-closed on an unknown kind) and `createSubmitGuard`, a single-flight epoch-scoped idempotency gate that refuses re-claiming an in-flight or completed submit (`submit-in-flight`).
-- Latency Metrics V16.11 (`lib/advisor-latency-metrics-v16-11.mjs`): an honest aggregation that never averages across `workerState` (cold/warm) or `channel` (event/poll). A cell with no MEASURED sample is `NOT_MEASURED`; a cold→warm speedup is only computed when BOTH sides have a MEASURED sample; a simulated run reports `SIMULATED_ONLY` and never claims a live-provider win.
+- Latency Metrics V16.11 (`lib/advisor-latency-metrics-v16-11.mjs`): an honest aggregation that never averages across `workerState` (cold/warm) or `channel` (event/poll). A cell with no MEASURED sample is `NOT_MEASURED`; a coldâ†’warm speedup is only computed when BOTH sides have a MEASURED sample; a simulated run reports `SIMULATED_ONLY` and never claims a live-provider win.
 - Windows Resource Hygiene (`lib/windows-resource-hygiene-v16-11.mjs`): an ordered teardown (kill the process tree BEFORE file removal, then release locks) that returns a receipt (`COMPLETE` / `PARTIAL` / `FAILED` / `NOTHING_TO_DO`) plus `detectRetainedResources`, so cleanup is proven instead of assumed.
 - Advisor Runtime V16.11 (`lib/advisor-runtime-v16-11.mjs`): the single per-run composition. It owns ONE session manager and threads the event bridge, recovery and metrics into it, exposing `beginConsult` / `observeEvent` / `pollOnce` / `completeConsult` / `claimSubmit` / `onFailure` / `shutdown`.
 - `npm run bench:v16.11` (`scripts/bench-v16-11-runtime.mjs`): a deterministic cold/warm + event/poll benchmark over the real composition. It is labelled `SIMULATED_ONLY` and `providerTokens: "NOT_MEASURED"`; a live claim requires an operator-run authenticated profile.
@@ -173,7 +207,7 @@ Production correctness and runtime hardening follow-ups shipped in 16.7.2.
 - **Agent generation-loop guard.** A new self-contained watchdog
   (`lib/agent-progress-watchdog.mjs`) detects the repetitive-narration stall
   (`"Let me write. Go."` repeated with zero tool calls or file mutations) from the
-  ABSENCE of action progress plus a repeated narration fingerprint — never vocabulary
+  ABSENCE of action progress plus a repeated narration fingerprint â€” never vocabulary
   alone. It warns first, then performs at most a bounded context-edit recovery, then
   fails closed with `AGENT_LOOP_UNRECOVERED`. Detection is bounded (fixed rolling
   window, fixed counters), side-effect-free, and only active during a UES run.
@@ -186,7 +220,7 @@ Production correctness and runtime hardening follow-ups shipped in 16.7.2.
   string. Three production call sites used the raw object: the two compaction hooks
   passed it to helpers that require a path string, so they threw
   `The "paths[0]" argument must be of type string` and every caller swallowed the
-  throw — the durable compaction resume guard therefore never ran in production;
+  throw â€” the durable compaction resume guard therefore never ran in production;
   and the `input` auto-admission test treated the always-truthy object as a Git
   workspace, defeating the V15.12 fail-closed admission check for non-Git
   directories. All three now read `.root`.
@@ -203,7 +237,7 @@ V16.7.1 release parts that close the remaining proof gaps on the DeepSeek Web la
   truth. `verifyLocalAdvice` is unchanged and is never weakened.
 - **Streaming generation-loop guard (Part 2).** The parent watchdog observes the real Pi
   `message_update` / `assistantMessageEvent.text_delta` events, warns on a repeated trailing
-  window, then aborts the CURRENT generation with `ctx.abort()` BEFORE `message_end` — bounded
+  window, then aborts the CURRENT generation with `ctx.abort()` BEFORE `message_end` â€” bounded
   memory, deterministic, no false positive on a legitimate long stream or a stream with real
   tool progress. Detection is TWO bounded candidates: a word-token trailing repetition (period
   up to `maxStreamPeriod`) and a PHRASE trailing repetition (sentences/clauses, period up to
@@ -332,7 +366,7 @@ losing state. The full design and safety contract are in
   stores one; never autofills credentials, solves a CAPTCHA or injects an OTP; never copies a
   cookie or session between profiles; never auto-falls-back to another account; never grants
   DeepSeek filesystem, Git or terminal rights. Login stays manual and human-driven.
-- Asserted by test sections E–F and reported by `ues deepseek doctor`.
+- Asserted by test sections Eâ€“F and reported by `ues deepseek doctor`.
 
 ### Notes for upgrade
 
@@ -465,7 +499,7 @@ fails on 16.6.0). The full table with before/after detail is in
 - **Parallel read-only reasoning overlap** (`lib/parallel-reasoning-v16-6.mjs`): fail-closed,
   exactly one DeepSeek writer, any write during overlap refuses the overlap.
 - **Progress Observer V2** (`lib/progress-observer-v2.mjs`) with the header
-  `UES 16.6 · DEEPSEEK-FIRST · BALANCED`, compact by default.
+  `UES 16.6 Â· DEEPSEEK-FIRST Â· BALANCED`, compact by default.
 - **Measurement provenance** (`lib/measurement-provenance.mjs`): MEASURED / DERIVED / ESTIMATED /
   NOT_MEASURED, with an additive `v16_6` block in the task telemetry.
 - `lib/v16-6-runtime.mjs`: the single production surface, hydrating the heavy session and economy
@@ -513,7 +547,7 @@ fails on 16.6.0). The full table with before/after detail is in
 - Verified Handoff Capsules: raw child output to the Evidence Store, bounded capsule to the parent.
 - Five DeepSeek advisor question types with consultant-only authority.
 - Advisor benefit learner (bounded AUTO consult weight only), reasoning doctor, progress observer.
-- `lib/delegation-fleet.mjs` — bounded concurrent wave executor wired into the production
+- `lib/delegation-fleet.mjs` â€” bounded concurrent wave executor wired into the production
   controller's structured-plan wave loop (`executeStructuredPlan` in `pi/extensions/ues.ts`).
 ### Changed (V16.5)
 - Independent children in a proven-safe wave now execute **concurrently** instead of serially.
@@ -553,8 +587,8 @@ fails on 16.6.0). The full table with before/after detail is in
 
 - Skill routing evaluation: 20/20 cases.
 - Average activated skills: approximately 2 from the 48-skill catalog.
-- Advertised tools/task in the deterministic corpus: 8.0 → 5.8.
-- Estimated model-facing tool-schema surface: 12,287 → 7,873 characters.
+- Advertised tools/task in the deterministic corpus: 8.0 â†’ 5.8.
+- Estimated model-facing tool-schema surface: 12,287 â†’ 7,873 characters.
 - Measured bounded delegation fixture:
   sequential-equivalent child execution: 1,526 ms
   overlapped dispatch wall time: 1,013 ms
@@ -594,10 +628,10 @@ fails on 16.6.0). The full table with before/after detail is in
 
 ### Performance / measurement
 
-- Static production boot graph: 127 → 106 modules.
-- Static eager runtime bytes: 1,576,012 → 1,005,013 bytes (~36% reduction).
-- Heavy browser/web/code modules in eager boot set: 13 → 0.
-- Release test file slots: 83 → 56 unique executions.
+- Static production boot graph: 127 â†’ 106 modules.
+- Static eager runtime bytes: 1,576,012 â†’ 1,005,013 bytes (~36% reduction).
+- Heavy browser/web/code modules in eager boot set: 13 â†’ 0.
+- Release test file slots: 83 â†’ 56 unique executions.
 - No real-model token/speed/quality uplift claimed without live measured telemetry.
 
 ### Safety / quality invariants
@@ -611,7 +645,7 @@ fails on 16.6.0). The full table with before/after detail is in
 
 ### Fixed
 
-- Preserve DeepSeek consult → follow-up session lifecycle across verifier retries.
+- Preserve DeepSeek consult â†’ follow-up session lifecycle across verifier retries.
 - Bounded read-only follow-up dispatch confirmation before any follow-up submit.
 - Async UI hydration race handling in follow-up dispatch.
 - Follow-up dispatch regressions.
@@ -629,7 +663,7 @@ fails on 16.6.0). The full table with before/after detail is in
 - **Production DeepSeek Web reasoning bridge.** Managed browser worker drives a real third-party web consultation over a persistent authenticated profile: fill exactly once, unique Send resolution, submit at most once, scoped answer-region polling with streaming acquisition, structured response parsing, local advice verification, and bounded cleanup.
 - **Separated integration vs advice acceptance in live smoke.** Bridge PASS means session started, prompt filled once, prompt submitted once, response extracted, structured parser succeeded, local verifier ran, and cleanup ran; `adviceAccepted` reports the verifier verdict separately. `advice-rejected` is an expected safe outcome, never a recommendation, and never enters executor context.
 - **AUTO escalation / non-escalation routing.** Genuine ambiguity, architectural uncertainty, and repeated verifier failure escalate; well-grounded, trivial, or doc/version tasks stay local with an auditable reason.
-- **Production-wired live A/B benchmark with consent.** Measured readiness, provider failures, browser retries, false-pass rate, consultation counts, submit attempts, and verified pass rate prove integration and routing. Verified live benchmark: readiness live-provider-measured, provider_failures 0, browser_retries 0, false_pass_rate 0, web_consultations 1, submit_attempts 1, verified_pass_rate 1; per-task AUTO routing consulted once (ambiguous MCP retry → advice-rejected) and stayed local for the three grounded tasks.
+- **Production-wired live A/B benchmark with consent.** Measured readiness, provider failures, browser retries, false-pass rate, consultation counts, submit attempts, and verified pass rate prove integration and routing. Verified live benchmark: readiness live-provider-measured, provider_failures 0, browser_retries 0, false_pass_rate 0, web_consultations 1, submit_attempts 1, verified_pass_rate 1; per-task AUTO routing consulted once (ambiguous MCP retry â†’ advice-rejected) and stayed local for the three grounded tasks.
 
 ### Safety / quality invariants
 
@@ -913,9 +947,9 @@ Evaluation history, stated precisely: **Holdout A** is a historical diagnostic. 
 ### Fixed
 
 - Tier-B diagnostics fallback could not win the race after a non-zero grace period. The race was constructed inside the retry loop while the fallback promise was still `null` (the grace timer had not fired yet), so tier B was raced against a never-settling promise; when the timer later assigned the real promise, the already-constructed race was not rebuilt, and the continuation branch then dropped it entirely. With the default grace a deterministic fallback that finished **complete** in ~800ms still could not win, so the call burned the whole initial plus continuation budget. Tier B now races one long-lived promise shared by every window, so a result becomes winnable as soon as it exists. Measured on `npm run bench:code`: `diagnosticsSmall` 7528ms -> 2179ms, `diagnosticsSmallRepeat` 10011ms -> 2469ms.
-- A **complete** tier-B result may now return early without waiting for tier A to time out, while an **incomplete** tier-B result still never stands in for a clean file: its evidence is held, the language server keeps its full bounded window, and the result is reported honestly as `complete: false`. The healthy LSP fast path is unchanged — a publish before the grace still spawns no child process, an LSP answer still wins over a running fallback, and a discarded fallback is still aborted and reaped without restarting or evicting the session.
+- A **complete** tier-B result may now return early without waiting for tier A to time out, while an **incomplete** tier-B result still never stands in for a clean file: its evidence is held, the language server keeps its full bounded window, and the result is reported honestly as `complete: false`. The healthy LSP fast path is unchanged â€” a publish before the grace still spawns no child process, an LSP answer still wins over a running fallback, and a discarded fallback is still aborted and reaped without restarting or evicting the session.
 - Tier A's window is now an absolute deadline measured from the start of the request. Resuming tier A after an incomplete tier-B result previously re-armed a whole fresh initial window, so a large-file incomplete case could cost `grace + fallback + initial + continuation` instead of the intended bounded budget. `diagnosticsLarge` is back within its intended window while still reporting `complete: false` with the real diagnostics it found.
-- Adaptive diagnostics history is keyed on a stable workload identity — workspace + provider + `configFingerprint` + relative file + cold/warm class — instead of the language-server `sessionId`, which is a fresh UUID on every start. Learning previously survived nothing: every idle-TTL eviction, bounded restart or config re-acquisition discarded it. The identity still separates distinct workspaces and cold from warm timings, and invalidates on a relevant configuration change.
+- Adaptive diagnostics history is keyed on a stable workload identity â€” workspace + provider + `configFingerprint` + relative file + cold/warm class â€” instead of the language-server `sessionId`, which is a fresh UUID on every start. Learning previously survived nothing: every idle-TTL eviction, bounded restart or config re-acquisition discarded it. The identity still separates distinct workspaces and cold from warm timings, and invalidates on a relevant configuration change.
 - A single diagnostics request now contributes exactly one terminal history outcome. The tier A / tier B race has several legitimate exits and one request can pass through more than one, which previously recorded both a sample and a timeout and inflated the next request's budget twice. Only the actual observed duration is admitted as a timing sample; an intermediate incomplete tier-B settlement is no longer recorded as the request's outcome, and a configured budget is never recorded as if it were an observation.
 - `diagnosticsFallbackGraceMs` now reports the **effective** grace taken from the operation result rather than the raw option. The runtime clamps the configured grace to half the resolved initial window, so telemetry previously described an intent the runtime never used, and the default path reported `null` while a real 1500ms grace was in force. Metrics and existing result fields are otherwise unchanged.
 
@@ -929,7 +963,7 @@ Evaluation history, stated precisely: **Holdout A** is a historical diagnostic. 
 ### Added
 
 - Adaptive diagnostics budget V2 for Parent Code Intelligence Lite: a deterministic, bounded budget derived from file size, line count, provider identity, pooled cold/warm state, measured server startup time and previously observed diagnostics durations. Model-visible telemetry exposes the chosen budget, its source, workload class, actual duration and whether it timed out.
-- Tiered diagnostics for the TypeScript/JavaScript family: the pooled language server stays the fast path, and a deterministic `typescript` compiler fallback — resolved from the provider's own installation, so there is no new dependency and no version skew — is launched after a short grace period and *raced* against the remaining server budget instead of running after it. A tier A timeout therefore costs the budget only, never `budget + fallback`, and the healthy fast path spawns no child process at all.
+- Tiered diagnostics for the TypeScript/JavaScript family: the pooled language server stays the fast path, and a deterministic `typescript` compiler fallback â€” resolved from the provider's own installation, so there is no new dependency and no version skew â€” is launched after a short grace period and *raced* against the remaining server budget instead of running after it. A tier A timeout therefore costs the budget only, never `budget + fallback`, and the healthy fast path spawns no child process at all.
 - Honest diagnostics completeness: a result is only reported `complete: true` when a diagnostics source actually finished evaluating the requested scope. A workspace whose module graph or ambient type set does not resolve reports `complete: false` (`fallback-environment-incomplete`) together with the real diagnostics it did find, rather than presenting the absence of errors as a clean file.
 - A missed `publishDiagnostics` is accounted as a request-level outcome, not a session failure: it increments dedicated diagnostics counters and never inflates `failedOperations`, restarts, or evicts a healthy persistent session. `ues_code status` exposes those counters separately from pool health.
 - Model-facing payload reduction for `ues_code` (`symbols`, `search`, `diagnostics`, `definition`, `references`): positions are reported 1-based to match tool parameters, redundant pool/provider metadata is compacted, and the exact pre-reduction JSON is preserved in reversible context for verifiers.
@@ -982,7 +1016,7 @@ Evaluation history, stated precisely: **Holdout A** is a historical diagnostic. 
 
 ### Fixed
 - Prevented a second normal engineering prompt from being silently consumed while a direct UES controller is already active.
-- Added deterministic natural-continuation forwarding for explicit `tiếp tục` / `làm tiếp` / `continue` style follow-ups when one active child can be targeted safely.
+- Added deterministic natural-continuation forwarding for explicit `tiáº¿p tá»¥c` / `lÃ m tiáº¿p` / `continue` style follow-ups when one active child can be targeted safely.
 
 ### Changed
 - Unrelated prompts during an active direct run stay on Pi's normal path instead of attempting a duplicate controller admission.
@@ -1003,7 +1037,7 @@ Evaluation history, stated precisely: **Holdout A** is a historical diagnostic. 
 ### Changed
 - Automatic UES runs now launch non-blockingly from the input hook, keeping stop/steer/follow-up interaction responsive while the supervised controller continues.
 - Direct admission reuses the already-classified task policy inside `ues_execute`, avoiding duplicate classification and keeping the selected execution/risk profile stable.
-- Expanded natural engineering verbs for project-health workflows such as inspect, scan, check, analyze, `xem`, and `phân tích`.
+- Expanded natural engineering verbs for project-health workflows such as inspect, scan, check, analyze, `xem`, and `phÃ¢n tÃ­ch`.
 
 ### Validation
 - Added regression coverage for native informational chat, project-health auto routing, long structured prompts, high-risk database work, non-Git workspaces, and explicit slash-command bypass.
@@ -1087,7 +1121,7 @@ Evaluation history, stated precisely: **Holdout A** is a historical diagnostic. 
 ## [15.0.0-beta.15] - 2026-09-27
 
 ### UX
-- Keep Pi session identity aligned with the active UES task instead of leaving the sidebar named after an earlier chat message such as `xin chào`.
+- Keep Pi session identity aligned with the active UES task instead of leaving the sidebar named after an earlier chat message such as `xin chÃ o`.
 - `/ues-run` now sets a deterministic, bounded session name from the engineering task without an extra model call.
 - Prompt-style UES commands such as `/ues-resume`, `/ues-fix`, `/ues-review`, and related aliases synchronize the session name through Pi's input hook.
 - UI title synchronization is best-effort and does not affect controller execution when unavailable.

@@ -24,7 +24,7 @@ import { waitForAuthenticatedPage } from "../../lib/browser-profile.mjs";
 import { acquireProfileLock } from "../../lib/deepseek-profile-lock.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
-import { computeSafeWaves, normalizePlanForValidation, taskFiles, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
+import { computeSafeWaves, normalizePlanForValidation, taskFiles, taskReadFiles, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { gcEvidenceStore } from "../../lib/evidence-store.mjs";
@@ -287,6 +287,22 @@ const loadResearchBriefModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_
 const loadResearchRouterModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_ROUTER);
 const loadResearchNetworkPolicyModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_NETWORK_POLICY);
 const loadExternalResearchBrokerModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.RESEARCH_BROKER);
+// V16.15 Single-Shot Parallel Coding Runtime. The composition module is the ONLY
+// production entry point: it statically imports the policy, the conflict graph,
+// the wave shared context and the integration transaction, so hydrating it pulls
+// the whole stack through the same cached, joined hydration. The controller only
+// asks ONE question ("what should this wave do?") and then executes the answer;
+// it never re-derives independence, a context budget or a transaction, and it
+// never hydrates this stack for a TINY/SMALL parent-direct task.
+//
+// Owned by these modules (resolved through `lib/lazy-runtime.mjs`, never
+// statically imported here so boot pays for none of them):
+//   lib/parallel-coding-runtime-v16-15.mjs     composition / single entry point
+//   lib/parallel-execution-policy-v16-15.mjs   shape + posture + economy gate
+//   lib/execution-conflict-graph-v16-15.mjs    provable independence
+//   lib/wave-shared-context-v16-15.mjs         snapshot / delta / handoff
+//   lib/integration-transaction-v16-15.mjs     transactional wave integration
+const loadParallelCodingRuntimeModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.PARALLEL_CODING_RUNTIME);
 
 function configuredDuration(name: string, fallback: number, min: number, max: number) {
   const parsed = Number(process.env[name] || "");
@@ -4708,11 +4724,36 @@ async function executeStructuredPlan(input: {
     parentAgent: "controller",
     maxActiveChildren: resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
   });
+  // V16.15 single-shot parallel coding telemetry. Every field is either MEASURED
+  // from this run or NOT_MEASURED. It never claims a speedup that was not
+  // measured, and it never reports a fabricated zero for an unmeasured quantity.
+  const parallelCodingTelemetry: any = {
+    policy: "parallel-coding-runtime-v16-15",
+    waves: [] as any[],
+    sharedContext: [] as any[],
+    integrationTransactions: [] as any[],
+    retries: [] as any[],
+    completion: null as any,
+    watchdog: null as any,
+    hydration: null as any,
+    // A wave-level parallel plan is a DECISION, never a verdict. This is pinned
+    // here so no receipt produced by this run can be read as a PASS claim.
+    canProduceVerdict: false,
+  };
+
   const scheduleReport = () => ({
     safeWaves: safe.waves,
     serialized: safe.serialized,
     dynamic,
     parallelDelegation: delegationFleetTelemetry(delegationTelemetry),
+    parallelCoding: {
+      ...parallelCodingTelemetry,
+      // Read lazily so the report shows what is loaded at the moment it is read.
+      hydration: {
+        modules: loadedLazyModules(),
+        telemetry: lazyRuntimeTelemetry(),
+      },
+    },
     delegationSession: {
       sessionId: delegationSession.sessionId,
       depth: delegationSession.depth,
@@ -4757,6 +4798,88 @@ async function executeStructuredPlan(input: {
         input.signal,
       );
     }
+  };
+
+  // V16.15 BOUNDED LOOP GOVERNOR.
+  //
+  // The loop continues for a REASON the owners can state, never merely because
+  // attempts remain:
+  //   * `retryDecision` refuses a repeated IDENTICAL failure, so a non-advancing
+  //     wave escalates instead of being respawned against the same inputs;
+  //   * `progressWatchdog` refuses to continue once the SAME wave state is
+  //     observed twice, so the run cannot spend its remaining budget re-entering
+  //     a state it has already reached.
+  // Both rules live in `lib/integration-transaction-v16-15.mjs`; this loop owns
+  // neither. When the V16.15 stack cannot hydrate, the pre-V16.15 bounded-attempt
+  // behavior is preserved EXACTLY: a missing module is never a licence to loop,
+  // and never a licence to stop trying either.
+  //
+  // The watchdog is created LAZILY from the same already-hydrated composition the
+  // wave decision used, so a run that never reaches a wave never pays for it.
+  const seenFailureFingerprints: string[] = [];
+  let progressWatchdog: any = null;
+  const watchdogFor = (module: any) => {
+    if (progressWatchdog) return progressWatchdog;
+    if (!module?.progressWatchdog) return null;
+    progressWatchdog = module.progressWatchdog({
+      maxWaves: Math.max(1, safe.waves.length) * Math.max(1, input.maxAttempts) + 1,
+    });
+    return progressWatchdog;
+  };
+  const waveStateFingerprint = (taskIds: string[], outcome: string) => createHash("sha256")
+    .update(`${taskIds.join("\u0000")}\u0000${String(outcome || "")}`)
+    .digest("hex")
+    .slice(0, 24);
+  const observeWaveState = (module: any, fingerprint: string) => {
+    const watchdog = watchdogFor(module);
+    return watchdog ? watchdog.observe({ fingerprint }) : null;
+  };
+  const governWaveLoop = (
+    module: any,
+    wave: number,
+    taskIds: string[],
+    failureText: string,
+    attempt: number,
+  ) => {
+    const text = String(failureText || "").trim();
+    const fingerprint = waveStateFingerprint(taskIds, text);
+    const attemptsLeft = attempt < input.maxAttempts;
+    // The retry owner only answers when there is a real failure signature to
+    // classify. With none, the bounded-attempt behavior is preserved unchanged.
+    const retry = text && module
+      ? module.retryDecision({
+        failureText: text,
+        attempts: Math.max(0, attempt - 1),
+        fingerprint,
+        seenFingerprints: seenFailureFingerprints,
+        maxRetries: Math.max(0, input.maxAttempts - 1),
+      })
+      : null;
+    const progress = observeWaveState(module, fingerprint);
+    const retryAllowed = retry ? retry.retry === true : attemptsLeft;
+    const progressAllowed = progress ? progress.continue !== false : true;
+    const allowed = attemptsLeft && retryAllowed && progressAllowed;
+    if (allowed) seenFailureFingerprints.push(fingerprint);
+    const reason = allowed
+      ? String(retry?.reason || "attempt budget remains")
+      : !attemptsLeft
+        ? `attempt budget exhausted (${attempt}/${input.maxAttempts})`
+        : retryAllowed
+          ? String(progress?.reason || "no progress")
+          : String(retry?.reason || "failure is not retryable");
+    const decision = {
+      wave,
+      attempt,
+      retry: allowed,
+      reason,
+      failureClass: retry?.class || null,
+      fingerprint,
+      // A retry decision is loop control, never a verdict.
+      canProduceVerdict: false,
+      provenance: retry ? "MEASURED" : "NOT_MEASURED",
+    };
+    parallelCodingTelemetry.retries.push(decision);
+    return decision;
   };
 
   for (let waveIndex = 0; waveIndex < safe.waves.length; waveIndex++) {
@@ -4813,15 +4936,149 @@ async function executeStructuredPlan(input: {
             : MAX_CONCURRENCY;
         // V16.5 bound: the fleet resolves the request to at most
         // UES_MAX_ACTIVE_CHILDREN (default 2) and never above the hard max (3).
-        const waveConcurrency = Math.min(
+        const fleetBound = Math.min(
           requestedParallel,
           resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
         );
+
+        // V16.15 ONE DECISION PER WAVE.
+        //
+        // The controller asks ONE question -- "what should this wave do?" -- and
+        // then executes the answer. It does NOT re-derive independence, the
+        // economy of parallelism or the resource clamp here: those are owned by
+        // `lib/parallel-execution-policy-v16-15.mjs` behind the composition entry
+        // point, so the runtime and the safety owner can never disagree.
+        //
+        // FAIL-SAFE POSTURE. If the V16.15 stack cannot hydrate, the wave does NOT
+        // silently parallelize: it falls back to the V16.5 bound with the
+        // serial-structured posture, which is the behavior that shipped before.
+        // A missing module is never a reason to run writers concurrently.
+        const wavePlanModule = await loadParallelCodingRuntimeModule();
+        const wavePlan = wavePlanModule
+          ? wavePlanModule.planWave({
+            scopes: prepared.map((item: any) => ({
+              id: String(item.task.id),
+              readOnly: item.writeFiles.length === 0,
+              writeFiles: item.writeFiles,
+              readFiles: taskReadFiles(item.task),
+              task: [item.task.title, item.task.summary].filter(Boolean).join(" "),
+            })),
+            changedFiles: prepared.flatMap((item: any) => item.writeFiles),
+            risk: prepared.some((item: any) => leafTaskPolicy(item.task, input.rootPolicy || {}).risk === "high")
+              ? "high"
+              : "medium",
+            // A read-only scope can overlap the wave's writer: that is the whole
+            // point of the PARALLEL_READ_ONLY posture. It is only "useful" when
+            // the wave really contains a reader, so the flag is derived from the
+            // prepared wave and not asserted unconditionally.
+            readOnlyWorkUseful: prepared.some((item: any) => item.writeFiles.length === 0),
+            unresolvedResearch: input.unresolvedResearch === true,
+            resourcePressure: input.resourcePressure || null,
+            finalRelease: input.finalRelease === true,
+            options: {
+              requestedWriters: fleetBound,
+              requestedReadOnly: Math.min(MAX_CONCURRENCY, resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)),
+              // No `moduleEdges` are passed: a wave cannot contain a declared
+              // task dependency (`computeSafeWaves` already separated those into
+              // different waves), and the controller has no cheap file-level
+              // import graph. The scopes DO carry their `readFiles`, so the
+              // read/write relation between wave members is still proven by the
+              // conflict graph rather than assumed.
+            },
+          })
+          : null;
+        const waveConcurrency = wavePlan
+          ? Math.max(1, Math.min(fleetBound, Number(wavePlan.concurrency) || 1))
+          : fleetBound;
+        const wavePosture = wavePlan?.posture || "SERIAL_STRUCTURED";
+
+        // V16.15 SHARED WAVE CONTEXT.
+        //
+        // Every child of this wave receives the SAME immutable snapshot plus a
+        // child-specific delta. Without it, each child independently rediscovers
+        // the goal, the constraints and the acceptance criteria, which is exactly
+        // the duplicated context the wave should pay for once. The snapshot is
+        // built from the plan's REAL declared facts; when a fact was never
+        // declared it is simply absent, never invented.
+        const waveSnapshot = wavePlanModule && wavePlan?.spawnsChildren === true
+          ? wavePlanModule.buildWaveSnapshot({
+            waveId: `wave-${waveIndex}-attempt-${attempt}`,
+            goal: String(input.plan.goal || ""),
+            constraints: Array.isArray(input.plan.constraints) ? input.plan.constraints : [],
+            architecture: Array.isArray(input.plan.architecture) ? input.plan.architecture : [],
+            requirementIds: prepared.flatMap((item: any) =>
+              Array.isArray(item.task.requirementIds) ? item.task.requirementIds : []),
+            testCommands: prepared.flatMap((item: any) =>
+              taskVerificationCommands(item.task).map((spec: any) => ({ command: spec.command, args: spec.args }))),
+            workspaceGeneration: String(input.traceID || ""),
+          }).snapshot
+          : null;
+        const waveDeltas = new Map<string, any>();
+        if (waveSnapshot && wavePlanModule) {
+          for (const item of prepared) {
+            waveDeltas.set(String(item.task.id), wavePlanModule.buildChildDelta({
+              snapshot: waveSnapshot,
+              child: {
+                childId: String(item.task.id),
+                taskId: String(item.task.id),
+                role: item.writeFiles.length > 0 ? "implement" : "review",
+                readOnly: item.writeFiles.length === 0,
+                goal: [item.task.title, item.task.summary].filter(Boolean).join(" "),
+                writeFiles: item.writeFiles,
+                readFiles: taskReadFiles(item.task),
+                acceptance: Array.isArray(item.task.acceptance) ? item.task.acceptance : [],
+                verificationCommands: taskVerificationCommands(item.task)
+                  .map((spec: any) => ({ command: spec.command, args: spec.args })),
+              },
+            }));
+          }
+        }
+        // Record the wave decision and the context accounting. Every number here
+        // is measured or explicitly NOT_MEASURED; nothing is a speedup claim.
+        parallelCodingTelemetry.waves.push({
+          wave: waveIndex,
+          attempt,
+          posture: wavePosture,
+          shape: wavePlan?.shape || null,
+          reason: wavePlan?.reasons?.map((row: any) => row.signal) || ["v16-15-stack-unavailable"],
+          writerConcurrency: wavePlan?.writerConcurrency ?? null,
+          readOnlyConcurrency: wavePlan?.readOnlyConcurrency ?? null,
+          effectiveConcurrency: waveConcurrency,
+          maxWriters: wavePlan?.maxWriters ?? null,
+          graphFingerprint: wavePlan?.graph?.fingerprint || null,
+          conflictEdges: wavePlan?.graph?.edgeCount ?? null,
+          economy: wavePlan?.economy
+            ? {
+              economical: wavePlan.economy.economical?.value ?? null,
+              estimatedOverlapSavingMs: wavePlan.economy.estimatedOverlapSavingMs?.value ?? null,
+              provenance: wavePlan.economy.provenance,
+            }
+            : null,
+          canProduceVerdict: false,
+        });
+        if (waveSnapshot && wavePlanModule) {
+          parallelCodingTelemetry.sharedContext.push({
+            wave: waveIndex,
+            attempt,
+            snapshotId: waveSnapshot.snapshotId,
+            snapshotChars: waveSnapshot.chars?.value ?? null,
+            childCount: waveDeltas.size,
+            accounting: wavePlanModule.waveAccounting({
+              snapshot: waveSnapshot,
+              deltas: [...waveDeltas.values()],
+            }),
+          });
+        }
+
         const runPreparedChild = async (item: any, childContext: any) => {
             const taskText = [
               "Execute exactly this structured plan task.",
               "Do not broaden file scope. If the declared write file list is empty, do not edit files.",
               "Start with the declared files/interfaces and supplied context. Do not inventory the repository. Use targeted symbol/path search only for a concrete unresolved acceptance or dependency gap; once the safe edit is understood, implement and verify instead of continuing discovery.",
+              "",
+              // The shared wave context is referenced, not repeated: this child
+              // is told that the facts are already established for the wave.
+              waveDeltas.get(String(item.task.id))?.text || "",
               "",
               JSON.stringify(item.task, null, 2),
               "",
@@ -5341,7 +5598,7 @@ async function executeStructuredPlan(input: {
             .join("\n\n---\n\n");
           await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
-          if (attempt < input.maxAttempts) continue;
+          if (governWaveLoop(wavePlanModule, waveIndex, ids, lastWaveFailure, attempt).retry) continue;
           return {
             passed: false,
             reason: "wave-verification-failed",
@@ -5404,7 +5661,7 @@ async function executeStructuredPlan(input: {
           lastWaveFailure = scopeFailure.trim();
           await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
-          if (attempt < input.maxAttempts) continue;
+          if (governWaveLoop(wavePlanModule, waveIndex, ids, lastWaveFailure, attempt).retry) continue;
           return {
             passed: false,
             reason: "scope-or-wave-conflict",
@@ -5419,37 +5676,106 @@ async function executeStructuredPlan(input: {
         }
 
         const integrated: Array<{ item: any; receipt: any }> = [];
-        try {
-          for (const item of prepared) {
-            if (!item.sandbox?.dir) continue;
-            const receipt = await integrateTaskSandbox(input.root, item.sandbox.dir, { keep: true });
-            integrated.push({ item, receipt });
-            integrations.push({ wave: waveIndex, task: item.task.id, ...receipt });
-          }
-        } catch (error) {
-          for (const completedIntegration of [...integrated].reverse()) {
-            await rollbackTaskSandbox(
-              input.root,
-              completedIntegration.item.sandbox.dir,
-              { keep: true },
-            ).catch(() => {});
-          }
-          await failDurablePrepared(
-            prepared,
-            error instanceof Error ? error.message : String(error),
-          );
-          await cleanupSandboxes(input.root, prepared);
-          return {
-            passed: false,
-            reason: "integration-failed",
+        // V16.15 TRANSACTIONAL INTEGRATION.
+        //
+        // The V16.5 loop applied patches one at a time and reversed the ones it
+        // had already applied when a LATER one threw: the second patch could be
+        // unappliable, and the root had already been mutated before anyone found
+        // out. `runIntegration` preflights EVERY patch against the current root
+        // without mutating anything, applies them in a deterministic order, and
+        // reverses every applied patch if any apply fails. When the V16.15 stack
+        // is unavailable the proven V16.5 loop below still runs.
+        const patchable = prepared.filter((item) => item.sandbox?.dir);
+        if (wavePlanModule && patchable.length > 0) {
+          const transaction = await wavePlanModule.runIntegration({
+            root: input.root,
+            patches: patchable.map((item: any) => ({
+              taskId: String(item.task.id),
+              sandboxDir: item.sandbox.dir,
+              writeFiles: item.writeFiles,
+            })),
+            signal: input.signal,
+          });
+          parallelCodingTelemetry.integrationTransactions.push({
             wave: waveIndex,
             attempt,
-            failure: error instanceof Error ? error.message : String(error),
-            validation,
-            schedule: scheduleReport(),
-            results,
-            integrations,
-          };
+            outcome: transaction.outcome,
+            order: transaction.order,
+            rootUnchanged: transaction.rootUnchanged === true,
+            rootIdentityChanged: transaction.rootIdentityChanged === true,
+            appliedCount: (transaction.applied || []).length,
+            rejectedCount: (transaction.rejected || []).length,
+            collisionCount: (transaction.collisions || []).length,
+            preflightMs: transaction.preflightMs ?? null,
+            applyMs: transaction.applyMs ?? null,
+            rollbackMs: transaction.rollbackMs ?? null,
+            canProduceVerdict: false,
+          });
+          if (transaction.outcome !== wavePlanModule.INTEGRATION_OUTCOME.INTEGRATED) {
+            const failureText = transaction.outcome === wavePlanModule.INTEGRATION_OUTCOME.PREFLIGHT_REJECTED
+              ? "wave integration refused before any root mutation: " + JSON.stringify(
+                (transaction.rejected || []).slice(0, 4),
+              )
+              : "wave integration failed and was reversed: " + JSON.stringify(
+                (transaction.rejected || []).slice(0, 4),
+              );
+            for (const row of prepared) {
+              failureByTask.set(String(row.task.id), failureDelta(failureText, { maxChars: 2200 }));
+            }
+            await failDurablePrepared(prepared, failureText);
+            await cleanupSandboxes(input.root, prepared);
+            if (governWaveLoop(wavePlanModule, waveIndex, ids, failureText, attempt).retry) continue;
+            return {
+              passed: false,
+              reason: "integration-failed",
+              wave: waveIndex,
+              attempt,
+              failure: failureText,
+              validation,
+              schedule: scheduleReport(),
+              results,
+              integrations,
+            };
+          }
+          for (const row of transaction.applied || []) {
+            const item = patchable.find((entry: any) => String(entry.task.id) === row.taskId);
+            if (!item) continue;
+            integrated.push({ item, receipt: row });
+            integrations.push({ wave: waveIndex, task: row.taskId, ...row });
+          }
+        } else {
+          try {
+            for (const item of prepared) {
+              if (!item.sandbox?.dir) continue;
+              const receipt = await integrateTaskSandbox(input.root, item.sandbox.dir, { keep: true });
+              integrated.push({ item, receipt });
+              integrations.push({ wave: waveIndex, task: item.task.id, ...receipt });
+            }
+          } catch (error) {
+            for (const completedIntegration of [...integrated].reverse()) {
+              await rollbackTaskSandbox(
+                input.root,
+                completedIntegration.item.sandbox.dir,
+                { keep: true },
+              ).catch(() => {});
+            }
+            await failDurablePrepared(
+              prepared,
+              error instanceof Error ? error.message : String(error),
+            );
+            await cleanupSandboxes(input.root, prepared);
+            return {
+              passed: false,
+              reason: "integration-failed",
+              wave: waveIndex,
+              attempt,
+              failure: error instanceof Error ? error.message : String(error),
+              validation,
+              schedule: scheduleReport(),
+              results,
+              integrations,
+            };
+          }
         }
 
         await completeDurableWave(waveResults);
@@ -5476,7 +5802,29 @@ async function executeStructuredPlan(input: {
             integrations,
           };
         }
-        if (attempt < input.maxAttempts) continue;
+        if (attempt < input.maxAttempts) {
+          // The outer catch handles INFRASTRUCTURE errors (sandbox creation,
+          // worktree removal, durable bookkeeping), not child failures. The retry
+          // owner classifies CHILD failure signatures, so applying it here would
+          // misread a transient Windows `EPERM ... not permitted` as a permanent
+          // policy block. The bounded-attempt behavior is therefore preserved
+          // exactly, and only the progress owner is consulted: a provably
+          // non-advancing infrastructure loop stops instead of respawning the
+          // same wave against the same inputs.
+          const progress = observeWaveState(wavePlanModule, waveStateFingerprint(ids, lastWaveFailure));
+          const stalled = progress ? progress.continue === false : false;
+          parallelCodingTelemetry.retries.push({
+            wave: waveIndex,
+            attempt,
+            retry: !stalled,
+            reason: stalled ? String(progress?.reason || "no progress") : "attempt budget remains",
+            failureClass: null,
+            fingerprint: waveStateFingerprint(ids, lastWaveFailure),
+            canProduceVerdict: false,
+            provenance: "NOT_MEASURED",
+          });
+          if (!stalled) continue;
+        }
         return {
           passed: false,
           reason: "wave-runtime-failed",
@@ -5492,12 +5840,40 @@ async function executeStructuredPlan(input: {
     }
   }
 
+  // V16.15 ONE-SHOT COMPLETION DECISION.
+  //
+  // Every wave is integrated and every task is verified by the local verifier.
+  // The terminal state is computed by the ONE completion owner, so the controller
+  // and the runtime can never disagree about what "done" means. This is a
+  // decision about the LOOP, never a PASS: `canProduceVerdict` stays false and
+  // the caller still requires the integration verifier's own fresh verdict.
+  const completionModule = await loadParallelCodingRuntimeModule();
+  const completion = completionModule
+    ? completionModule.completionDecision({
+      pendingTasks: 0,
+      // Every task in every wave reached a verified PASS before this point.
+      verificationPassed: true,
+      workspaceStable: input.signal?.aborted !== true,
+      requirementsTotal: 0,
+      requirementsCovered: 0,
+    })
+    : null;
+  parallelCodingTelemetry.completion = completion
+    ? { state: completion.state, reason: completion.reason, canProduceVerdict: false }
+    : { state: null, reason: "v16-15-stack-unavailable", canProduceVerdict: false };
+  parallelCodingTelemetry.watchdog = {
+    waves: safe.waves.length,
+    completedWaves: results.length > 0 ? safe.waves.length : 0,
+    provenance: "MEASURED",
+  };
+
   return {
     passed: true,
     validation,
     schedule: scheduleReport(),
     results,
     integrations,
+    completion,
   };
 }
 
@@ -10524,6 +10900,24 @@ export default function (pi: ExtensionAPI) {
       .trim() || "(UES controller returned no text)";
     const controllerPass = result?.isError !== true;
     const telemetrySteps = Array.isArray(result?.details?.steps) ? result.details.steps : [];
+
+    // V16.15: emit the wave observations this run PRODUCED into the existing
+    // efficiency ledger. This module produces; Metrics V2 remains the single
+    // aggregator. Counts only: no speedup or token-saving claim is emitted,
+    // because neither was measured.
+    await (async () => {
+      const waveTelemetry = result?.details?.scheduled?.schedule?.parallelCoding;
+      if (!waveTelemetry || !Array.isArray(waveTelemetry.waves) || waveTelemetry.waves.length === 0) return;
+      const runtime = await loadParallelCodingRuntimeModule().catch(() => null);
+      if (!runtime || typeof runtime.waveTelemetryToEfficiencyEvents !== "function") return;
+      const events = runtime.waveTelemetryToEfficiencyEvents(waveTelemetry);
+      const ledger = await import("../../lib/efficiency-ledger.mjs").catch(() => null);
+      if (!ledger || typeof ledger.recordEfficiencyEvent !== "function") return;
+      for (const event of events) {
+        await ledger.recordEfficiencyEvent(workspaceRoot, event).catch(() => null);
+      }
+    })().catch(() => null);
+
     const controllerTelemetryRecord = await recordTaskTelemetry(workspaceRoot, {
       exitCode: controllerPass ? 0 : 1,
       verdict: controllerPass ? "PASS" : "FAIL",

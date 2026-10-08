@@ -9,7 +9,7 @@ import { diagnosticsFallbackGracePolicy } from "../lib/code-intelligence/diagnos
 import { executeDiagnosticsOperation } from "../lib/code-intelligence/lsp-provider.mjs"
 import { lspPoolStatus, resetLspPoolMetrics, shutdownLspPool, withManagedLspSession } from "../lib/code-intelligence/lsp-pool.mjs"
 import { buildPolicySnapshot, childPolicyMayLoosen } from "../lib/policy-snapshot.mjs"
-import { TOOL_CONCURRENCY_CLASS, toolCallsConflict, toolConcurrencyContract } from "../lib/tool-concurrency.mjs"
+import { ISOLATED_WRITE_MAX_WIDTH, TOOL_CONCURRENCY_CLASS, resolveIsolatedWriteWidth, toolCallsConflict, toolConcurrencyContract } from "../lib/tool-concurrency.mjs"
 
 const fixture = path.join(path.dirname(fileURLToPath(import.meta.url)), "fixtures", "mock-lsp-server.mjs")
 
@@ -138,6 +138,57 @@ test("V15.5 tool concurrency is explicit and unknown mutations fail serial", () 
   assert.equal(toolConcurrencyContract("custom_mcp_mutation").class, TOOL_CONCURRENCY_CLASS.UNKNOWN_SERIAL)
   assert.equal(toolCallsConflict({ tool: "read" }, { tool: "grep" }), false)
   assert.equal(toolCallsConflict({ tool: "read" }, { tool: "edit", input: { path: "src/a.ts" } }), true)
+})
+
+// ---------------------------------------------------------------------------
+// V16.15: the isolated-write lane. A sandbox/worktree write cannot be observed
+// by the root, so two of them in DIFFERENT sandboxes over DISJOINT files may
+// overlap - but the lane is trusted-only, bounded, and never overlaps the root.
+// ---------------------------------------------------------------------------
+test("V16.15 tool concurrency: a model-authored isolated flag never promotes a root write", () => {
+  const forged = toolConcurrencyContract("edit", { path: "src/a.ts", isolated: true, sandboxId: "forged" })
+  assert.equal(forged.class, TOOL_CONCURRENCY_CLASS.WRITE_SERIAL)
+  assert.notEqual(forged.class, TOOL_CONCURRENCY_CLASS.ISOLATED_WRITE)
+  assert.equal(forged.isolated, undefined)
+
+  const trusted = toolConcurrencyContract("edit", { path: "src/a.ts" }, { sandboxId: "sandbox-a" })
+  assert.equal(trusted.class, TOOL_CONCURRENCY_CLASS.ISOLATED_WRITE)
+  assert.equal(trusted.isolated, true)
+  assert.equal(trusted.sandboxId, "sandbox-a")
+  // It is NOT `parallelSafe`: that flag means "safe to overlap anything", and an
+  // isolated write may only overlap other isolated writes.
+  assert.equal(trusted.parallelSafe, false)
+  assert.equal(trusted.mutation, true)
+})
+
+test("V16.15 tool concurrency: two isolated writers overlap only across distinct sandboxes and disjoint files", () => {
+  const write = (sandboxId, path) => ({ tool: "edit", input: { path }, options: { sandboxId } })
+
+  // Different sandbox + disjoint file: the new legal overlap.
+  assert.equal(toolCallsConflict(write("a", "lib/a.mjs"), write("b", "lib/b.mjs")), false)
+  // Same sandbox: same worktree, a real conflict.
+  assert.equal(toolCallsConflict(write("a", "lib/a.mjs"), write("a", "lib/b.mjs")), true)
+  // Same file in different sandboxes: still two writers on one path.
+  assert.equal(toolCallsConflict(write("a", "lib/a.mjs"), write("b", "lib/a.mjs")), true)
+  // No declared resource: unknown, so it conflicts.
+  assert.equal(toolCallsConflict({ tool: "edit", options: { sandboxId: "a" } }, write("b", "lib/b.mjs")), true)
+})
+
+test("V16.15 tool concurrency: an isolated writer never overlaps the root, a read, or an unknown tool", () => {
+  const isolated = { tool: "edit", input: { path: "lib/a.mjs" }, options: { sandboxId: "a" } }
+  assert.equal(toolCallsConflict(isolated, { tool: "edit", input: { path: "lib/b.mjs" } }), true)
+  assert.equal(toolCallsConflict(isolated, { tool: "read", input: { path: "lib/b.mjs" } }), true)
+  assert.equal(toolCallsConflict(isolated, { tool: "custom_mcp_mutation" }), true)
+  assert.equal(toolCallsConflict(isolated, { tool: "bash", input: { command: "npm test" } }), true)
+})
+
+test("V16.15 tool concurrency: the isolated-write width is bounded and cannot be raised", () => {
+  assert.equal(ISOLATED_WRITE_MAX_WIDTH, 3)
+  assert.equal(resolveIsolatedWriteWidth(undefined), 2)
+  assert.equal(resolveIsolatedWriteWidth(99), ISOLATED_WRITE_MAX_WIDTH)
+  assert.equal(resolveIsolatedWriteWidth(1), 1)
+  assert.equal(resolveIsolatedWriteWidth(0), 2)
+  assert.equal(resolveIsolatedWriteWidth("nope"), 2)
 })
 
 test("V15.5 policy snapshots are deterministic and reject implicit child loosening", () => {

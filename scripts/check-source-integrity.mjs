@@ -637,6 +637,11 @@ const V16_12_CONTRACTS = Object.freeze([
       'STALE: "stale"',
       "DAG_DEADLOCK",
       "WRITES ARE SERIALIZED",
+      // V16.15: the bounded isolated-write lane and its hard ceiling.
+      'SOURCE_WRITE_ISOLATED: "SOURCE_WRITE_ISOLATED"',
+      'ISOLATED_WRITE: "ISOLATED_WRITE"',
+      "MAX_ISOLATED_WRITE_WIDTH",
+      "maxIsolatedWriteActive",
     ],
   },
   {
@@ -725,6 +730,9 @@ const V16_12_CONTRACTS = Object.freeze([
       "a stale-generation result is discarded and settles (regression)",
       "the deadlock guard reports DAG_DEADLOCK instead of spinning",
       "a SOURCE_WRITE never overlaps anything",
+      // V16.15: the isolated-write lane laws.
+      "an ISOLATED_WRITE never overlaps a ROOT write (both directions)",
+      "the isolated-write width cannot be raised past the hard cap",
     ],
   },
   {
@@ -1205,6 +1213,304 @@ export function validateV16_14SourceIntegrity(root = ROOT) {
   return failures
 }
 
+// ---------------------------------------------------------------------------
+// V16.15 single-shot parallel coding runtime
+// ---------------------------------------------------------------------------
+const V16_15_CONTRACTS = Object.freeze([
+  {
+    file: "lib/parallel-execution-policy-v16-15.mjs",
+    minBytes: 10_000,
+    required: [
+      'PARALLEL_EXECUTION_POLICY_ID = "parallel-execution-policy-v16-15"',
+      "classifyTaskShapeV16_15",
+      "estimateParallelEconomy",
+      "resolveWriterConcurrency",
+      "resolveReadOnlyConcurrency",
+      "TASK_SHAPE_V16_15",
+      "EXECUTION_POSTURE",
+      "PARENT_DIRECT_SHAPES",
+      "WRITER_CONCURRENCY",
+      "CHILD_OVERHEAD_ESTIMATE_MS",
+      "A TINY or SMALL task NEVER spawns a child",
+    ],
+  },
+  {
+    file: "lib/parallel-coding-runtime-v16-15.mjs",
+    minBytes: 6_000,
+    required: [
+      'PARALLEL_CODING_RUNTIME_POLICY = "parallel-coding-runtime-v16-15"',
+      "planWave",
+      "buildWaveSnapshot",
+      "buildChildDelta",
+      "buildSiblingHandoff",
+      "waveAccounting",
+      "runIntegration",
+      "integrationOrder",
+      "completionDecision",
+      "retryDecision",
+      "failureCancellation",
+      "progressWatchdog",
+      "pairIndependent",
+      "PARALLEL_CODING_OWNERS",
+      "canProduceVerdict: false",
+      "It is NOT a fifth authority",
+    ],
+  },
+  {
+    file: "lib/execution-conflict-graph-v16-15.mjs",
+    minBytes: 10_000,
+    required: [
+      'CONFLICT_GRAPH_POLICY = "execution-conflict-graph-v16-15"',
+      "buildConflictGraph",
+      "classifyPair",
+      "isWriterScope",
+      "normalizeScope",
+      "scopesAreIndependent",
+      "CONFLICT_KIND",
+      "SCOPE_CERTAINTY",
+      "PAIR_VERDICT",
+      "UNKNOWN IS NOT INDEPENDENT",
+      "SAME DIRECTORY IS NOT A CONFLICT",
+      "Silence is never safety",
+    ],
+  },
+  {
+    file: "lib/wave-shared-context-v16-15.mjs",
+    minBytes: 8_000,
+    required: [
+      'WAVE_SHARED_CONTEXT_POLICY = "wave-shared-context-v16-15"',
+      "createWaveSharedSnapshot",
+      "createChildDelta",
+      "waveContextAccounting",
+      "createCompactHandoff",
+      "WAVE_CONTEXT_LIMITS",
+      "SNAPSHOT_FACT",
+      "immutable: true",
+      "ONE SNAPSHOT PER WAVE",
+    ],
+  },
+  {
+    file: "lib/integration-transaction-v16-15.mjs",
+    minBytes: 10_000,
+    required: [
+      'INTEGRATION_TRANSACTION_POLICY = "integration-transaction-v16-15"',
+      "runIntegrationTransaction",
+      "deterministicIntegrationOrder",
+      "classifyChildFailure",
+      "decideRetry",
+      "planFailureCancellation",
+      "createProgressWatchdog",
+      "evaluateCompletion",
+      "INTEGRATION_PHASE",
+      "INTEGRATION_OUTCOME",
+      "FAILURE_CLASS",
+      "COMPLETION_STATE",
+      "USER_DECISION_REASONS",
+      "reverse EVERY patch",
+    ],
+  },
+  {
+    file: "lib/worktree-sandbox.mjs",
+    minBytes: 8_000,
+    required: [
+      "createTaskSandbox",
+      "integrateTaskSandbox",
+      "rollbackTaskSandbox",
+      "preflightTaskSandbox",
+      "rootWorkspaceIdentity",
+      "patchesOverlap",
+      "listRuntimeArtifacts",
+      "readTaskSandboxMetadata",
+    ],
+  },
+  {
+    file: "lib/delegation-safety.mjs",
+    minBytes: 8_000,
+    required: [
+      "classifyScope",
+      "assessParallelSafety",
+      "buildDelegationWaves",
+      "PAIR_STRATEGY",
+      "PARALLEL_BLOCK_REASON",
+      "SCOPE_UNKNOWN",
+      "execution-conflict-graph-v16-15",
+      "silence is never safety",
+    ],
+  },
+  {
+    file: "lib/tool-concurrency.mjs",
+    minBytes: 4_000,
+    required: [
+      "TOOL_CONCURRENCY_CLASS",
+      "READ_PARALLEL_SAFE",
+      "WRITE_SERIAL",
+      "PROCESS_EXCLUSIVE",
+      "UNKNOWN_SERIAL",
+      "ISOLATED_WRITE",
+      "ISOLATED_WRITE_MAX_WIDTH",
+      "toolConcurrencyContract",
+      "toolCallsConflict",
+      "isolatedWriteOverlapAllowed",
+      "unknown-tools-fail-serial",
+    ],
+  },
+  {
+    file: "lib/tool-scheduler.mjs",
+    minBytes: 3_000,
+    required: [
+      "class ToolScheduler",
+      "maxParallelReads",
+      "maxParallelIsolatedWrites",
+      "UES_TOOL_QUEUE_TIMEOUT",
+      "parallelSafe",
+      "averageQueueMs",
+      "tryAcquire",
+      "reset(reason",
+    ],
+  },
+  {
+    file: "test/delegation-safety-v16-15.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "two writers on different files in the SAME directory are independent",
+      "a writer that declares no file is serial-only, never disjoint",
+      "the legacy root rule is still reachable and still serializes",
+      "two readers of the same file still overlap (they do not write it)",
+    ],
+  },
+  {
+    file: "test/parallel-coding-runtime-v16-15.test.mjs",
+    minBytes: 6_000,
+    required: [
+      "the composition reports the owners it delegates to",
+      "planWave returns the policy owner's verdict unchanged",
+      "the reported graph IS the graph the verdict came from",
+      "a caller edge changes the verdict AND the reported graph",
+      "a plan is never a verdict",
+      "wave accounting is a measured CHAR claim, never a token claim",
+      "the parallel coding stack hydrates lazily and completely",
+    ],
+  },
+  {
+    file: "test/parallel-coding-wiring-v16-15.test.mjs",
+    minBytes: 6_000,
+    required: [
+      "the controller reaches the runtime through the LAZY registry",
+      "the ONE wave decision drives concurrency",
+      "every child of a wave receives the shared snapshot as a delta",
+      "integration goes through the transaction and keeps the V16.5 fallback",
+      "the terminal state comes from the ONE completion owner",
+      "no wave receipt can be read as a PASS",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "loadParallelCodingRuntimeModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.PARALLEL_CODING_RUNTIME)",
+      "wavePlanModule.planWave({",
+      "wavePlanModule.buildWaveSnapshot({",
+      "wavePlanModule.buildChildDelta({",
+      "wavePlanModule.waveAccounting({",
+      "wavePlanModule.runIntegration({",
+      "wavePlanModule.INTEGRATION_OUTCOME.INTEGRATED",
+      "completionModule.completionDecision({",
+      "parallelCodingTelemetry",
+      "module.retryDecision({",
+      "module.progressWatchdog({",
+      "governWaveLoop(wavePlanModule, waveIndex, ids,",
+    ],
+  },
+  {
+    file: "lib/parallel-coding-runtime-v16-15.mjs",
+    minBytes: 8_000,
+    required: [
+      "waveTelemetryToEfficiencyEvents",
+      'PARALLEL_CODING_EFFICIENCY_KIND = "parallel-coding"',
+      "loop-retries-refused",
+      "loop-stops:no-progress",
+      "a fabricated zero would be a lie",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-15-parallel-coding.mjs",
+    minBytes: 18_000,
+    required: [
+      "summedSpeedupClaim: null",
+      "tokenSavingClaim: null",
+      'qualityClaim: "NOT_INFERRED_FROM_BENCH"',
+      'const PROVIDER_TOKENS = "NOT_MEASURED"',
+      "provenanceVocabulary",
+      "live:transaction-apply-failed-then-rolled-back",
+      "measured:serial-vs-parallel-writers",
+      "ratioScope",
+      "failedCells",
+    ],
+  },
+  {
+    file: "docs/V16.15-SINGLE-SHOT-PARALLEL-CODING.md",
+    minBytes: 6_000,
+    required: [
+      "## Why this release exists",
+      "## Laws",
+      "## Capabilities",
+      "## Production wiring",
+      "## Verification",
+      "## Non-goals / explicit limits",
+      "## Benchmark honesty",
+      "Silence is never safety",
+      "The same directory is not a conflict",
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-15.test.mjs",
+    minBytes: 2_000,
+    required: [
+      "V16.15 source integrity passes",
+      "no eval script names a test file that does not exist",
+      "silently shrinks a release gate",
+    ],
+  },
+  {
+    file: "lib/lazy-runtime.mjs",
+    minBytes: 12_000,
+    required: [
+      'PARALLEL_CODING_RUNTIME: "parallel-coding-runtime-v16-15"',
+      'PARALLEL_EXECUTION_POLICY: "parallel-execution-policy-v16-15"',
+      'EXECUTION_CONFLICT_GRAPH: "execution-conflict-graph-v16-15"',
+      'WAVE_SHARED_CONTEXT: "wave-shared-context-v16-15"',
+      'INTEGRATION_TRANSACTION: "integration-transaction-v16-15"',
+      'import("./parallel-coding-runtime-v16-15.mjs")',
+      'import("./execution-conflict-graph-v16-15.mjs")',
+      "PARALLEL_CODING: Object.freeze(",
+    ],
+  },
+])
+
+export function validateV16_15SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_15_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -1353,6 +1659,13 @@ export function runSourceIntegrity() {
   if (v16_14Failures.length) {
     process.stderr.write("V16.14 source-integrity validation failed:\n")
     for (const failure of v16_14Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_15Failures = validateV16_15SourceIntegrity(ROOT)
+  if (v16_15Failures.length) {
+    process.stderr.write("V16.15 source-integrity validation failed:\n")
+    for (const failure of v16_15Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 
