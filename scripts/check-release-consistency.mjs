@@ -586,6 +586,28 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.13"] !== "node scripts/bench-v16-13-research.mjs") {
       errors.push("package.json: missing V16.13 external-research benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.14")) {
+      errors.push("package.json: release:verify must include eval:v16.14")
+    }
+    if (!pkg.files.includes("docs/V16.14-ULTRA-FAST-TOKEN-ECONOMY.md")) {
+      errors.push("package.json: V16.14 token-economy documentation must be packed")
+    }
+    const focusedV1614 = String(scripts["eval:v16.14"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1614Tests = [
+      "test/research-cancellation-network-v16-14.test.mjs",
+      "test/token-economy-v16-14.test.mjs",
+      "test/source-integrity-v16-14.test.mjs",
+    ]
+    if (
+      focusedV1614[0] !== "node" ||
+      focusedV1614[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1614Tests.every((file) => focusedV1614.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.14 must use the bounded runner and include the V16.14 cancellation/network, token-economy and source-integrity suites")
+    }
+    if (scripts["bench:v16.14"] !== "node scripts/bench-v16-14-economy.mjs") {
+      errors.push("package.json: missing V16.14 token-economy benchmark command")
+    }
   }
 
   if (skillCount < 40) warnings.push(`skill catalog unexpectedly small: ${skillCount}`)

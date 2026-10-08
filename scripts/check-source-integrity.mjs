@@ -1007,6 +1007,204 @@ export function validateV16_13SourceIntegrity(root = ROOT) {
   return failures
 }
 
+// V16.14 Ultra-Fast Token Economy + Runtime Correctness Hardening contracts.
+//
+// V16.14 hardens V16.13's research path in place and adds ONE new single owner
+// (the bounded HTTPS transport). The markers below pin the load-bearing
+// invariants: true cancellation, resolved-address SSRF validation, connection
+// pinning, manual bounded redirects, credential stripping, content-hash claim
+// binding, conditional revalidation, byte-vs-char honesty, MEASURED-only
+// provider tokens, the DeepSeek economy gate, and the hard char budget the
+// context kernel / tool-output budgeter must never exceed. Every prior
+// V16.8-V16.13 contract is untouched: this set is additive.
+const V16_14_CONTRACTS = Object.freeze([
+  {
+    file: "lib/research-transport-v16-14.mjs",
+    minBytes: 8_000,
+    required: [
+      'RESEARCH_TRANSPORT_POLICY = "research-transport-v16-14"',
+      "createBoundedExternalTransport",
+      "toFetchLike",
+      "filterForwardHeaders",
+      "SENSITIVE_FORWARD_HEADERS",
+      "pinnedAddresses",
+      "BLOCKED_POLICY:redirect-limit-exceeded",
+      "BLOCKED_POLICY:credential-redirect",
+      "ABORT_ERR",
+      "PUBLIC HTTPS ONLY",
+      "TRUE CANCELLATION",
+      "BOUNDED BYTES",
+    ],
+  },
+  {
+    file: "lib/research-network-policy-v16-13.mjs",
+    minBytes: 8_000,
+    required: [
+      "checkResolvedAddress",
+      "checkResolvedAddresses",
+      "isPrivateIpv4",
+      "isPrivateIpv6Host",
+      "resolved-private-address",
+      "unresolvable-host",
+      "0x64400000",
+      "0x7f000000",
+    ],
+  },
+  {
+    file: "lib/external-research-broker-v16-13.mjs",
+    minBytes: 16_000,
+    required: [
+      'RESEARCH_BROKER_POLICY = "external-research-broker-v16-13"',
+      "HIGH_RISK_CLAIM_CLASSES",
+      "planDeepSeekEconomy",
+      "normalizeProviderUsage",
+      "buildResearchProvenance",
+      "PROVIDER_TOKEN_PROVENANCE",
+      "empty-synthesis-input",
+      "binding: \"sourceId-only\"",
+      "withTimeoutAbort",
+      "linkedController",
+      "cancelledProviderCalls",
+      'providerTokens: "NOT_MEASURED"',
+      "utf8Bytes",
+      "research-waste:${signal}",
+    ],
+  },
+  {
+    file: "lib/research-page-fetch-v16-13.mjs",
+    minBytes: 8_000,
+    required: [
+      'PAGE_FETCH_POLICY = "research-page-fetch-v16-13"',
+      "researchHeadersForUrl",
+      "fetchAndNormalize",
+      "excerptHash",
+      "notModified",
+      "conditionalHeaders",
+      "getDefaultFetchLike",
+    ],
+  },
+  {
+    file: "lib/research-cache-helper-v16-13.mjs",
+    minBytes: 6_000,
+    required: [
+      "revalidationHeadersFor",
+      "reuseDecisionFor",
+      "touchResearchCache",
+      "revalidatedAt",
+    ],
+  },
+  {
+    file: "lib/research-version-join-v16-13.mjs",
+    minBytes: 2_000,
+    required: [
+      "sourceMatchesInstalledVersion",
+      "upgradeRequested",
+      "latestSource",
+      "versionMatchedSource",
+    ],
+  },
+  {
+    file: "lib/tool-output-budgeter-v16-10.mjs",
+    minBytes: 18_000,
+    required: [
+      "HARD BUDGET GUARANTEE",
+      "budget-enforced after strategy shaping",
+      "noticeOverheadChars",
+    ],
+  },
+  {
+    file: "lib/context-kernel-v16-10.mjs",
+    minBytes: 14_000,
+    required: [
+      "fallbackId",
+      "segment-${createHash",
+      "Shrink deterministically until the shaped text fits",
+    ],
+  },
+  {
+    file: "lib/lazy-runtime.mjs",
+    minBytes: 5_000,
+    required: [
+      'RESEARCH_TRANSPORT: "research-transport-v16-14"',
+      "LAZY_RUNTIME_MODULES.RESEARCH_TRANSPORT",
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-14.test.mjs",
+    minBytes: 800,
+    required: [
+      "validateV16_14SourceIntegrity",
+      "validateV16_13SourceIntegrity",
+    ],
+  },
+  {
+    file: "test/research-cancellation-network-v16-14.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "a hostname resolving to a private address is blocked (DNS SSRF)",
+      "a public -> private redirect is BLOCKED_POLICY",
+      "an abort signal destroys the in-flight socket (no orphan request)",
+      "the token is stripped across a redirect off GitHub",
+    ],
+  },
+  {
+    file: "test/token-economy-v16-14.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "bytes are measured as UTF-8 bytes, not as JS string length",
+      "provider tokens are MEASURED only from real provider usage",
+      "a char-derived token count is ESTIMATED, never MEASURED",
+      "the bounded context shaper honors its budget INCLUDING the notice",
+      "the tool-output shaper honors its budget INCLUDING the notice",
+      "a noticed waste signal reaches the metrics producer path as an observation, not a verdict",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-14-economy.mjs",
+    minBytes: 4_000,
+    required: [
+      "V16.14 ULTRA-FAST TOKEN ECONOMY BENCHMARK",
+      'PROVIDER_TOKENS = "NOT_MEASURED"',
+      'claimStatus: "SIMULATED_ONLY"',
+      "tokenColumnsProvenance",
+      "summedSpeedupClaim",
+    ],
+  },
+  {
+    file: "docs/V16.14-ULTRA-FAST-TOKEN-ECONOMY.md",
+    minBytes: 2_000,
+    required: [
+      "V16.14",
+      "NOT_MEASURED",
+      "Cancellation",
+    ],
+  },
+])
+
+export function validateV16_14SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_14_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -1148,6 +1346,13 @@ export function runSourceIntegrity() {
   if (v16_13Failures.length) {
     process.stderr.write("V16.13 source-integrity validation failed:\n")
     for (const failure of v16_13Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_14Failures = validateV16_14SourceIntegrity(ROOT)
+  if (v16_14Failures.length) {
+    process.stderr.write("V16.14 source-integrity validation failed:\n")
+    for (const failure of v16_14Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

@@ -2,6 +2,30 @@
 
 ## [Unreleased]
 
+## [16.14.0] - 2026-10-08
+
+### Added
+
+- Bounded external-research HTTPS transport V16.14 (`lib/research-transport-v16-14.mjs`): the single owner of safe research egress. Resolves the hostname, validates **every** resolved address (DNS-based SSRF defense), and pins the connection to the validated addresses via the socket `lookup` so no second resolution can occur between validation and connect. Redirects are manual, bounded, re-validated per hop, and reject credential-bearing `Location` URLs; sensitive headers (including `Authorization`) are stripped on a cross-host redirect. An `AbortSignal` destroys the in-flight socket, so a soft/hard deadline stops the request instead of orphaning it. Bodies are streamed and truncated at a byte cap. `toFetchLike` adapts it to the existing fetch-shaped page-fetch path.
+- Expanded SSRF classification V16.14 (`lib/research-network-policy-v16-13.mjs`): real IPv6 classification (unspecified, loopback, ULA `fc00::/7`, link-local `fe80::/10`, multicast, IPv4-mapped private) plus additional IPv4 ranges (`0.0.0.0/8`, `100.64.0.0/10` CGNAT, `198.18.0.0/15`, multicast, reserved). `checkResolvedAddress`/`checkResolvedAddresses` block a hostname whose DNS answer is private, and treat a mixed public/private answer as hostile.
+- Claim↔evidence content-hash binding V16.14 (`lib/external-research-broker-v16-13.mjs`): `trackClaims` binds a claim to evidence by content hash, not by a `sourceId` string alone. A high-risk claim (`security`/`version`/`breaking`/`install`/`auth`/`config`/`migration`/`api-surface`) supported only by a `sourceId` is downgraded to `PARTIALLY_SUPPORTED` with `binding: "sourceId-only"`.
+- Conditional revalidation V16.14 (`lib/research-page-fetch-v16-13.mjs`, `lib/research-cache-helper-v16-13.mjs`): a stale cache entry with an `ETag`/`Last-Modified` performs a conditional GET; a `304` reuses the stored body instead of re-downloading it. `revalidationHeadersFor`, `reuseDecisionFor` and `touchResearchCache` own the decision.
+- DeepSeek economy gate V16.14: `planDeepSeekEconomy` refuses a synthesis turn whose bounded input has no conflict, no unknown and no captured fact, and records an `unnecessary-deepseek-call` waste signal. A request with any real evidence still pays.
+- Honest provider-token telemetry V16.14: `normalizeProviderUsage` accepts a token count **only** from real provider usage telemetry. An unmeasured run reports `providerTokens: "NOT_MEASURED"` and emits no token observation at all, so no downstream aggregate can read it as a measured zero.
+- `npm run bench:v16.14` (`scripts/bench-v16-14-economy.mjs`): deterministic byte/char/token economy benchmark. `synthetic: true`, `claimStatus: SIMULATED_ONLY`, `providerTokens: NOT_MEASURED`, `tokenColumnsProvenance: ESTIMATED`, separate cache HIT/MISS cells, and `summedSpeedupClaim: null`.
+- `npm run eval:v16.14`: the V16.14 cancellation/network, token-economy and source-integrity suites.
+- `docs/V16.14-ULTRA-FAST-TOKEN-ECONOMY.md`: the V16.14 laws and non-goals.
+
+### Changed
+
+- `lib/external-research-broker-v16-13.mjs`: true cancellation (`withTimeoutAbort` aborts its own controller, per-job linked controllers, `Promise.race` against a first-sufficient watcher, `cancelledProviderCalls`/`cancelLatencyMs`). Byte metrics now use `Buffer.byteLength(..., "utf8")` and chars are recorded separately; a cache hit counts zero network bytes. `resolveOfficialDocUrl` never fabricates a `/docs/<version>` path for a domain whose convention is unproven. A waste signal the run noticed is now emitted through the existing `toEfficiencyEvents()` producer path as `research-waste:<signal>` (occurrence count `MEASURED`, no verdict), so it is observable downstream instead of dying inside the broker.
+- `lib/research-version-join-v16-13.mjs`: `sourceMatchesInstalledVersion` is decoupled from `versionRelation`, so exact-version evidence for the installed release is recognized even when a newer release exists. `exactVersionMatched` is the legacy alias of the same fact.
+- `lib/tool-output-budgeter-v16-10.mjs`: the caller's `budgetChars` is now a **hard** limit. The strategy shapers bound by lines/rows, which is not a char budget, so a final deterministic head/tail step enforces the budget including the omission notice.
+- `lib/context-kernel-v16-10.mjs`: the head/tail compaction reserves room for its notice and shrinks deterministically until the shaped text fits, so a "compacted" result can no longer exceed the budget it was given. The segment-id fallback is derived from content (`sha256`) instead of `Math.random()`, making identical input produce an identical id.
+- `lib/tool-result-reuse-v16-12.mjs`, `lib/evidence-store.mjs`, `lib/verification-receipt-cache-v16-12.mjs`, `lib/warm-service-reuse-v16-12.mjs`, `lib/task-dag-scheduler-v16-12.mjs`: bounded index/GC maintenance, a real parsed-entry L1 hot cache, disposal of late warm instances, and dependency-scoped DAG cancellation.
+- `lib/lazy-runtime.mjs`: registers `RESEARCH_TRANSPORT` in the `RESEARCH` stack. A `LOCAL_ONLY`/`PI_ONLY` run still hydrates none of it.
+- `scripts/check-source-integrity.mjs` adds the V16.14 contracts; all prior V16.8–V16.13 contracts remain byte-stable.
+
 ## [16.13.0] - 2026-10-07
 
 ### Added
