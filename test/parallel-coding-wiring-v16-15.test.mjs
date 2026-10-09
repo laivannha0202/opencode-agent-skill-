@@ -48,7 +48,13 @@ test("V16.15 wiring: the ONE wave decision drives concurrency", () => {
   const text = source()
   assert.ok(text.includes("const wavePlan = wavePlanModule"), "the wave plan is never computed")
   assert.ok(text.includes("wavePlanModule.planWave({"), "the controller does not ask the policy owner")
-  assert.ok(text.includes("const waveConcurrency = wavePlan"), "the plan does not drive the wave concurrency")
+  // V16.16 allows the run-cost reservation to narrow the plan-driven bound
+  // (lower/serialize), so the binding may be const or let, but the plan must
+  // still be the source of the concurrency.
+  assert.ok(
+    text.includes("waveConcurrency = wavePlan") || text.includes("waveConcurrency=wavePlan"),
+    "the plan does not drive the wave concurrency",
+  )
   // The plan's concurrency is still clamped by the pre-existing V16.5 fleet bound,
   // so a policy change can never widen the shipped budget by itself.
   assert.ok(
@@ -128,7 +134,11 @@ test("V16.15 wiring: the bounded loop governor asks the owners before retrying",
   const rawRetries = text.split("if (attempt < input.maxAttempts) continue;").length - 1
   assert.equal(rawRetries, 0, `a retry site bypasses the governor (${rawRetries} found)`)
   const governed = text.split("governWaveLoop(wavePlanModule, waveIndex, ids,").length - 1
-  assert.equal(governed, 3, `expected 3 governed retry sites, found ${governed}`)
+  // Four governed retry sites: wave-verification-failed, scope-or-conflict,
+  // integration-failed, and stale-generation (V16.16: a stale HEAD after a
+  // seemingly successful integration retries bounded through the SAME
+  // governor instead of claiming a stale success or retrying raw).
+  assert.equal(governed, 4, `expected 4 governed retry sites, found ${governed}`)
   // A missing module must preserve the pre-V16.15 bounded-attempt behavior.
   assert.ok(
     text.includes("const retryAllowed = retry ? retry.retry === true : attemptsLeft"),

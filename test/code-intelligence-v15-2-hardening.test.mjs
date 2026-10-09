@@ -608,7 +608,10 @@ test("V15.2 real-server diagnostics stay complete for small files and never fals
     assert.equal(repeat.pool.sessionId, smallResult.pool.sessionId, "session identity must be stable")
 
     const largeResult = await call(large)
-    assert.equal(largeResult.diagnosticsBudgetBucket, "l")
+    // V16.16: ues.ts crossed the 512 KiB "l" tier (529,913 bytes after the
+    // V16.16 production wiring) and now sizes as "xl". The tier is purely
+    // size-derived and deterministic; every safety bound below is unchanged.
+    assert.equal(largeResult.diagnosticsBudgetBucket, "xl")
     assert.ok(largeResult.diagnosticsTimeoutMs <= 15_000, "the large file must not buy time with a longer wait")
 
     if (largeResult.complete === true) {

@@ -635,6 +635,34 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.15"] !== "node scripts/bench-v16-15-parallel-coding.mjs") {
       errors.push("package.json: missing V16.15 parallel-coding benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.16")) {
+      errors.push("package.json: release:verify must include eval:v16.16")
+    }
+    if (!pkg.files.includes("docs/V16.16-CRITICAL-PATH-EXECUTION-COST-RUNTIME.md")) {
+      errors.push("package.json: V16.16 critical-path documentation must be packed")
+    }
+    const focusedV1616 = String(scripts["eval:v16.16"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1616Tests = [
+      "test/v16-16-economy.test.mjs",
+      "test/v16-16-conflict.test.mjs",
+      "test/v16-16-context.test.mjs",
+      "test/v16-16-identity.test.mjs",
+      "test/v16-16-crash-recovery.test.mjs",
+      "test/v16-16-git-async.test.mjs",
+      "test/v16-16-runtime.test.mjs",
+      "test/v16-16-cold-start.test.mjs",
+      "test/source-integrity-v16-16.test.mjs",
+    ]
+    if (
+      focusedV1616[0] !== "node" ||
+      focusedV1616[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1616Tests.every((file) => focusedV1616.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.16 must use the bounded runner and include the V16.16 critical-path suites")
+    }
+    if (scripts["bench:v16.16"] !== "node scripts/bench-v16-16-critical-path.mjs") {
+      errors.push("package.json: missing V16.16 critical-path benchmark command")
+    }
     // An eval script naming a test file that does not exist would be silently
     // dropped by the bounded runner, leaving the release claiming a suite nobody
     // ran. Every test file an eval script names must exist on disk.

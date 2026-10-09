@@ -2,6 +2,38 @@
 
 ## [Unreleased]
 
+## [16.16.0] - 2026-10-09
+
+### Added
+
+- Critical-path execution and cost runtime V16.16. No new feature surface: deep optimization of speed, wall-clock latency, token/context economy, parallel correctness, crash safety, cold start and honest telemetry, in the existing owners.
+  - Critical-path economy gate (`lib/parallel-execution-policy-v16-15.mjs` + new narrow owner `lib/critical-path-history-v16-16.mjs`): overlapped startup/verification components contribute their maximum instead of a per-child sum; only root integration serializes. Scopes without an explicit estimate get a deterministic ESTIMATED work figure (`estimateScopeWorkMs`); measured history tunes inside a 0.25x-4x clamp band and can never widen the hard writer bound (default 2, max 3) or promote TINY/SMALL. Production waves that never supplied `perChildWorkMs` can now reach PARALLEL_WRITERS when genuinely substantial; tiny/small stay parent-direct and marginal work stays serial.
+  - Canonical child capsule (`buildCanonicalChildCapsule`) and structural budgeting (`fitSections`): the child receives one assembly (stable shared prefix inline + delta + run binding) instead of a bare snapshot reference plus duplicated task/goal paths. Budget overflow drops whole records with explicit omission counts; a mandatory path, command or evidence ref is never cut mid-record; the final model-visible text never exceeds its cap.
+  - Conflict evidence wiring and false-positive removal (`lib/execution-conflict-graph-v16-15.mjs`): structured declarations (services, external effects, generated outputs, planned commands) classify strongly; prose words like "service", "tag", "release" no longer imply runtime side effects, while actual destructive/external commands still fail closed. Production forwards every real task declaration.
+  - Run/wave/sandbox identity end to end: sandboxes carry `runId`/`waveId`, preflight enforces `expectedRunId`/`expectedWaveId`/`expectedBaseSha`/`currentRootHead`, and the transaction passes the wave-start HEAD. Foreign, stale or advanced roots fail closed.
+  - Crash-safe integration (`INTEGRATION_JOURNAL` + `recoverIncompleteIntegrations` on the existing run journal): durable BEGIN before any root mutation, per-patch records, COMMIT on success, idempotent fail-closed recovery that never runs `git reset --hard` and never touches user changes.
+  - Bounded async Git (`lib/git-async-runtime-v16-16.mjs`, `shell:false`, AbortSignal, timeouts, bounded buffers, Windows-safe teardown) adopted across the sandbox hot path; root apply stays serialized by the transaction authority.
+  - RPC prewarm through the one existing pool (`prewarm`/`discard` + `prewarmWaveWorkers`): bounded by the writer limit, abandoned workers cleaned, no stale reuse, browser/DeepSeek never prewarmed for local tasks.
+  - Run-level cost reservation (`reserveRunCost`): admits, lowers concurrency, serializes, goes parent-direct or delays the optional advisor when the reservation does not fit; required verification is never removed and tiny tasks default to zero DeepSeek.
+  - Verification proof composition (`planProofReuse`): exact, fresh, unaffected child receipts may be reused; sibling cross-impact, lockfile/config changes, release and security gates always run fresh. Final release stays fresh.
+  - Cold-start discipline: no new static imports in the controller; lazy registry untouched for unrelated stacks; `npm run bench:v16.16` measures import/hydration/decision/capsule wall times with honest provenance.
+  - Telemetry correctness: `integration-root-rollbacks` counts only genuine reversals (preflight rejections get their own no-op count); duplicate-context accounting names its hypothetical baseline; provider tokens stay NOT_MEASURED unless reported.
+  - `npm run eval:v16.16` and `npm run bench:v16.16` (`scripts/bench-v16-16-critical-path.mjs`, 22 labelled cells, exits non-zero on failure).
+  - `docs/V16.16-CRITICAL-PATH-EXECUTION-COST-RUNTIME.md`: laws, owners, economy model, delivery classes, durability, provenance and benchmark limits.
+
+### Changed
+
+- `pi/extensions/ues.ts` production wiring only: richer conflict scopes, run/wave sandbox binding, canonical capsule prompt (task JSON and parent-goal duplication removed), wave-start HEAD guard, once-per-run crash recovery, measured history feedback. No static imports added; all V16.15 integrity markers kept.
+- `scripts/check-source-integrity.mjs` adds the V16.16 contracts; all prior V16.8–V16.15 contracts remain byte-stable. `scripts/check-release-consistency.mjs` requires `eval:v16.16` in `release:verify`, the V16.16 doc in `files`, and the V16.16 bench command.
+
+### Fixed
+
+- Production parallel writers were unreachable because the gate multiplied every overhead component per child while production supplied no work estimate.
+- Children received an unresolvable snapshot reference while the same facts were duplicated through other prompt paths.
+- `service`/`tag`/`release` prose created false runtime conflicts.
+- `integration-root-rollbacks` counted preflight rejections as rollbacks.
+- Unbounded `text.slice` budgeting could corrupt a path or command mid-record.
+
 ## [16.15.0] - 2026-10-08
 
 ### Added

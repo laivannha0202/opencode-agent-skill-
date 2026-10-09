@@ -163,7 +163,10 @@ test("V16.5 production wiring: micro-skills and phase tool priority are wired", 
   assert.ok(source.includes("buildMicroSkillContext({"), "micro-skills are not built through V16.5");
   assert.ok(source.includes("phaseToolPriorities({"), "phase tool priority is not wired");
   const phaseCalls = source.split("phaseToolPriorities({").length - 1;
-  assert.equal(phaseCalls, 2, "both child-spawn paths must receive the phase priority");
+  // Two child-spawn paths (CLI + RPC) plus the V16.16 canonical prewarm
+  // predictor, which must mirror the run path's tool universe exactly so a
+  // prewarmed worker is actually consumed. The predictor spawns nothing.
+  assert.equal(phaseCalls, 3, "child-spawn paths and the prewarm predictor must receive the phase priority");
 });
 
 test("V16.5 production wiring: every V16.5 module has a production importer", () => {

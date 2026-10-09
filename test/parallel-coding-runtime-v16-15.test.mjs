@@ -255,6 +255,7 @@ test("V16.15 runtime: wave telemetry becomes MEASURED count observations", () =>
     integrationTransactions: [
       { outcome: "integrated", rootUnchanged: false },
       { outcome: "preflight-rejected", rootUnchanged: true },
+      { outcome: "apply-failed-rolled-back", rootUnchanged: true },
     ],
   })
 
@@ -270,10 +271,14 @@ test("V16.15 runtime: wave telemetry becomes MEASURED count observations", () =>
   assert.equal(byOperation["waves-refused-by-release-shape"], 1)
   assert.equal(byOperation["shared-snapshot-chars"], 1_000)
   assert.equal(byOperation["duplicate-context-chars-avoided"], 2_000)
-  assert.equal(byOperation["integration-transactions"], 2)
+  assert.equal(byOperation["integration-transactions"], 3)
   assert.equal(byOperation["integration:integrated"], 1)
   assert.equal(byOperation["integration:preflight-rejected"], 1)
+  // V16.16 telemetry correctness: a preflight rejection leaves the root
+  // untouched BY DESIGN and is not a rollback. Only the genuinely reversed
+  // apply counts, exactly once.
   assert.equal(byOperation["integration-root-rollbacks"], 1)
+  assert.equal(byOperation["integration-preflight-rejected-noop"], 1)
 
   // Every row is a MEASURED count and carries the parallel-coding kind.
   for (const row of events) {

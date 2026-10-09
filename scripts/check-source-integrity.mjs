@@ -1511,6 +1511,268 @@ export function validateV16_15SourceIntegrity(root = ROOT) {
   return failures
 }
 
+const V16_16_CONTRACTS = Object.freeze([
+  {
+    file: "lib/critical-path-history-v16-16.mjs",
+    minBytes: 5_000,
+    required: [
+      'CRITICAL_PATH_HISTORY_POLICY = "critical-path-history-v16-16"',
+      "createCriticalPathHistory",
+      "defaultCriticalPathHistory",
+      "HISTORY_COMPONENT",
+      "HISTORY_FALLBACK_MS",
+      "MISSING HISTORY IS NOT_MEASURED",
+      "HISTORY TUNES, NEVER OVERRIDES",
+    ],
+  },
+  {
+    file: "lib/git-async-runtime-v16-16.mjs",
+    minBytes: 6_000,
+    required: [
+      'GIT_ASYNC_RUNTIME_POLICY = "git-async-runtime-v16-16"',
+      "runGitAsync",
+      "runGitBatch",
+      "assertSafeGitArgs",
+      "shell: false",
+      "ROOT MUTATION STAYS SERIAL",
+    ],
+  },
+  {
+    file: "lib/parallel-execution-policy-v16-15.mjs",
+    minBytes: 20_000,
+    required: [
+      "CRITICAL_PATH_MODEL",
+      "estimateScopeWorkMs",
+      "WAVE_SETUP_SERIAL_MS",
+      "critical-path-v16-16",
+      "A TINY or SMALL task NEVER spawns a child",
+    ],
+  },
+  {
+    file: "lib/execution-conflict-graph-v16-15.mjs",
+    minBytes: 14_000,
+    required: [
+      "WEAK_EXTERNAL_SIDE_EFFECT_PATTERN",
+      "WEAK_MUTABLE_SERVICE_PATTERN",
+      "COMMAND_EXTERNAL_PATTERN",
+      "UNKNOWN IS NOT INDEPENDENT",
+      "SAME DIRECTORY IS NOT A CONFLICT",
+    ],
+  },
+  {
+    file: "lib/wave-shared-context-v16-15.mjs",
+    minBytes: 16_000,
+    required: [
+      "buildCanonicalChildCapsule",
+      "fitSections",
+      "ONE SNAPSHOT PER WAVE",
+      "canProduceVerdict: false",
+    ],
+  },
+  {
+    file: "lib/integration-transaction-v16-15.mjs",
+    minBytes: 22_000,
+    required: [
+      "recoverIncompleteIntegrations",
+      "INTEGRATION_JOURNAL",
+      "integration.begin",
+      "reverse EVERY patch",
+      "Never runs `git reset --hard`",
+    ],
+  },
+  {
+    file: "lib/parallel-coding-runtime-v16-15.mjs",
+    minBytes: 14_000,
+    required: [
+      "buildChildCapsule",
+      "recoverIntegration",
+      "prewarmWaveWorkers",
+      "planProofReuse",
+      "buildCriticalPathTelemetry",
+      "shouldStopProven",
+      "integration-preflight-rejected-noop",
+      "It is NOT a fifth authority",
+    ],
+  },
+  {
+    file: "lib/worktree-sandbox.mjs",
+    minBytes: 20_000,
+    required: [
+      "createTaskSandbox",
+      "preflightTaskSandbox",
+      "rootWorkspaceIdentity",
+      "expectedWaveId",
+      "runId",
+    ],
+  },
+  {
+    file: "lib/orchestration-budget-v16-6.mjs",
+    minBytes: 20_000,
+    required: [
+      "reserveRunCost",
+      "verificationIntact",
+    ],
+  },
+  {
+    file: "lib/provider-cache-stability.mjs",
+    minBytes: 8_000,
+    required: [
+      "buildStableWavePrefix",
+      "recordProviderTokens",
+    ],
+  },
+  {
+    file: "lib/pi-rpc-pool.mjs",
+    minBytes: 16_000,
+    required: [
+      "prewarm(key, spec)",
+      "discard(key)",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      "wavePlanModule.buildChildCapsule({",
+      "wavePlanModule.recoverIntegration({",
+      "expectedRunId",
+      "waveCapsules",
+    ],
+  },
+  {
+    file: "scripts/bench-v16-16-critical-path.mjs",
+    minBytes: 14_000,
+    required: [
+      "summedSpeedupClaim: null",
+      "tokenSavingClaim: null",
+      'qualityClaim: "NOT_INFERRED_FROM_BENCH"',
+      'const PROVIDER_TOKENS = "NOT_MEASURED"',
+      "provenanceVocabulary",
+      "scenario-K:crash-recovery-transaction",
+      "failedCells",
+    ],
+  },
+  {
+    file: "docs/V16.16-CRITICAL-PATH-EXECUTION-COST-RUNTIME.md",
+    minBytes: 6_000,
+    required: [
+      "## Why this release exists",
+      "## Laws",
+      "## Capabilities",
+      "## Production wiring",
+      "## Verification",
+      "## Non-goals / explicit limits",
+      "## Benchmark honesty",
+      "REDUCE WORK, NOT CORRECTNESS",
+    ],
+  },
+  {
+    file: "test/v16-16-economy.test.mjs",
+    minBytes: 6_000,
+    required: [
+      "production-like substantial writers reach PARALLEL_WRITERS without an explicit estimate",
+      "two trivial writers stay serial under the economy gate",
+      "missing history never masquerades as measured",
+    ],
+  },
+  {
+    file: "test/v16-16-conflict.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "in source-code prose is not a runtime service conflict",
+      "in prose are not external side effects",
+      "actual destructive commands stay blocked",
+    ],
+  },
+  {
+    file: "test/v16-16-context.test.mjs",
+    minBytes: 6_000,
+    required: [
+      "the child receives the required shared facts inline",
+      "no unresolved fake snapshot reference",
+      "is cut mid-record",
+    ],
+  },
+  {
+    file: "test/v16-16-identity.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "a valid same-run transaction integrates",
+      "a stale-run sandbox is rejected before any mutation",
+      "an advanced root is rejected",
+    ],
+  },
+  {
+    file: "test/v16-16-crash-recovery.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "failure after the first real patch leaves a durable recovery record",
+      "startup recovery restores owned partial transactions",
+      "a completed transaction is never rolled back",
+      "recovery is idempotent across reruns",
+    ],
+  },
+  {
+    file: "test/v16-16-git-async.test.mjs",
+    minBytes: 4_000,
+    required: [
+      "abort terminates the git child",
+      "argv is never a shell command (no injection)",
+      "root apply remains serialized through the sandbox owner",
+    ],
+  },
+  {
+    file: "test/v16-16-runtime.test.mjs",
+    minBytes: 6_000,
+    required: [
+      "abandoned workers are cleaned and the bound holds",
+      "never skip verification",
+      "sibling cross-impact invalidates the receipt",
+      "the loop stops only when correctness is proven",
+    ],
+  },
+  {
+    file: "test/v16-16-cold-start.test.mjs",
+    minBytes: 2_000,
+    required: [
+      "a fresh process hydrates nothing",
+      "never statically imports heavy or V16.16 modules",
+    ],
+  },
+  {
+    file: "test/source-integrity-v16-16.test.mjs",
+    minBytes: 1_500,
+    required: [
+      "V16.16 source integrity passes",
+      "no eval script names a test file that does not exist",
+    ],
+  },
+])
+
+export function validateV16_16SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_16_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -1666,6 +1928,13 @@ export function runSourceIntegrity() {
   if (v16_15Failures.length) {
     process.stderr.write("V16.15 source-integrity validation failed:\n")
     for (const failure of v16_15Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_16Failures = validateV16_16SourceIntegrity(ROOT)
+  if (v16_16Failures.length) {
+    process.stderr.write("V16.16 source-integrity validation failed:\n")
+    for (const failure of v16_16Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

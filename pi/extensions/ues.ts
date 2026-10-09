@@ -35,7 +35,7 @@ import {
   toolResultText,
 } from "../../lib/process-hang-detector.mjs";
 import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
-import { PiRpcWorkerPool } from "../../lib/pi-rpc-pool.mjs";
+import { PiRpcWorkerPool, buildRpcWorkerKey } from "../../lib/pi-rpc-pool.mjs";
 import { resolvePiChildInvocation } from "../../lib/pi-child-invocation.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-compiler.mjs";
@@ -131,7 +131,8 @@ import { DEFERRED_DISPATCHER_TOOL } from "../../lib/deferred-tool-hydration.mjs"
 import { compileAdaptiveStrategy, renderAdaptiveStrategyContract } from "../../lib/adaptive-strategy.mjs";
 import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/rehydration-manifest.mjs";
 import { buildContextObservatory, decisionPointFingerprint } from "../../lib/context-observatory.mjs";
-import { providerCacheStabilityPolicy, stableProjectPrefix, stableSystemPrefix } from "../../lib/provider-cache-stability.mjs";
+import { buildStableWavePrefix, providerCacheStabilityPolicy, recordProviderTokens, stableProjectPrefix, stableSystemPrefix } from "../../lib/provider-cache-stability.mjs";
+import { reserveRunCost } from "../../lib/orchestration-budget-v16-6.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
 import { appendRunJournalEvent, closeRunJournal, createRunJournal, readRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
 import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
@@ -1544,6 +1545,10 @@ type RunResult = {
   browserTools?: string[];
   childRuntime?: "rpc" | "cli";
   workerReused?: boolean;
+  // V16.16: canonical pool key for the worker that ran this result (null for
+  // CLI children). Lets the wave correlate prewarmed keys with actual runs so
+  // only real reuse is counted and unconsumed prewarms are discarded.
+  workerKey?: string | null;
   providerFailure?: string;
   providerRecoveryAttempts?: number;
   providerSessionResumeAttempts?: number;
@@ -2043,6 +2048,10 @@ async function runAgentCli(
     maxAdvertisedToolsCap?: number;
     toolDescriptionProfile?: string;
     v16_6Budget?: any;
+    // V16.16 stable worker identity (RPC pool reuse). Structured waves pass
+    // the pre-enrichment task text; absent everywhere else (fallback keeps the
+    // exact prior behavior).
+    stableIdentityTask?: string;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
@@ -2576,9 +2585,21 @@ async function runAgentRpc(
     maxAdvertisedToolsCap?: number;
     toolDescriptionProfile?: string;
     v16_6Budget?: any;
+    // V16.16 stable worker identity (RPC pool reuse). Structured waves pass
+    // the pre-enrichment task text; absent everywhere else (fallback keeps the
+    // exact prior behavior).
+    stableIdentityTask?: string;
   } = {},
 ): Promise<RunResult> {
   const config = AGENTS[agent];
+  // V16.16 canonical worker identity (§11): stable intent for the key, full
+  // enriched task for the prompt message. Volatile enrichment (context-pack
+  // cache HIT/MISS, timestamps) must never break pool reuse; fencing still
+  // travels in the key (policy/epoch/run) plus the worker env.
+  const identityTask = (
+    typeof runtimeOptions.stableIdentityTask === "string" &&
+    runtimeOptions.stableIdentityTask.trim().length > 0
+  ) ? runtimeOptions.stableIdentityTask : task;
   const hardTimeoutMs = Number(runtimeOptions.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS);
   const absoluteHardTimeoutMs = Number(runtimeOptions.absoluteHardTimeoutMs || hardTimeoutMs);
   const activityExtensionMs = Number(runtimeOptions.activityExtensionMs || 0);
@@ -2599,7 +2620,7 @@ async function runAgentRpc(
     role: agent,
     executionProfile: runtimeOptions.executionProfile || "standard",
     attempt: runtimeOptions.attempt || 1,
-    taskChars: task.length,
+    taskChars: identityTask.length,
   });
   const candidateTools = [...new Set([
     ...config.tools,
@@ -2612,8 +2633,11 @@ async function runAgentRpc(
   // V16.5 task-phase tool priority. The V16.2 compileToolSurface call below
   // stays the final advertised-surface authority and stable-prefix owner; this
   // only ranks tools the current phase actually needs.
+  // V16.16: identity derives from stable intent (see identityTask above) so a
+  // prewarmed worker and its run share the key; the prompt still carries the
+  // full enriched task.
   const phasePriority = phaseToolPriorities({
-    task,
+    task: identityTask,
     universe: candidateTools,
     writer: WRITE_AGENTS.has(agent),
   }).priority;
@@ -2622,13 +2646,13 @@ async function runAgentRpc(
   // stays the sole authority that trims it. Its ranking is merged into the core
   // priorities so the correct tool for the stated intent leads.
   const routePlan = routeToolIntent({
-    task,
+    task: identityTask,
     universe: candidateTools,
     writer: WRITE_AGENTS.has(agent),
   });
   const routedPriority = mergeRouteIntoPriorities(phasePriority, routePlan, candidateTools, []);
   const coreTools = coreToolPriorities(candidateTools, {
-    task,
+    task: identityTask,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
     editStrategy: modelProfile?.editStrategy || "",
@@ -2652,7 +2676,7 @@ async function runAgentRpc(
     }
     : modelProfile;
   const toolSurfaceEconomy = compileToolSurface(candidateTools, budgetedModelProfile, coreTools, {
-    task,
+    task: identityTask,
     writer: WRITE_AGENTS.has(agent),
     executionProfile: runtimeOptions.executionProfile || "standard",
     editStrategy: modelProfile?.editStrategy || "",
@@ -2674,7 +2698,7 @@ async function runAgentRpc(
   const runtimeEpoch = buildRuntimeEpoch({
     policySnapshotId: policySnapshot.id,
     workspaceFingerprint: runtimeOptions.workspaceFingerprint || cwd,
-    context: task,
+    context: identityTask,
     tools: allowedTools,
     skills: runtimeOptions.skills || [],
     modelProfile,
@@ -2694,21 +2718,26 @@ async function runAgentRpc(
     : runtimeEpoch.id;
 
   const invocation = getPiInvocation(args);
-  const workerKey = JSON.stringify([
+  // V16.16: the ONE canonical worker identity. The wave prewarm path calls the
+  // same builder with the same stable inputs, so a prewarmed worker is actually
+  // consumed by this run instead of only adding process-start overhead. Field
+  // order and fencing dimensions are owned by lib/pi-rpc-pool.mjs; never
+  // duplicate this construction.
+  const workerKey = buildRpcWorkerKey({
     agent,
     cwd,
-    invocation.command,
-    invocation.args,
-    Boolean(runtimeOptions.compactToolOutput),
-    Number(runtimeOptions.toolOutputLimit || 0),
-    Number(runtimeOptions.verificationTimeoutSec || 0),
-    Number(runtimeOptions.toolTimeoutMs || 0),
-    Boolean(runtimeOptions.allowLocalEnvWrite),
-    policySnapshot.id,
-    effectiveRuntimeEpochId,
-    runtimeOptions.runId || "",
-    runtimeOptions.journalRoot || cwd,
-  ]);
+    command: invocation.command,
+    args: invocation.args,
+    compactToolOutput: runtimeOptions.compactToolOutput,
+    toolOutputLimit: runtimeOptions.toolOutputLimit,
+    verificationTimeoutSec: runtimeOptions.verificationTimeoutSec,
+    toolTimeoutMs: runtimeOptions.toolTimeoutMs,
+    allowLocalEnvWrite: runtimeOptions.allowLocalEnvWrite,
+    policySnapshotId: policySnapshot.id,
+    runtimeEpochId: effectiveRuntimeEpochId,
+    runId: runtimeOptions.runId || "",
+    journalRoot: runtimeOptions.journalRoot || cwd,
+  });
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
   let lastActivityAt = startedAt;
@@ -2867,6 +2896,7 @@ async function runAgentRpc(
       browserTools: [...extraTools],
       childRuntime: "rpc",
       workerReused: rpc.workerReused === true,
+      workerKey,
       runtimeEpochId: effectiveRuntimeEpochId,
       policySnapshotId: policySnapshot.id,
       allowedTools: [...allowedTools],
@@ -2914,6 +2944,7 @@ async function runAgentRpc(
         browserTools: [...extraTools],
         childRuntime: "rpc",
         workerReused: false,
+        workerKey,
         runtimeEpochId: effectiveRuntimeEpochId,
         policySnapshotId: policySnapshot.id,
         allowedTools: [...allowedTools],
@@ -2927,7 +2958,7 @@ async function runAgentRpc(
         model, stopReason: "aborted", errorMessage: message,
         firstUsage: recoveredFirstUsage, usageSamples: recoveredUsageSamples,
         toolCalls, toolQueueMs, toolNames: [...toolNames], browserTools: [...extraTools],
-        childRuntime: "rpc", workerReused: false,
+        childRuntime: "rpc", workerReused: false, workerKey,
         runtimeEpochId: effectiveRuntimeEpochId, policySnapshotId: policySnapshot.id,
         allowedTools: [...allowedTools], toolExposure, modelRuntimeProfile: modelProfile,
       };
@@ -2957,6 +2988,7 @@ async function runAgentRpc(
         browserTools: [...extraTools],
         childRuntime: "rpc",
         workerReused: false,
+        workerKey,
         runtimeEpochId: effectiveRuntimeEpochId,
         policySnapshotId: policySnapshot.id,
         allowedTools: [...allowedTools],
@@ -3010,6 +3042,10 @@ async function runAgent(
     maxAdvertisedToolsCap?: number;
     toolDescriptionProfile?: string;
     v16_6Budget?: any;
+    // V16.16 stable worker identity (RPC pool reuse). Structured waves pass
+    // the pre-enrichment task text; absent everywhere else (fallback keeps the
+    // exact prior behavior).
+    stableIdentityTask?: string;
   } = {},
 ): Promise<RunResult> {
   const runOnce = async (): Promise<RunResult> => {
@@ -3465,6 +3501,10 @@ async function runRoutedAgent(
   traceID?: string,
   taskPolicyOverride?: any,
   contextCacheNamespace?: string,
+  // V16.16 stable worker identity: structured waves pass the pre-enrichment
+  // task text so the RPC pool key derives from stable intent. Undefined for
+  // all other callers (fallback keeps exact prior behavior).
+  stableIdentityTask?: string,
 ): Promise<RunResult> {
   const routedStartedAt = Date.now();
   const role = roleForAgent(agent);
@@ -4158,6 +4198,11 @@ async function runRoutedAgent(
       maxAdvertisedToolsCap: v16_6.maxAdvertisedTools,
       toolDescriptionProfile: v16_6.toolDescriptionProfile,
       v16_6Budget: v16_6,
+      // V16.16: stable worker identity for structured-wave pool reuse (see
+      // runAgentRpc identityTask). Undefined outside structured waves.
+      stableIdentityTask: typeof stableIdentityTask === "string" && stableIdentityTask.trim()
+        ? stableIdentityTask
+        : undefined,
       },
     );
   } catch (error) {
@@ -4351,6 +4396,23 @@ async function runRoutedAgent(
   } catch {
     // A learner observation must never break a run.
   }
+  // V16.16 PROVIDER TOKEN TELEMETRY (production caller: this specialist run).
+  //
+  // Provider token counts are recorded ONLY when the provider actually
+  // reported usage. Otherwise the fields stay NOT_MEASURED: chars are never
+  // converted into fake tokens.
+  const providerTokens = (() => {
+    try {
+      const usage: any = (result as any)?.usage || (result as any)?.firstUsage || null;
+      return recordProviderTokens({
+        inputTokens: usage?.inputTokens ?? usage?.promptTokens ?? usage?.input_tokens ?? null,
+        cachedInputTokens: usage?.cacheReadTokens ?? usage?.cachedInputTokens ?? usage?.cached_tokens ?? null,
+        outputTokens: usage?.outputTokens ?? usage?.completionTokens ?? usage?.output_tokens ?? null,
+      });
+    } catch {
+      return recordProviderTokens({});
+    }
+  })();
   const enrichedResult: RunResult = {
     ...result,
     toolExposure: childHydration
@@ -4384,6 +4446,9 @@ async function runRoutedAgent(
       reusableVerificationReceipts: Number(reusableVerification?.count || 0),
       childRuntime: result.childRuntime || null,
       warmWorkerReused: result.workerReused === true,
+      // V16.16 provider token telemetry: MEASURED only when the provider
+      // reported usage, otherwise NOT_MEASURED. Never a char-derived fake.
+      providerTokens,
       compactToolOutput:
         CHILD_TOOL_COMPACTION_ENABLED &&
         !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase()),
@@ -4670,6 +4735,366 @@ async function cleanupTraceSandboxes(root: string, traceID: string) {
   return removed;
 }
 
+// V16.16 canonical prewarm identity (§11).
+//
+// Best-effort prediction of the EXACT worker key/spec the child's first run
+// will use, built through the ONE canonical `buildRpcWorkerKey` (never a
+// wave-local alias). Every field mirrors the run path (`runRoutedAgent` model
+// selection + `runAgentRpc` tool surface / snapshot / epoch / invocation) with
+// the SAME stable identity task the run will pass as `stableIdentityTask`, so
+// a prewarmed worker is actually consumed instead of only adding
+// process-start overhead.
+//
+// Returns null when prediction is uncertain: the caller SKIPS that child
+// rather than starting a wrongly-keyed worker. A successful prewarm that the
+// later run does not consume (key mismatch, wave failure, abort) MUST be
+// discarded by the caller and MUST NOT be counted as a warm reuse. Fencing
+// (policy snapshot / runtime epoch / run id) is never weakened: differing
+// inputs produce differing keys, which correctly miss.
+async function predictStructuredPrewarmIdentity(input: {
+  agent: AgentName;
+  stableTask: string;
+  cwd: string;
+  inheritedModel?: string;
+  inheritedThinking?: string;
+  attempt: number;
+  traceID?: string;
+  journalRoot?: string;
+  leafPolicy?: any;
+  signal?: AbortSignal;
+}): Promise<{ key: string; spec: { command: string; args: string[]; cwd: string; env: any } } | null> {
+  try {
+    const agent = input.agent;
+    const stableTask = String(input.stableTask || "");
+    if (!stableTask.trim() || !input.cwd) return null;
+    const cwd = String(input.cwd);
+    const attempt = Math.max(1, Math.trunc(Number(input.attempt) || 1));
+    const leafPolicy: any = input.leafPolicy || {};
+    const role = roleForAgent(agent);
+    // Telemetry root + workspace fingerprint mirror the run path exactly:
+    // the epoch fences on the measured fingerprint, never on the raw cwd.
+    let telemetryRoot: string = cwd;
+    try {
+      const ownerRoot = await taskSandboxOwnerRoot(cwd).catch(() => null);
+      telemetryRoot = ownerRoot || requireGitWorkspaceRoot(cwd, "UES specialist");
+    } catch {
+      telemetryRoot = cwd;
+    }
+    let workspaceFingerprint = cwd;
+    let workspaceChangedFiles: string[] = [];
+    try {
+      const wsState = captureWorkspaceStateV2(cwd);
+      const snapshot = runtimeWorkspaceSnapshot(cwd, { workspaceState: wsState });
+      if (snapshot?.fingerprint && snapshot.fingerprint !== "unknown") workspaceFingerprint = String(snapshot.fingerprint);
+      if (Array.isArray((snapshot as any)?.changedFiles)) workspaceChangedFiles = (snapshot as any).changedFiles;
+    } catch {}
+    // Model selection mirrors runRoutedAgent (same role/attempt/task/policy).
+    // Any failure here means "uncertain": skip rather than mis-key.
+    let selectedModel: string | undefined = input.inheritedModel;
+    let capabilitySelection: any = null;
+    let modelPolicy: any = null;
+    try {
+      modelPolicy = await readModelPolicy(getUesConfigDir());
+      const selection: any = resolveCapabilityModel(role, attempt, stableTask, leafPolicy, modelPolicy);
+      capabilitySelection = selection?.capabilitySelection || null;
+      if (selection?.model) selectedModel = String(selection.model);
+    } catch {
+      selectedModel = input.inheritedModel;
+    }
+    const thinkingLevel = (selectedModel && input.inheritedModel && selectedModel !== input.inheritedModel)
+      ? undefined
+      : input.inheritedThinking;
+    const executionProfile = String(leafPolicy.executionProfile || "standard");
+    const risk = String(leafPolicy.risk || "low").toLowerCase();
+    // Tool universe mirrors runAgentRpc (candidate tools + phase/route/core).
+    const config = (AGENTS as any)[agent];
+    if (!config) return null;
+    const browserRequested = (() => {
+      try { return browserEvidenceNeeded(stableTask, role); } catch { return false; }
+    })();
+    const browserTools: string[] = browserRequested
+      ? (() => { try { return selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, stableTask, role); } catch { return []; } })()
+      : [];
+    const extraTools: string[] = [...browserTools];
+    // Learners mirror runRoutedAgent's context building (same inputs → same
+    // outputs). Each is best-effort with the run path's own fallback, so a
+    // learner miss here matches the run's miss rather than mis-keying.
+    const selectedProvider = selectedModel && selectedModel.includes("/")
+      ? selectedModel.split("/", 1)[0]
+      : null;
+    let cachePolicy: any = null;
+    let toolUtility: any = null;
+    let microSkills: any = null;
+    try {
+      const [cacheResult, utilityResult, skillResult] = await Promise.all([
+        providerCacheStabilityPolicy(telemetryRoot, {
+          provider: selectedProvider,
+          model: selectedModel,
+          minSamples: 6,
+          stableSamples: 12,
+          limit: 200,
+          trackDrift: true,
+        }).catch(() => null),
+        learnToolUtilization(telemetryRoot, {
+          model: selectedModel,
+          role,
+          minRuns: 8,
+          minToolExposures: 8,
+          limit: 240,
+        }).catch(() => null),
+        (MICRO_SKILLS_ENABLED
+          ? buildMicroSkillContext({
+            taskPolicy: leafPolicy,
+            role,
+            task: stableTask,
+            repoEvidence: workspaceChangedFiles.slice(0, 40),
+            totalChars: (leafPolicy as any)?.v16_6?.skillBudget?.capsuleChars,
+          }).catch(() => null)
+          : Promise.resolve(null)),
+      ]);
+      cachePolicy = cacheResult;
+      toolUtility = utilityResult;
+      microSkills = skillResult;
+    } catch {
+      cachePolicy = null;
+      toolUtility = null;
+      microSkills = null;
+    }
+    const baseModelProfile = modelRuntimeProfile(selectedModel, {
+      role: agent,
+      executionProfile,
+      attempt,
+      taskChars: stableTask.length,
+    });
+    // Strategy/child profile mirrors runRoutedAgent so the budgeted surface
+    // (and hence the key) matches the run's. Falls back to the base profile
+    // exactly when the run path would also lack a strategy.
+    let childModelProfile: any = baseModelProfile;
+    try {
+      const strategyTaskClass = String((capabilitySelection as any)?.taskClass || "general");
+      const strategyProfile = compileAdaptiveStrategy({
+        model: selectedModel,
+        role,
+        writer: WRITE_AGENTS.has(agent),
+        task: stableTask,
+        taskClass: strategyTaskClass,
+        surface: (baseModelProfile as any)?.surface,
+        executionProfile,
+        risk,
+        attempt,
+        recentFailure: undefined,
+        scaffoldLevel: (baseModelProfile as any)?.scaffoldLevel,
+        performanceHistory: (modelPolicy as any)?.performance || {},
+        minSamples: (modelPolicy as any)?.performanceMinSamples || 8,
+      });
+      childModelProfile = {
+        ...(baseModelProfile as any),
+        strategyId: (strategyProfile as any)?.id,
+        editStrategy: (strategyProfile as any)?.editStrategy,
+        searchStrategy: (strategyProfile as any)?.searchStrategy,
+        contextStrategy: (strategyProfile as any)?.contextStrategy,
+      };
+    } catch {
+      childModelProfile = baseModelProfile;
+    }
+    const modelProfile = childModelProfile;
+    const loadedSkills: string[] = Array.isArray((microSkills as any)?.loaded) ? (microSkills as any).loaded : [];
+    const candidateTools = [...new Set([
+      ...((config as any).tools || []),
+      ...(WRITE_AGENTS.has(agent) ? ["ues_code", "ues_code_edit"] : ["ues_code"]),
+      "ues_service",
+      DEFERRED_DISPATCHER_TOOL,
+      ...extraTools,
+      // Compact flag mirrors the run path (leaf risk, not enriched task).
+      ...((CHILD_TOOL_COMPACTION_ENABLED && !["high", "critical"].includes(risk)) ? ["ues_evidence_get"] : []),
+    ])];
+    const phasePriority = (() => {
+      try {
+        return phaseToolPriorities({ task: stableTask, universe: candidateTools, writer: WRITE_AGENTS.has(agent) }).priority;
+      } catch { return []; }
+    })();
+    const routePlan = (() => {
+      try { return routeToolIntent({ task: stableTask, universe: candidateTools, writer: WRITE_AGENTS.has(agent) }); }
+      catch { return null; }
+    })();
+    const routedPriority = (() => {
+      try { return mergeRouteIntoPriorities(phasePriority, routePlan, candidateTools, []); }
+      catch { return []; }
+    })();
+    const coreTools = (() => {
+      try {
+        return coreToolPriorities(candidateTools, {
+          task: stableTask,
+          writer: WRITE_AGENTS.has(agent),
+          executionProfile,
+          editStrategy: (modelProfile as any)?.editStrategy || "",
+          platform: process.platform,
+          compactToolOutput: CHILD_TOOL_COMPACTION_ENABLED && !["high", "critical"].includes(risk),
+          extraTools: [...extraTools, ...routedPriority],
+        });
+      } catch { return []; }
+    })();
+    const v16_6 = (leafPolicy as any)?.v16_6 || null;
+    const advertisedToolCap = Number(v16_6?.maxAdvertisedTools || 0);
+    const budgetedModelProfile = advertisedToolCap > 0
+      ? {
+        ...(modelProfile as any),
+        maxAdvertisedTools: Math.max(
+          1,
+          Math.min(Number((modelProfile as any)?.maxAdvertisedTools || advertisedToolCap), advertisedToolCap),
+        ),
+      }
+      : modelProfile;
+    const toolSurfaceEconomy = compileToolSurface(candidateTools, budgetedModelProfile, coreTools, {
+      task: stableTask,
+      writer: WRITE_AGENTS.has(agent),
+      executionProfile,
+      editStrategy: (modelProfile as any)?.editStrategy || "",
+      attempt,
+      utility: toolUtility,
+    });
+    const policyToolExposure = await resolveChildToolExposure(agent, (toolSurfaceEconomy as any).advertised);
+    const toolExposure = { ...(policyToolExposure as any), economy: toolSurfaceEconomy };
+    const allowedTools: string[] = Array.isArray((toolExposure as any).tools) ? [...(toolExposure as any).tools] : [];
+    if (!allowedTools.length) return null;
+    const compactToolOutput = CHILD_TOOL_COMPACTION_ENABLED && !["high", "critical"].includes(risk);
+    const toolOutputLimit = Math.min(
+      Number((modelProfile as any)?.toolOutputChars || 24 * 1024),
+      executionProfile === "fast" ? 12 * 1024 : executionProfile === "standard" ? 24 * 1024 : 48 * 1024,
+    );
+    // Timeout options mirror the run path's risk/profile/turbo formulas
+    // exactly (same leaf policy, role, attempt and stable task).
+    const turboFast = (() => {
+      try {
+        return turboFastPathDecision(leafPolicy, {
+          role,
+          attempt,
+          browserRequested,
+          visualRequired: (() => { try { return visualEvidenceNeeded(stableTask); } catch { return false; } })(),
+        });
+      } catch { return { eligible: false } as any; }
+    })();
+    const planningBudget = (() => {
+      try {
+        return planningRuntimeBudget(role, attempt, {
+          executionProfile,
+          risk,
+          taskChars: stableTask.length,
+        });
+      } catch { return null as any; }
+    })();
+    const verificationTimeoutSec = (turboFast as any)?.eligible
+      ? TURBO_FAST_TIMEOUTS.verificationTimeoutSec
+      : risk === "high"
+        ? 900
+        : executionProfile === "fast"
+          ? 120
+          : executionProfile === "standard"
+            ? 300
+            : 600;
+    const toolTimeoutMs = (turboFast as any)?.eligible
+      ? TURBO_FAST_TIMEOUTS.verificationTimeoutSec * 1000
+      : (planningBudget as any)?.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS;
+    const allowLocalEnvWrite = leafPolicy.localEnvWriteExplicitlyAllowed === true ||
+      (() => { try { return taskExplicitlyAllowsLocalEnvWrite(stableTask); } catch { return false; } })();
+    const policySnapshot = buildPolicySnapshot({
+      agent,
+      workspaceRoot: cwd,
+      tools: allowedTools,
+      allowLocalEnvWrite: allowLocalEnvWrite === true,
+      destructiveActions: false,
+      workspaceContainment: true,
+      verificationTimeoutSec,
+    });
+    const runtimeEpoch = buildRuntimeEpoch({
+      policySnapshotId: (policySnapshot as any).id,
+      workspaceFingerprint,
+      context: stableTask,
+      tools: allowedTools,
+      skills: loadedSkills,
+      modelProfile,
+      cachePolicy,
+      model: selectedModel,
+      thinking: thinkingLevel,
+    });
+    const args: string[] = [
+      "--mode", "rpc", "--no-session",
+      "--no-skills", "--no-prompt-templates", "--no-context-files",
+      "--extension", CHILD_RUNTIME_EXTENSION,
+    ];
+    if (selectedModel) args.push("--model", selectedModel);
+    if (thinkingLevel) args.push("--thinking", thinkingLevel);
+    args.push("--tools", allowedTools.join(","));
+    args.push("--append-system-prompt", rpcPromptPath(agent));
+    const invocation = getPiInvocation(args);
+    const runId = String(input.traceID || "");
+    const journalRoot = String(input.journalRoot || telemetryRoot || cwd);
+    const key = buildRpcWorkerKey({
+      agent,
+      cwd,
+      command: invocation.command,
+      args: invocation.args,
+      compactToolOutput,
+      toolOutputLimit,
+      verificationTimeoutSec,
+      toolTimeoutMs,
+      allowLocalEnvWrite,
+      policySnapshotId: (policySnapshot as any).id,
+      runtimeEpochId: (runtimeEpoch as any).id,
+      runId,
+      journalRoot,
+    });
+    // Compatible spec: same command/args/cwd and fencing env the run will
+    // use. The ownership token is best-effort (run re-acquires); a missing
+    // token never creates a false key hit because the key carries the epoch.
+    let ownerToken = "";
+    let ownershipScope = "";
+    let ownershipRoot = "";
+    try {
+      const ownership = await acquireRuntimeExecutionOwnership(journalRoot, String((runtimeEpoch as any).id), runId);
+      ownerToken = String((ownership as any)?.ownerToken || "");
+      ownershipScope = String((ownership as any)?.ownershipScope || "");
+      ownershipRoot = String((ownership as any)?.ownershipRoot || "");
+      await (ownership as any)?.release?.().catch?.(() => {});
+    } catch {}
+    const spec = {
+      command: invocation.command,
+      args: [...invocation.args],
+      cwd,
+      env: {
+        ...process.env,
+        UES_CHILD_PROCESS: "1",
+        UES_CHILD_AGENT: agent,
+        UES_CHILD_POLICY_SNAPSHOT_ID: String((policySnapshot as any).id),
+        UES_CHILD_RUNTIME_EPOCH_ID: String((runtimeEpoch as any).id),
+        UES_CHILD_EXECUTION_OWNER_TOKEN: ownerToken,
+        UES_CHILD_EXECUTION_OWNER_SCOPE: ownershipScope,
+        UES_CHILD_OWNERSHIP_ROOT: ownershipRoot,
+        UES_CHILD_RUN_ID: runId,
+        UES_CHILD_JOURNAL_ROOT: journalRoot,
+        UES_CHILD_MAX_PARALLEL_READS: String((modelProfile as any)?.maxParallelReads || 4),
+        UES_CHILD_CACHE_MODE: String((cachePolicy as any)?.mode || "neutral"),
+        UES_CHILD_TOOL_COMPACTION: compactToolOutput ? "1" : "0",
+        UES_CHILD_TOOL_OUTPUT_LIMIT: String(toolOutputLimit),
+        UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(verificationTimeoutSec),
+        UES_CHILD_TOOL_TIMEOUT_SEC: String(Math.max(5, Math.ceil(Number(toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS) / 1000))),
+        UES_CHILD_ALLOW_LOCAL_ENV_WRITE: allowLocalEnvWrite ? "1" : "0",
+        UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
+        UES_CHILD_DEFERRED_TOOLS: ((toolSurfaceEconomy as any).deferred || []).join(","),
+        UES_CHILD_ROLE: role,
+        UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
+        UES_CHILD_HYDRATION_MAX: "4",
+        ...budgetChildEnv(v16_6 || {}, {
+          UES_TOOL_DESCRIPTION_PROFILE: String((v16_6 as any)?.toolDescriptionProfile || ""),
+        }),
+      },
+    };
+    return { key, spec };
+  } catch {
+    return null;
+  }
+}
+
 async function executeStructuredPlan(input: {
   plan: any;
   root: string;
@@ -4895,6 +5320,12 @@ async function executeStructuredPlan(input: {
         writeFiles: string[];
         runId?: string;
       }> = [];
+      // V16.16 measured sandbox timings for the adaptive economy history.
+      const sandboxCreateTimings: number[] = [];
+      const waveStartedAt = Date.now();
+      // Hoisted so the infrastructure-error catch below can discard a
+      // prewarm no run ever consumed (no abandoned process on infra failure).
+      let wavePrewarmKeys: string[] = [];
 
       try {
         for (const id of ids) {
@@ -4906,11 +5337,18 @@ async function executeStructuredPlan(input: {
 
           if (gitCapable && writeFiles.length > 0) {
             const slug = "runtime-" + randomUUID().slice(0, 8) + "-w" + waveIndex + "-a" + attempt;
+            const sandboxStartedAt = Date.now();
             sandbox = await createTaskSandbox(input.root, slug, id, {
               inheritDirtyRoot: true,
+              // V16.16 run/wave binding (§8): this sandbox belongs to THIS run
+              // and THIS wave attempt. The integration transaction enforces the
+              // binding; a foreign sandbox fails closed instead of landing.
+              runId: String(input.traceID || ""),
+              waveId: `wave-${waveIndex}-attempt-${attempt}`,
             });
             cwd = sandbox.dir;
             ACTIVE_TASK_SANDBOXES.set(path.resolve(sandbox.dir), String(input.traceID || "structured"));
+            sandboxCreateTimings.push(Date.now() - sandboxStartedAt);
           }
 
           prepared.push({ task, cwd, sandbox, writeFiles });
@@ -4962,6 +5400,22 @@ async function executeStructuredPlan(input: {
               writeFiles: item.writeFiles,
               readFiles: taskReadFiles(item.task),
               task: [item.task.title, item.task.summary].filter(Boolean).join(" "),
+              // V16.16 production conflict evidence: forward every REAL
+              // deterministic declaration the task carries. Structured
+              // declarations classify STRONGLY; task text stays a WEAK signal.
+              acceptance: Array.isArray(item.task.acceptance) ? item.task.acceptance : [],
+              verificationCommands: taskVerificationCommands(item.task)
+                .map((spec: any) => [spec.command, ...spec.args].join(" ")),
+              services: Array.isArray(item.task.services)
+                ? item.task.services
+                : Array.isArray(item.task.mutableServices) ? item.task.mutableServices : [],
+              externalEffects: Array.isArray(item.task.externalEffects)
+                ? item.task.externalEffects
+                : Array.isArray(item.task.sideEffects) ? item.task.sideEffects : [],
+              generatedOutputs: Array.isArray(item.task.generatedOutputs) ? item.task.generatedOutputs : [],
+              commands: Array.isArray(item.task.commands)
+                ? item.task.commands
+                : Array.isArray(item.task.plannedCommands) ? item.task.plannedCommands : [],
             })),
             changedFiles: prepared.flatMap((item: any) => item.writeFiles),
             risk: prepared.some((item: any) => leafTaskPolicy(item.task, input.rootPolicy || {}).risk === "high")
@@ -4975,6 +5429,16 @@ async function executeStructuredPlan(input: {
             unresolvedResearch: input.unresolvedResearch === true,
             resourcePressure: input.resourcePressure || null,
             finalRelease: input.finalRelease === true,
+            // V16.16 adaptive economy gate (§3): measured local history tunes
+            // the critical-path components within their clamp band. Absent
+            // history reads as NOT_MEASURED and changes nothing.
+            history: (() => {
+              try {
+                return wavePlanModule.waveHistoryEstimates ? wavePlanModule.waveHistoryEstimates() : null;
+              } catch {
+                return null;
+              }
+            })(),
             options: {
               requestedWriters: fleetBound,
               requestedReadOnly: Math.min(MAX_CONCURRENCY, resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)),
@@ -4987,10 +5451,73 @@ async function executeStructuredPlan(input: {
             },
           })
           : null;
-        const waveConcurrency = wavePlan
+        let waveConcurrency = wavePlan
           ? Math.max(1, Math.min(fleetBound, Number(wavePlan.concurrency) || 1))
           : fleetBound;
         const wavePosture = wavePlan?.posture || "SERIAL_STRUCTURED";
+
+        // V16.16 RUN COST RESERVATION (production caller: this wave).
+        //
+        // Before spawning a parallel wave the controller reserves a bounded
+        // cost against the REAL unified run budget (the canonical V16.6
+        // decision computed once per run and carried on `rootPolicy.v16_6`).
+        // A second budget is never created here. The reservation may lower
+        // concurrency, serialize, go parent-direct when safe, or delay the
+        // optional advisor. It NEVER skips required verification:
+        // `verificationIntact` is always true and every child below still
+        // runs its verifier gate. Falls back to the default (null) budget
+        // ONLY when no canonical run budget truly exists.
+        let runCostReservation: any = null;
+        try {
+          const snapshotChars = (() => {
+            try {
+              const goal = String(input.plan.goal || "").length;
+              const constraints = Array.isArray(input.plan.constraints)
+                ? input.plan.constraints.join("\n").length
+                : 0;
+              return goal + constraints;
+            } catch {
+              return 0;
+            }
+          })();
+          const canonicalRunBudget = (input.rootPolicy as any)?.v16_6 || null;
+          runCostReservation = reserveRunCost(canonicalRunBudget, {
+            simultaneousCalls: waveConcurrency,
+            childTurns: Math.max(1, prepared.length * 2),
+            childContextChars: snapshotChars,
+            deepseekCalls: 0,
+            researchCalls: 0,
+            subprocessSlots: prepared.length,
+            testSlots: prepared.length,
+            taskShape: writerCount > 1 ? "COMPLEX" : writerCount === 1 ? "MEDIUM" : "SMALL",
+          });
+          // Honest provenance: record whether the reservation consumed the
+          // real run budget or the default fallback.
+          if (runCostReservation && typeof runCostReservation === "object") {
+            runCostReservation.budgetSource = canonicalRunBudget ? "v16_6-run-budget" : "default-fallback";
+          }
+        } catch {
+          runCostReservation = null;
+        }
+        if (runCostReservation && runCostReservation.admitted !== true) {
+          const action = String(runCostReservation.action || "");
+          const limit = Math.max(
+            1,
+            Math.trunc(Number(runCostReservation.limits?.maxSimultaneousCalls) || 1),
+          );
+          if (action === "lower-concurrency") {
+            waveConcurrency = Math.max(1, Math.min(waveConcurrency, limit));
+          } else if (action === "serialize" || action === "parent-direct") {
+            // Parent-direct and serialize both collapse the wave to serial
+            // execution here: the structured plan has no separate parent-direct
+            // inline path, so serial is the safe cheaper alternative that still
+            // runs every required verifier.
+            waveConcurrency = 1;
+          }
+          // delay-optional-advisor keeps concurrency: the optional advisor is
+          // simply not consulted on this wave; required verification is
+          // unchanged (verificationIntact is always true).
+        }
 
         // V16.15 SHARED WAVE CONTEXT.
         //
@@ -5033,6 +5560,43 @@ async function executeStructuredPlan(input: {
             }));
           }
         }
+        // V16.16 CANONICAL CHILD CAPSULE.
+        //
+        // The delta above carries only the snapshot REFERENCE; the production
+        // prompt must not re-add the task JSON and the parent goal through
+        // separate paths (that either starved the child of shared facts or
+        // duplicated them). The capsule is the ONE assembly the child
+        // receives: stable shared prefix inline + delta + run binding.
+        const waveCapsules = new Map<string, any>();
+        if (waveSnapshot && wavePlanModule && typeof wavePlanModule.buildChildCapsule === "function") {
+          for (const item of prepared) {
+            try {
+              waveCapsules.set(String(item.task.id), wavePlanModule.buildChildCapsule({
+                snapshot: waveSnapshot,
+                child: {
+                  childId: String(item.task.id),
+                  taskId: String(item.task.id),
+                  role: item.writeFiles.length > 0 ? "implement" : "review",
+                  readOnly: item.writeFiles.length === 0,
+                  goal: [item.task.title, item.task.summary].filter(Boolean).join(" "),
+                  writeFiles: item.writeFiles,
+                  readFiles: taskReadFiles(item.task),
+                  acceptance: Array.isArray(item.task.acceptance) ? item.task.acceptance : [],
+                  verificationCommands: taskVerificationCommands(item.task)
+                    .map((spec: any) => ({ command: spec.command, args: spec.args })),
+                  sandboxId: item.sandbox?.dir ? String(item.sandbox.dir) : null,
+                },
+                run: {
+                  runId: String(input.traceID || ""),
+                  waveId: `wave-${waveIndex}-attempt-${attempt}`,
+                },
+              }));
+            } catch {
+              // A capsule failure never blocks the wave: the caller falls back
+              // to the delta below, which is always present.
+            }
+          }
+        }
         // Record the wave decision and the context accounting. Every number here
         // is measured or explicitly NOT_MEASURED; nothing is a speedup claim.
         parallelCodingTelemetry.waves.push({
@@ -5054,6 +5618,16 @@ async function executeStructuredPlan(input: {
               provenance: wavePlan.economy.provenance,
             }
             : null,
+          // V16.16 run-cost reservation: the cheaper safe alternative when the
+          // reservation does not fit. Required verification is never removed.
+          runCostReservation: runCostReservation
+            ? {
+              action: runCostReservation.action,
+              admitted: runCostReservation.admitted === true,
+              verificationIntact: runCostReservation.verificationIntact === true,
+              reasons: (runCostReservation.reasons || []).map((row: any) => row.signal),
+            }
+            : null,
           canProduceVerdict: false,
         });
         if (waveSnapshot && wavePlanModule) {
@@ -5070,21 +5644,157 @@ async function executeStructuredPlan(input: {
           });
         }
 
+        // Stable identity text per child (the exact pre-enrichment text
+        // runPreparedChild passes as stableIdentityTaskText, minus the volatile
+        // provider prefix). Defined once so prewarm and run share the SAME
+        // task identity through the ONE canonical key builder.
+        const stableTaskFor = (item: any) => [
+          "Execute exactly this structured plan task.",
+          "Do not broaden file scope. If the declared write file list is empty, do not edit files.",
+          "Start with the declared files/interfaces and supplied context. Do not inventory the repository. Use targeted symbol/path search only for a concrete unresolved acceptance or dependency gap; once the safe edit is understood, implement and verify instead of continuing discovery.",
+          "",
+          waveCapsules.get(String(item.task.id))?.text || waveDeltas.get(String(item.task.id))?.text || "",
+          input.rootPolicy?.executionContractPrompt || "",
+        ].filter(Boolean).join("\n");
+
+        // V16.16 RPC PREWARM (production caller: this wave).
+        //
+        // Canonical worker identities (§11): each request carries the EXACT
+        // key/spec the child's first run will use, built through the ONE
+        // canonical buildRpcWorkerKey via predictStructuredPrewarmIdentity
+        // (never a wave-local alias), so pool reuse actually hits instead of
+        // only adding process-start overhead. Only the workers the admitted
+        // wave will actually use are started, never above the resolved writer
+        // concurrency (hard max 3). The prewarm promise is kicked off WITHOUT
+        // awaiting so worker startup overlaps the synchronous wave setup below
+        // (runPreparedChild/scopes); it is awaited before any child runs (see
+        // pre-run join below). A failed prewarm worker is discarded
+        // immediately by the pool helper; a successful prewarm the run never
+        // consumes is discarded after the wave via wavePrewarmKeys (real
+        // cleanup below, never counted as reuse). DeepSeek/browser workers are
+        // never prewarmed here: this wave spawns only local ues-executor /
+        // verifier RPC workers.
+        let wavePrewarm: any = null;
+        let wavePrewarmPromise: Promise<any> | null = null;
+        try {
+          const spawns = wavePlan?.spawnsChildren === true || wavePlan?.spawnsWriters === true;
+          const prewarmTargets = spawns ? prepared.filter((item: any) => item?.task?.id) : [];
+          // Never exceed the resolved writer concurrency (hard max 3).
+          const prewarmBound = Math.max(1, Math.min(3, Math.trunc(Number(waveConcurrency) || 1)));
+          const boundedTargets = prewarmTargets.slice(0, prewarmBound);
+          if (
+            wavePlanModule &&
+            typeof wavePlanModule.prewarmWaveWorkers === "function" &&
+            boundedTargets.length > 0
+          ) {
+            const identityResults = await Promise.all(boundedTargets.map(async (item: any) => {
+              if (input.signal?.aborted) return null;
+              try {
+                const stableTask = stableTaskFor(item);
+                if (!stableTask.trim()) return null;
+                const planned: any = dynamicTaskByID.get(item.task.id);
+                const firstAgent: AgentName =
+                  (planned?.execution === "deterministic" && item.writeFiles.length === 0)
+                    ? "ues-verifier"
+                    : "ues-executor";
+                return await predictStructuredPrewarmIdentity({
+                  agent: firstAgent,
+                  stableTask,
+                  cwd: String(item.cwd || input.root),
+                  inheritedModel: input.inheritedModel,
+                  inheritedThinking: input.inheritedThinking,
+                  attempt,
+                  traceID: input.traceID,
+                  journalRoot: input.root,
+                  leafPolicy: leafTaskPolicy(item.task, input.rootPolicy || {}),
+                  signal: input.signal,
+                });
+              } catch {
+                return null;
+              }
+            }));
+            // Uncertain predictions are SKIPPED (no request), never started
+            // with a wrong key: a wrong key can never be consumed and would
+            // only add process-start overhead.
+            const requests = identityResults.filter((row: any) => row?.key && row?.spec);
+            // wavePrewarmKeys performs real cleanup: every key here that the
+            // later run does not consume is discarded (see post-wave join).
+            wavePrewarmKeys = requests.map((row: any) => String(row.key));
+            if (requests.length > 0) {
+              wavePrewarmPromise = wavePlanModule.prewarmWaveWorkers(RPC_POOL, requests, {
+                maxWorkers: prewarmBound,
+                signal: input.signal,
+              });
+            }
+          }
+        } catch {
+          wavePrewarmPromise = null;
+        }
+
         const runPreparedChild = async (item: any, childContext: any) => {
+            // V16.16 PROVIDER PREFIX (production caller: this child prompt).
+            //
+            // The stable wave prefix is the model-visible leading block for
+            // provider prefix-cache reuse. It is part of THIS prompt assembly,
+            // not a second prompt path: stable contracts + wave facts first,
+            // volatile run binding after the boundary so run ids/timestamps can
+            // never break prefix reuse.
+            let stablePrefixText = "";
+            try {
+              const projectRules = (() => {
+                try {
+                  const projectFile = path.join(input.root, "AGENTS.md");
+                  const info = fs.statSync(projectFile);
+                  if (info.isFile() && info.size > 0 && info.size <= 8192) {
+                    return fs.readFileSync(projectFile, "utf8").slice(0, 1500);
+                  }
+                } catch {}
+                return "";
+              })();
+              const stablePrefix = buildStableWavePrefix({
+                systemContract: (() => {
+                  try {
+                    return getAgentPrompt("ues-executor").slice(0, 1500);
+                  } catch {
+                    return "";
+                  }
+                })(),
+                toolContract: "ues-executor bounded tools: ues_code, ues_code_edit, ues_service",
+                projectRules,
+                waveFacts: {
+                  goal: String(input.plan.goal || "").slice(0, 600),
+                  constraints: Array.isArray(input.plan.constraints)
+                    ? input.plan.constraints.map(String).slice(0, 6)
+                    : [],
+                  requirementIds: Array.isArray(item.task.requirementIds)
+                    ? item.task.requirementIds.map(String).slice(0, 12)
+                    : [],
+                  testCommands: taskVerificationCommands(item.task)
+                    .map((spec: any) => [spec.command, ...spec.args].join(" "))
+                    .slice(0, 4),
+                },
+                volatile: {
+                  runId: String(input.traceID || ""),
+                  waveId: `wave-${waveIndex}-attempt-${attempt}`,
+                  timestamp: new Date().toISOString(),
+                },
+              });
+              stablePrefixText = String(stablePrefix?.text || "");
+            } catch {
+              stablePrefixText = "";
+            }
+            // V16.16: the child receives the ONE canonical capsule (stable
+            // shared prefix inline + delta + run binding). The task JSON and
+            // the parent goal are NOT re-appended: both already live inside
+            // the capsule, and repeating them doubled child context.
+            // V16.16 stable worker identity: the shared stableTaskFor closure
+            // (defined at the wave prewarm kickoff above) so prewarm and run
+            // derive the pool key from the SAME text. The prompt still carries
+            // the full taskText below.
+            const stableIdentityTaskText = stableTaskFor(item);
             const taskText = [
-              "Execute exactly this structured plan task.",
-              "Do not broaden file scope. If the declared write file list is empty, do not edit files.",
-              "Start with the declared files/interfaces and supplied context. Do not inventory the repository. Use targeted symbol/path search only for a concrete unresolved acceptance or dependency gap; once the safe edit is understood, implement and verify instead of continuing discovery.",
-              "",
-              // The shared wave context is referenced, not repeated: this child
-              // is told that the facts are already established for the wave.
-              waveDeltas.get(String(item.task.id))?.text || "",
-              "",
-              JSON.stringify(item.task, null, 2),
-              "",
-              "Parent goal (context only; never broaden this leaf task):",
-              cap(String(input.plan.goal || ""), 700),
-              input.rootPolicy?.executionContractPrompt || "",
+              stablePrefixText,
+              stableIdentityTaskText,
             ].filter(Boolean).join("\n");
             const leafPolicy = leafTaskPolicy(item.task, input.rootPolicy || {});
             const taskFailure = failureByTask.get(String(item.task.id)) || "";
@@ -5242,6 +5952,7 @@ async function executeStructuredPlan(input: {
                 input.traceID,
                 leafPolicy,
                 input.root,
+                stableIdentityTaskText,
               );
               results.push({
                 wave: waveIndex,
@@ -5302,6 +6013,7 @@ async function executeStructuredPlan(input: {
                 input.traceID,
                 leafPolicy,
                 input.root,
+                stableIdentityTaskText,
               );
               results.push({
                 wave: waveIndex,
@@ -5348,6 +6060,7 @@ async function executeStructuredPlan(input: {
               input.traceID,
               leafPolicy,
               input.root,
+              stableIdentityTaskText,
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", leafPolicy, ...implementation });
 
@@ -5494,6 +6207,7 @@ async function executeStructuredPlan(input: {
               input.traceID,
               leafPolicy,
               input.root,
+              stableIdentityTaskText,
             );
             }
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", leafPolicy, leafFastGate, ...verification });
@@ -5531,6 +6245,31 @@ async function executeStructuredPlan(input: {
           original: item,
         }));
         const scopeByTaskId = new Map(waveScopes.map((scope: any) => [scope.id, scope]));
+        // V16.16 prewarm join: worker startup above overlapped the synchronous
+        // wave setup (runPreparedChild/scopes). Join here, before any child
+        // runs, and record honest prewarm-level telemetry. Run-level warm
+        // reuse (rpcWarmReuses) is recorded after the wave from actual
+        // workerReused flags, never from prewarm counts alone.
+        if (wavePrewarmPromise) {
+          try {
+            wavePrewarm = await wavePrewarmPromise;
+          } catch {
+            wavePrewarm = null;
+          }
+        }
+        if (wavePrewarm) {
+          const lastWaveJoin: any = parallelCodingTelemetry.waves[parallelCodingTelemetry.waves.length - 1];
+          if (lastWaveJoin) {
+            lastWaveJoin.prewarm = {
+              requested: wavePrewarm.requested ?? null,
+              bounded: wavePrewarm.bounded ?? null,
+              started: wavePrewarm.started?.value ?? null,
+              reused: wavePrewarm.reused?.value ?? null,
+              failed: wavePrewarm.failed?.value ?? null,
+              keys: wavePrewarm.keys || [],
+            };
+          }
+        }
         const waveExecution = await runDelegationWave({
           session: delegationSession,
           telemetry: delegationTelemetry,
@@ -5563,6 +6302,47 @@ async function executeStructuredPlan(input: {
           };
         });
 
+        // V16.16 honest RPC accounting (§11, telemetry §16): run-level warm
+        // reuse comes ONLY from actual workerReused flags on real RPC runs
+        // (childRuntime === "rpc"), never from prewarm counts alone.
+        // Unconsumed prewarms are discarded via wavePrewarmKeys (real cleanup)
+        // so no abandoned process survives and no false reuse is ever counted.
+        const waveRpcRuns: any[] = [];
+        for (const row of waveResults) {
+          for (const run of [row?.implementation, row?.verification]) {
+            if (run?.childRuntime === "rpc") waveRpcRuns.push(run);
+          }
+        }
+        const waveRpcWarmReuses = waveRpcRuns.filter((run) => run?.workerReused === true).length;
+        const waveRpcColdStarts = waveRpcRuns.filter((run) => run?.workerReused !== true).length;
+        const waveConsumedKeys = new Set(
+          waveRpcRuns
+            .map((run) => String(run?.workerKey || ""))
+            .filter((key) => key && wavePrewarmKeys.includes(key)),
+        );
+        const discardUnconsumedPrewarm = async () => {
+          let discarded = 0;
+          for (const key of wavePrewarmKeys) {
+            if (waveConsumedKeys.has(key)) continue;
+            try {
+              await RPC_POOL.discard(key);
+              discarded += 1;
+            } catch {}
+          }
+          try {
+            const lastWaveRpc: any = parallelCodingTelemetry.waves[parallelCodingTelemetry.waves.length - 1];
+            if (lastWaveRpc && !lastWaveRpc.rpc) {
+              lastWaveRpc.rpc = {
+                coldStarts: waveRpcColdStarts,
+                warmReuses: waveRpcWarmReuses,
+                discardedUnconsumed: discarded,
+                canProduceVerdict: false,
+              };
+            }
+          } catch {}
+          return discarded;
+        };
+
         const aborted = waveResults.find((item) => item.aborted === true);
         if (aborted) {
           const abortFailure = String(
@@ -5573,6 +6353,7 @@ async function executeStructuredPlan(input: {
           );
           await failDurablePrepared(prepared, abortFailure);
           await cleanupSandboxes(input.root, prepared);
+          await discardUnconsumedPrewarm();
           return {
             passed: false,
             aborted: true,
@@ -5598,6 +6379,7 @@ async function executeStructuredPlan(input: {
             .join("\n\n---\n\n");
           await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
+          await discardUnconsumedPrewarm();
           if (governWaveLoop(wavePlanModule, waveIndex, ids, lastWaveFailure, attempt).retry) continue;
           return {
             passed: false,
@@ -5615,6 +6397,7 @@ async function executeStructuredPlan(input: {
         if (!gitCapable || prepared.every((item) => !item.sandbox?.dir)) {
           // Read-only waves do not need a duplicate Git worktree. Their fresh
           // verifier evidence is enough as long as the workspace stays unchanged.
+          await discardUnconsumedPrewarm();
           await completeDurableWave(waveResults);
           break;
         }
@@ -5661,6 +6444,7 @@ async function executeStructuredPlan(input: {
           lastWaveFailure = scopeFailure.trim();
           await failDurablePrepared(prepared, lastWaveFailure);
           await cleanupSandboxes(input.root, prepared);
+          await discardUnconsumedPrewarm();
           if (governWaveLoop(wavePlanModule, waveIndex, ids, lastWaveFailure, attempt).retry) continue;
           return {
             passed: false,
@@ -5687,14 +6471,48 @@ async function executeStructuredPlan(input: {
         // is unavailable the proven V16.5 loop below still runs.
         const patchable = prepared.filter((item) => item.sandbox?.dir);
         if (wavePlanModule && patchable.length > 0) {
+          // V16.16 crash recovery (§9): before the first transaction of the
+          // run, repair any intent left behind by process death. Best-effort
+          // and idempotent; it never touches user changes and never resets.
+          if (!parallelCodingTelemetry.recoveryAttempted) {
+            parallelCodingTelemetry.recoveryAttempted = true;
+            try {
+              if (typeof wavePlanModule.recoverIntegration === "function") {
+                const recovery = await wavePlanModule.recoverIntegration({ root: input.root });
+                parallelCodingTelemetry.recovery = {
+                  scanned: recovery.scanned ?? null,
+                  pending: recovery.pending ?? null,
+                  outcomes: (recovery.recovered || []).map((row: any) => row.outcome),
+                };
+              }
+            } catch {
+              parallelCodingTelemetry.recovery = { error: "recovery-threw" };
+            }
+          }
+          // V16.16 wave-start HEAD for the stale-generation guard (§8). One
+          // cheap rev-parse; when it fails the check is skipped but preflight
+          // still guards every patch.
+          let waveStartHead: string | undefined;
+          try {
+            const headProbe = await runProcess("git", ["rev-parse", "HEAD"], input.root, input.signal);
+            if (headProbe.exitCode === 0 && headProbe.stdout.trim()) waveStartHead = headProbe.stdout.trim();
+          } catch {}
           const transaction = await wavePlanModule.runIntegration({
             root: input.root,
+            runId: String(input.traceID || ""),
+            waveId: `wave-${waveIndex}-attempt-${attempt}`,
             patches: patchable.map((item: any) => ({
               taskId: String(item.task.id),
               sandboxDir: item.sandbox.dir,
               writeFiles: item.writeFiles,
+              runId: String(input.traceID || ""),
             })),
             signal: input.signal,
+            options: {
+              expectedRunId: String(input.traceID || ""),
+              expectedWaveId: `wave-${waveIndex}-attempt-${attempt}`,
+              expectedRootHead: waveStartHead,
+            },
           });
           parallelCodingTelemetry.integrationTransactions.push({
             wave: waveIndex,
@@ -5711,6 +6529,18 @@ async function executeStructuredPlan(input: {
             rollbackMs: transaction.rollbackMs ?? null,
             canProduceVerdict: false,
           });
+          // V16.16 adaptive economy history (§3): feed MEASURED wave timings
+          // back into the bounded EMA. Only measured numbers are recorded.
+          try {
+            if (typeof wavePlanModule.recordWaveHistory === "function") {
+              const historyObservation: any = { waveWallMs: Date.now() - waveStartedAt };
+              if (transaction.applyMs?.value != null) historyObservation.integrationMs = transaction.applyMs.value;
+              if (sandboxCreateTimings.length) {
+                historyObservation.sandboxCreateMs = Math.max(...sandboxCreateTimings);
+              }
+              wavePlanModule.recordWaveHistory(historyObservation);
+            }
+          } catch {}
           if (transaction.outcome !== wavePlanModule.INTEGRATION_OUTCOME.INTEGRATED) {
             const failureText = transaction.outcome === wavePlanModule.INTEGRATION_OUTCOME.PREFLIGHT_REJECTED
               ? "wave integration refused before any root mutation: " + JSON.stringify(
@@ -5724,6 +6554,7 @@ async function executeStructuredPlan(input: {
             }
             await failDurablePrepared(prepared, failureText);
             await cleanupSandboxes(input.root, prepared);
+            await discardUnconsumedPrewarm();
             if (governWaveLoop(wavePlanModule, waveIndex, ids, failureText, attempt).retry) continue;
             return {
               passed: false,
@@ -5743,6 +6574,278 @@ async function executeStructuredPlan(input: {
             integrated.push({ item, receipt: row });
             integrations.push({ wave: waveIndex, task: row.taskId, ...row });
           }
+          // V16.16 VERIFICATION PROOF COMPOSITION (production caller: this
+          // post-integration path).
+          //
+          // A child sandbox PASS never proves the combined root. This partitions
+          // the root verification workload into REUSE (exact, fresh, unaffected
+          // receipt still valid for the combined tree) and RUN (must execute
+          // fresh). Final release, security-sensitive gates and
+          // lockfile/config changes always run fresh. Planning reuse never
+          // asserts PASS; the local verifier remains the sole PASS authority.
+          try {
+            if (wavePlanModule && typeof wavePlanModule.planProofReuse === "function") {
+              const rootFingerprint = (() => {
+                try {
+                  return String(runtimeWorkspaceSnapshot(input.root).fingerprint || "unknown");
+                } catch {
+                  return "unknown";
+                }
+              })();
+              const allChanged = [...(actualByTask?.values?.() || [])].flat?.() || [];
+              const lockfileTouched = allChanged.some((file: string) =>
+                /(^|\/)(package-lock\.json|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|go\.sum|poetry\.lock)$/i.test(String(file || "")));
+              const configTouched = allChanged.some((file: string) =>
+                /(^|\/)(package\.json|tsconfig.*\.json|\.npmrc|pi\.config\..*)$/i.test(String(file || "")));
+              const candidates = prepared.flatMap((item: any) => {
+                const specs = taskVerificationCommands(item.task || {});
+                const verification = waveResults.find((row: any) => String(row?.item?.task?.id) === String(item.task.id))?.verification;
+                const passed = verification?.exitCode === 0 && verification?.verdict === "PASS";
+                return specs.map((spec: any) => {
+                  const commandText = [spec.command, ...(spec.args || [])].join(" ").trim();
+                  const siblingTouched = [...(actualByTask?.entries?.() || [])].some(
+                    ([otherId, files]: any) =>
+                      String(otherId) !== String(item.task.id) &&
+                      (files || []).some((file: string) => (item.writeFiles || []).includes(file)),
+                  );
+                  return {
+                    command: spec.command,
+                    args: spec.args,
+                    fingerprint: `${rootFingerprint}::${commandText}`.slice(0, 160),
+                    exitCode: passed ? 0 : 1,
+                    completed: passed === true,
+                    aborted: false,
+                    timedOut: false,
+                    partial: false,
+                    ageMs: 5_000,
+                    affectedBySiblings: siblingTouched === true,
+                    gateName: /audit|security|release/i.test(commandText) ? commandText.slice(0, 80) : "test",
+                    lockfileChanged: lockfileTouched === true,
+                    configChanged: configTouched === true,
+                  };
+                });
+              });
+              const securityFresh = candidates
+                .filter((row: any) => /audit|security/i.test(String(row.command || "") + " " + (row.args || []).join(" ")))
+                .map((row: any) => [String(row.command || ""), ...((row as any).args || [])].join(" ").trim())
+                .filter(Boolean);
+              const proofPlan = wavePlanModule.planProofReuse({
+                candidates,
+                finalRelease: input.finalRelease === true,
+                requireFreshCommands: securityFresh,
+              });
+              // V16.16 proof execution: the partition MUST change verification
+              // work, not only telemetry. REUSE receipts are consumed here via
+              // the real verification broker (no duplicate execution); RUN
+              // commands are recorded must-run-fresh for the root verifier
+              // (which executes them fresh via its tools and still owns PASS
+              // — see the controller integration-verifier prompt below).
+              // executeProofPlan never returns a verdict.
+              let proofExecution: any = null;
+              try {
+                if (typeof wavePlanModule.executeProofPlan === "function") {
+                  const specByCommand = new Map(
+                    candidates.map((row: any) => [
+                      [String(row.command || ""), ...((row as any).args || [])].join(" ").trim(),
+                      row,
+                    ]),
+                  );
+                  proofExecution = await wavePlanModule.executeProofPlan(proofPlan, {
+                    findReceipt: async (command: string) => {
+                      const spec: any = specByCommand.get(String(command || "").trim());
+                      if (!spec) return null;
+                      try {
+                        return await findReusableVerification(
+                          input.root,
+                          spec.command,
+                          spec.args || [],
+                          { maxAgeMs: 20 * 60_000, maxBytes: 12_000 },
+                        ).catch(() => null);
+                      } catch {
+                        return null;
+                      }
+                    },
+                    // Recorder, not a shell-out: the wave loop must not add
+                    // unbounded root executions; the root verifier executes
+                    // these fresh on the real post-integration path.
+                    runFresh: async (command: string, entry: any) => ({
+                      recorded: true,
+                      mustRunFresh: true,
+                      command: String(command || ""),
+                      reason: (entry as any)?.reason || null,
+                    }),
+                  });
+                }
+              } catch {
+                proofExecution = null;
+              }
+              const lastWave: any = parallelCodingTelemetry.waves[parallelCodingTelemetry.waves.length - 1];
+              if (lastWave) {
+                lastWave.proofReuse = {
+                  reuse: proofPlan.reuse?.length ?? 0,
+                  run: proofPlan.run?.length ?? 0,
+                  // Honest counts: receipts actually consumed vs commands
+                  // actually recorded must-run-fresh (not just planned).
+                  consumed: proofExecution?.consumed?.length ?? 0,
+                  mustRunFresh: proofExecution?.executed?.length ?? 0,
+                  consumedReceipts: (proofExecution?.consumed || [])
+                    .map((row: any) => ({ command: row.command, receiptId: row.receiptId || null }))
+                    .slice(0, 8),
+                  mustRunCommands: (proofPlan.run || [])
+                    .map((row: any) => ({ command: row.command, reason: row.reason || null }))
+                    .slice(0, 8),
+                  finalRelease: proofPlan.finalRelease === true,
+                  verifierOwnsVerdict: true,
+                  canProduceVerdict: false,
+                };
+              }
+            }
+          } catch {}
+          // V16.16 CRITICAL-PATH TELEMETRY (production caller: this wave).
+          //
+          // Consumes real measured run/wave timings where available, never
+          // synthetic defaults. Unmeasured fields stay NOT_MEASURED.
+          try {
+            if (wavePlanModule && typeof wavePlanModule.buildCriticalPathTelemetry === "function") {
+              const waveWallMs = Date.now() - waveStartedAt;
+              const criticalTelemetry = wavePlanModule.buildCriticalPathTelemetry({
+                totalWallMs: waveWallMs,
+                sandboxMs: sandboxCreateTimings.length ? Math.max(...sandboxCreateTimings) : undefined,
+                integrationMs: (transaction as any)?.applyMs?.value ?? undefined,
+                executionMs: undefined,
+                planningMs: undefined,
+                rpcStartupMs: undefined,
+                contextBuildMs: undefined,
+                targetedVerificationMs: undefined,
+                rootVerificationMs: undefined,
+                cleanupMs: undefined,
+                // V16.16 honest RPC counts (§16): ONLY real run-level reuse
+                // (workerReused on actual RPC runs, computed above) — never
+                // prewarm counts, never estimates.
+                rpcColdStarts: waveRpcColdStarts,
+                rpcWarmReuses: waveRpcWarmReuses,
+              });
+              const lastWave: any = parallelCodingTelemetry.waves[parallelCodingTelemetry.waves.length - 1];
+              if (lastWave) {
+                lastWave.criticalPath = {
+                  totalWallMs: criticalTelemetry.totalWallMs ?? null,
+                  provenance: criticalTelemetry.provenance || null,
+                  canProduceVerdict: false,
+                };
+              }
+              if (!parallelCodingTelemetry.criticalPath) parallelCodingTelemetry.criticalPath = [];
+              parallelCodingTelemetry.criticalPath.push({
+                wave: waveIndex,
+                attempt,
+                totalWallMs: criticalTelemetry.totalWallMs ?? null,
+                provenance: criticalTelemetry.provenance || null,
+              });
+            }
+          } catch {}
+          // V16.16 STOP-WHEN-PROVEN (production caller: this bounded loop).
+          //
+          // The loop stops retrying ONLY when correctness is proven, and every
+          // input below is derived from real runtime state (never hardcoded):
+          // wave results, failure ledger, risk evidence in fresh outputs, git
+          // generation guard, remaining waves and the release-gate request.
+          // This planner never creates PASS: `passed` still comes from the
+          // local verifier plus successful integration above. The local
+          // verifier remains the sole PASS authority. When proven there is no
+          // retry, no re-plan, no additional child, no optional advisor call
+          // and no repeated identical verification; later waves, root
+          // verification and release gates still run (fall-through breaks ONLY
+          // the attempt loop, never the outer wave loop).
+          try {
+            if (wavePlanModule && typeof wavePlanModule.shouldStopProven === "function") {
+              const wavePassed = waveResults.every((row: any) => row?.passed === true);
+              const editsComplete =
+                wavePassed === true &&
+                waveResults.length === prepared.length &&
+                integrated.length === patchable.length;
+              const verificationPass = wavePassed === true;
+              const requirementsSatisfied = prepared.every(
+                (item: any) => !failureByTask.get(String(item.task.id)),
+              );
+              const highRiskEvidence = waveResults.some((row: any) =>
+                /high-risk|unsafe|BLOCKED|rejected|hygiene/i.test(
+                  String(row?.verification?.output || "") + "\n" + String(row?.implementation?.output || ""),
+                ),
+              );
+              let staleGeneration = false;
+              try {
+                if (waveStartHead) {
+                  const headNow = await runProcess("git", ["rev-parse", "HEAD"], input.root, input.signal);
+                  if (headNow.exitCode === 0 && headNow.stdout.trim() && headNow.stdout.trim() !== waveStartHead) {
+                    // Integration applies working-tree patches without
+                    // committing, so a changed HEAD means a foreign mutation
+                    // landed mid-wave: this generation is stale.
+                    staleGeneration = true;
+                  }
+                }
+              } catch {
+                staleGeneration = false;
+              }
+              const pendingDependencies = safe.waves.slice(waveIndex + 1).flat().length;
+              const releaseGateRequested =
+                (input as any).finalRelease === true || (input.rootPolicy as any)?.finalRelease === true;
+              const stopDecision = wavePlanModule.shouldStopProven({
+                editsComplete,
+                verificationPass,
+                requirementsSatisfied,
+                highRiskEvidence,
+                staleGeneration,
+                pendingDependencies,
+                releaseGateRequested,
+              });
+              const lastWaveStop: any = parallelCodingTelemetry.waves[parallelCodingTelemetry.waves.length - 1];
+              if (lastWaveStop) {
+                lastWaveStop.stopProven = {
+                  stop: stopDecision.stop === true,
+                  reason: String(stopDecision.reason || "").slice(0, 240),
+                  inputs: {
+                    editsComplete,
+                    verificationPass,
+                    requirementsSatisfied,
+                    highRiskEvidence,
+                    staleGeneration,
+                    pendingDependencies,
+                    releaseGateRequested,
+                  },
+                  canProduceVerdict: false,
+                };
+              }
+              if (stopDecision.stop !== true && staleGeneration === true) {
+                // Stale generation after a seemingly successful integration:
+                // do NOT claim success. Bounded retry against the fresh
+                // generation, else fail closed (never synthesize PASS).
+                const staleFailure =
+                  "wave integrated against a stale generation: the root HEAD advanced mid-wave; re-run against the fresh generation instead of claiming a stale success.";
+                for (const row of prepared) {
+                  failureByTask.set(String(row.task.id), failureDelta(staleFailure, { maxChars: 2200 }));
+                }
+                await failDurablePrepared(prepared, staleFailure);
+                await cleanupSandboxes(input.root, prepared);
+                await discardUnconsumedPrewarm();
+                if (governWaveLoop(wavePlanModule, waveIndex, ids, staleFailure, attempt).retry) continue;
+                return {
+                  passed: false,
+                  reason: "stale-generation",
+                  wave: waveIndex,
+                  attempt,
+                  failure: staleFailure,
+                  validation,
+                  schedule: scheduleReport(),
+                  results,
+                  integrations,
+                };
+              }
+              // Proven, or pending later waves / requested release gates (owned
+              // by the outer loop / controller, not by retrying this wave):
+              // fall through to durable completion below. No retry, no
+              // re-plan, no additional child, no optional advisor, no repeated
+              // identical verification.
+            }
+          } catch {}
         } else {
           try {
             for (const item of prepared) {
@@ -5764,6 +6867,7 @@ async function executeStructuredPlan(input: {
               error instanceof Error ? error.message : String(error),
             );
             await cleanupSandboxes(input.root, prepared);
+            await discardUnconsumedPrewarm();
             return {
               passed: false,
               reason: "integration-failed",
@@ -5778,6 +6882,7 @@ async function executeStructuredPlan(input: {
           }
         }
 
+        await discardUnconsumedPrewarm();
         await completeDurableWave(waveResults);
         await cleanupSandboxes(input.root, prepared);
         break;
@@ -5787,6 +6892,14 @@ async function executeStructuredPlan(input: {
           error instanceof Error ? error.message : String(error),
         );
         await cleanupSandboxes(input.root, prepared);
+        // Infrastructure failure: no run can be trusted to have consumed the
+        // prewarm. Discard every prewarmed key (best-effort, idle workers
+        // only — all delegated children settled or were reaped above).
+        try {
+          for (const key of wavePrewarmKeys) {
+            try { await RPC_POOL.discard(key); } catch {}
+          }
+        } catch {}
         lastWaveFailure = error instanceof Error ? error.message : String(error);
         if (input.signal?.aborted) {
           return {
@@ -9593,6 +10706,43 @@ export default function (pi: ExtensionAPI) {
                 schedule: scheduled.schedule,
                 integrations: scheduled.integrations,
               }, null, 2),
+              "",
+              // V16.16 proof-reuse evidence (§14 wiring): REUSE receipts are
+              // trusted exact evidence that MUST NOT be re-executed identically
+              // (receipt consumed, still valid for the combined tree); RUN
+              // commands MUST execute fresh via your tools (final release,
+              // security-sensitive gates, lockfile/config changes, sibling
+              // cross-impact, stale or failed receipts). You still own PASS:
+              // never infer it from this planner record.
+              (() => {
+                try {
+                  const waves = (scheduled.schedule as any)?.parallelCoding?.waves || [];
+                  const reused: string[] = [];
+                  const mustRun: string[] = [];
+                  for (const wave of waves) {
+                    for (const row of wave?.proofReuse?.consumedReceipts || []) {
+                      reused.push(`- ${row.command} (receipt ${row.receiptId || "attached"})`);
+                    }
+                    for (const row of wave?.proofReuse?.mustRunCommands || []) {
+                      mustRun.push(`- ${row.command} (reason: ${row.reason || "must-run-fresh"})`);
+                    }
+                  }
+                  const lines = ["V16.16 verification proof plan (evidence, not a verdict):"];
+                  lines.push(
+                    reused.length
+                      ? "REUSE — do NOT re-run an identical check; the receipt below is the evidence (inspect critically, run extra checks only for gaps):\n" + reused.slice(0, 12).join("\n")
+                      : "REUSE — none; every check below must run fresh.",
+                  );
+                  lines.push(
+                    mustRun.length
+                      ? "RUN — MUST execute fresh on the combined tree:\n" + mustRun.slice(0, 12).join("\n")
+                      : "RUN — nothing outstanding beyond your normal fresh verification.",
+                  );
+                  return lines.join("\n");
+                } catch {
+                  return "V16.16 verification proof plan unavailable; verify everything fresh.";
+                }
+              })(),
               "",
               durableWork
                 ? `Durable state is active at .ues-work/${durableWork.slug}. Verify the final repository state independently; durable receipts are state, not proof by themselves.`
