@@ -265,3 +265,133 @@ test("a hard deadline aborts outstanding provider work", async () => {
   assert.ok(Date.now() - started < 5000, "must not hang past the deadline");
   assert.ok(result.stopReason);
 });
+
+test("a hard deadline settles with HARD_DEADLINE and never produces PASS", async () => {
+  const root = tempRoot();
+  const events = [];
+  const broker = createExternalResearchBroker({
+    fetchImpl: async () => new Promise(() => {}), // never resolves
+    evidenceRoot: root,
+    onEvent: (e) => events.push(e),
+  });
+  const started = Date.now();
+  const result = await broker.runResearch({
+    task: { question: "slow?", signals: { versionUncertainty: true } },
+    package: "p",
+    installedVersion: "1.0.0",
+    officialDomainOverride: "example.com",
+    officialDocUrl: "https://example.com/slow",
+    repoRef: {},
+    hardResearchMs: 30,
+  });
+  assert.ok(Date.now() - started < 5000, "must not hang past the deadline");
+  assert.equal(result.stopReason, "HARD_DEADLINE");
+  assert.equal(result.verdict, "NOT_AVAILABLE");
+  assert.ok(result.counts.cancelledFetchCount >= 1);
+  assert.ok(events.some((e) => e?.type === "hard-deadline"));
+});
+
+test("a hard deadline aborts two concurrent hanging providers", async () => {
+  const root = tempRoot();
+  const broker = createExternalResearchBroker({
+    fetchImpl: async () => new Promise(() => {}), // never resolves
+    evidenceRoot: root,
+  });
+  const started = Date.now();
+  const result = await broker.runResearch({
+    task: { question: "slow?", signals: { versionUncertainty: true } },
+    package: "p",
+    installedVersion: "1.0.0",
+    officialDomainOverride: "example.com",
+    officialDocUrl: "https://example.com/slow",
+    githubRelevant: true,
+    repoRef: { owner: "o", repo: "r" },
+    hardResearchMs: 30,
+  });
+  assert.ok(Date.now() - started < 5000, "must not hang past the deadline");
+  assert.equal(result.stopReason, "HARD_DEADLINE");
+  assert.equal(result.verdict, "NOT_AVAILABLE");
+  assert.ok(result.counts.cancelledFetchCount >= 2);
+});
+
+test("late provider completion cannot mutate a deadline-cancelled run", async () => {
+  const root = tempRoot();
+  const broker = createExternalResearchBroker({
+    fetchImpl: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 150)); // settles AFTER the deadline
+      return {
+        status: 200,
+        headers: { get: (name) => (String(name).toLowerCase() === "content-type" ? "text/html" : null) },
+        text: async () => "late body that must never land in the run",
+      };
+    },
+    evidenceRoot: root,
+  });
+  const result = await broker.runResearch({
+    task: { question: "slow?", signals: { versionUncertainty: true } },
+    package: "p",
+    installedVersion: "1.0.0",
+    officialDomainOverride: "example.com",
+    officialDocUrl: "https://example.com/slow",
+    repoRef: {},
+    hardResearchMs: 30,
+  });
+  assert.equal(result.stopReason, "HARD_DEADLINE");
+  assert.equal(result.sources.length, 0);
+  assert.equal(result.counts.networkCalls, 0);
+  // Let the late provider settle; the returned run must be untouched.
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  assert.equal(result.sources.length, 0);
+  assert.equal(result.counts.networkCalls, 0);
+  assert.equal(result.counts.fetchedCount, 0);
+});
+
+test("repeated hard-deadline runs are idempotent", async () => {
+  const root = tempRoot();
+  const broker = createExternalResearchBroker({
+    fetchImpl: async () => new Promise(() => {}), // never resolves
+    evidenceRoot: root,
+  });
+  const input = {
+    task: { question: "slow?", signals: { versionUncertainty: true } },
+    package: "p",
+    installedVersion: "1.0.0",
+    officialDomainOverride: "example.com",
+    officialDocUrl: "https://example.com/slow",
+    repoRef: {},
+    hardResearchMs: 30,
+  };
+  const first = await broker.runResearch(input);
+  const second = await broker.runResearch(input);
+  assert.equal(first.stopReason, "HARD_DEADLINE");
+  assert.equal(second.stopReason, "HARD_DEADLINE");
+  assert.equal(first.verdict, "NOT_AVAILABLE");
+  assert.equal(second.verdict, "NOT_AVAILABLE");
+});
+
+test("a deadline-cancelled run produces no unhandled rejection", async () => {
+  const root = tempRoot();
+  const broker = createExternalResearchBroker({
+    fetchImpl: async () => new Promise(() => {}), // never resolves
+    evidenceRoot: root,
+  });
+  const rejections = [];
+  const onUnhandled = (reason) => rejections.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+  try {
+    const result = await broker.runResearch({
+      task: { question: "slow?", signals: { versionUncertainty: true } },
+      package: "p",
+      installedVersion: "1.0.0",
+      officialDomainOverride: "example.com",
+      officialDocUrl: "https://example.com/slow",
+      repoRef: {},
+      hardResearchMs: 30,
+    });
+    assert.equal(result.stopReason, "HARD_DEADLINE");
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(rejections.length, 0);
+  } finally {
+    process.removeListener("unhandledRejection", onUnhandled);
+  }
+});

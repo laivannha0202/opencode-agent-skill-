@@ -46,29 +46,32 @@ test("V16.15 wiring: the controller reaches the runtime through the LAZY registr
 
 test("V16.15 wiring: the ONE wave decision drives concurrency", () => {
   const text = source()
-  assert.ok(text.includes("const wavePlan = wavePlanModule"), "the wave plan is never computed")
-  assert.ok(text.includes("wavePlanModule.planWave({"), "the controller does not ask the policy owner")
-  // V16.16 allows the run-cost reservation to narrow the plan-driven bound
-  // (lower/serialize), so the binding may be const or let, but the plan must
-  // still be the source of the concurrency.
+  // V16.17 (§2): the decision is compiled ONCE; the wave loop only reads the
+  // frozen verdict. A re-introduced per-wave `planWave` call would fork the
+  // single compile authority, so its ABSENCE is asserted, not its absence of
+  // use.
+  assert.ok(text.includes("const compiledWave: any = compiledPlan.waves[waveIndex]"), "the compiled wave is never read")
+  assert.ok(!text.includes("wavePlanModule.planWave("), "the per-wave planWave call was re-introduced")
+  assert.ok(text.includes("compiledWave && Number(compiledWave.concurrency) > 0"), "the compiled decision does not drive the wave concurrency")
+  assert.ok(text.includes("waveConcurrency = compiledWave"), "the compiled decision does not drive the wave concurrency")
+  // The compiled concurrency is still clamped by the pre-existing V16.5 fleet
+  // bound, so a policy change can never widen the shipped budget by itself.
   assert.ok(
-    text.includes("waveConcurrency = wavePlan") || text.includes("waveConcurrency=wavePlan"),
-    "the plan does not drive the wave concurrency",
+    text.includes("Math.max(1, Math.min(fleetBound, Math.trunc(Number(compiledWave.concurrency))))"),
+    "the compiled concurrency is not clamped by the V16.5 fleet bound",
   )
-  // The plan's concurrency is still clamped by the pre-existing V16.5 fleet bound,
-  // so a policy change can never widen the shipped budget by itself.
-  assert.ok(
-    text.includes("Math.max(1, Math.min(fleetBound, Number(wavePlan.concurrency) || 1))"),
-    "the plan concurrency is not clamped by the V16.5 fleet bound",
-  )
-  // A failed hydration must never be a reason to parallelize.
-  assert.ok(text.includes(": fleetBound;"), "the fail-safe fallback bound is missing")
-  assert.ok(text.includes('const wavePosture = wavePlan?.posture || "SERIAL_STRUCTURED"'), "the fail-safe posture is missing")
+  // A missing compiled decision falls back to the SERIAL bound (1): a missing
+  // plan is never a reason to parallelize.
+  assert.ok(text.includes(": 1;"), "the fail-safe serial fallback is missing")
+  assert.ok(text.includes('const wavePosture = (compiledWave && compiledWave.posture) || "SERIAL_STRUCTURED"'), "the fail-safe posture is missing")
 })
 
 test("V16.15 wiring: the wave plan is given the declared scopes, not a guess", () => {
   const text = source()
-  assert.ok(text.includes("wavePlanModule.planWave({"), "no wave plan call")
+  // V16.17 (§2): declared scopes reach the compiler in one call; the wave
+  // loop never re-derives them.
+  assert.ok(text.includes("compileExecutionPlan({"), "no compile-once call")
+  assert.ok(!text.includes("wavePlanModule.planWave("), "a second per-wave derivation was re-introduced")
   for (const marker of [
     "readOnly: item.writeFiles.length === 0",
     "writeFiles: item.writeFiles",
@@ -83,11 +86,11 @@ test("V16.15 wiring: the wave plan is given the declared scopes, not a guess", (
 
 test("V16.15 wiring: every child of a wave receives the shared snapshot as a delta", () => {
   const text = source()
-  assert.ok(text.includes("wavePlanModule.buildWaveSnapshot({"), "no shared snapshot is built")
+  assert.ok(text.includes("wavePlanModuleForCompile.buildWaveSnapshot({"), "no shared snapshot is built")
   assert.ok(text.includes("wavePlanModule.buildChildDelta({"), "no child delta is built")
   assert.ok(text.includes("waveDeltas.get(String(item.task.id))?.text"), "the child delta never reaches the child prompt")
   // The snapshot is built once per wave, NOT once per child.
-  const snapshotCalls = text.split("wavePlanModule.buildWaveSnapshot({").length - 1
+  const snapshotCalls = text.split("wavePlanModuleForCompile.buildWaveSnapshot({").length - 1
   assert.equal(snapshotCalls, 1, `expected exactly one snapshot build site, found ${snapshotCalls}`)
   // Accounting is measured, and it is recorded for the run report.
   assert.ok(text.includes("wavePlanModule.waveAccounting({"), "wave accounting is never computed")

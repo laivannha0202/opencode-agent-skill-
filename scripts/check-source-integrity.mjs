@@ -1408,8 +1408,10 @@ const V16_15_CONTRACTS = Object.freeze([
     minBytes: 400_000,
     required: [
       "loadParallelCodingRuntimeModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.PARALLEL_CODING_RUNTIME)",
-      "wavePlanModule.planWave({",
-      "wavePlanModule.buildWaveSnapshot({",
+      // V16.17 §2: the per-wave `planWave` mapping was retired; the wave loop
+      // consumes the frozen compiled verdict instead. Its retirement (and the
+      // FORBIDDEN marker for any re-fork) is pinned in V16_17_CONTRACTS.
+      "wavePlanModuleForCompile.buildWaveSnapshot({",
       "wavePlanModule.buildChildDelta({",
       "wavePlanModule.waveAccounting({",
       "wavePlanModule.runIntegration({",
@@ -1773,6 +1775,182 @@ export function validateV16_16SourceIntegrity(root = ROOT) {
   return failures
 }
 
+// V16.17 execution-core consolidation. These contracts pin the ONE-authority
+// boundaries the directive makes non-negotiable: the canonical conflict graph,
+// the canonical provider usage normalizer, the run budget ledger, and the
+// privileged-context fencing in the runtime epoch. A future edit that re-forks
+// any of them fails source integrity.
+const V16_17_CONTRACTS = Object.freeze([
+  {
+    file: "lib/execution-plan-compiler-v16-17.mjs",
+    minBytes: 12_000,
+    required: [
+      'EXECUTION_PLAN_COMPILER_POLICY = "execution-plan-compiler-v16-17"',
+      "compileExecutionPlan",
+      "buildExecutionScopes",
+      "computeSafeWaves",
+      "buildDelegationWaves",
+      "decideParallelExecution",
+      // V16.17 §2/§3: the decision owns the number, and non-PARALLEL waves
+      // are re-packed to single-scope rows so downstream cannot parallelize.
+      "CONCURRENCY FOLLOWS THE DECISION",
+      "PACKING FOLLOWS THE DECISION",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      // V16.17 §2: compile ONCE, execute the frozen waves verbatim.
+      "compileExecutionPlan({",
+      "compiledPlan.waves",
+      "compiledWave.reservation",
+      "compiledWave.admission",
+      "Math.min(fleetBound",
+      // V16.17 §1: one prepared descriptor feeds prewarm and run.
+      "preparedExecution",
+      "The retired per-wave `planWave` mapping lived",
+    ],
+    // V16.17 §2: a re-introduced per-wave planWave call would fork the single
+    // compile authority — this is a hard failure, not a warning.
+    forbidden: ["wavePlanModule.planWave("],
+  },
+  {
+    file: "test/v16-17-execution-plan.test.mjs",
+    minBytes: 6_000,
+    required: [
+      "compileExecutionPlan",
+      "EXECUTION_PLAN_DECISION",
+      "compiledPlanId",
+      "re-packs conflict waves",
+      "must execute serially even under maxParallel=3",
+    ],
+  },
+  {
+    file: "lib/provider-usage-normalizer-v16-17.mjs",
+    minBytes: 5_000,
+    required: [
+      'PROVIDER_USAGE_NORMALIZER_POLICY = "provider-usage-normalizer-v16-17"',
+      "normalizeProviderUsage",
+      "normalizedUsageView",
+      "measuredTokenMetric",
+      "SAMPLE_SEMANTICS",
+      "CUMULATIVE",
+      "DELTA",
+      "UNKNOWN",
+      "UNKNOWN IS NOT ZERO",
+    ],
+  },
+  {
+    file: "lib/run-budget-ledger-v16-17.mjs",
+    minBytes: 5_000,
+    required: [
+      'RUN_BUDGET_LEDGER_POLICY = "run-budget-ledger-v16-17"',
+      "createRunBudgetLedger",
+      "deriveRunCeilings",
+      "admitAgainstRunLedger",
+      "remainingRunMs",
+      "verificationIntact: true",
+      "run-wall-clock-exhausted",
+    ],
+  },
+  {
+    file: "lib/delegation-safety.mjs",
+    minBytes: 10_000,
+    required: [
+      "execution-conflict-graph-v16-15.mjs",
+      "buildDelegationWaves",
+      "classifyScope",
+      // V16.17 §3: candidate probes compile conflict inputs ONCE.
+      "probeOptions",
+    ],
+  },
+  {
+    file: "lib/task-graph.mjs",
+    minBytes: 5_000,
+    required: [
+      "execution-conflict-graph-v16-15.mjs",
+      "tasksConflict",
+      "taskConflictScope",
+      "computeSafeWaves",
+    ],
+  },
+  {
+    file: "lib/runtime-epoch.mjs",
+    minBytes: 1_000,
+    required: [
+      "systemPromptHash",
+      "buildRuntimeEpoch",
+      "runtimeEpochCompatibility",
+    ],
+  },
+  {
+    file: "lib/run-telemetry.mjs",
+    minBytes: 5_000,
+    required: [
+      "provider-usage-normalizer-v16-17.mjs",
+      "normalizeProviderUsage",
+      "aggregateUsageSamples",
+    ],
+  },
+  {
+    file: "lib/external-research-broker-v16-13.mjs",
+    minBytes: 10_000,
+    required: [
+      "provider-usage-normalizer-v16-17.mjs",
+      "normalizeProviderUsageCanonical",
+    ],
+  },
+  {
+    file: "lib/model-performance.mjs",
+    minBytes: 2_000,
+    required: [
+      "tokenSamples",
+      "avgTokens",
+    ],
+  },
+  {
+    file: "test/v16-17-execution-core.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "V16.17 §3",
+      "V16.17 §4",
+      "V16.17 §5",
+      "V16.17 §7",
+      "V16.17 §8",
+      "V16.17 §9",
+      "V16.17 §10",
+    ],
+  },
+])
+
+export function validateV16_17SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_17_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+    for (const marker of contract.forbidden || []) {
+      if (text.includes(marker)) failures.push(`${contract.file}: forbidden marker present ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -1935,6 +2113,13 @@ export function runSourceIntegrity() {
   if (v16_16Failures.length) {
     process.stderr.write("V16.16 source-integrity validation failed:\n")
     for (const failure of v16_16Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_17Failures = validateV16_17SourceIntegrity(ROOT)
+  if (v16_17Failures.length) {
+    process.stderr.write("V16.17 source-integrity validation failed:\n")
+    for (const failure of v16_17Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

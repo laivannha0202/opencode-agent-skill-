@@ -24,7 +24,7 @@ import { waitForAuthenticatedPage } from "../../lib/browser-profile.mjs";
 import { acquireProfileLock } from "../../lib/deepseek-profile-lock.mjs";
 import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
-import { computeSafeWaves, normalizePlanForValidation, taskFiles, taskReadFiles, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
+import { normalizePlanForValidation, taskFiles, taskReadFiles, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
 import { compactReversibleOutput } from "../../lib/performance-fabric.mjs";
 import { gcEvidenceStore } from "../../lib/evidence-store.mjs";
@@ -35,7 +35,8 @@ import {
   toolResultText,
 } from "../../lib/process-hang-detector.mjs";
 import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
-import { PiRpcWorkerPool, buildRpcWorkerKey } from "../../lib/pi-rpc-pool.mjs";
+import { PiRpcWorkerPool, buildRpcWorkerKey, prepareAgentExecution, sameExecution } from "../../lib/pi-rpc-pool.mjs";
+import { compileExecutionPlan } from "../../lib/execution-plan-compiler-v16-17.mjs";
 import { resolvePiChildInvocation } from "../../lib/pi-child-invocation.mjs";
 import { adaptiveContextBudget } from "../../lib/adaptive-context-budget.mjs";
 import { clearSkillCompilerCache, compileSkillContext } from "../../lib/skill-compiler.mjs";
@@ -133,6 +134,7 @@ import { buildRehydrationManifest, renderRehydrationManifest } from "../../lib/r
 import { buildContextObservatory, decisionPointFingerprint } from "../../lib/context-observatory.mjs";
 import { buildStableWavePrefix, providerCacheStabilityPolicy, recordProviderTokens, stableProjectPrefix, stableSystemPrefix } from "../../lib/provider-cache-stability.mjs";
 import { reserveRunCost } from "../../lib/orchestration-budget-v16-6.mjs";
+import { createRunBudgetLedger } from "../../lib/run-budget-ledger-v16-17.mjs";
 import { solutionEconomyContract } from "../../lib/solution-economy.mjs";
 import { appendRunJournalEvent, closeRunJournal, createRunJournal, readRunJournal, recoverRunJournal } from "../../lib/run-journal.mjs";
 import { finalizeRunArtifacts, initializeRunArtifacts } from "../../lib/run-artifacts.mjs";
@@ -196,6 +198,7 @@ import {
   removeTaskSandbox,
   rollbackTaskSandbox,
   pruneOrphanTaskSandboxes,
+  rootWorkspaceIdentity,
   taskSandboxOwnerRoot,
 } from "../../lib/worktree-sandbox.mjs";
 import {
@@ -316,6 +319,16 @@ const CHILD_HARD_TIMEOUT_MS = configuredDuration(
   30 * 60_000,
   60_000,
   2 * 60 * 60_000,
+);
+// V16.17 (§9): the RUN wall-clock deadline. Distinct from the per-child
+// hard/idle timeouts above: those bound ONE child, this bounds the WHOLE run
+// (every wave, every retry). Default 2h; env-overridable; never weaker than a
+// single child's own hard timeout so it can never truncate a legitimate child.
+const RUN_WALL_CLOCK_MS = configuredDuration(
+  "UES_RUN_WALL_CLOCK_MS",
+  2 * 60 * 60_000,
+  CHILD_HARD_TIMEOUT_MS,
+  8 * 60 * 60_000,
 );
 const CHILD_IDLE_TIMEOUT_MS = configuredDuration(
   "UES_CHILD_IDLE_TIMEOUT_MS",
@@ -2158,6 +2171,8 @@ async function runAgentCli(
     skills: runtimeOptions.skills || [],
     modelProfile,
     cachePolicy: runtimeOptions.cachePolicy || null,
+    // V16.17 (§7): bind the privileged system prompt into the epoch.
+    systemPrompt: getAgentPrompt(agent),
     model,
     thinking: thinkingLevel,
   });
@@ -2524,17 +2539,31 @@ async function runAgentCli(
 }
 
 
-const RPC_PROMPT_PATH_CACHE = new Map<AgentName, string>();
+const RPC_PROMPT_PATH_CACHE = new Map<string, string>();
+
+// V16.17 (§7): the prompt file is CONTENT-ADDRESSED. V16.16 cached by agent name
+// only, wrote a non-content-addressed `agent.md`, and returned the cached path
+// whenever the file happened to exist — so a changed privileged prompt (or a
+// recycled temp dir from an older build) could be silently reused. The filename
+// now embeds a hash of the exact prompt bytes, and the cache key is
+// (agent, hash), so a changed prompt always produces a new file and a changed
+// worker identity.
+function rpcPromptHash(agent: AgentName): string {
+  return createHash("sha256").update(getAgentPrompt(agent), "utf8").digest("hex").slice(0, 32);
+}
 
 function rpcPromptPath(agent: AgentName) {
-  const cached = RPC_PROMPT_PATH_CACHE.get(agent);
+  const prompt = getAgentPrompt(agent);
+  const hash = createHash("sha256").update(prompt, "utf8").digest("hex").slice(0, 32);
+  const cacheKey = agent + ":" + hash;
+  const cached = RPC_PROMPT_PATH_CACHE.get(cacheKey);
   if (cached && fs.existsSync(cached)) return cached;
 
   const dir = path.join(os.tmpdir(), "ues-pi-rpc-prompts");
   fs.mkdirSync(dir, { recursive: true });
-  const file = path.join(dir, agent + ".md");
-  fs.writeFileSync(file, getAgentPrompt(agent), { encoding: "utf8", mode: 0o600 });
-  RPC_PROMPT_PATH_CACHE.set(agent, file);
+  const file = path.join(dir, agent + "." + hash + ".md");
+  fs.writeFileSync(file, prompt, { encoding: "utf8", mode: 0o600 });
+  RPC_PROMPT_PATH_CACHE.set(cacheKey, file);
   return file;
 }
 
@@ -2703,6 +2732,8 @@ async function runAgentRpc(
     skills: runtimeOptions.skills || [],
     modelProfile,
     cachePolicy: runtimeOptions.cachePolicy || null,
+    // V16.17 (§7): bind the privileged system prompt into the epoch.
+    systemPrompt: getAgentPrompt(agent),
     model,
     thinking: thinkingLevel,
   });
@@ -2718,12 +2749,12 @@ async function runAgentRpc(
     : runtimeEpoch.id;
 
   const invocation = getPiInvocation(args);
-  // V16.16: the ONE canonical worker identity. The wave prewarm path calls the
-  // same builder with the same stable inputs, so a prewarmed worker is actually
-  // consumed by this run instead of only adding process-start overhead. Field
-  // order and fencing dimensions are owned by lib/pi-rpc-pool.mjs; never
-  // duplicate this construction.
-  const workerKey = buildRpcWorkerKey({
+  // V16.17 (§1): ONE canonical prepared descriptor. The wave prewarm path
+  // prepares through the same builder with the same stable inputs, so a
+  // prewarmed worker is actually consumed by this run instead of only adding
+  // process-start overhead. Field order and fencing dimensions are owned by
+  // lib/pi-rpc-pool.mjs; never duplicate this construction.
+  const preparedExecution = prepareAgentExecution({
     agent,
     cwd,
     command: invocation.command,
@@ -2737,7 +2768,11 @@ async function runAgentRpc(
     runtimeEpochId: effectiveRuntimeEpochId,
     runId: runtimeOptions.runId || "",
     journalRoot: runtimeOptions.journalRoot || cwd,
+    model: model || null,
+    thinking: thinkingLevel || null,
+    systemPromptHash: rpcPromptHash(agent),
   });
+  const workerKey = preparedExecution.key;
   const taskInput = `Task: ${task}\n`;
   const startedAt = Date.now();
   let lastActivityAt = startedAt;
@@ -4567,13 +4602,20 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
   if (!performanceModel) return cost;
   try {
     const aggregateUsage = aggregateUsageSamples(result.usageSamples);
+    // V16.17 (§10): never convert an UNKNOWN provider token count into a
+    // MEASURED zero. `aggregateUsageSamples` already returns null when the
+    // provider reported nothing; `result.usage?.totalTokens` is only a fallback
+    // when it is a real number. The model-performance learner treats null as
+    // NOT_MEASURED and leaves its running average untouched.
+    const measuredTokens = aggregateUsage?.totalTokens
+      ?? (Number.isFinite(Number(result.usage?.totalTokens)) ? Number(result.usage.totalTokens) : null);
     await recordModelPerformance(getUesConfigDir(), {
       model: performanceModel,
       text: task,
       passed,
       retries,
       latencyMs: result.durationMs || 0,
-      tokens: Number(aggregateUsage?.totalTokens ?? result.usage?.totalTokens ?? 0),
+      tokens: measuredTokens,
       taskClass: result.optimizations?.strategyProfile?.taskClass || undefined,
       strategyProfile: result.optimizations?.strategyProfile || null,
     });
@@ -5029,21 +5071,9 @@ async function predictStructuredPrewarmIdentity(input: {
     const invocation = getPiInvocation(args);
     const runId = String(input.traceID || "");
     const journalRoot = String(input.journalRoot || telemetryRoot || cwd);
-    const key = buildRpcWorkerKey({
-      agent,
-      cwd,
-      command: invocation.command,
-      args: invocation.args,
-      compactToolOutput,
-      toolOutputLimit,
-      verificationTimeoutSec,
-      toolTimeoutMs,
-      allowLocalEnvWrite,
-      policySnapshotId: (policySnapshot as any).id,
-      runtimeEpochId: (runtimeEpoch as any).id,
-      runId,
-      journalRoot,
-    });
+    // V16.17 (§1): the prewarm prediction prepares through the SAME canonical
+    // descriptor builder as the run path. The key/spec below are the
+    // descriptor's, never a hand-assembled pair.
     // Compatible spec: same command/args/cwd and fencing env the run will
     // use. The ownership token is best-effort (run re-acquires); a missing
     // token never creates a false key hit because the key carries the epoch.
@@ -5057,11 +5087,7 @@ async function predictStructuredPrewarmIdentity(input: {
       ownershipRoot = String((ownership as any)?.ownershipRoot || "");
       await (ownership as any)?.release?.().catch?.(() => {});
     } catch {}
-    const spec = {
-      command: invocation.command,
-      args: [...invocation.args],
-      cwd,
-      env: {
+    const childEnv: any = {
         ...process.env,
         UES_CHILD_PROCESS: "1",
         UES_CHILD_AGENT: agent,
@@ -5087,9 +5113,27 @@ async function predictStructuredPrewarmIdentity(input: {
         ...budgetChildEnv(v16_6 || {}, {
           UES_TOOL_DESCRIPTION_PROFILE: String((v16_6 as any)?.toolDescriptionProfile || ""),
         }),
-      },
-    };
-    return { key, spec };
+      };
+    const prepared = prepareAgentExecution({
+      agent,
+      cwd,
+      command: invocation.command,
+      args: invocation.args,
+      compactToolOutput,
+      toolOutputLimit,
+      verificationTimeoutSec,
+      toolTimeoutMs,
+      allowLocalEnvWrite,
+      policySnapshotId: (policySnapshot as any).id,
+      runtimeEpochId: (runtimeEpoch as any).id,
+      runId,
+      journalRoot,
+      model: selectedModel || null,
+      thinking: thinkingLevel || null,
+      systemPromptHash: rpcPromptHash(agent),
+      env: childEnv,
+    });
+    return { key: prepared.key, spec: prepared.spec, prepared };
   } catch {
     return null;
   }
@@ -5104,6 +5148,8 @@ async function executeStructuredPlan(input: {
   rootPolicy?: any;
   durableSlug?: string;
   traceID?: string;
+  runStartedAt?: number;
+  runWallClockMs?: number;
   signal?: AbortSignal;
   onUpdate?: any;
 }) {
@@ -5118,7 +5164,9 @@ async function executeStructuredPlan(input: {
     };
   }
 
-  const safe = computeSafeWaves(input.plan);
+  // V16.17 (§2): wave ORDER is derived exactly once, inside
+  // `compileExecutionPlan` (task-graph's `computeSafeWaves`). This function
+  // no longer computes a second copy that could disagree with the plan.
   const dynamic = planDynamicWorkflow(input.plan.tasks, {
     maxConcurrent: MAX_CONCURRENCY,
     maxLLMConcurrent: MAX_CONCURRENCY,
@@ -5133,6 +5181,106 @@ async function executeStructuredPlan(input: {
   );
   const results: any[] = [];
   const integrations: any[] = [];
+  // V16.17 (§8, §9): ONE run-lifetime ledger for the whole structured plan.
+  // The stateless per-wave `reserveRunCost` below is folded INTO this ledger so
+  // wave N sees what waves 1..N-1 already spent, and a run wall-clock deadline
+  // (when the caller supplies one) can stop optional work without ever removing
+  // required verification. The ledger wraps the SAME canonical run budget; it
+  // never computes a second one.
+  // V16.17 (§2) COMPILE ONCE: the run-level immutable execution plan.
+  //
+  // Every wave below executes this plan's decision; no wave re-derives
+  // order, conflicts, economy or budget. The compiler composes the single
+  // authorities (task-graph order, delegation-safety conflicts, policy
+  // economy, run-ledger admission) and freezes the result together with the
+  // root generation it was compiled against. Admission (worktrees / prewarm
+  // / RPC children) is decided here, BEFORE any expensive effect exists.
+  const wavePlanModuleForCompile = await loadParallelCodingRuntimeModule();
+  const compiledPlan = compileExecutionPlan({
+    tasks: input.plan.tasks,
+    goal: input.plan.goal,
+    runId: String(input.traceID || ""),
+    workspaceGeneration: (() => {
+      try {
+        return rootWorkspaceIdentity(input.root);
+      } catch {
+        return { rootHead: null };
+      }
+    })(),
+    maxConcurrency: Math.min(
+      MAX_CONCURRENCY,
+      MAX_WRITER_CONCURRENCY,
+      resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
+    ),
+    riskOf: (task: any) => {
+      try {
+        return leafTaskPolicy(task, input.rootPolicy || {}).risk;
+      } catch {
+        return "medium";
+      }
+    },
+    unresolvedResearch: (input as any).unresolvedResearch === true,
+    resourcePressure: (input as any).resourcePressure || null,
+    finalRelease: (input as any).finalRelease === true,
+    requestedReadOnly: Math.min(MAX_CONCURRENCY, resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)),
+    history: () => {
+      try {
+        return wavePlanModuleForCompile && (wavePlanModuleForCompile as any).waveHistoryEstimates
+          ? (wavePlanModuleForCompile as any).waveHistoryEstimates()
+          : null;
+      } catch {
+        return null;
+      }
+    },
+    reserve: (wave: any) => {
+      const snapshotChars = (() => {
+        try {
+          const goal = String(input.plan.goal || "").length;
+          const constraints = Array.isArray(input.plan.constraints)
+            ? input.plan.constraints.join("\n").length
+            : 0;
+          return goal + constraints;
+        } catch {
+          return 0;
+        }
+      })();
+      const canonicalRunBudget = (input.rootPolicy as any)?.v16_6 || null;
+      const cumulativeAdmission = runBudgetLedger.reserve({
+        simultaneousCalls: Math.max(1, Number(wave.simultaneousCalls) || 1),
+        childTurns: Math.max(1, Number(wave.childTurns) || 1),
+        deepseekCalls: 0,
+        researchCalls: 0,
+        subprocessSlots: Number(wave.subprocessSlots) || 0,
+        testSlots: Number(wave.testSlots) || 0,
+      });
+      const reservation: any = reserveRunCost(canonicalRunBudget, {
+        simultaneousCalls: Math.max(1, Number(wave.simultaneousCalls) || 1),
+        childTurns: Math.max(1, Number(wave.childTurns) || 1),
+        childContextChars: snapshotChars,
+        deepseekCalls: 0,
+        researchCalls: 0,
+        subprocessSlots: Number(wave.subprocessSlots) || 0,
+        testSlots: Number(wave.testSlots) || 0,
+        taskShape: wave.taskShape,
+      });
+      if (cumulativeAdmission.admitted !== true) {
+        return {
+          ...reservation,
+          admitted: false,
+          action: cumulativeAdmission.runWallClockExhausted
+            ? "stop-optional"
+            : (reservation?.action && reservation.action !== "admit" ? reservation.action : cumulativeAdmission.action),
+          reasons: [...(cumulativeAdmission.reasons || []), ...(reservation?.reasons || [])],
+          cumulative: cumulativeAdmission,
+          budgetSource: canonicalRunBudget ? "v16_6-run-budget" : "default-fallback",
+        };
+      }
+      if (reservation && typeof reservation === "object") {
+        reservation.budgetSource = canonicalRunBudget ? "v16_6-run-budget" : "default-fallback";
+      }
+      return reservation;
+    },
+  });
 
   // V16.5 bounded parallel delegation.
   //
@@ -5167,8 +5315,8 @@ async function executeStructuredPlan(input: {
   };
 
   const scheduleReport = () => ({
-    safeWaves: safe.waves,
-    serialized: safe.serialized,
+    safeWaves: compiledPlan.waves.map((wave: any) => wave.taskIds),
+    serialized: compiledPlan.serialized,
     dynamic,
     parallelDelegation: delegationFleetTelemetry(delegationTelemetry),
     parallelCoding: {
@@ -5185,6 +5333,9 @@ async function executeStructuredPlan(input: {
       hardMaxDepth: delegationSession.hardMaxDepth,
       maxActiveChildren: delegationSession.maxActiveChildren,
     },
+    // V16.17 (§8, §9): the run-lifetime cumulative spend and wall-clock state,
+    // read lazily so every terminal return path reports the REAL totals.
+    runBudgetLedger: runBudgetLedger.snapshot(),
   });
 
   const gitProbe = await runProcess("git", ["rev-parse", "--is-inside-work-tree"], input.root, input.signal);
@@ -5247,7 +5398,7 @@ async function executeStructuredPlan(input: {
     if (progressWatchdog) return progressWatchdog;
     if (!module?.progressWatchdog) return null;
     progressWatchdog = module.progressWatchdog({
-      maxWaves: Math.max(1, safe.waves.length) * Math.max(1, input.maxAttempts) + 1,
+      maxWaves: Math.max(1, compiledPlan.waves.length) * Math.max(1, input.maxAttempts) + 1,
     });
     return progressWatchdog;
   };
@@ -5307,8 +5458,12 @@ async function executeStructuredPlan(input: {
     return decision;
   };
 
-  for (let waveIndex = 0; waveIndex < safe.waves.length; waveIndex++) {
-    const ids = safe.waves[waveIndex];
+  // V16.17 (§2): execute the COMPILED plan. `compiledPlan.waves` ordered the tasks;
+  // the compiler froze that order with its conflict/economy/budget decision
+  // per wave, so this loop never re-derives them.
+  for (let waveIndex = 0; waveIndex < compiledPlan.waves.length; waveIndex++) {
+    const compiledWave: any = compiledPlan.waves[waveIndex];
+    const ids = compiledWave.taskIds;
     let lastWaveFailure = "";
     const failureByTask = new Map<string, string>();
 
@@ -5335,7 +5490,11 @@ async function executeStructuredPlan(input: {
           let cwd = input.root;
           let sandbox: any = undefined;
 
-          if (gitCapable && writeFiles.length > 0) {
+          // V16.17 (§2, §3): the compiler admitted (or refused) worktrees
+          // BEFORE this wave created anything. A parent-direct wave runs on
+          // the root it already owns; every other writer wave isolates as
+          // before. Read-only tasks never create sandboxes either way.
+          if (gitCapable && writeFiles.length > 0 && compiledWave.admission.createWorktrees !== false) {
             const slug = "runtime-" + randomUUID().slice(0, 8) + "-w" + waveIndex + "-a" + attempt;
             const sandboxStartedAt = Date.now();
             sandbox = await createTaskSandbox(input.root, slug, id, {
@@ -5391,114 +5550,34 @@ async function executeStructuredPlan(input: {
         // silently parallelize: it falls back to the V16.5 bound with the
         // serial-structured posture, which is the behavior that shipped before.
         // A missing module is never a reason to run writers concurrently.
-        const wavePlanModule = await loadParallelCodingRuntimeModule();
-        const wavePlan = wavePlanModule
-          ? wavePlanModule.planWave({
-            scopes: prepared.map((item: any) => ({
-              id: String(item.task.id),
-              readOnly: item.writeFiles.length === 0,
-              writeFiles: item.writeFiles,
-              readFiles: taskReadFiles(item.task),
-              task: [item.task.title, item.task.summary].filter(Boolean).join(" "),
-              // V16.16 production conflict evidence: forward every REAL
-              // deterministic declaration the task carries. Structured
-              // declarations classify STRONGLY; task text stays a WEAK signal.
-              acceptance: Array.isArray(item.task.acceptance) ? item.task.acceptance : [],
-              verificationCommands: taskVerificationCommands(item.task)
-                .map((spec: any) => [spec.command, ...spec.args].join(" ")),
-              services: Array.isArray(item.task.services)
-                ? item.task.services
-                : Array.isArray(item.task.mutableServices) ? item.task.mutableServices : [],
-              externalEffects: Array.isArray(item.task.externalEffects)
-                ? item.task.externalEffects
-                : Array.isArray(item.task.sideEffects) ? item.task.sideEffects : [],
-              generatedOutputs: Array.isArray(item.task.generatedOutputs) ? item.task.generatedOutputs : [],
-              commands: Array.isArray(item.task.commands)
-                ? item.task.commands
-                : Array.isArray(item.task.plannedCommands) ? item.task.plannedCommands : [],
-            })),
-            changedFiles: prepared.flatMap((item: any) => item.writeFiles),
-            risk: prepared.some((item: any) => leafTaskPolicy(item.task, input.rootPolicy || {}).risk === "high")
-              ? "high"
-              : "medium",
-            // A read-only scope can overlap the wave's writer: that is the whole
-            // point of the PARALLEL_READ_ONLY posture. It is only "useful" when
-            // the wave really contains a reader, so the flag is derived from the
-            // prepared wave and not asserted unconditionally.
-            readOnlyWorkUseful: prepared.some((item: any) => item.writeFiles.length === 0),
-            unresolvedResearch: input.unresolvedResearch === true,
-            resourcePressure: input.resourcePressure || null,
-            finalRelease: input.finalRelease === true,
-            // V16.16 adaptive economy gate (§3): measured local history tunes
-            // the critical-path components within their clamp band. Absent
-            // history reads as NOT_MEASURED and changes nothing.
-            history: (() => {
-              try {
-                return wavePlanModule.waveHistoryEstimates ? wavePlanModule.waveHistoryEstimates() : null;
-              } catch {
-                return null;
-              }
-            })(),
-            options: {
-              requestedWriters: fleetBound,
-              requestedReadOnly: Math.min(MAX_CONCURRENCY, resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)),
-              // No `moduleEdges` are passed: a wave cannot contain a declared
-              // task dependency (`computeSafeWaves` already separated those into
-              // different waves), and the controller has no cheap file-level
-              // import graph. The scopes DO carry their `readFiles`, so the
-              // read/write relation between wave members is still proven by the
-              // conflict graph rather than assumed.
-            },
-          })
-          : null;
-        let waveConcurrency = wavePlan
-          ? Math.max(1, Math.min(fleetBound, Number(wavePlan.concurrency) || 1))
-          : fleetBound;
-        const wavePosture = wavePlan?.posture || "SERIAL_STRUCTURED";
-
-        // V16.16 RUN COST RESERVATION (production caller: this wave).
+        const wavePlanModule = wavePlanModuleForCompile;
+        // V16.17 (§2): EXECUTE the compiled decision. `compiledWave` is the
+        // frozen conflict/economy/budget verdict from the single authorities
+        // (task-graph order, delegation-safety conflicts, policy economy,
+        // run-ledger admission). This attempt only NARROWS the compiled
+        // concurrency with its local fleet bound: `Math.min`, never wider,
+        // never re-derived. The retired per-wave `planWave` mapping lived
+        // here; conflict scopes now come from `buildExecutionScopes` inside
+        // the compiler, and the `prepared` rows above are EXECUTION data
+        // (cwd/sandbox), not a second classification.
         //
-        // Before spawning a parallel wave the controller reserves a bounded
-        // cost against the REAL unified run budget (the canonical V16.6
-        // decision computed once per run and carried on `rootPolicy.v16_6`).
-        // A second budget is never created here. The reservation may lower
-        // concurrency, serialize, go parent-direct when safe, or delay the
-        // optional advisor. It NEVER skips required verification:
-        // `verificationIntact` is always true and every child below still
-        // runs its verifier gate. Falls back to the default (null) budget
-        // ONLY when no canonical run budget truly exists.
-        let runCostReservation: any = null;
-        try {
-          const snapshotChars = (() => {
-            try {
-              const goal = String(input.plan.goal || "").length;
-              const constraints = Array.isArray(input.plan.constraints)
-                ? input.plan.constraints.join("\n").length
-                : 0;
-              return goal + constraints;
-            } catch {
-              return 0;
-            }
-          })();
-          const canonicalRunBudget = (input.rootPolicy as any)?.v16_6 || null;
-          runCostReservation = reserveRunCost(canonicalRunBudget, {
-            simultaneousCalls: waveConcurrency,
-            childTurns: Math.max(1, prepared.length * 2),
-            childContextChars: snapshotChars,
-            deepseekCalls: 0,
-            researchCalls: 0,
-            subprocessSlots: prepared.length,
-            testSlots: prepared.length,
-            taskShape: writerCount > 1 ? "COMPLEX" : writerCount === 1 ? "MEDIUM" : "SMALL",
-          });
-          // Honest provenance: record whether the reservation consumed the
-          // real run budget or the default fallback.
-          if (runCostReservation && typeof runCostReservation === "object") {
-            runCostReservation.budgetSource = canonicalRunBudget ? "v16_6-run-budget" : "default-fallback";
-          }
-        } catch {
-          runCostReservation = null;
-        }
+        // FAIL-SAFE: without a compiled decision the wave falls back to the
+        // V16.5 serial bound, exactly like a missing V16.15 module did. A
+        // missing plan is never a reason to run writers concurrently.
+        let waveConcurrency = compiledWave && Number(compiledWave.concurrency) > 0
+          ? Math.max(1, Math.min(fleetBound, Math.trunc(Number(compiledWave.concurrency))))
+          : 1;
+        const wavePosture = (compiledWave && compiledWave.posture) || "SERIAL_STRUCTURED";
+
+        // V16.17 (§2) COMPILED RESERVATION (production consumer: this wave).
+        //
+        // The reservation was made ONCE at compile time against the SAME
+        // cumulative run ledger and the SAME canonical run budget. This
+        // attempt only APPLIES the compiled verdict below: it never
+        // re-reserves (that would double-spend the ledger) and it NEVER
+        // skips required verification (`verificationIntact` is always true
+        // and every child below still runs its verifier gate).
+        let runCostReservation: any = (compiledWave && compiledWave.reservation) || null;
         if (runCostReservation && runCostReservation.admitted !== true) {
           const action = String(runCostReservation.action || "");
           const limit = Math.max(
@@ -5513,6 +5592,14 @@ async function executeStructuredPlan(input: {
             // inline path, so serial is the safe cheaper alternative that still
             // runs every required verifier.
             waveConcurrency = 1;
+          } else if (action === "stop-optional") {
+            // V16.17 (§9): the run wall-clock deadline is reached. Stop optional
+            // work (advisor/research) and serialize, but NEVER drop required
+            // verification: every child below still runs its verifier gate.
+            waveConcurrency = 1;
+            if (runCostReservation && typeof runCostReservation === "object") {
+              runCostReservation.verificationIntact = true;
+            }
           }
           // delay-optional-advisor keeps concurrency: the optional advisor is
           // simply not consulted on this wave; required verification is
@@ -5527,8 +5614,8 @@ async function executeStructuredPlan(input: {
         // the duplicated context the wave should pay for once. The snapshot is
         // built from the plan's REAL declared facts; when a fact was never
         // declared it is simply absent, never invented.
-        const waveSnapshot = wavePlanModule && wavePlan?.spawnsChildren === true
-          ? wavePlanModule.buildWaveSnapshot({
+        const waveSnapshot = (compiledWave && compiledWave.spawnsChildren) === true
+          ? wavePlanModuleForCompile.buildWaveSnapshot({
             waveId: `wave-${waveIndex}-attempt-${attempt}`,
             goal: String(input.plan.goal || ""),
             constraints: Array.isArray(input.plan.constraints) ? input.plan.constraints : [],
@@ -5603,19 +5690,21 @@ async function executeStructuredPlan(input: {
           wave: waveIndex,
           attempt,
           posture: wavePosture,
-          shape: wavePlan?.shape || null,
-          reason: wavePlan?.reasons?.map((row: any) => row.signal) || ["v16-15-stack-unavailable"],
-          writerConcurrency: wavePlan?.writerConcurrency ?? null,
-          readOnlyConcurrency: wavePlan?.readOnlyConcurrency ?? null,
+          shape: (compiledWave && compiledWave.economy && compiledWave.economy.shape) || null,
+          reason: (compiledWave && compiledWave.economy && compiledWave.economy.reasons)
+            ? compiledWave.economy.reasons.map((row: any) => row.signal)
+            : ["v16-15-stack-unavailable"],
+          writerConcurrency: (compiledWave && compiledWave.economy && compiledWave.economy.writerConcurrency) ?? null,
+          readOnlyConcurrency: (compiledWave && compiledWave.economy && compiledWave.economy.readOnlyConcurrency) ?? null,
           effectiveConcurrency: waveConcurrency,
-          maxWriters: wavePlan?.maxWriters ?? null,
-          graphFingerprint: wavePlan?.graph?.fingerprint || null,
-          conflictEdges: wavePlan?.graph?.edgeCount ?? null,
-          economy: wavePlan?.economy
+          maxWriters: (compiledWave && compiledWave.economy && compiledWave.economy.limits && compiledWave.economy.limits.resolvedWriterBound) ?? null,
+          graphFingerprint: (compiledWave && compiledWave.economy && compiledWave.economy.conflictGraph && compiledWave.economy.conflictGraph.fingerprint) || null,
+          conflictEdges: (compiledWave && compiledWave.economy && compiledWave.economy.conflictGraph && compiledWave.economy.conflictGraph.edgeCount) ?? null,
+          economy: compiledWave && compiledWave.economy
             ? {
-              economical: wavePlan.economy.economical?.value ?? null,
-              estimatedOverlapSavingMs: wavePlan.economy.estimatedOverlapSavingMs?.value ?? null,
-              provenance: wavePlan.economy.provenance,
+              economical: compiledWave.economy.economical?.value ?? null,
+              estimatedOverlapSavingMs: compiledWave.economy.estimatedOverlapSavingMs?.value ?? null,
+              provenance: compiledWave.economy.provenance,
             }
             : null,
           // V16.16 run-cost reservation: the cheaper safe alternative when the
@@ -5677,7 +5766,11 @@ async function executeStructuredPlan(input: {
         let wavePrewarm: any = null;
         let wavePrewarmPromise: Promise<any> | null = null;
         try {
-          const spawns = wavePlan?.spawnsChildren === true || wavePlan?.spawnsWriters === true;
+          // V16.17 (§3) ADMISSION BEFORE EFFECTS: prewarm starts real workers,
+          // so it runs only when the COMPILED admission record allows it. The
+          // executor never grants itself prewarm from spawn flags alone.
+          const spawns = (compiledWave && compiledWave.admission
+            && compiledWave.admission.prewarm === true);
           const prewarmTargets = spawns ? prepared.filter((item: any) => item?.task?.id) : [];
           // Never exceed the resolved writer concurrency (hard max 3).
           const prewarmBound = Math.max(1, Math.min(3, Math.trunc(Number(waveConcurrency) || 1)));
@@ -6302,6 +6395,32 @@ async function executeStructuredPlan(input: {
           };
         });
 
+        // V16.17 (§8): settle the CUMULATIVE run ledger with what this wave
+        // ACTUALLY spent. Counters are the real prepared-child count; tokens are
+        // added ONLY when the provider reported a measured count (the canonical
+        // normalizer returns null otherwise), so an unmeasured run is never
+        // recorded as a measured zero.
+        try {
+          let waveMeasuredTokens: number | null = null;
+          for (const row of waveResults) {
+            for (const run of [row?.implementation, row?.verification]) {
+              const aggregate = run ? aggregateUsageSamples(run.usageSamples) : null;
+              if (aggregate && Number.isFinite(Number(aggregate.totalTokens))) {
+                waveMeasuredTokens = (waveMeasuredTokens ?? 0) + Number(aggregate.totalTokens);
+              }
+            }
+          }
+          runBudgetLedger.settle({
+            simultaneousCalls: waveConcurrency,
+            childTurns: Math.max(1, prepared.length * 2),
+            subprocessSlots: prepared.length,
+            testSlots: prepared.length,
+            totalTokens: waveMeasuredTokens,
+          });
+        } catch {
+          // Ledger settlement is telemetry-adjacent; it must never fail a wave.
+        }
+
         // V16.16 honest RPC accounting (§11, telemetry §16): run-level warm
         // reuse comes ONLY from actual workerReused flags on real RPC runs
         // (childRuntime === "rpc"), never from prewarm counts alone.
@@ -6785,7 +6904,7 @@ async function executeStructuredPlan(input: {
               } catch {
                 staleGeneration = false;
               }
-              const pendingDependencies = safe.waves.slice(waveIndex + 1).flat().length;
+              const pendingDependencies = compiledPlan.waves.slice(waveIndex + 1).flat().length;
               const releaseGateRequested =
                 (input as any).finalRelease === true || (input.rootPolicy as any)?.finalRelease === true;
               const stopDecision = wavePlanModule.shouldStopProven({
@@ -6975,8 +7094,8 @@ async function executeStructuredPlan(input: {
     ? { state: completion.state, reason: completion.reason, canProduceVerdict: false }
     : { state: null, reason: "v16-15-stack-unavailable", canProduceVerdict: false };
   parallelCodingTelemetry.watchdog = {
-    waves: safe.waves.length,
-    completedWaves: results.length > 0 ? safe.waves.length : 0,
+    waves: compiledPlan.waves.length,
+    completedWaves: results.length > 0 ? compiledPlan.waves.length : 0,
     provenance: "MEASURED",
   };
 
@@ -8651,6 +8770,8 @@ export default function (pi: ExtensionAPI) {
       // `finally` runs even when the parent times out and aborts the run, so a
       // timed-out controller leaves no zombie worker and no stale profile lock.
       let runScopedTraceID = "";
+      // V16.17 (§9): the run wall-clock clock starts here, before any work.
+      const runStartedAt = Date.now();
       try {
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
@@ -10669,6 +10790,9 @@ export default function (pi: ExtensionAPI) {
             rootPolicy: policy,
             durableSlug: durableWork?.slug,
             traceID,
+            // V16.17 (§9): one run wall-clock deadline for the whole plan.
+            runStartedAt: runStartedAt,
+            runWallClockMs: RUN_WALL_CLOCK_MS,
             signal,
             onUpdate,
           });

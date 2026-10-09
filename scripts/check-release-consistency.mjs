@@ -663,6 +663,27 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.16"] !== "node scripts/bench-v16-16-critical-path.mjs") {
       errors.push("package.json: missing V16.16 critical-path benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.17")) {
+      errors.push("package.json: release:verify must include eval:v16.17")
+    }
+    if (!pkg.files.includes("docs/V16.17-EXECUTION-CORE-CONSOLIDATION.md")) {
+      errors.push("package.json: V16.17 execution-core consolidation documentation must be packed")
+    }
+    const focusedV1617 = String(scripts["eval:v16.17"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1617Tests = [
+      "test/v16-17-execution-core.test.mjs",
+      "test/source-integrity-v16-17.test.mjs",
+    ]
+    if (
+      focusedV1617[0] !== "node" ||
+      focusedV1617[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1617Tests.every((file) => focusedV1617.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.17 must use the bounded runner and include the V16.17 execution-core suites")
+    }
+    if (scripts["bench:v16.17"] !== "node scripts/bench-v16-17-execution-core.mjs") {
+      errors.push("package.json: missing V16.17 execution-core benchmark command")
+    }
     // An eval script naming a test file that does not exist would be silently
     // dropped by the bounded runner, leaving the release claiming a suite nobody
     // ran. Every test file an eval script names must exist on disk.

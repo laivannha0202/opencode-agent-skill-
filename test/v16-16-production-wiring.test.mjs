@@ -22,7 +22,11 @@ const source = () => readFileSync(EXTENSION, "utf8")
 test("V16.16 wiring: RPC prewarm reuses the actual run worker through the one existing pool", () => {
   const text = source()
   // ONE canonical identity: prewarm and run share the exact same builder.
-  assert.ok(text.includes("buildRpcWorkerKey({"), "canonical worker-key builder is never called")
+  // V16.17 (§1) replaced the raw key builder with the frozen prepared-execution
+  // descriptor: BOTH the run path and the prewarm identity prediction must go
+  // through it, so a differently-derived worker can never be consumed.
+  const descriptorCalls = text.split("prepareAgentExecution({").length - 1
+  assert.ok(descriptorCalls >= 2, `the prepared-execution builder must serve run and prewarm, found ${descriptorCalls} call site(s)`)
   assert.ok(
     text.includes("predictStructuredPrewarmIdentity({"),
     "prewarm never predicts the exact run identity",
@@ -140,7 +144,7 @@ test("V16.16 wiring: stop-when-proven governs the bounded continuation loop", ()
   assert.ok(!text.includes("releaseGateRequested: false"), "stop decision hardcodes releaseGateRequested")
   assert.ok(text.includes("waveStartHead"), "stale generation is never derived from the real HEAD guard")
   assert.ok(text.includes("failureByTask"), "requirements are never derived from the real failure ledger")
-  assert.ok(text.includes("safe.waves.slice(waveIndex + 1)"), "pending dependencies are never derived from real waves")
+  assert.ok(text.includes("compiledPlan.waves.slice(waveIndex + 1)"), "pending dependencies are never derived from real waves")
   assert.ok(text.includes("stopProven"), "the stop decision is never recorded")
   assert.ok(text.includes("stale-generation"), "stale generation never governs continuation")
   // It cannot create PASS: the file must never synthesize a verdict here.

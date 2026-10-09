@@ -2,6 +2,18 @@
 
 ## [Unreleased]
 
+## [16.17.0] - 2026-10-09
+
+### Changed
+
+- Execution-core consolidation and hardening V16.17. No new feature family: this release removes confirmed second-authority, dropped-evidence and unknown-as-zero defects from owners that already existed, and pins each boundary so a future edit cannot silently re-fork it.
+  - ONE conflict authority: `lib/task-graph.mjs` no longer keeps its own write/write + read/write overlap heuristic. `tasksConflict`/`overlaps` delegate to `lib/execution-conflict-graph-v16-15.mjs`; task-graph owns dependency topology only. A manifest/lockfile pair now conflicts (the old local heuristic missed it).
+  - Wave admission no longer drops conflict inputs: `buildDelegationWaves` compiles `moduleEdges`, `generatedEdges` and `pairStrategy` ONCE into `probeOptions` and passes that exact object to every candidate probe. `classifyScope`/`graphScopeFor` forward structured declarations (`generatedOutputs`, `services`, `externalEffects`, `commands`) verbatim into `normalizeScope` instead of re-classifying them as independent.
+  - External side effects are classified by the canonical graph hierarchy, not a broad prose regex. Ordinary source-writing prose (`update release notes`, `fix HTML tag rendering`) is no longer mislabeled `externalSideEffect`; a fixed canonical weak pattern (`deploy\s+(to\s+)?\S+`) still fails closed for real `deploy`/`publish`/`git tag` commands.
+  - Privileged-context fencing: `buildRuntimeEpoch` folds a `systemPromptHash` into the epoch payload and compatibility keys, so a changed agent system prompt changes the runtime epoch (and therefore every warm-worker key and cached artifact). `rpcPromptPath` is content-addressed (`agent.<sha256>.md`), so a stale warm worker is never reused across a prompt change.
+  - ONE provider usage normalizer (`lib/provider-usage-normalizer-v16-17.mjs`): explicit CUMULATIVE/DELTA/UNKNOWN semantics, provider-reported only, unknown fields stay `NOT_MEASURED` (value `null`) and are never a measured zero, cumulative samples are never summed. `lib/run-telemetry.mjs` and `lib/external-research-broker-v16-13.mjs` delegate to it; `lib/model-performance.mjs` no longer folds unknown tokens in as 0; production no longer writes `Number(usage?.totalTokens ?? 0)`.
+  - Cumulative run budget and run deadline (`lib/run-budget-ledger-v16-17.mjs`): run-lifetime counters (childTurns, simultaneousCalls, deepseek/research calls, subprocess/test slots) are reserved against the canonical budget so N waves cannot each "fit" while their sum blows the ceiling; a run-level wall-clock deadline stops optional work but never removes required verification (`verificationIntact: true`).
+
 ## [16.16.0] - 2026-10-09
 
 ### Added
