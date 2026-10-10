@@ -131,7 +131,7 @@
     "bench:v16.17": "node scripts/bench-v16-17-execution-core.mjs",
     "eval:v16.16": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-16-economy.test.mjs test/v16-16-conflict.test.mjs test/v16-16-context.test.mjs test/v16-16-identity.test.mjs test/v16-16-crash-recovery.test.mjs test/v16-16-git-async.test.mjs test/v16-16-runtime.test.mjs test/v16-16-cold-start.test.mjs test/v16-16-production-wiring.test.mjs test/v16-16-semantic-wiring.test.mjs test/source-integrity-v16-16.test.mjs",
     "eval:v16.15": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/parallel-execution-policy-v16-15.test.mjs test/execution-conflict-graph-v16-15.test.mjs test/wave-shared-context-v16-15.test.mjs test/integration-transaction-v16-15.test.mjs test/parallel-coding-runtime-v16-15.test.mjs test/parallel-coding-wiring-v16-15.test.mjs test/delegation-safety-v16-15.test.mjs test/source-integrity-v16-15.test.mjs",
-    "eval:v16.17": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-17-execution-core.test.mjs test/source-integrity-v16-17.test.mjs"
+    "eval:v16.17": "node scripts/run-test-suite.mjs --concurrency=4 --timeout-ms=90000 test/v16-17-execution-core.test.mjs test/v16-17-execution-plan.test.mjs test/v16-17-prepared-execution.test.mjs test/v16-17-prepared-execution-production.test.mjs test/v16-17-structured-plan-production.test.mjs test/v16-17-structured-plan-smoke.test.mjs test/source-integrity-v16-17.test.mjs"
   },
   "keywords": [
     "pi-package",

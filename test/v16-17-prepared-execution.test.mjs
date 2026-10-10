@@ -133,3 +133,94 @@ test("an incompatible prewarm is discarded and never counted as a warm reuse", a
   assert.equal(discard.discarded, true)
   assert.equal(pool.workers.has(prewarmed.key), false)
 })
+
+// V16.17 §5 FAIL-CLOSED FENCING ENV: the pool key deliberately excludes the
+// spawn env, so a same-key run with a DIFFERENT ownership fence must NOT reuse
+// the warm worker. These tests exercise the real pool reuse logic (only the
+// process factory is faked): the pool must discard the incompatible worker and
+// cold-start, never hand a run another scope's worker.
+
+const FENCE_A = { UES_CHILD_PROCESS: "1", UES_CHILD_EXECUTION_OWNER_TOKEN: "owner-aaa", UES_CHILD_EXECUTION_OWNER_SCOPE: "root\0epoch\0run" }
+const FENCE_B = { ...FENCE_A, UES_CHILD_EXECUTION_OWNER_TOKEN: "owner-bbb" }
+
+function poolWithCountingWorkers() {
+  const pool = new PiRpcWorkerPool()
+  const created = []
+  pool.createWorker = (spec) => {
+    const worker = fakeWorker()
+    worker.stopped = 0
+    const stop = worker.stop.bind(worker)
+    worker.stop = async () => {
+      worker.stopped += 1
+      return stop()
+    }
+    created.push({ spec, worker })
+    return worker
+  }
+  return { pool, created }
+}
+
+test("V16.17 §5: same key + identical fencing env reuses one warm worker", async () => {
+  const { pool, created } = poolWithCountingWorkers()
+  const prepared = prepareAgentExecution({ ...BASE_PARTS, env: FENCE_A })
+  await pool.prewarm(prepared.key, prepared.spec)
+  const result = await pool.run(prepared.key, prepared.spec, "task", {})
+  assert.equal(result.workerReused, true)
+  assert.equal(created.length, 1)
+  assert.equal(created[0].spec.env.UES_CHILD_EXECUTION_OWNER_TOKEN, "owner-aaa")
+})
+
+test("V16.17 §5: same key + DIFFERENT fencing env fails closed (discard + cold start)", async () => {
+  const { pool, created } = poolWithCountingWorkers()
+  const warm = prepareAgentExecution({ ...BASE_PARTS, env: FENCE_A })
+  await pool.prewarm(warm.key, warm.spec)
+
+  const drifted = prepareAgentExecution({ ...BASE_PARTS, env: FENCE_B })
+  // The pool key is IDENTICAL (env is excluded from the key) ...
+  assert.equal(warm.key, drifted.key)
+  // ... but the fencing spec fingerprint differs, so the run must NOT reuse.
+  assert.notEqual(warm.specFingerprint, drifted.specFingerprint)
+
+  const result = await pool.run(drifted.key, drifted.spec, "task", {})
+  assert.equal(result.workerReused, false)
+  // A second worker was cold-started for the drifted fence; the warm one died.
+  assert.equal(created.length, 2)
+  assert.equal(created[0].worker.dead, true)
+  assert.equal(created[0].worker.stopped >= 1, true)
+  assert.equal(created[1].spec.env.UES_CHILD_EXECUTION_OWNER_TOKEN, "owner-bbb")
+})
+
+test("V16.17 §5: a prewarm with a DIFFERENT fence replaces the incompatible warm worker", async () => {
+  const { pool, created } = poolWithCountingWorkers()
+  const warm = prepareAgentExecution({ ...BASE_PARTS, env: FENCE_A })
+  await pool.prewarm(warm.key, warm.spec)
+
+  const drifted = prepareAgentExecution({ ...BASE_PARTS, env: FENCE_B })
+  const second = await pool.prewarm(drifted.key, drifted.spec)
+  // Never reported as a no-op reuse of an incompatible worker.
+  assert.equal(second.reused, false)
+  assert.equal(second.prewarmed, true)
+  assert.equal(created.length, 2)
+  assert.equal(created[0].worker.dead, true)
+  assert.equal(created[1].spec.env.UES_CHILD_EXECUTION_OWNER_TOKEN, "owner-bbb")
+})
+
+test("V16.17 §5: the fence fingerprint covers every correctness-sensitive child env key", async () => {
+  const { RPC_WORKER_FENCE_ENV_KEYS, rpcWorkerSpecFingerprint } = await import("../lib/pi-rpc-pool.mjs")
+  for (const key of [
+    "UES_CHILD_EXECUTION_OWNER_TOKEN",
+    "UES_CHILD_EXECUTION_OWNER_SCOPE",
+    "UES_CHILD_OWNERSHIP_ROOT",
+    "UES_CHILD_POLICY_SNAPSHOT_ID",
+    "UES_CHILD_RUNTIME_EPOCH_ID",
+    "UES_CHILD_RUN_ID",
+    "UES_CHILD_JOURNAL_ROOT",
+    "UES_CHILD_ROLE",
+    "UES_CHILD_WRITER",
+  ]) {
+    assert.ok(RPC_WORKER_FENCE_ENV_KEYS.includes(key), `fence key missing: ${key}`)
+    const a = rpcWorkerSpecFingerprint({ command: "pi", args: [], cwd: "/repo", env: { [key]: "a" } })
+    const b = rpcWorkerSpecFingerprint({ command: "pi", args: [], cwd: "/repo", env: { [key]: "b" } })
+    assert.notEqual(a, b, `fence key does not affect the fingerprint: ${key}`)
+  }
+})

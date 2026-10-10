@@ -672,6 +672,11 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     const focusedV1617 = String(scripts["eval:v16.17"] || "").trim().split(/\s+/).filter(Boolean)
     const requiredV1617Tests = [
       "test/v16-17-execution-core.test.mjs",
+      "test/v16-17-execution-plan.test.mjs",
+      "test/v16-17-prepared-execution.test.mjs",
+      "test/v16-17-prepared-execution-production.test.mjs",
+      "test/v16-17-structured-plan-production.test.mjs",
+      "test/v16-17-structured-plan-smoke.test.mjs",
       "test/source-integrity-v16-17.test.mjs",
     ]
     if (
@@ -679,7 +684,7 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
       focusedV1617[1] !== "scripts/run-test-suite.mjs" ||
       !requiredV1617Tests.every((file) => focusedV1617.includes(file))
     ) {
-      errors.push("package.json: eval:v16.17 must use the bounded runner and include the V16.17 execution-core suites")
+      errors.push("package.json: eval:v16.17 must use the bounded runner and include every V16.17 execution-core suite")
     }
     if (scripts["bench:v16.17"] !== "node scripts/bench-v16-17-execution-core.mjs") {
       errors.push("package.json: missing V16.17 execution-core benchmark command")

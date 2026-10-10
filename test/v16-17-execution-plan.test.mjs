@@ -6,6 +6,7 @@ import {
   EXECUTION_PLAN_DECISION,
 } from "../lib/execution-plan-compiler-v16-17.mjs"
 import { runDelegationWave } from "../lib/delegation-fleet.mjs"
+import { defaultCriticalPathHistory } from "../lib/critical-path-history-v16-16.mjs"
 
 // V16.17 §2 Execution Plan Compiler: COMPILE ONCE → downstream EXECUTES.
 // These tests fail if any layer re-derives conflicts or turns a compiled
@@ -211,4 +212,80 @@ test("buildExecutionScopes carries the real conflict evidence per task", () => {
   assert.deepEqual(scopes[0].acceptance, ["a passes"])
   assert.deepEqual(scopes[0].services, ["db"])
   assert.deepEqual(scopes[0].externalEffects, ["deploy to prod"])
+})
+
+// ---------------------------------------------------------------------------
+// V16.17 (§6) CRITICAL-PATH HISTORY TYPE PARITY.
+//
+// The defect: the controller passed `history: () => waveHistoryEstimates()`
+// (a FUNCTION) while `parallel-execution-policy-v16-15` reads
+// `history.components[name]` as an OBJECT. `resolveComponentMs` therefore always
+// fell back to ESTIMATED, so MEASURED history never influenced the decision.
+// The compiler must accept function-or-object and resolve a supplier EXACTLY
+// ONCE, so the MEASURED component provenance reaches `decideParallelExecution`.
+// ---------------------------------------------------------------------------
+
+test("V16.17 §6: a history SUPPLIER is resolved once and MEASURED provenance reaches the decision", () => {
+  const history = defaultCriticalPathHistory()
+  // Record enough real samples that the components are MEASURED, not NOT_MEASURED.
+  for (let i = 0; i < 8; i += 1) {
+    history.record({
+      sandboxCreateMs: 900,
+      rpcWorkerStartMs: 700,
+      contextBuildMs: 300,
+      targetedVerifyMs: 1200,
+      integrationMs: 400,
+    })
+  }
+  const estimates = history.estimates()
+  assert.equal(estimates.components.sandboxCreateMs.provenance, "MEASURED")
+
+  let calls = 0
+  const plan = compileExecutionPlan({
+    tasks: [readTask("R1", { files: { read: ["lib/r1.ts"] } }), readTask("R2", { files: { read: ["lib/r2.ts"] } })],
+    goal: "test goal",
+    runId: "run-history",
+    maxConcurrency: 3,
+    history: () => {
+      calls += 1
+      return estimates
+    },
+  })
+
+  // A supplier is invoked EXACTLY ONCE, not once per wave / per component.
+  assert.equal(calls, 1, "the history supplier must be resolved exactly once")
+
+  const economy = plan.waves[0].economy.economy
+  // Pre-fix, passing a function meant `history.components` was undefined and
+  // every component silently degraded to ESTIMATED.
+  assert.equal(economy.provenance.history, "MEASURED", "MEASURED history must reach the decision")
+  assert.equal(economy.historyComponents.sandboxCreateMs.provenance, "MEASURED")
+  assert.equal(economy.historyComponents.targetedVerifyMs.provenance, "MEASURED")
+  assert.equal(economy.historyComponents.integrationMs.provenance, "MEASURED")
+})
+
+test("V16.17 §6: a resolved history OBJECT is accepted unchanged (object-or-function parity)", () => {
+  const history = defaultCriticalPathHistory()
+  for (let i = 0; i < 8; i += 1) history.record({ sandboxCreateMs: 900, rpcWorkerStartMs: 700 })
+  const estimates = history.estimates()
+  const plan = compileExecutionPlan({
+    tasks: [readTask("R1", { files: { read: ["lib/r1.ts"] } }), readTask("R2", { files: { read: ["lib/r2.ts"] } })],
+    goal: "test goal",
+    runId: "run-history-object",
+    maxConcurrency: 3,
+    history: estimates,
+  })
+  assert.equal(plan.waves[0].economy.economy.provenance.history, "MEASURED")
+})
+
+test("V16.17 §6: absent history is NOT_MEASURED, never a fabricated MEASURED", () => {
+  const plan = compileExecutionPlan({
+    tasks: [readTask("R1", { files: { read: ["lib/r1.ts"] } }), readTask("R2", { files: { read: ["lib/r2.ts"] } })],
+    goal: "test goal",
+    runId: "run-history-absent",
+    maxConcurrency: 3,
+  })
+  const economy = plan.waves[0].economy.economy
+  assert.equal(economy.provenance.history, "NOT_MEASURED")
+  assert.equal(economy.historyComponents.sandboxCreateMs.provenance, "ESTIMATED")
 })

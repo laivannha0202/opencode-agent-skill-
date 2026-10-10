@@ -1795,6 +1795,13 @@ const V16_17_CONTRACTS = Object.freeze([
       // are re-packed to single-scope rows so downstream cannot parallelize.
       "CONCURRENCY FOLLOWS THE DECISION",
       "PACKING FOLLOWS THE DECISION",
+      // V16.17 §4 HONESTY: the compiled plan must state the REAL integration
+      // mechanism. The runtime applies child patches directly to the live root
+      // with rollback; it is NOT staging-first. This marker pins the honest
+      // label so a future claim cannot silently reintroduce the false
+      // "staged-multi-writer" wording.
+      "transactional-direct-multi-writer",
+      "integrationStagingFirst: false",
     ],
   },
   {
@@ -1920,6 +1927,60 @@ const V16_17_CONTRACTS = Object.freeze([
       "V16.17 §8",
       "V16.17 §9",
       "V16.17 §10",
+    ],
+  },
+  {
+    file: "test/v16-17-prepared-execution.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "prepareAgentExecution",
+      "RPC_WORKER_FENCE_ENV_KEYS",
+      // V16.17 §1/§5: an incompatible warm worker must be discarded, never
+      // silently reused with a drifted spec.
+      "discard",
+    ],
+  },
+  {
+    // Blocker 5 production behavioural test: drives the REAL shipped extension
+    // and asserts the run consumes the ONE prepared descriptor with every
+    // correctness-sensitive fencing env key, failing closed on drift.
+    file: "test/v16-17-prepared-execution-production.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "executeStructuredPlan",
+      "RPC_WORKER_FENCE_ENV_KEYS",
+      "UES_CHILD_RUNTIME",
+      "run-deadline-exhausted",
+      "hardTimeoutMs",
+    ],
+  },
+  {
+    // Blocker 1 production test: reaches `executeStructuredPlan` and pins that
+    // exactly ONE run-scoped ledger exists with an honest, non-epoch-0 clock.
+    file: "test/v16-17-structured-plan-production.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "executeStructuredPlan",
+      "run-budget-ledger-v16-17",
+      "runStartedAt",
+      "NOT_MEASURED",
+    ],
+  },
+  // The bounded PRODUCTION smoke must keep driving the real controller entry
+  // (`executeStructuredPlan`) with a real temporary Git repo and a real
+  // integration transaction; it may never degrade into calling helper modules
+  // directly or into a marker-only assertion.
+  {
+    file: "test/v16-17-structured-plan-smoke.test.mjs",
+    minBytes: 5_000,
+    required: [
+      "executeStructuredPlan",
+      "run-budget-ledger-v16-17",
+      "verificationIntact",
+      "PiRpcWorkerPool.prototype.run",
+      "ues-verifier",
+      "integration applied exactly",
+      "createTaskSandbox",
     ],
   },
 ])

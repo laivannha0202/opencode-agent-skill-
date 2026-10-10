@@ -107,7 +107,7 @@ import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-f
 import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
 import { classifyProviderFailure, providerRecoveryBackoffMs } from "../../lib/provider-recovery.mjs";
 import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
-import { sourceFacingPaths, sourceGitPathspecs } from "../../lib/runtime-artifacts.mjs";
+import { sourceFacingPaths, sourceGitPathspecs, UES_RUNTIME_DIRS } from "../../lib/runtime-artifacts.mjs";
 import { createSubagentArtifact, failSubagentArtifact, finalizeSubagentArtifact, listSubagentArtifacts, readSubagentArtifact } from "../../lib/subagent-artifacts.mjs";
 import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, detectInheritedDirtyViolations, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
 import { evaluateRequirementEvidence, requirementLedgerAllowsDeterministicFastPass, validateRequirementPlanCoverage } from "../../lib/requirement-contract.mjs";
@@ -359,8 +359,29 @@ const EXECUTION_OWNERSHIP_HEARTBEAT_MS = Math.max(
   Math.min(CHILD_HEARTBEAT_MS, Math.trunc(EXECUTION_OWNERSHIP_TTL_MS / 3)),
 );
 
+/**
+ * V16.17 (§3): cap a child timeout by the run's remaining wall-clock time.
+ * A child may never outlive its run. When there is no run deadline the
+ * child's own bound is returned unchanged. When the deadline is already
+ * reached the minimum positive timeout is returned so the child fails fast
+ * rather than being granted the full policy timeout it cannot use.
+ */
+function capTimeoutByRunDeadline(timeoutMs: number, runDeadlineAtMs?: number | null): number {
+  const base = Math.max(1, Math.trunc(Number(timeoutMs) || 0));
+  if (runDeadlineAtMs == null || !Number.isFinite(Number(runDeadlineAtMs))) return base;
+  const remaining = Math.trunc(Number(runDeadlineAtMs)) - Date.now();
+  if (!Number.isFinite(remaining)) return base;
+  if (remaining <= 0) return 1;
+  return Math.max(1, Math.min(base, remaining));
+}
+
 async function acquireRuntimeExecutionOwnership(root: string, runtimeEpochId: string, runId = "") {
-  const ownershipRoot = path.resolve(root || process.cwd());
+  // V16.17 (post-tag): the ownership journal belongs to the SANDBOX OWNER
+  // root, never the worktree. When the run's journal root resolves inside an
+  // isolated worktree, claiming ownership there would write `.ues-work` into
+  // the sandbox and make the integration preflight refuse the whole wave.
+  const base = path.resolve(root || process.cwd());
+  const ownershipRoot = (await taskSandboxOwnerRoot(base).catch(() => null)) || base;
   const ownershipScope = runId
     ? runtimeEpochId + "::run::" + String(runId)
     : runtimeEpochId;
@@ -2749,16 +2770,60 @@ async function runAgentRpc(
     : runtimeEpoch.id;
 
   const invocation = getPiInvocation(args);
-  // V16.17 (§1): ONE canonical prepared descriptor. The wave prewarm path
-  // prepares through the same builder with the same stable inputs, so a
-  // prewarmed worker is actually consumed by this run instead of only adding
-  // process-start overhead. Field order and fencing dimensions are owned by
+  // V16.17 (§1, §5): acquire the execution ownership BEFORE preparing the
+  // descriptor, so the fencing env (ownership token/scope/root) is part of the
+  // ONE prepared spec rather than late-bound after the pool already saw a
+  // different descriptor. `executionOwnerToken` is deterministic from
+  // (PROCESS_OWNER_ID, scope), so the prewarm prediction for the same
+  // (root, epoch, runId) derives the SAME token and stays compatible.
+  const executionOwnership = await acquireRuntimeExecutionOwnership(
+    runtimeOptions.journalRoot || cwd,
+    effectiveRuntimeEpochId,
+    runtimeOptions.runId || "",
+  );
+  const childEnv: any = {
+    ...process.env,
+    UES_CHILD_PROCESS: "1",
+    UES_CHILD_AGENT: agent,
+    UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
+    UES_CHILD_RUNTIME_EPOCH_ID: effectiveRuntimeEpochId,
+    UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
+    UES_CHILD_EXECUTION_OWNER_SCOPE: executionOwnership.ownershipScope,
+    UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
+    UES_CHILD_RUN_ID: runtimeOptions.runId || "",
+    UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
+    UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
+    UES_CHILD_CACHE_MODE: String(runtimeOptions.cachePolicy?.mode || "neutral"),
+    UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
+    UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
+    UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
+    UES_CHILD_TOOL_TIMEOUT_SEC: String(Math.max(5, Math.ceil(Number(runtimeOptions.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS) / 1000))),
+    UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
+    UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
+    UES_CHILD_DEFERRED_TOOLS: toolSurfaceEconomy.deferred.join(","),
+    UES_CHILD_HYDRATION_FORBIDDEN: ((toolExposure as any)?.hidden || []).map((row: any) => String(row?.tool || row || "")).filter(Boolean).join(","),
+    UES_CHILD_ROLE: roleForAgent(agent),
+    UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
+    UES_CHILD_HYDRATION_MAX: "4",
+    // V16.6 unified budget hand-off to the child. The child only ever
+    // NARROWS tool descriptions under the granted profile and can never
+    // gain a tool, a permission or a capability from these variables.
+    ...budgetChildEnv(runtimeOptions.v16_6Budget || {}, {
+      UES_TOOL_DESCRIPTION_PROFILE: String(runtimeOptions.toolDescriptionProfile || ""),
+    }),
+  };
+  // V16.17 (§1, §5): ONE canonical prepared descriptor carrying the fencing
+  // env. The wave prewarm path prepares through the same builder with the same
+  // stable inputs (including a compatible fencing env), so a prewarmed worker
+  // is actually consumed by this run instead of only adding process-start
+  // overhead. Field order and fencing dimensions are owned by
   // lib/pi-rpc-pool.mjs; never duplicate this construction.
   const preparedExecution = prepareAgentExecution({
     agent,
     cwd,
     command: invocation.command,
     args: invocation.args,
+    env: childEnv,
     compactToolOutput: runtimeOptions.compactToolOutput,
     toolOutputLimit: runtimeOptions.toolOutputLimit,
     verificationTimeoutSec: runtimeOptions.verificationTimeoutSec,
@@ -2784,11 +2849,6 @@ async function runAgentRpc(
   const activeTools = new Map<string, { name: string; args: any }>();
   const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
   let detectedHang: any = null;
-  const executionOwnership = await acquireRuntimeExecutionOwnership(
-    runtimeOptions.journalRoot || cwd,
-    effectiveRuntimeEpochId,
-    runtimeOptions.runId || "",
-  );
 
   const progressTimer = setInterval(() => {
     try {
@@ -2809,42 +2869,10 @@ async function runAgentRpc(
   try {
     const rpc: any = await RPC_POOL.run(
       workerKey,
-      {
-        command: invocation.command,
-        args: invocation.args,
-        cwd,
-        env: {
-          ...process.env,
-          UES_CHILD_PROCESS: "1",
-          UES_CHILD_AGENT: agent,
-          UES_CHILD_POLICY_SNAPSHOT_ID: policySnapshot.id,
-          UES_CHILD_RUNTIME_EPOCH_ID: effectiveRuntimeEpochId,
-          UES_CHILD_EXECUTION_OWNER_TOKEN: executionOwnership.ownerToken,
-          UES_CHILD_EXECUTION_OWNER_SCOPE: executionOwnership.ownershipScope,
-          UES_CHILD_OWNERSHIP_ROOT: executionOwnership.ownershipRoot,
-          UES_CHILD_RUN_ID: runtimeOptions.runId || "",
-          UES_CHILD_JOURNAL_ROOT: runtimeOptions.journalRoot || cwd,
-          UES_CHILD_MAX_PARALLEL_READS: String(modelProfile.maxParallelReads || 4),
-          UES_CHILD_CACHE_MODE: String(runtimeOptions.cachePolicy?.mode || "neutral"),
-          UES_CHILD_TOOL_COMPACTION: runtimeOptions.compactToolOutput ? "1" : "0",
-          UES_CHILD_TOOL_OUTPUT_LIMIT: String(runtimeOptions.toolOutputLimit || 24 * 1024),
-          UES_CHILD_VERIFICATION_TIMEOUT_SEC: String(runtimeOptions.verificationTimeoutSec || 300),
-          UES_CHILD_TOOL_TIMEOUT_SEC: String(Math.max(5, Math.ceil(Number(runtimeOptions.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS) / 1000))),
-          UES_CHILD_ALLOW_LOCAL_ENV_WRITE: runtimeOptions.allowLocalEnvWrite ? "1" : "0",
-          UES_CHILD_EXTERNAL_TOOL_NAMES: extraTools.join(","),
-          UES_CHILD_DEFERRED_TOOLS: toolSurfaceEconomy.deferred.join(","),
-          UES_CHILD_HYDRATION_FORBIDDEN: ((toolExposure as any)?.hidden || []).map((row: any) => String(row?.tool || row || "")).filter(Boolean).join(","),
-          UES_CHILD_ROLE: roleForAgent(agent),
-          UES_CHILD_WRITER: WRITE_AGENTS.has(agent) ? "1" : "0",
-          UES_CHILD_HYDRATION_MAX: "4",
-          // V16.6 unified budget hand-off to the child. The child only ever
-          // NARROWS tool descriptions under the granted profile and can never
-          // gain a tool, a permission or a capability from these variables.
-          ...budgetChildEnv(runtimeOptions.v16_6Budget || {}, {
-            UES_TOOL_DESCRIPTION_PROFILE: String(runtimeOptions.toolDescriptionProfile || ""),
-          }),
-        },
-      },
+      // V16.17 (§1, §5): the run consumes the ONE prepared spec (including the
+      // fencing env) instead of a hand-built duplicate. Prewarm and run now
+      // hand the pool byte-identical descriptors for the same key.
+      preparedExecution.spec,
       taskInput,
       {
         signal,
@@ -3540,10 +3568,22 @@ async function runRoutedAgent(
   // task text so the RPC pool key derives from stable intent. Undefined for
   // all other callers (fallback keeps exact prior behavior).
   stableIdentityTask?: string,
+  // V16.17 (§3): absolute run wall-clock deadline (epoch ms) or null. When set,
+  // every child timeout below is clamped to the run's remaining time so a child
+  // can never outlive the run it belongs to.
+  runDeadlineAtMs?: number | null,
 ): Promise<RunResult> {
   const routedStartedAt = Date.now();
   const role = roleForAgent(agent);
-  const traceRoot = requireGitWorkspaceRoot(cwd, "UES specialist");
+  // V16.17 (post-tag): telemetry, trajectory and journal roots belong to the
+  // SANDBOX OWNER root, never the worktree. `requireGitWorkspaceRoot(cwd)`
+  // resolves the worktree root when this child runs inside an isolated
+  // worktree; writing `.ues-traces`/`.ues-work` there makes the integration
+  // preflight refuse the whole wave as a forbidden-path. Anchor to the owner
+  // root (a real child runs at the repo root, so `taskSandboxOwnerRoot` is
+  // null and this is unchanged).
+  const traceRoot = (await taskSandboxOwnerRoot(cwd).catch(() => null))
+    || requireGitWorkspaceRoot(cwd, "UES specialist");
   const workspaceSnapshotStartedAt = Date.now();
   let agentWorkspaceState: any = null;
   let workspaceState: any = {
@@ -4193,14 +4233,21 @@ async function runRoutedAgent(
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.verificationTimeoutSec * 1000
           : planningBudget?.toolTimeoutMs || CHILD_TOOL_TIMEOUT_MS,
-      hardTimeoutMs:
+      // V16.17 (§3): clamp every child timeout to the run's remaining wall-clock
+      // time. A child never outlives its run; when the deadline has less time
+      // than the child's own bound, the child gets the smaller of the two.
+      hardTimeoutMs: capTimeoutByRunDeadline(
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
           : planningBudget?.planningTimeoutMs || planningBudget?.hardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
-      absoluteHardTimeoutMs:
+        runDeadlineAtMs,
+      ),
+      absoluteHardTimeoutMs: capTimeoutByRunDeadline(
         turboFast.eligible
           ? TURBO_FAST_TIMEOUTS.hardTimeoutMs
           : planningBudget?.absoluteRunTimeoutMs || planningBudget?.absoluteHardTimeoutMs || CHILD_HARD_TIMEOUT_MS,
+        runDeadlineAtMs,
+      ),
       activityExtensionMs:
         turboFast.eligible ? 0 : planningBudget?.activityExtensionMs || 0,
       activityWindowMs:
@@ -4590,7 +4637,14 @@ async function recordRuntimeOutcome(result: RunResult, task: string, passed: boo
     retries,
     wallTimeMs: result.durationMs,
   });
-  await appendRunJournalEvent(result.cwd || process.cwd(), "runtime", "runtime.verified-task-cost", {
+  // V16.17 (post-tag): the cost journal belongs to the SANDBOX OWNER root,
+  // never the worktree. `result.cwd` is the isolated worktree for a writer
+  // child; writing `.ues-work/journals` there makes the integration preflight
+  // refuse the whole wave as a forbidden-path. Anchor to the owner root (a
+  // real non-sandbox run resolves to its own repo root).
+  const costJournalRoot = (await taskSandboxOwnerRoot(result.cwd || process.cwd()).catch(() => null))
+    || result.cwd || process.cwd();
+  await appendRunJournalEvent(costJournalRoot, "runtime", "runtime.verified-task-cost", {
     verifiedPass: cost.verifiedPass,
     costAvailable: cost.costAvailable,
     verifiedTaskCost: cost.verifiedTaskCost,
@@ -5056,6 +5110,11 @@ async function predictStructuredPrewarmIdentity(input: {
       skills: loadedSkills,
       modelProfile,
       cachePolicy,
+      // V16.17 (§5): the run path binds the PRIVILEGED system prompt into the
+      // epoch (see runAgentRpc). The prewarm prediction MUST mirror it, or the
+      // predicted epoch (and therefore the worker key + fencing env) never
+      // matches the run's, so a prewarmed worker is never consumed.
+      systemPrompt: getAgentPrompt(agent),
       model: selectedModel,
       thinking: thinkingLevel,
     });
@@ -5139,7 +5198,10 @@ async function predictStructuredPrewarmIdentity(input: {
   }
 }
 
-async function executeStructuredPlan(input: {
+// V16.17 (§1) TEST HOOK: exported so a production-path test can drive the REAL
+// structured-plan entry (type-stripped from this exact file) and prove the run
+// budget ledger is initialized. Exporting does not change runtime behavior.
+export async function executeStructuredPlan(input: {
   plan: any;
   root: string;
   inheritedModel?: string;
@@ -5182,11 +5244,36 @@ async function executeStructuredPlan(input: {
   const results: any[] = [];
   const integrations: any[] = [];
   // V16.17 (§8, §9): ONE run-lifetime ledger for the whole structured plan.
+  //
   // The stateless per-wave `reserveRunCost` below is folded INTO this ledger so
   // wave N sees what waves 1..N-1 already spent, and a run wall-clock deadline
   // (when the caller supplies one) can stop optional work without ever removing
   // required verification. The ledger wraps the SAME canonical run budget; it
   // never computes a second one.
+  //
+  // This is the ONLY place the ledger is created for a run. Creating it inside
+  // the wave loop (or not at all) is the exact bug §8 exists to prevent: every
+  // compile-time reservation would see the same initial spent state.
+  const canonicalRunBudget = (input.rootPolicy as any)?.v16_6 || null;
+  const runBudgetLedger = createRunBudgetLedger({
+    budget: canonicalRunBudget,
+    runId: String(input.traceID || ""),
+    // A missing runStartedAt with an enabled deadline must never become epoch 0
+    // (which would expire the run instantly); the ledger falls back to "now".
+    runStartedAt: input.runStartedAt,
+    runWallClockMs: input.runWallClockMs,
+    budgetSource: canonicalRunBudget ? "v16_6-run-budget" : "default-fallback",
+  });
+  // The absolute run deadline (epoch ms) or null when the run has no deadline.
+  // Every expensive phase below reads this through `remainingRunMs()`.
+  const runDeadlineAtMs: number | null = (() => {
+    try {
+      return runBudgetLedger.snapshot().runDeadlineAt ?? null;
+    } catch {
+      return null;
+    }
+  })();
+  const remainingRunMs = () => runBudgetLedger.remainingRunMs();
   // V16.17 (§2) COMPILE ONCE: the run-level immutable execution plan.
   //
   // Every wave below executes this plan's decision; no wave re-derives
@@ -5223,7 +5310,11 @@ async function executeStructuredPlan(input: {
     resourcePressure: (input as any).resourcePressure || null,
     finalRelease: (input as any).finalRelease === true,
     requestedReadOnly: Math.min(MAX_CONCURRENCY, resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN)),
-    history: () => {
+    // V16.17 (§6): resolve the history supplier EXACTLY ONCE here. The
+    // compiler/policy read `history.components` as an OBJECT; passing the
+    // supplier function made every MEASURED component silently fall back to
+    // ESTIMATED. `waveHistoryEstimates()` already returns the resolved object.
+    history: (() => {
       try {
         return wavePlanModuleForCompile && (wavePlanModuleForCompile as any).waveHistoryEstimates
           ? (wavePlanModuleForCompile as any).waveHistoryEstimates()
@@ -5231,7 +5322,13 @@ async function executeStructuredPlan(input: {
       } catch {
         return null;
       }
-    },
+    })(),
+    // V16.17 (§2, §8): the COMPILE-TIME reservation is the STATELESS
+    // `reserveRunCost` estimate only. Cumulative run-ledger admission is NOT
+    // decided here (all waves would see the same initial spent state): it runs
+    // at wave-execution time against the CURRENT ledger. This reservation is
+    // carried on the frozen plan as an immutable budget REQUEST/estimate; the
+    // executor may only NARROW the wave from it, never widen.
     reserve: (wave: any) => {
       const snapshotChars = (() => {
         try {
@@ -5244,15 +5341,6 @@ async function executeStructuredPlan(input: {
           return 0;
         }
       })();
-      const canonicalRunBudget = (input.rootPolicy as any)?.v16_6 || null;
-      const cumulativeAdmission = runBudgetLedger.reserve({
-        simultaneousCalls: Math.max(1, Number(wave.simultaneousCalls) || 1),
-        childTurns: Math.max(1, Number(wave.childTurns) || 1),
-        deepseekCalls: 0,
-        researchCalls: 0,
-        subprocessSlots: Number(wave.subprocessSlots) || 0,
-        testSlots: Number(wave.testSlots) || 0,
-      });
       const reservation: any = reserveRunCost(canonicalRunBudget, {
         simultaneousCalls: Math.max(1, Number(wave.simultaneousCalls) || 1),
         childTurns: Math.max(1, Number(wave.childTurns) || 1),
@@ -5263,20 +5351,9 @@ async function executeStructuredPlan(input: {
         testSlots: Number(wave.testSlots) || 0,
         taskShape: wave.taskShape,
       });
-      if (cumulativeAdmission.admitted !== true) {
-        return {
-          ...reservation,
-          admitted: false,
-          action: cumulativeAdmission.runWallClockExhausted
-            ? "stop-optional"
-            : (reservation?.action && reservation.action !== "admit" ? reservation.action : cumulativeAdmission.action),
-          reasons: [...(cumulativeAdmission.reasons || []), ...(reservation?.reasons || [])],
-          cumulative: cumulativeAdmission,
-          budgetSource: canonicalRunBudget ? "v16_6-run-budget" : "default-fallback",
-        };
-      }
       if (reservation && typeof reservation === "object") {
         reservation.budgetSource = canonicalRunBudget ? "v16_6-run-budget" : "default-fallback";
+        reservation.cumulativeAdmissionDeferred = true;
       }
       return reservation;
     },
@@ -5482,11 +5559,114 @@ async function executeStructuredPlan(input: {
       // prewarm no run ever consumed (no abandoned process on infra failure).
       let wavePrewarmKeys: string[] = [];
 
+      // V16.17 (§2, §8, §9) ADMISSION BEFORE EFFECTS.
+      //
+      // Three gates run BEFORE any expensive effect (worktree creation,
+      // prewarm, RPC child): (1) the run wall-clock deadline, (2) CUMULATIVE
+      // run-ledger admission against the CURRENT ledger, (3) the compiled
+      // decision's concurrency bound. They may only NARROW; none may widen,
+      // skip required verification, or create a PASS.
+      //
+      // The writer count is derived from the DECLARED plan (ids + declared
+      // task write scope), not from `prepared`, so admission is decided before
+      // the worktrees `prepared` describes exist.
+      const declaredWriteFiles = new Map<string, string[]>();
+      let declaredWriterCount = 0;
+      for (const id of ids) {
+        const declaredTask: any = taskByID.get(id);
+        if (!declaredTask) throw new Error("scheduled task disappeared: " + id);
+        const writeFiles = taskWriteFiles(declaredTask);
+        declaredWriteFiles.set(String(id), writeFiles);
+        if (writeFiles.length > 0) declaredWriterCount += 1;
+      }
+      const requestedParallel = !gitCapable
+        ? 1
+        : declaredWriterCount > 0
+          ? Math.min(MAX_CONCURRENCY, MAX_WRITER_CONCURRENCY)
+          : MAX_CONCURRENCY;
+      // V16.5 bound: the fleet resolves the request to at most
+      // UES_MAX_ACTIVE_CHILDREN (default 2) and never above the hard max (3).
+      const fleetBound = Math.min(
+        requestedParallel,
+        resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
+      );
+      // V16.17 (§2): the compiled concurrency is an UPPER BOUND; this attempt
+      // only NARROWS it with the local fleet bound (`Math.min`, never wider).
+      let waveConcurrency = compiledWave && Number(compiledWave.concurrency) > 0
+        ? Math.max(1, Math.min(fleetBound, Math.trunc(Number(compiledWave.concurrency))))
+        : 1;
+      const wavePosture = (compiledWave && compiledWave.posture) || "SERIAL_STRUCTURED";
+
+      // V16.17 (§9) RUN DEADLINE GATE: checked BEFORE worktree creation, i.e.
+      // before the first expensive effect of the wave. When the deadline has
+      // already passed, required verification has NOT run: report an honest
+      // TIMED_OUT/BLOCKED and never a PASS.
+      const remainingBeforeWave = remainingRunMs();
+      if (remainingBeforeWave !== null && remainingBeforeWave <= 0) {
+        return {
+          passed: false,
+          timedOut: true,
+          reason: "run-deadline-exhausted",
+          wave: waveIndex,
+          attempt,
+          failure: "run wall-clock deadline reached before required work started; required verification was NOT run and no PASS is claimed",
+          validation,
+          schedule: scheduleReport(),
+          results,
+          integrations,
+        };
+      }
+
+      // V16.17 (§2, §8) CUMULATIVE RUN-LEDGER ADMISSION (CURRENT state).
+      //
+      // The compile-time reservation is only a stateless per-wave estimate.
+      // This reads the LIVE ledger so wave N observes what waves 1..N-1
+      // settled. A refusal may only NARROW concurrency (never widen) and never
+      // removes required verification.
+      let runCostReservation: any = (compiledWave && compiledWave.reservation) || null;
+      try {
+        const cumulativeAdmission = runBudgetLedger.reserve({
+          simultaneousCalls: Math.max(1, waveConcurrency),
+          childTurns: Math.max(1, ids.length * 2),
+          childContextChars: 0,
+          deepseekCalls: 0,
+          researchCalls: 0,
+          subprocessSlots: declaredWriterCount > 0 ? ids.length : 0,
+          testSlots: declaredWriterCount > 0 ? ids.length : 0,
+        });
+        if (cumulativeAdmission.admitted !== true) {
+          const action = String(cumulativeAdmission.action || "");
+          if (cumulativeAdmission.runWallClockExhausted) {
+            waveConcurrency = 1;
+          } else if (action === "lower-concurrency") {
+            waveConcurrency = Math.max(
+              1,
+              Math.min(waveConcurrency, Number(cumulativeAdmission.ceilings?.simultaneousCalls) || 1),
+            );
+          } else if (action === "serialize" || action === "parent-direct" || action === "stop-optional") {
+            waveConcurrency = 1;
+          }
+          runCostReservation = {
+            ...(runCostReservation || {}),
+            admitted: false,
+            action: cumulativeAdmission.runWallClockExhausted
+              ? "stop-optional"
+              : (runCostReservation?.action && runCostReservation.action !== "admit"
+                ? runCostReservation.action
+                : cumulativeAdmission.action),
+            reasons: [...(cumulativeAdmission.reasons || []), ...(runCostReservation?.reasons || [])],
+            cumulative: cumulativeAdmission,
+            verificationIntact: true,
+            budgetSource: canonicalRunBudget ? "v16_6-run-budget" : "default-fallback",
+          };
+        }
+      } catch {}
+
       try {
         for (const id of ids) {
           const task: any = taskByID.get(id);
           if (!task) throw new Error("scheduled task disappeared: " + id);
-          const writeFiles = taskWriteFiles(task);
+          const writeFiles = declaredWriteFiles.get(String(id)) || [];
           let cwd = input.root;
           let sandbox: any = undefined;
 
@@ -5525,18 +5705,6 @@ async function executeStructuredPlan(input: {
         }
 
         let completed = 0;
-        const writerCount = prepared.filter((item) => item.writeFiles.length > 0).length;
-        const requestedParallel = !gitCapable
-          ? 1
-          : writerCount > 0
-            ? Math.min(MAX_CONCURRENCY, MAX_WRITER_CONCURRENCY)
-            : MAX_CONCURRENCY;
-        // V16.5 bound: the fleet resolves the request to at most
-        // UES_MAX_ACTIVE_CHILDREN (default 2) and never above the hard max (3).
-        const fleetBound = Math.min(
-          requestedParallel,
-          resolveFleetConcurrency(process.env.UES_MAX_ACTIVE_CHILDREN),
-        );
 
         // V16.15 ONE DECISION PER WAVE.
         //
@@ -5551,33 +5719,20 @@ async function executeStructuredPlan(input: {
         // serial-structured posture, which is the behavior that shipped before.
         // A missing module is never a reason to run writers concurrently.
         const wavePlanModule = wavePlanModuleForCompile;
-        // V16.17 (§2): EXECUTE the compiled decision. `compiledWave` is the
-        // frozen conflict/economy/budget verdict from the single authorities
-        // (task-graph order, delegation-safety conflicts, policy economy,
-        // run-ledger admission). This attempt only NARROWS the compiled
-        // concurrency with its local fleet bound: `Math.min`, never wider,
-        // never re-derived. The retired per-wave `planWave` mapping lived
-        // here; conflict scopes now come from `buildExecutionScopes` inside
-        // the compiler, and the `prepared` rows above are EXECUTION data
+        // V16.17 (§2): the compiled decision and the CUMULATIVE admission were
+        // already applied ABOVE, before worktree creation. The retired per-wave `planWave` mapping lived
+        // here; conflict scopes now come from `buildExecutionScopes` inside the
+        // compiler, and the `prepared` rows above are EXECUTION data
         // (cwd/sandbox), not a second classification.
-        //
-        // FAIL-SAFE: without a compiled decision the wave falls back to the
-        // V16.5 serial bound, exactly like a missing V16.15 module did. A
-        // missing plan is never a reason to run writers concurrently.
-        let waveConcurrency = compiledWave && Number(compiledWave.concurrency) > 0
-          ? Math.max(1, Math.min(fleetBound, Math.trunc(Number(compiledWave.concurrency))))
-          : 1;
-        const wavePosture = (compiledWave && compiledWave.posture) || "SERIAL_STRUCTURED";
 
-        // V16.17 (§2) COMPILED RESERVATION (production consumer: this wave).
+        // V16.17 (§2) COMPILED RESERVATION (stateless per-wave estimate).
         //
-        // The reservation was made ONCE at compile time against the SAME
-        // cumulative run ledger and the SAME canonical run budget. This
-        // attempt only APPLIES the compiled verdict below: it never
-        // re-reserves (that would double-spend the ledger) and it NEVER
-        // skips required verification (`verificationIntact` is always true
-        // and every child below still runs its verifier gate).
-        let runCostReservation: any = (compiledWave && compiledWave.reservation) || null;
+        // `runCostReservation` was merged with the CURRENT cumulative ledger
+        // above. This block applies the STATELESS reservation's own verdict
+        // (a compile-time `reserveRunCost` refusal) as a further NARROWING.
+        // It never re-reserves and it NEVER skips required verification
+        // (`verificationIntact` is always true and every child below still
+        // runs its verifier gate).
         if (runCostReservation && runCostReservation.admitted !== true) {
           const action = String(runCostReservation.action || "");
           const limit = Math.max(
@@ -5655,34 +5810,73 @@ async function executeStructuredPlan(input: {
         // duplicated them). The capsule is the ONE assembly the child
         // receives: stable shared prefix inline + delta + run binding.
         const waveCapsules = new Map<string, any>();
+        let contextAssemblyFailed = false;
         if (waveSnapshot && wavePlanModule && typeof wavePlanModule.buildChildCapsule === "function") {
           for (const item of prepared) {
+            const childSpec = {
+              childId: String(item.task.id),
+              taskId: String(item.task.id),
+              role: item.writeFiles.length > 0 ? "implement" : "review",
+              readOnly: item.writeFiles.length === 0,
+              goal: [item.task.title, item.task.summary].filter(Boolean).join(" "),
+              writeFiles: item.writeFiles,
+              readFiles: taskReadFiles(item.task),
+              acceptance: Array.isArray(item.task.acceptance) ? item.task.acceptance : [],
+              verificationCommands: taskVerificationCommands(item.task)
+                .map((spec: any) => ({ command: spec.command, args: spec.args })),
+              sandboxId: item.sandbox?.dir ? String(item.sandbox.dir) : null,
+            };
+            const runBinding = {
+              runId: String(input.traceID || ""),
+              waveId: `wave-${waveIndex}-attempt-${attempt}`,
+            };
             try {
               waveCapsules.set(String(item.task.id), wavePlanModule.buildChildCapsule({
                 snapshot: waveSnapshot,
-                child: {
-                  childId: String(item.task.id),
-                  taskId: String(item.task.id),
-                  role: item.writeFiles.length > 0 ? "implement" : "review",
-                  readOnly: item.writeFiles.length === 0,
-                  goal: [item.task.title, item.task.summary].filter(Boolean).join(" "),
-                  writeFiles: item.writeFiles,
-                  readFiles: taskReadFiles(item.task),
-                  acceptance: Array.isArray(item.task.acceptance) ? item.task.acceptance : [],
-                  verificationCommands: taskVerificationCommands(item.task)
-                    .map((spec: any) => ({ command: spec.command, args: spec.args })),
-                  sandboxId: item.sandbox?.dir ? String(item.sandbox.dir) : null,
-                },
-                run: {
-                  runId: String(input.traceID || ""),
-                  waveId: `wave-${waveIndex}-attempt-${attempt}`,
-                },
+                child: childSpec,
+                run: runBinding,
               }));
             } catch {
-              // A capsule failure never blocks the wave: the caller falls back
-              // to the delta below, which is always present.
+              // V16.17 (§7) FAIL-CLOSED: a capsule failure must NEVER fall back
+              // to a child delta whose only shared-fact link is an unresolvable
+              // `sharedSnapshotId`. Inline-render the shared facts + delta into
+              // a bounded capsule instead. A fallback that itself fails means
+              // the child would receive no resolvable shared context at all -
+              // classify context assembly failure and spawn NO child.
+              let fallback: any = null;
+              try {
+                if (typeof wavePlanModule.buildFallbackChildCapsule === "function") {
+                  fallback = wavePlanModule.buildFallbackChildCapsule({
+                    snapshot: waveSnapshot,
+                    child: childSpec,
+                    run: runBinding,
+                  });
+                }
+              } catch {
+                fallback = null;
+              }
+              if (fallback && String(fallback.text || "").trim()) {
+                waveCapsules.set(String(item.task.id), fallback);
+              } else {
+                contextAssemblyFailed = true;
+              }
             }
           }
+        }
+        if (contextAssemblyFailed) {
+          // V16.17 (§7): refuse rather than send a child a snapshot reference it
+          // cannot resolve. No PASS is claimed and no child is spawned.
+          return {
+            passed: false,
+            reason: "context-assembly-failed",
+            wave: waveIndex,
+            attempt,
+            failure: "child context assembly failed and no resolvable inline fallback could be produced; refusing to spawn a child with an unresolvable shared snapshot reference",
+            validation,
+            schedule: scheduleReport(),
+            results,
+            integrations,
+          };
         }
         // Record the wave decision and the context accounting. Every number here
         // is measured or explicitly NOT_MEASURED; nothing is a speedup claim.
@@ -6046,6 +6240,7 @@ async function executeStructuredPlan(input: {
                 leafPolicy,
                 input.root,
                 stableIdentityTaskText,
+                runDeadlineAtMs,
               );
               results.push({
                 wave: waveIndex,
@@ -6107,6 +6302,7 @@ async function executeStructuredPlan(input: {
                 leafPolicy,
                 input.root,
                 stableIdentityTaskText,
+                runDeadlineAtMs,
               );
               results.push({
                 wave: waveIndex,
@@ -6154,6 +6350,7 @@ async function executeStructuredPlan(input: {
               leafPolicy,
               input.root,
               stableIdentityTaskText,
+              runDeadlineAtMs,
             );
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "execute", leafPolicy, ...implementation });
 
@@ -6172,6 +6369,32 @@ async function executeStructuredPlan(input: {
                 verification: null,
                 passed: false,
                 aborted: isAbortedRun(implementation),
+              };
+            }
+
+            // V16.17 (§9) RUN DEADLINE GATE BEFORE REQUIRED VERIFICATION.
+            // The implementation has completed, but the required verifier is
+            // the ONLY PASS authority. If the run wall-clock deadline has
+            // already passed, the verifier must NOT run and no PASS may be
+            // claimed: return an honest TIMED_OUT/BLOCKED row with the
+            // implementation evidence, never a fabricated verdict.
+            const remainingBeforeVerify = remainingRunMs();
+            if (remainingBeforeVerify !== null && remainingBeforeVerify <= 0) {
+              input.onUpdate?.({
+                content: [{
+                  type: "text",
+                  text: `UES scheduler: ${item.task.id} run wall-clock deadline reached before required verification; no PASS claimed`,
+                }],
+                details: { wave: waveIndex, attempt, task: item.task.id, phase: "verify", timedOut: true },
+              });
+              return {
+                item,
+                implementation,
+                verification: null,
+                passed: false,
+                timedOut: true,
+                aborted: false,
+                failureText: "run wall-clock deadline reached before required verification; required verification was NOT run and no PASS is claimed",
               };
             }
 
@@ -6301,6 +6524,7 @@ async function executeStructuredPlan(input: {
               leafPolicy,
               input.root,
               stableIdentityTaskText,
+              runDeadlineAtMs,
             );
             }
             results.push({ wave: waveIndex, attempt, task: item.task.id, phase: "verify", leafPolicy, leafFastGate, ...verification });
@@ -6369,8 +6593,15 @@ async function executeStructuredPlan(input: {
           scopes: waveScopes,
           maxParallel: waveConcurrency,
           signal: input.signal,
+          // V16.17 (§5): `runDelegationWave` hands this callback its NORMALIZED
+          // scope (whose `.original` is the waveScope we passed in, NOT the
+          // prepared execution item). Resolve the item by the stable task id so
+          // every child receives { task, cwd, sandbox, writeFiles }. Passing
+          // `scope.original` directly gave the wrapper, so `item.cwd` /
+          // `item.writeFiles` / `item.task.title` were undefined and every
+          // delegated child ran with no cwd.
           execute: async (scope: any, childContext: any) =>
-            runPreparedChild(scope.original, childContext),
+            runPreparedChild(scopeByTaskId.get(String(scope?.id))?.original, childContext),
         });
         // Deterministic ordering: waveExecution.ordered is sorted by task id, so
         // completion order can never leak into the wave result order.
@@ -6411,8 +6642,15 @@ async function executeStructuredPlan(input: {
             }
           }
           runBudgetLedger.settle({
+            // PEAK / CAPACITY (not summed): this wave's simultaneous calls,
+            // active writer concurrency and process slots. Two sequential waves
+            // of 2 peak at 2, never 4.
             simultaneousCalls: waveConcurrency,
+            activeWriterConcurrency: declaredWriterCount > 0 ? waveConcurrency : 0,
+            activeProcessSlots: prepared.length,
+            // CUMULATIVE (summed across waves).
             childTurns: Math.max(1, prepared.length * 2),
+            modelCalls: Math.max(1, prepared.length * 2),
             subprocessSlots: prepared.length,
             testSlots: prepared.length,
             totalTokens: waveMeasuredTokens,
@@ -6579,6 +6817,49 @@ async function executeStructuredPlan(input: {
         }
 
         const integrated: Array<{ item: any; receipt: any }> = [];
+        // V16.17 (post-tag) SANDBOX HYGIENE: a worktree must NEVER carry UES
+        // runtime artifacts (`.ues-work`, `.ues-traces`, `.ues-cache`, ...) into
+        // integration. The parent's run telemetry and (for an inherited-dirty
+        // snapshot) the root's uncommitted runtime state are not source, never
+        // part of any declared write scope, and must never reach the live root
+        // or trip the forbidden-path/root-overlap preflight. Remove them from
+        // each sandbox BEFORE integration. This is hygiene for the isolated
+        // worktree only: the live root and the real parent telemetry (owned by
+        // the root) are untouched, and verification/PASS authority is unchanged.
+        for (const item of prepared) {
+          if (!item.sandbox?.dir) continue;
+          for (const name of UES_RUNTIME_DIRS) {
+            const target = path.join(item.sandbox.dir, name);
+            try {
+              await fs.promises.rm(target, { recursive: true, force: true }).catch(() => {});
+            } catch {}
+          }
+        }
+        // V16.17 (§3, §9) RUN DEADLINE GATE: checked BEFORE integration, i.e.
+        // before the run mutates the live root. When the deadline has already
+        // passed, the required verification may have run but the run cannot be
+        // honestly declared PASS: return an honest TIMED_OUT/BLOCKED and apply
+        // no patch (the live root stays byte-identical).
+        {
+          const remainingBeforeIntegration = remainingRunMs();
+          if (remainingBeforeIntegration !== null && remainingBeforeIntegration <= 0) {
+            await failDurablePrepared(prepared, "run wall-clock deadline reached before integration");
+            await cleanupSandboxes(input.root, prepared);
+            await discardUnconsumedPrewarm();
+            return {
+              passed: false,
+              timedOut: true,
+              reason: "run-deadline-exhausted",
+              wave: waveIndex,
+              attempt,
+              failure: "run wall-clock deadline reached before integration; no patch was applied and no PASS is claimed",
+              validation,
+              schedule: scheduleReport(),
+              results,
+              integrations,
+            };
+          }
+        }
         // V16.15 TRANSACTIONAL INTEGRATION.
         //
         // The V16.5 loop applied patches one at a time and reversed the ones it

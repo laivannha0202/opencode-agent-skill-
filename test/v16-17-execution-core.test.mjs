@@ -229,6 +229,71 @@ test("V16.17 §8: ceilings derive from the canonical budget, never a second budg
   assert.equal(ceilings.childTurns, 8)
 })
 
+// Blocker 2: CUMULATIVE vs PEAK are DIFFERENT metric families. A run that
+// spends 2 subprocess slots in wave 1 and 2 more in wave 2 has spent 4 (summed);
+// a run that uses 2 simultaneous calls in two SEQUENTIAL waves still peaks at 2
+// (they never overlap), never 4.
+test("V16.17 §8: sequential waves settle CUMULATIVE spend but keep PEAK at the max", () => {
+  const ledger = createRunBudgetLedger({
+    budget: { maxParallel: 3, deepSeekTurnBudget: { effectiveMaxTurns: 2 } },
+    runStartedAt: 0,
+    runWallClockMs: 600_000,
+  })
+  // Wave 1: two simultaneous children using two process slots.
+  ledger.settle({ simultaneousCalls: 2, subprocessSlots: 2, testSlots: 2, childTurns: 2 })
+  // Wave 2: the SAME shape, executed after wave 1 fully settled.
+  ledger.settle({ simultaneousCalls: 2, subprocessSlots: 2, testSlots: 2, childTurns: 2 })
+  const snapshot = ledger.snapshot()
+  // CUMULATIVE: summed.
+  assert.equal(snapshot.spent.subprocessSlots, 4)
+  assert.equal(snapshot.spent.testSlots, 4)
+  assert.equal(snapshot.spent.childTurns, 4)
+  // PEAK: not summed. Two sequential waves of 2 peak at 2.
+  assert.equal(snapshot.spent.simultaneousCalls, 2)
+  assert.equal(snapshot.spent.activeProcessSlots, 0)
+})
+
+// Blocker 2: a wave that FITS ALONE must be rejected/narrowed once earlier
+// waves have consumed the CUMULATIVE ceiling. This is the exact bug a stateless
+// per-request check cannot catch.
+test("V16.17 §8: a wave that fits alone is narrowed by earlier cumulative spend", () => {
+  const ledger = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 600_000 })
+  // First wave fits (subprocessSlots ceiling is 4).
+  assert.equal(ledger.reserve({ subprocessSlots: 3 }, 1).admitted, true)
+  ledger.settle({ subprocessSlots: 3 })
+  // The SAME request no longer fits: 3 spent + 3 requested = 6 > 4.
+  const second = ledger.reserve({ subprocessSlots: 3 }, 2)
+  assert.equal(second.admitted, false)
+  assert.ok(second.reasons.some((row) => row.signal === "cumulative-over-subprocessSlots"))
+  assert.equal(second.reasons.find((row) => row.signal === "cumulative-over-subprocessSlots").metric, "CUMULATIVE")
+  assert.equal(second.projected.subprocessSlots, 6)
+})
+
+// Blocker 2: PEAK admission compares max(spent, requested), so a second wave of
+// the same width is admitted (it does not overlap the first).
+test("V16.17 §8: PEAK admission compares max(spent, requested), not the sum", () => {
+  const ledger = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 600_000 })
+  assert.equal(ledger.reserve({ simultaneousCalls: 2 }, 1).admitted, true)
+  ledger.settle({ simultaneousCalls: 2 })
+  // 2 spent, 2 requested, ceiling 4 for activeProcessSlots / 3 for simultaneousCalls.
+  const second = ledger.reserve({ simultaneousCalls: 2 }, 2)
+  assert.equal(second.admitted, true)
+  assert.equal(second.projected.simultaneousCalls, 2)
+})
+
+// Blocker 1: a MISSING runStartedAt with a wall-clock deadline must NOT become
+// epoch 0 (which would expire every wave instantly). It starts the run NOW.
+test("V16.17 §9: a missing runStartedAt with a deadline starts the run now, never epoch 0", () => {
+  const ledger = createRunBudgetLedger({ budget: null, runWallClockMs: 60_000 })
+  const snapshot = ledger.snapshot()
+  assert.ok(snapshot.runStartedAt > 1_000_000_000_000, "runStartedAt must be a real epoch-ms now, not 0")
+  assert.ok(snapshot.runDeadlineAt > Date.now(), "the deadline must be in the future")
+  assert.ok(ledger.remainingRunMs() > 0)
+  // An EXPLICIT runStartedAt: 0 is still honored for deterministic tests.
+  const pinned = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 5_000 })
+  assert.equal(pinned.snapshot().runDeadlineAt, 5_000)
+})
+
 test("V16.17 §8: an unmeasured token total is NOT_MEASURED, never zero", () => {
   const ledger = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 10_000 })
   ledger.settle({ subprocessSlots: 1 })
@@ -269,6 +334,39 @@ test("V16.17 §9: the ledger is deterministic for a fixed now", () => {
   const a = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 1000 })
   const b = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 1000 })
   assert.deepEqual(a.reserve({ subprocessSlots: 2 }, 5), b.reserve({ subprocessSlots: 2 }, 5))
+})
+
+// Blocker 3 (fake clock): the deadline must gate the EXPENSIVE phases during
+// execution, not only at wave start. `remainingRunMs(now)` is the single
+// read the runtime uses; these pin the exact boundary behavior the production
+// gates rely on (>= 0 proceeds, < 0 stops) so a mid-wave expiry can never
+// silently claim PASS.
+test("V16.17 §9 (fake clock): remaining time reaches zero at the deadline boundary and never goes negative", () => {
+  const ledger = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 1000 })
+  assert.equal(ledger.remainingRunMs(0), 1000)
+  assert.equal(ledger.remainingRunMs(999), 1)
+  assert.equal(ledger.remainingRunMs(1000), 0)
+  assert.equal(ledger.remainingRunMs(1001), 0)
+  assert.equal(ledger.remainingRunMs(60_000), 0)
+  // `expired` is the true boundary predicate the runtime gates use.
+  assert.equal(ledger.expired(999), false)
+  assert.equal(ledger.expired(1000), true)
+  assert.equal(ledger.expired(1001), true)
+})
+
+test("V16.17 §9 (fake clock): a wave that fits alone is refused once the deadline has passed", () => {
+  const ledger = createRunBudgetLedger({ budget: null, runStartedAt: 0, runWallClockMs: 1000 })
+  // Before the deadline a normal request is admitted.
+  const early = ledger.reserve({ subprocessSlots: 1 }, 10)
+  assert.equal(early.admitted, true)
+  assert.equal(early.runWallClockExhausted, false)
+  // After the deadline the SAME request is refused (stop-optional) and
+  // required verification is explicitly kept intact.
+  const late = ledger.reserve({ subprocessSlots: 1 }, 1500)
+  assert.equal(late.admitted, false)
+  assert.equal(late.action, "stop-optional")
+  assert.equal(late.runWallClockExhausted, true)
+  assert.equal(late.verificationIntact, true)
 })
 
 // ---------------------------------------------------------------------------

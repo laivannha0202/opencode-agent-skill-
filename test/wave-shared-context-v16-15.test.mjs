@@ -14,6 +14,8 @@ import assert from "node:assert/strict"
 import {
   SNAPSHOT_FACT,
   WAVE_CONTEXT_LIMITS,
+  buildCanonicalChildCapsule,
+  buildFallbackChildCapsule,
   createChildDelta,
   createCompactHandoff,
   createWaveSharedSnapshot,
@@ -340,4 +342,93 @@ test("V16.15 shared context: no code path copies a parent conversation", async (
   // The snapshot builder accepts only explicitly named bounded facts.
   const snapshot = createWaveSharedSnapshot({ conversation: "SECRET PARENT TRANSCRIPT", goal: "real goal" })
   assert.ok(!snapshot.text.includes("SECRET PARENT TRANSCRIPT"))
+})
+
+// ---------------------------------------------------------------------------
+// V16.17 (§7) FAULT INJECTION: a capsule-builder failure must NOT degrade to a
+// child delta whose only shared-fact link is an unresolvable snapshot id.
+// ---------------------------------------------------------------------------
+
+test("V16.17 §7: the canonical capsule carries the shared facts inline (baseline)", () => {
+  const snapshot = createWaveSharedSnapshot(sharedInput)
+  const capsule = buildCanonicalChildCapsule({
+    snapshot,
+    child: { childId: "a", taskId: "task-a", goal: "Implement a", writeFiles: ["lib/a.mjs"] },
+    run: { runId: "run-1", waveId: "wave-1" },
+  })
+  assert.ok(capsule.text.includes(sharedInput.goal), "the canonical capsule inlines the shared goal")
+})
+
+test("V16.17 §7: a canonical capsule failure fails closed onto inline shared facts, never a bare snapshot ref", () => {
+  // Fault injection: a pathological snapshot whose getter throws while the
+  // canonical builder reads it. The pre-V16.17 caller then fell back to the raw
+  // child delta, whose ONLY shared-fact link is `sharedSnapshotId` - a
+  // reference the child cannot resolve.
+  const snapshot = createWaveSharedSnapshot(sharedInput)
+  const poisoned = Object.create(snapshot, {
+    facts: {
+      get() {
+        throw new Error("injected snapshot failure")
+      },
+    },
+  })
+  let canonicalThrew = false
+  try {
+    buildCanonicalChildCapsule({
+      snapshot: poisoned,
+      child: { childId: "a", taskId: "task-a", goal: "Implement a", writeFiles: ["lib/a.mjs"] },
+      run: { runId: "run-1", waveId: "wave-1" },
+    })
+  } catch {
+    canonicalThrew = true
+  }
+  assert.equal(canonicalThrew, true, "the canonical builder must throw on the poisoned snapshot")
+
+  // The fallback must be TOTAL and must inline the shared facts (or at minimum
+  // be a usable, non-empty, self-describing capsule that never surfaces a
+  // snapshot id the child cannot resolve).
+  const fallback = buildFallbackChildCapsule({
+    snapshot: poisoned,
+    child: { childId: "a", taskId: "task-a", goal: "Implement a", writeFiles: ["lib/a.mjs"] },
+    run: { runId: "run-1", waveId: "wave-1" },
+  })
+  assert.equal(fallback.fallback, true)
+  assert.equal(fallback.inlineSharedFacts, true)
+  assert.equal(fallback.snapshotId, null, "the fallback must never surface an unresolvable snapshot id")
+  assert.ok(String(fallback.text || "").trim().length > 0, "the fallback must still be a usable capsule")
+  assert.ok(!fallback.text.includes(String(snapshot.snapshotId)), "the fallback text must not reference the snapshot id")
+  assert.equal(fallback.canProduceVerdict, false)
+})
+
+test("V16.17 §7: the fallback is TOTAL — even a completely empty input yields a usable capsule", () => {
+  const fallback = buildFallbackChildCapsule()
+  assert.equal(fallback.fallback, true)
+  assert.equal(fallback.snapshotId, null)
+  assert.ok(String(fallback.text || "").trim().length > 0)
+})
+
+test("V16.17 §7: the fallback inlines real shared facts when a valid snapshot is supplied", () => {
+  const snapshot = createWaveSharedSnapshot(sharedInput)
+  const fallback = buildFallbackChildCapsule({
+    snapshot,
+    child: { childId: "a", taskId: "task-a", goal: "Implement a", writeFiles: ["lib/a.mjs"] },
+    run: { runId: "run-1", waveId: "wave-1" },
+  })
+  assert.equal(fallback.snapshotId, null)
+  // The shared goal is INLINE, so the child never needs to resolve the snapshot.
+  assert.ok(fallback.text.includes(sharedInput.goal), "the fallback must inline the shared goal")
+  assert.ok(fallback.text.includes("lib/a.mjs") || fallback.text.includes("task-a"), "the fallback must carry child-local facts")
+})
+
+test("V16.17 §7: parallel-coding-runtime re-exports the fail-closed capsule", async () => {
+  const runtime = await import("../lib/parallel-coding-runtime-v16-15.mjs")
+  assert.equal(typeof runtime.buildFallbackChildCapsule, "function")
+  const snapshot = createWaveSharedSnapshot(sharedInput)
+  const capsule = runtime.buildFallbackChildCapsule({
+    snapshot,
+    child: { childId: "a", taskId: "task-a", goal: "Implement a", writeFiles: ["lib/a.mjs"] },
+    run: { runId: "run-1", waveId: "wave-1" },
+  })
+  assert.equal(capsule.snapshotId, null)
+  assert.ok(capsule.text.includes(sharedInput.goal))
 })
