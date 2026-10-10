@@ -9,6 +9,11 @@ import {
 } from "../lib/pi-rpc-pool.mjs"
 import { createRunBudgetLedger } from "../lib/run-budget-ledger-v16-17.mjs"
 import {
+  LAZY_RUNTIME_MODULES,
+  hydrateRuntimeModule,
+  resetLazyRuntimeForTests,
+} from "../lib/lazy-runtime.mjs"
+import {
   clearStructuredExecutionMeter,
   recordStructuredContextMeasurement,
   registerStructuredRunDeadline,
@@ -115,6 +120,37 @@ test("V16.17.1 measured context bridge settles chars without inventing provider 
   assert.equal(snapshot.totalTokens, null)
   assert.equal(snapshot.tokensMeasured, false)
   assert.equal(snapshot.tokenProvenance, "NOT_MEASURED")
+  clearStructuredExecutionMeter(runId)
+})
+
+test("V16.17.1 production lazy parallel runtime records canonical measured wave chars", async () => {
+  const runId = `wave-${Date.now()}-${Math.random()}`
+  clearStructuredExecutionMeter(runId)
+  resetLazyRuntimeForTests()
+  const runtime = await hydrateRuntimeModule(LAZY_RUNTIME_MODULES.PARALLEL_CODING_RUNTIME)
+  const ledger = createRunBudgetLedger({ runId })
+  const snapshot = runtime.buildWaveSnapshot({
+    waveId: "wave-1",
+    goal: "edit one bounded file",
+    constraints: ["local verifier owns PASS"],
+    workspaceGeneration: runId,
+  }).snapshot
+  const delta = runtime.buildChildDelta({
+    snapshot,
+    child: {
+      childId: "child-1",
+      taskId: "task-1",
+      goal: "edit file",
+      writeFiles: ["lib/example.mjs"],
+      acceptance: ["focused proof"],
+    },
+  })
+  const accounting = runtime.waveAccounting({ snapshot, deltas: [delta] })
+  const settled = ledger.settle({ childTurns: 1, totalTokens: null })
+  assert.equal(settled.spent.childContextChars, accounting.totalWaveChars.value)
+  assert.equal(settled.contextCharsMeasured, true)
+  assert.equal(settled.tokenProvenance, "NOT_MEASURED")
+  assert.equal(settled.totalTokens, null)
   clearStructuredExecutionMeter(runId)
 })
 
