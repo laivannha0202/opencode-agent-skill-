@@ -3,6 +3,7 @@ import test from "node:test"
 import {
   PiRpcWorkerPool,
   prepareAgentExecution,
+  resolveRpcRunTimeouts,
   sameExecution,
   PREPARED_EXECUTION_POLICY,
 } from "../lib/pi-rpc-pool.mjs"
@@ -223,4 +224,84 @@ test("V16.17 §5: the fence fingerprint covers every correctness-sensitive child
     const b = rpcWorkerSpecFingerprint({ command: "pi", args: [], cwd: "/repo", env: { [key]: "b" } })
     assert.notEqual(a, b, `fence key does not affect the fingerprint: ${key}`)
   }
+})
+
+// V16.17.1 hardening: the actual timeout resolver consumed by RpcWorker must
+// preserve explicit run-deadline caps instead of applying the historical 30s
+// minimum a second time.
+test("V16.17.1: explicit RPC timeout caps are never inflated", () => {
+  assert.equal(resolveRpcRunTimeouts({ hardTimeoutMs: 5_000 }).hardTimeoutMs, 5_000)
+  assert.equal(resolveRpcRunTimeouts({ hardTimeoutMs: 1_000 }).hardTimeoutMs, 1_000)
+  assert.equal(resolveRpcRunTimeouts({ hardTimeoutMs: 250 }).hardTimeoutMs, 250)
+  assert.equal(resolveRpcRunTimeouts({}).hardTimeoutMs, 30 * 60_000)
+})
+
+test("V16.17.1: absolute timeout cannot undercut the explicit hard cap", () => {
+  const resolved = resolveRpcRunTimeouts({ hardTimeoutMs: 5_000, absoluteHardTimeoutMs: 2_000 })
+  assert.equal(resolved.hardTimeoutMs, 5_000)
+  assert.equal(resolved.absoluteHardTimeoutMs, 5_000)
+})
+
+test("V16.17.1: prune removes worker metadata with the worker", async () => {
+  const { pool, created } = poolWithFakeWorkers()
+  pool.maxWorkers = 1
+  const a = prepareAgentExecution({ ...BASE_PARTS, runId: "run-a" })
+  const b = prepareAgentExecution({ ...BASE_PARTS, runId: "run-b" })
+  await pool.prewarm(a.key, a.spec)
+  created[0].worker.active = false
+  await pool.prewarm(b.key, b.spec)
+  assert.equal(pool.workers.has(a.key), false)
+  assert.equal(pool.workerSpecs.has(a.key), false)
+  assert.equal(pool.workers.has(b.key), true)
+  assert.equal(pool.workerSpecs.has(b.key), true)
+})
+
+test("V16.17.1: run failure removes worker metadata", async () => {
+  const pool = new PiRpcWorkerPool()
+  pool.createWorker = () => ({
+    dead: false,
+    active: false,
+    runs: 0,
+    proc: null,
+    async run() { throw new Error("run-failed") },
+    async stop() { this.dead = true },
+  })
+  const prepared = prepareAgentExecution({ ...BASE_PARTS, runId: "run-failure" })
+  await assert.rejects(pool.run(prepared.key, prepared.spec, "task", {}), /run-failed/)
+  assert.equal(pool.workers.has(prepared.key), false)
+  assert.equal(pool.workerSpecs.has(prepared.key), false)
+})
+
+test("V16.17.1: prewarm failure removes worker metadata", async () => {
+  const pool = new PiRpcWorkerPool()
+  pool.createWorker = () => ({
+    dead: false,
+    active: false,
+    runs: 0,
+    proc: null,
+    async start() { throw new Error("prewarm-failed") },
+    async stop() { this.dead = true },
+  })
+  const prepared = prepareAgentExecution({ ...BASE_PARTS, runId: "prewarm-failure" })
+  await assert.rejects(pool.prewarm(prepared.key, prepared.spec), /prewarm-failed/)
+  assert.equal(pool.workers.has(prepared.key), false)
+  assert.equal(pool.workerSpecs.has(prepared.key), false)
+})
+
+test("V16.17.1: discard and stopAll clear worker metadata and reservations", async () => {
+  const { pool, created } = poolWithFakeWorkers()
+  const a = prepareAgentExecution({ ...BASE_PARTS, runId: "discard-a" })
+  const b = prepareAgentExecution({ ...BASE_PARTS, runId: "discard-b" })
+  await pool.prewarm(a.key, a.spec)
+  created[0].worker.active = false
+  await pool.discard(a.key)
+  assert.equal(pool.workers.has(a.key), false)
+  assert.equal(pool.workerSpecs.has(a.key), false)
+
+  await pool.prewarm(b.key, b.spec)
+  pool.reserve("synthetic-reservation")
+  await pool.stopAll()
+  assert.equal(pool.workers.size, 0)
+  assert.equal(pool.workerSpecs.size, 0)
+  assert.equal(pool.reservations.size, 0)
 })

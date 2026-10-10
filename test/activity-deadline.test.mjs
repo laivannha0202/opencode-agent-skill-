@@ -45,3 +45,12 @@ test("V15.10 stale activity does not extend a hard deadline", () => {
   assert.equal(result.reason, "hard-timeout")
   assert.equal(deadline.extensions, 0)
 })
+
+test("V16.17.1 explicit sub-second hard deadlines are never inflated", () => {
+  const deadline = createAdaptiveDeadline({ hardTimeoutMs: 250, absoluteHardTimeoutMs: 250 }, 10_000)
+  assert.equal(deadline.initialMs, 250)
+  assert.equal(deadline.absoluteMs, 250)
+  assert.equal(deadline.deadlineAt, 10_250)
+  assert.equal(deadline.shouldAbort(10_249, 10_249).abort, false)
+  assert.equal(deadline.shouldAbort(10_250, 10_249).abort, true)
+})
