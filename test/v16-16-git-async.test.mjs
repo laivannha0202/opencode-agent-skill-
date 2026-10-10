@@ -128,6 +128,10 @@ test("V16.16 git: large stdout respects the max buffer", async () => {
     assert.ok(capped.stdout.length <= 1024)
     assert.equal(capped.stdoutTruncated, true)
     assert.equal(capped.stderrTruncated, false)
+    // V16.17.1: the shared tail byte buffer reports the omitted middle
+    // honestly instead of silently dropping it.
+    assert.ok(capped.stdoutOmittedBytes > 0, "omitted bytes must be reported")
+    assert.equal(capped.stderrOmittedBytes, 0)
   } finally {
     cleanup(base)
   }

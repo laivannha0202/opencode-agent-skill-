@@ -194,8 +194,27 @@ test("process supervisor caps output and times out process trees", async () => {
     hardTimeoutMs: 5_000,
   })
   assert.equal(output.exitCode, 0)
-  assert.equal(output.stdout.length, 2048)
+  // V16.17.1 bounded-output contract (pinned by
+  // test/process-lifecycle-v16-17-1.test.mjs items 11-14): a truncated
+  // stream keeps exact head+tail bytes within the limit plus an ASCII
+  // omission marker carrying the honest omitted-byte count. The rendered
+  // string is therefore LONGER than the byte limit by the marker, never
+  // exactly `limit` chars.
   assert.equal(output.stdoutTruncated, true)
+  assert.ok(output.stdoutOmittedBytes > 0, "omitted bytes must be reported")
+  // limit=2048 resolves to headBytes=2048/tailBytes=0 (the 4096 head floor
+  // exceeds the limit), so the rendered form is exactly the 2048 head bytes
+  // plus the ASCII omission marker: no silent loss, no invented tail.
+  assert.ok(output.stdout.startsWith("x".repeat(2048)), "head must be preserved byte-exact")
+  const marker = output.stdout.match(/\.\.\.\[omitted (\d+) bytes of output\]\.\.\./)
+  assert.ok(marker, "omission marker must carry the byte count")
+  assert.equal(Number(marker[1]), output.stdoutOmittedBytes)
+  assert.equal(output.stdoutBytes - output.stdoutOmittedBytes, 2048, "kept bytes must equal the limit")
+  assert.ok(
+    Buffer.byteLength(output.stdout, "utf8") < 2048 + 4096,
+    "rendered text must stay near the byte budget",
+  )
+  assert.equal(output.stdoutBytes, 10000)
 
   const hung = await runSupervisedProcess(process.execPath, ["-e", "setInterval(()=>{},1000)"], {
     stdoutLimit: 2048,

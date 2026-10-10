@@ -677,6 +677,11 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
       "test/v16-17-prepared-execution-production.test.mjs",
       "test/v16-17-structured-plan-production.test.mjs",
       "test/v16-17-structured-plan-smoke.test.mjs",
+      "test/v16-17-structured-execution-meter.test.mjs",
+      "test/process-lifecycle-v16-17-1.test.mjs",
+      "test/service-lifecycle-v16-17-1.test.mjs",
+      "test/agent-loop-production-abort-v16-17-1.test.mjs",
+      "test/process-runner.test.mjs",
       "test/source-integrity-v16-17.test.mjs",
     ]
     if (

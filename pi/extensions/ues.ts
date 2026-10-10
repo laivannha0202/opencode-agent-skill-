@@ -34,7 +34,7 @@ import {
   isToolExecutionError,
   toolResultText,
 } from "../../lib/process-hang-detector.mjs";
-import { runSupervisedProcess, terminateProcessTree } from "../../lib/process-supervisor.mjs";
+import { runSupervisedProcess, terminateProcessTreeAsync } from "../../lib/process-supervisor.mjs";
 import { PiRpcWorkerPool, buildRpcWorkerKey, prepareAgentExecution, sameExecution } from "../../lib/pi-rpc-pool.mjs";
 import { compileExecutionPlan } from "../../lib/execution-plan-compiler-v16-17.mjs";
 import { resolvePiChildInvocation } from "../../lib/pi-child-invocation.mjs";
@@ -424,6 +424,15 @@ const POST_TOOL_ERROR_IDLE_TIMEOUT_MS = configuredDuration(
   60_000,
   5_000,
   5 * 60_000,
+);
+// V16.17.1: bounded wait for a CLI child's `close` after `exit`. A surviving
+// grandchild can inherit the stdio pipes and delay `close` forever; the drain
+// settles with the observed exit code instead of hanging the run.
+const CHILD_DRAIN_MS = configuredDuration(
+  "UES_CHILD_DRAIN_MS",
+  2_000,
+  200,
+  10_000,
 );
 const TURBO_FAST_TIMEOUTS = turboFastTimeoutBudget({
   hardTimeoutMs: configuredDuration("UES_FAST_CHILD_HARD_TIMEOUT_MS", 180_000, 30_000, 10 * 60_000),
@@ -1527,7 +1536,17 @@ export async function releaseRunScopedResources(cwd: string, runId: string) {
 }
 
 function stopChildTree(proc: any) {
-  return terminateProcessTree(proc, { graceMs: 1500 });
+  // V16.17.1: fire-and-forget through the async bounded owner. The old
+  // synchronous taskkill blocked the event loop on exactly the timeout/abort
+  // paths that must stay responsive. Returns whether a termination attempt
+  // was dispatched for a live pid (never a fake synchronous "terminated").
+  if (!proc?.pid) return false;
+  try {
+    void terminateProcessTreeAsync(proc, { graceMs: 1500 }).catch(() => {});
+  } catch {
+    return false;
+  }
+  return true;
 }
 
 const READ_TOOLS = ["read", "grep", "find", "ls", "bash", "powershell"] as const;
@@ -2277,6 +2296,9 @@ async function runAgentCli(
       let heartbeatTimer: ReturnType<typeof setInterval> | null = null;
       let watchdogTimer: ReturnType<typeof setInterval> | null = null;
       let abortHandler: (() => void) | null = null;
+      // V16.17.1: bounded `exit`→`close` drain state (see handlers below).
+      let drainTimer: ReturnType<typeof setTimeout> | null = null;
+      let exitSeenCode: number | null = null;
       const activeTools = new Map<string, { name: string; args: any }>();
       const toolOutput = createToolOutputAccumulator({ maxChars: 12_000 });
       const hangTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -2286,6 +2308,8 @@ async function runAgentCli(
       const cleanupTimers = () => {
         if (heartbeatTimer) clearInterval(heartbeatTimer);
         if (watchdogTimer) clearInterval(watchdogTimer);
+        if (drainTimer) clearTimeout(drainTimer);
+        drainTimer = null;
         if (signal && abortHandler) signal.removeEventListener("abort", abortHandler);
         abortHandler = null;
         if (proc.pid) ACTIVE_CLI_CHILDREN.delete(proc.pid);
@@ -2492,6 +2516,13 @@ async function runAgentCli(
       proc.stdout.on("data", (data) => {
         lastActivityAt = Date.now();
         buffer += data.toString();
+        if (buffer.length > 256 * 1024 && !buffer.includes("\n")) {
+          // A single newline-free line (e.g. a giant blob) must not grow the
+          // pending-line buffer unboundedly; a truncated JSON event is
+          // ignored by processLine, exactly like a non-JSON diagnostic line.
+          processLine(buffer);
+          buffer = "";
+        }
         const lines = buffer.split("\n");
         buffer = lines.pop() || "";
         for (const line of lines) processLine(line);
@@ -2508,6 +2539,17 @@ async function runAgentCli(
       proc.on("error", (error) => {
         stderr += `\n${error instanceof Error ? error.message : String(error)}`;
         finish(1);
+      });
+      // V16.17.1: `close` waits for inherited stdio descriptors, so a
+      // surviving grandchild can delay it forever. `exit` arms a bounded
+      // drain that settles with the observed exit code (mirroring the close
+      // mapping); a late `close` is absorbed by the settled guard.
+      proc.on("exit", (code) => {
+        if (Number.isInteger(code)) exitSeenCode = code;
+        if (!drainTimer && !settled) {
+          drainTimer = setTimeout(() => finish(exitSeenCode ?? 0), CHILD_DRAIN_MS);
+          drainTimer.unref?.();
+        }
       });
       proc.on("close", (code) => {
         if (buffer.trim()) processLine(buffer);

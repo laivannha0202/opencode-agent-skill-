@@ -129,3 +129,48 @@ test("runProcess bounds captured stdout and stderr", async () => {
   assert.ok(result.stdout.endsWith("x"))
   assert.ok(result.stderr.endsWith("y"))
 })
+
+// V16.17.1 §17/§18: the shared tail byte buffer accounts BYTES (not JS
+// chars) and reports the omitted middle honestly. "đ" is 2 bytes in UTF-8.
+test("runProcess output accounting is byte-accurate for multibyte text", async () => {
+  const small = await runProcess(
+    process.execPath,
+    ["-e", "process.stdout.write('đ'.repeat(100))"],
+    { maxBuffer: 1024, heartbeatMs: 0 },
+  )
+  assert.equal(small.status, 0)
+  assert.equal(small.stdout, "đ".repeat(100))
+  assert.equal(small.stdoutTruncated, false)
+  assert.equal(small.stdoutOmittedBytes, 0)
+
+  const big = await runProcess(
+    process.execPath,
+    ["-e", "process.stdout.write('đ'.repeat(20000))"],
+    { maxBuffer: 8192, heartbeatMs: 0 },
+  )
+  assert.equal(big.status, 0)
+  assert.equal(big.stdoutTruncated, true)
+  assert.ok(big.stdoutOmittedBytes > 0, "omitted bytes must be byte-counted")
+  assert.ok(
+    Buffer.byteLength(big.stdout, "utf8") <= 8192 + 4,
+    "rendered tail must stay within the byte budget (plus at most one cut character)",
+  )
+})
+
+test("createTailByteBuffer keeps the tail and counts omitted bytes exactly", async () => {
+  const { createTailByteBuffer } = await import("../lib/process-supervisor.mjs")
+  const buffer = createTailByteBuffer(1024)
+  buffer.append(Buffer.from("héllo "))
+  buffer.append("world")
+  assert.equal(buffer.truncated, false)
+  assert.equal(buffer.omittedBytes, 0)
+  assert.equal(buffer.text(), "héllo world")
+  assert.equal(buffer.bytes, Buffer.byteLength("héllo world", "utf8"))
+
+  const capped = createTailByteBuffer(1024)
+  capped.append("x".repeat(5000))
+  assert.equal(capped.text(), "x".repeat(1024))
+  assert.equal(capped.truncated, true)
+  assert.equal(capped.omittedBytes, 5000 - 1024)
+  assert.equal(capped.bytes, 5000)
+})
