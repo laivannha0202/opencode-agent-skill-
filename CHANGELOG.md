@@ -2,6 +2,46 @@
 
 ## [Unreleased]
 
+## [16.18.0] - 2026-10-11
+
+### Added
+
+- Adaptive full-power optimization V16.18. No capability removed: overhead becomes
+  adaptive while FAST / BALANCED / DEEP, planning, subagents, advisor, browser,
+  semantic context, memory, LSP and verification all remain fully reachable.
+  - Provisional FAST discovery (`lib/orchestration-budget-v16-6.mjs`): unknown
+    scope starts in a bounded lightweight lane (max 3 candidate files,
+    1 subsystem, 5 discovery operations) and escalates losslessly via
+    `escalateProvisionalDiscovery()` on runtime evidence. High/critical risk,
+    long-horizon, verifier-failure history and security/architecture/data change
+    kinds never open the lane.
+  - Single run-scoped workspace generation (`lib/workspace-state-owner.mjs`
+    `createRunWorkspaceStateOwner()`): one immutable observation shared by
+    admission, budget, context, cache, advisor, planner and verification;
+    exactly one fresh capture after a real mutation; fail-closed reuse.
+  - True lazy LSP hydration (`lib/lazy-runtime.mjs` `LSP_PROVIDER`): no static
+    LSP import on the cold path; diagnostics hydrate on first real use; cheap
+    no-op shutdown when never hydrated; reliable teardown after hydration.
+  - Two-stage context pipeline (`lib/context-engine-v11.mjs`): `LIGHT_CONTEXT`
+    (declared/changed files, nearest instructions, bounded search, failure
+    delta) escalates to unchanged `FULL_CONTEXT` on insufficient evidence.
+  - Planner value gate (`lib/planning-speed-policy.mjs` `plannerValueGate()`):
+    skips the planner turn only for a proven bounded edit; never removes a floor.
+  - Global resource governor (`lib/resource-governor-v16-18.mjs`, PARTIAL):
+    lease coordinator with conservative caps guarding the advisor consult
+    (AUTO fails open); test/RPC/fleet/LSP/browser/service lanes keep local
+    limits.
+  - Weak-model decision capsule + bounded failure delta
+    (`lib/leaf-runtime-optimizer.mjs`): deterministic evidence-only GOAL/KNOWN/
+    FAILURE/UNKNOWN/ACTION/VERIFICATION/DO-NOT-REPEAT block for LIGHT/FAST turns.
+  - Post-audit hardening: only FULL packs are cached (LIGHT turns skip the
+    cache); consult-cache identity, patch review, pre-verification and
+    completion snapshots read the live generation; post-write invalidation runs
+    even without the evidence ledger.
+  - `npm run eval:v16.18` (52 tests) + `npm run bench:v16.18` (cold path +
+    six scenarios, non-zero exit on invariant failure). Provider token usage:
+    NOT_MEASURED (no provider session offline).
+
 ## [16.17.1] - 2026-10-10
 
 ### Changed

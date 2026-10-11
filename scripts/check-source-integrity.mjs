@@ -2012,6 +2012,226 @@ export function validateV16_17SourceIntegrity(root = ROOT) {
   return failures
 }
 
+// ---------------------------------------------------------------------------
+// V16.18 ADAPTIVE FULL-POWER OPTIMIZATION contracts.
+//
+// V16.18 makes the OVERHEAD adaptive without removing a single capability. A
+// regression here means one of the following silently came back:
+//   * unknown scope paying STANDARD orchestration again;
+//   * a second workspace-state authority or a stale generation being reused
+//     after a mutation;
+//   * the LSP stack becoming eagerly reachable again on a docs/config task;
+//   * the full context intelligence being unreachable (LIGHT becoming a cap);
+//   * a deferred capability becoming unreachable;
+//   * a resource lease that can be raised past its global cap.
+// ---------------------------------------------------------------------------
+const V16_18_CONTRACTS = Object.freeze([
+  {
+    file: "lib/orchestration-budget-v16-6.mjs",
+    minBytes: 30_000,
+    required: [
+      // The provisional lane and its hard bound.
+      "PROVISIONAL_FAST_DISCOVERY_BOUNDS",
+      "PROVISIONAL_EXCLUDED_CHANGE_KINDS",
+      "PROVISIONAL_BLOCKING_SIGNALS",
+      "provisionalFastDiscoveryEligible",
+      "affectedScopeKnown",
+      "escalateProvisionalDiscovery",
+      // UNKNOWN IS NEUTRAL: a known scope needs RUNTIME proof to open the lane.
+      "known-scope-not-runtime-proven",
+      "runtime-proven-bounded-scope",
+      // The escalation is a FLOOR, never a downgrade.
+      "discovery-insufficient",
+      "escalated-by-safety-floor",
+      "escalateProvisionalDiscovery",
+    ],
+  },
+  {
+    file: "lib/workspace-state-owner.mjs",
+    minBytes: 8_000,
+    required: [
+      // ONE run-scoped generation owner, additive to the per-capture owner.
+      "createRunWorkspaceStateOwner",
+      "runScoped: true",
+      "invalidate(",
+      "refresh(",
+      "isCurrent(",
+      // The owner wraps the proven capture and adds no second authority.
+      "captureWorkspaceStateV2",
+      "diffOwnedWorkspaceState",
+    ],
+  },
+  {
+    file: "lib/fast-static-verification.mjs",
+    minBytes: 4_000,
+    required: [
+      // The LSP stack is hydrated on FIRST REAL DIAGNOSTIC USE only.
+      "hydrateRuntimeModule(LAZY_RUNTIME_MODULES.LSP_PROVIDER",
+      "shutdownFastStaticLspProvider",
+      "lsp-provider-never-hydrated",
+    ],
+    forbidden: [
+      // A static import would put the whole language-server stack back on the
+      // cold path of every docs/config task.
+      'from "./code-intelligence/lsp-provider.mjs"',
+    ],
+  },
+  {
+    file: "lib/context-engine-v11.mjs",
+    minBytes: 10_000,
+    required: [
+      "CONTEXT_PIPELINE_STAGE",
+      "buildLightTaskContext",
+      "lightContextInsufficient",
+      "LIGHT_CONTEXT",
+      "FULL_CONTEXT",
+      "light-stage",
+    ],
+  },
+  {
+    file: "lib/resource-governor-v16-18.mjs",
+    minBytes: 8_000,
+    required: [
+      "RESOURCE_CLASS",
+      "RESOURCE_GOVERNOR_CAPS",
+      "createResourceGovernor",
+      "withLease",
+      // LAW 3: re-entrancy is depth, not width -- the deadlock-free property.
+      "RE-ENTRANCY IS DEPTH, NOT WIDTH",
+      // LAW 5: the governor can only narrow.
+      "NOTHING IS RAISED BY THE GOVERNOR",
+    ],
+  },
+  {
+    file: "lib/planning-speed-policy.mjs",
+    minBytes: 4_000,
+    required: [
+      "plannerValueGate",
+      "planner-value-gate-v16-18",
+      "bounded-scope",
+    ],
+  },
+  {
+    file: "lib/leaf-runtime-optimizer.mjs",
+    minBytes: 4_000,
+    required: [
+      "buildDecisionCapsule",
+      "renderDecisionCapsule",
+      "weak-model-decision-capsule-v16-18",
+      "DO NOT REPEAT",
+    ],
+  },
+  {
+    file: "lib/lazy-runtime.mjs",
+    minBytes: 8_000,
+    required: [
+      "LSP_PROVIDER",
+      "./code-intelligence/lsp-provider.mjs",
+      "hydrateRuntimeModule",
+    ],
+  },
+  {
+    file: "pi/extensions/ues.ts",
+    minBytes: 400_000,
+    required: [
+      // The run-scoped workspace owner is wired, invalidated at the write
+      // boundary, and cleared when the run ends.
+      "createRunWorkspaceStateOwner",
+      "setActiveRunWorkspaceOwner",
+      "clearActiveRunWorkspaceOwner",
+      "invalidateRunWorkspaceState",
+      "runWorkspaceStateFor",
+      // The two-stage context pipeline is wired.
+      "buildLightTaskContext",
+      "lightContextInsufficient",
+      "contextStageRecord",
+      // The provisional lane and the planner value gate are wired.
+      "resolveProvisionalFastDiscovery",
+      "plannerValueGate",
+      "buildDecisionCapsule",
+      // The global resource governor guards the advisor turn and fails OPEN.
+      "RESOURCE_CLASS",
+      "createResourceGovernor",
+      "runUnderResourceLease",
+      "RESOURCE_LEASE_REFUSED",
+      'failOpen: webLane.mode !== "force"',
+      // The LSP teardown stays reachable and stays cheap when un-hydrated.
+      "async function shutdownLspPool(",
+      "lsp-provider-never-hydrated",
+      // Post-audit hardening: verifier/advisor/cache readers bind to the LIVE
+      // generation, and only FULL packs are cached. A regression here means a
+      // stale pre-edit identity (or a LIGHT pack mistaken for full
+      // intelligence) silently came back.
+      "Only FULL_CONTEXT packs are cached",
+      "workspaceDecisionInputs(cwd, runWorkspaceStateFor(cwd))",
+      "boundedWorkspaceDiff(cwd, 6_000, runWorkspaceStateFor(cwd))",
+      "runtimeWorkspaceSnapshot(cwd, { workspaceState: runWorkspaceStateFor(cwd) })",
+    ],
+    forbidden: [
+      // A static import of the LSP provider would put the whole language-server
+      // stack back on the cold path.
+      'from "../../lib/code-intelligence/lsp-provider.mjs"',
+    ],
+  },
+  {
+    // The required regression suite must keep asserting the real invariants
+    // rather than degrading into marker-only assertions.
+    file: "test/adaptive-efficiency-v16-18.test.mjs",
+    minBytes: 20_000,
+    required: [
+      "provisionalFastDiscovery",
+      "escalateProvisionalDiscovery",
+      "plannerValueGate",
+      "createRunWorkspaceStateOwner",
+      "buildLightTaskContext",
+      "lightContextInsufficient",
+      "buildDecisionCapsule",
+      "createResourceGovernor",
+      "runUnderResourceLease",
+      "NOT_MEASURED",
+    ],
+  },
+  {
+    // The benchmark must keep measuring the REAL cold path and label honestly.
+    file: "scripts/bench-v16-18-adaptive-efficiency.mjs",
+    minBytes: 8_000,
+    required: [
+      "staticImportGraph",
+      "lspProviderEager",
+      "providerTokens",
+      "NOT_MEASURED",
+      "BENCHMARK INVARIANT FAILED",
+    ],
+  },
+])
+
+export function validateV16_18SourceIntegrity(root = ROOT) {
+  const failures = []
+  for (const contract of V16_18_CONTRACTS) {
+    const full = path.join(root, contract.file)
+    let text = ""
+    try {
+      const info = statSync(full)
+      if (!info.isFile()) {
+        failures.push(`${contract.file}: not a file`)
+        continue
+      }
+      if (info.size < contract.minBytes) failures.push(`${contract.file}: too small (${info.size} < ${contract.minBytes})`)
+      text = readFileSync(full, "utf8")
+    } catch (error) {
+      failures.push(`${contract.file}: unreadable (${error?.code || "error"})`)
+      continue
+    }
+    for (const marker of contract.required) {
+      if (!text.includes(marker)) failures.push(`${contract.file}: missing required marker ${marker}`)
+    }
+    for (const marker of contract.forbidden || []) {
+      if (text.includes(marker)) failures.push(`${contract.file}: forbidden marker present ${marker}`)
+    }
+  }
+  return failures
+}
+
 export function validateV16_11SourceIntegrity(root = ROOT) {
   const failures = []
   for (const contract of V16_11_CONTRACTS) {
@@ -2181,6 +2401,13 @@ export function runSourceIntegrity() {
   if (v16_17Failures.length) {
     process.stderr.write("V16.17 source-integrity validation failed:\n")
     for (const failure of v16_17Failures) process.stderr.write(`- ${failure}\n`)
+    return 1
+  }
+
+  const v16_18Failures = validateV16_18SourceIntegrity(ROOT)
+  if (v16_18Failures.length) {
+    process.stderr.write("V16.18 source-integrity validation failed:\n")
+    for (const failure of v16_18Failures) process.stderr.write(`- ${failure}\n`)
     return 1
   }
 

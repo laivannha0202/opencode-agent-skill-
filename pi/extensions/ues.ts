@@ -22,7 +22,16 @@ import { readWebConfig, resolveWebEnablement } from "../../lib/deepseek-web-conf
 // statically imports it), so this adds nothing to the boot graph.
 import { waitForAuthenticatedPage } from "../../lib/browser-profile.mjs";
 import { acquireProfileLock } from "../../lib/deepseek-profile-lock.mjs";
-import { buildAdaptiveTaskContext } from "../../lib/context-engine-v11.mjs";
+import {
+  buildAdaptiveTaskContext,
+  buildLightTaskContext,
+  lightContextInsufficient,
+  CONTEXT_PIPELINE_STAGE,
+} from "../../lib/context-engine-v11.mjs";
+
+// V16.18: the two-stage context pipeline policy label. Kept as a literal so a
+// typo cannot silently change the telemetry vocabulary.
+const CONTEXT_PIPELINE_POLICY_NAME = "two-stage-context-pipeline-v16-18";
 import { recordVerifiedTaskMemory } from "../../lib/memory-engine.mjs";
 import { normalizePlanForValidation, taskFiles, taskReadFiles, taskVerificationCommands, taskWriteFiles, validatePlan } from "../../lib/task-graph.mjs";
 import { planDynamicWorkflow } from "../../lib/dynamic-workflow.mjs";
@@ -79,6 +88,7 @@ import {
   createRunObserver,
   escalateRunBudget,
   loadSessionRuntime,
+  resolveProvisionalFastDiscovery,
   v16_6Telemetry,
 } from "../../lib/v16-6-runtime.mjs";
 import { recordToolDescriptionOutcome } from "../../lib/tool-description-profiles-v16-6.mjs";
@@ -99,14 +109,18 @@ import {
   renderProgressV2,
   summarizeProgressV2,
 } from "../../lib/progress-observer-v2.mjs";
-import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";
-import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
+import { clearAffectedTestCache, resolveAffectedTests } from "../../lib/affected-tests.mjs";import { findReusableVerification, listReusableVerification, recordVerification } from "../../lib/verification-broker.mjs";
 import { evaluateFastVerificationGate } from "../../lib/fast-verification-gate.mjs";
 import { collectFastStaticEvidence } from "../../lib/fast-static-verification.mjs";
 import { turboFastPathDecision, turboFastTimeoutBudget } from "../../lib/turbo-fast-path.mjs";
-import { failureDelta, leafTaskPolicy } from "../../lib/leaf-runtime-optimizer.mjs";
+import { failureDelta, leafTaskPolicy, buildDecisionCapsule, renderDecisionCapsule } from "../../lib/leaf-runtime-optimizer.mjs";
 import { classifyProviderFailure, providerRecoveryBackoffMs } from "../../lib/provider-recovery.mjs";
-import { planningRuntimeBudget, shouldSoftSteerArchitect, shouldSoftSteerPlanningRole } from "../../lib/planning-speed-policy.mjs";
+import {
+  planningRuntimeBudget,
+  plannerValueGate,
+  shouldSoftSteerArchitect,
+  shouldSoftSteerPlanningRole,
+} from "../../lib/planning-speed-policy.mjs";
 import { sourceFacingPaths, sourceGitPathspecs, UES_RUNTIME_DIRS } from "../../lib/runtime-artifacts.mjs";
 import { createSubagentArtifact, failSubagentArtifact, finalizeSubagentArtifact, listSubagentArtifacts, readSubagentArtifact } from "../../lib/subagent-artifacts.mjs";
 import { buildExecutionContract, buildFinalVerdictMatrix, captureInheritedDirtyState, detectInheritedDirtyViolations, enforcePhaseGates, executionContractPrompt, phaseArtifactPayloads, taskExplicitlyAllowsLocalEnvWrite } from "../../lib/execution-contract.mjs";
@@ -146,6 +160,13 @@ import { buildEfficiencyMetricsV2 } from "../../lib/efficiency-metrics-v16-10.mj
 import { analyzeUntrustedOutput, renderUntrustedOutputWarning } from "../../lib/untrusted-output.mjs";
 import { McpHealthTracker } from "../../lib/mcp-health.mjs";
 import { captureWorkspaceStateV2, runtimeWorkspaceFingerprint, runtimeWorkspaceSnapshot } from "../../lib/workspace-fingerprint.mjs";
+// V16.18: the run-scoped workspace-state owner. ONE immutable generation per
+// run, refreshed exactly once at a real mutation boundary. It wraps the proven
+// `captureWorkspaceStateV2()` and adds no second fingerprint authority.
+import { createRunWorkspaceStateOwner } from "../../lib/workspace-state-owner.mjs";
+// V16.18 global resource governor: ONE shared lease ceiling for the classes that
+// can otherwise all reach their own local maximum at the same time.
+import { RESOURCE_CLASS, RESOURCE_GOVERNOR_CLASSES, createResourceGovernor } from "../../lib/resource-governor-v16-18.mjs";
 import { captureWorkspaceHygieneBaseline, postRunFileHygiene, preFinalWorkspaceAudit } from "../../lib/workspace-hygiene.mjs";
 import { appendTrajectoryEvent, createTraceID } from "../../lib/trajectory.mjs";
 import {
@@ -177,7 +198,15 @@ import { WEB_REASONING_UNAVAILABLE } from "../../lib/web-reasoning-provider.mjs"
 import { clearRepoGraphRuntimeCache } from "../../lib/repo-graph.mjs";
 import { contentArtifactStoreStats } from "../../lib/content-artifacts.mjs";
 import { clearSemanticIndexRuntimeCache } from "../../lib/semantic-index.mjs";
-import { shutdownLspPool } from "../../lib/code-intelligence/lsp-provider.mjs";
+// V16.18: the LSP provider/pool is NO LONGER statically imported. It used to be
+// pulled in here purely to shut an EMPTY pool down at session end, which meant
+// every cold start paid the whole language-server stack (tsserver resolution,
+// diagnostics budget, managed pool, process supervisor) even for a docs or
+// config task that can never produce a diagnostic. The provider now hydrates
+// only when a diagnostic is genuinely requested, and `shutdownLspPool()` below
+// stays a no-op for a session that never hydrated it. The pool itself, its
+// persistence policy, its cleanup strength and its Windows teardown are
+// unchanged; only the import graph is.
 import {
   LAZY_RUNTIME_MODULES,
   hydrateRuntimeModule,
@@ -258,6 +287,29 @@ const loadWebReasoningLaneModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.WEB_RE
 const loadCodeIntelligenceModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.CODE_INTELLIGENCE);
 const loadCodePayloadModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.CODE_PAYLOAD);
 const loadRepoMapModule = () => hydrateRuntimeModule(LAZY_RUNTIME_MODULES.REPO_MAP);
+// V16.18: the LSP provider/pool. Hydrated only when a diagnostic is genuinely
+// requested. `shutdownLspPool()` is the ONLY teardown entry point and it stays
+// cheap when the pool was never hydrated (see the wrapper below).
+const loadLspProviderModule = () => hydrateLazy(LAZY_RUNTIME_MODULES.LSP_PROVIDER);
+
+/**
+ * Bounded LANGUAGE-SERVER STACK teardown.
+ *
+ * V16.18: a session that never hydrated the LSP provider must not import the
+ * entire stack just to shut down an empty pool. When the stack WAS hydrated the
+ * shutdown still runs reliably, through the same module that owns the pool, so
+ * no tsserver/typescript-language-server process can leak.
+ */
+async function shutdownLspPool(): Promise<any> {
+  if (!isLazyModuleLoaded(LAZY_RUNTIME_MODULES.LSP_PROVIDER)) {
+    return { stopped: 0, remaining: 0, hydrated: false, reason: "lsp-provider-never-hydrated" };
+  }
+  const provider = await hydrateRuntimeModule(LAZY_RUNTIME_MODULES.LSP_PROVIDER, { fallback: null });
+  if (!provider || typeof provider.shutdownLspPool !== "function") {
+    return { stopped: 0, remaining: 0, hydrated: false, reason: "lsp-provider-unavailable" };
+  }
+  return provider.shutdownLspPool().catch(() => ({ stopped: 0, remaining: 0 }));
+}
 // V16.12 Execution Acceleration Runtime. The composition module is the ONLY
 // entry point: it statically imports the other five capabilities, so hydrating
 // it pulls the whole acceleration stack through the same cached, joined
@@ -673,12 +725,17 @@ function resolveDeepSeekProfileId(env: any, cwd: string): string | null {
  *   2. cost - each snapshot runs four Git processes plus an untracked-content
  *      hash. Taking it once per decision instead of twice is strictly cheaper.
  *
+ * V16.18: the run-scoped owner (`createRunWorkspaceStateOwner`) now supplies the
+ * ONE immutable generation for the whole run. `workspaceState` is that
+ * generation; when it is absent the function falls back to its own capture so an
+ * owner-less caller cannot silently read a stale repository.
+ *
  * A failure degrades to empty/unknown values, which can only cause an extra
  * provider turn, never a wrong answer.
  */
-function workspaceDecisionInputs(cwd: string) {
+function workspaceDecisionInputs(cwd: string, workspaceState?: any) {
   try {
-    const state = captureWorkspaceStateV2(cwd);
+    const state = workspaceState || captureWorkspaceStateV2(cwd);
     const changed = Array.isArray(state.changedFiles) ? state.changedFiles : [];
     const entries = Array.isArray(state.statusEntries) ? state.statusEntries : [];
     const codeByFile = new Map(entries.map((row: any) => [String(row?.file || ""), String(row?.code || "?")]));
@@ -707,13 +764,22 @@ function workspaceDecisionInputs(cwd: string) {
  * change set without shelling out to git a second time. Failure degrades to an
  * empty diff; it never blocks and never claims a diff it does not have.
  */
-function boundedWorkspaceDiff(cwd: string, maxChars = 6_000) {
+function boundedWorkspaceDiff(cwd: string, maxChars = 6_000, workspaceState?: any) {
   try {
-    const snapshot = runtimeWorkspaceSnapshot(cwd);
-    const rows = Array.isArray(snapshot.changedFiles) ? snapshot.changedFiles.slice(0, 40) : [];
+    const snapshot = workspaceState
+      ? { changedFiles: workspaceState.changedFiles, statusEntries: workspaceState.statusEntries }
+      : runtimeWorkspaceSnapshot(cwd);
+    const rows = (Array.isArray(snapshot.changedFiles) ? snapshot.changedFiles : []).slice(0, 40);
     if (!rows.length) return "";
+    const codeByFile = new Map(
+      (Array.isArray((snapshot as any).statusEntries) ? (snapshot as any).statusEntries : [])
+        .map((row: any) => [String(row?.file || ""), String(row?.code || "?")]),
+    );
     return rows
-      .map((row: any) => `${row?.status || "?"} ${row?.path || ""}`)
+      .map((row: any) => {
+        const file = typeof row === "string" ? row : String(row?.path || "");
+        return `${codeByFile.get(file) || (typeof row === "object" ? row?.status : null) || "?"} ${file}`;
+      })
       .join("\n")
       .slice(0, maxChars);
   } catch {
@@ -727,13 +793,102 @@ function boundedWorkspaceDiff(cwd: string, maxChars = 6_000) {
  * a failure degrades to the literal "unknown" and can only cause an extra
  * provider turn, never a wrong answer.
  */
-function boundedWorkspaceHead(cwd: string): string {
+function boundedWorkspaceHead(cwd: string, workspaceState?: any): string {
   try {
-    const fingerprint = runtimeWorkspaceSnapshot(cwd).fingerprint;
+    const fingerprint = workspaceState?.fingerprint || runtimeWorkspaceSnapshot(cwd).fingerprint;
     return String(fingerprint || "unknown").slice(0, 80);
   } catch {
     return "unknown";
   }
+}
+
+// ---------------------------------------------------------------------------
+// V16.18 run-scoped workspace state accessors.
+//
+// ONE owner per run. Every read-only consumer (advisor packet, cache key,
+// evidence broker, telemetry) reads the SAME immutable generation, so a run no
+// longer pays four Git processes plus an untracked-content hash per question.
+// A real mutation invalidates the generation once, and the next reader performs
+// exactly one fresh capture. Nothing here weakens the snapshot: an owner-less
+// or root-mismatched call falls back to its own `captureWorkspaceStateV2()`.
+// ---------------------------------------------------------------------------
+let ACTIVE_RUN_WORKSPACE_OWNER: any = null;
+
+function setActiveRunWorkspaceOwner(owner: any) {
+  ACTIVE_RUN_WORKSPACE_OWNER = owner || null;
+}
+
+function clearActiveRunWorkspaceOwner() {
+  ACTIVE_RUN_WORKSPACE_OWNER = null;
+}
+
+/** The live workspace V2 state for a run, captured at most once per generation. */
+function runWorkspaceStateFor(cwd: string): any {
+  const owner = ACTIVE_RUN_WORKSPACE_OWNER;
+  if (!owner) return captureWorkspaceStateV2(cwd);
+  if (owner.root !== path.resolve(cwd)) return captureWorkspaceStateV2(cwd);
+  const snapshot = owner.current("run-state");
+  return snapshot?.raw || captureWorkspaceStateV2(cwd);
+}
+
+/** Run workspace-state telemetry for the status surface and the run journal. */
+function runWorkspaceStateTelemetry(): any {
+  const owner = ACTIVE_RUN_WORKSPACE_OWNER;
+  return owner?.state?.() || { generation: 0, captures: 0, reuses: 0, invalidations: 0, stale: true };
+}
+
+/**
+ * Invalidate the live generation after a REAL mutation. Does not capture: the
+ * refresh cost is paid exactly once, by the next reader. Fails closed in the
+ * sense that `isCurrent()` now rejects every snapshot from the old generation,
+ * so no cache, advisor or verifier can receive a stale pre-edit identity.
+ */
+function invalidateRunWorkspaceState(reason = "mutation") {
+  const owner = ACTIVE_RUN_WORKSPACE_OWNER;
+  if (!owner) return { generation: 0, invalidatedGeneration: 0, mutated: false, reason, owner: null };
+  return { ...owner.invalidate(reason), owner: "run-workspace-state-owner" };
+}
+
+/** Explicit mutation boundary: exactly ONE fresh generation. */
+function refreshRunWorkspaceState(reason = "post-mutation") {
+  const owner = ACTIVE_RUN_WORKSPACE_OWNER;
+  if (!owner) return runWorkspaceStateFor(process.cwd());
+  return owner.refresh(reason)?.raw || captureWorkspaceStateV2(process.cwd());
+}
+
+/** Whether a snapshot object is still from the live generation. */
+function isCurrentRunWorkspaceState(candidate: any): boolean {
+  const owner = ACTIVE_RUN_WORKSPACE_OWNER;
+  if (!owner) return false;
+  return owner.isCurrent(candidate) === true;
+}
+
+// ---------------------------------------------------------------------------
+// V16.18 global resource governor accessor.
+//
+// ONE process-wide lease coordinator. It does NOT replace any subsystem owner:
+// the test runner, RPC pool, child fleet, LSP pool, writer lane, browser lane and
+// service manager keep their own local limits and keep choosing them. What the
+// governor adds is a SHARED ceiling, so those local maxima can no longer all be
+// reached at the same instant. It can only NARROW.
+//
+// `runUnderResourceLease` fails OPEN with a sentinel instead of throwing, because
+// every current caller of this helper is a capability the runtime is allowed to
+// do without (an advisor turn). A refusal must therefore never become a task
+// failure; the caller journals it and continues locally.
+// ---------------------------------------------------------------------------
+const RESOURCE_LEASE_REFUSED = Symbol("ues.resource-lease-refused");
+const RUN_RESOURCE_GOVERNOR = createResourceGovernor();
+
+async function runUnderResourceLease(cls: string, fn: () => Promise<any>, input: any = {}): Promise<any> {
+  const outcome = await RUN_RESOURCE_GOVERNOR.withLease(cls, fn, input);
+  if (outcome.ok) return outcome.result;
+  return RESOURCE_LEASE_REFUSED;
+}
+
+/** Truthful governor metrics for the status surface and the run journal. */
+function resourceGovernorTelemetry(): any {
+  return RUN_RESOURCE_GOVERNOR.state();
 }
 
 /**
@@ -3634,7 +3789,11 @@ async function runRoutedAgent(
     changedFiles: [],
   };
   try {
-    agentWorkspaceState = captureWorkspaceStateV2(cwd);
+    // V16.18 single owner: a specialist turn reuses the run's live generation
+    // (one refresh after a mutation, zero captures for read-only turns) instead
+    // of paying its own full capture. Falls back to a fresh capture when no run
+    // owns this root (worktrees, owner-less callers), so truthfulness is unchanged.
+    agentWorkspaceState = runWorkspaceStateFor(cwd);
     workspaceState = runtimeWorkspaceSnapshot(cwd, { workspaceState: agentWorkspaceState });
   } catch {}
   const agentHygieneBaseline = captureWorkspaceHygieneBaseline(cwd, {
@@ -3646,6 +3805,30 @@ async function runRoutedAgent(
     ? selectBrowserToolsForTask(HOST_BROWSER_TOOL_NAMES, task, role)
     : [];
   let taskPolicy = taskPolicyOverride || classifyEngineeringTask(task);
+  // V16.18: resolve the provisional FAST discovery lane from the workspace
+  // evidence this run already holds, BEFORE the retry refinement is applied.
+  //
+  // The observation is deliberately conservative and cheap: the number of
+  // distinct top-level directories the current change set spans is the cheapest
+  // honest subsystem count available before any model turn. `candidateFiles` is
+  // left UNOBSERVED so the lane can never claim a bound it did not discover --
+  // an unobserved field is dropped by the recomputation, and a subsystem spread
+  // above the discovery bound escalates to BALANCED on real evidence.
+  const provisionalBase = (taskPolicy as any)?.v16_6 || null;
+  let provisionalResolution: any = null;
+  let resolvedProvisionalBase = provisionalBase;
+  if (provisionalBase?.provisionalFastDiscovery?.active === true) {
+    const changedPaths = (workspaceState.changedFiles || [])
+      .map((row: any) => String(row?.path || row || ""))
+      .filter(Boolean);
+    if (changedPaths.length) {
+      provisionalResolution = resolveProvisionalFastDiscovery(provisionalBase, {
+        subsystems: new Set(changedPaths.map((file) => file.split("/")[0])).size,
+        discoveryOperations: 0,
+      });
+      resolvedProvisionalBase = provisionalResolution;
+    }
+  }
   // V16.6 unified orchestration budget: ONE evidence-driven decision per run
   // covering execution profile, context, skill capsule, tool surface,
   // DeepSeek turns, delegation and verification shape. Evidence priority is
@@ -3655,7 +3838,7 @@ async function runRoutedAgent(
   // When the controller already computed a run budget, richer per-turn evidence
   // may only ESCALATE it -- a retry never gets a smaller budget than the run
   // was granted.
-  const v16_6Budget = escalateRunBudget((taskPolicy as any)?.v16_6 || null, {
+  const v16_6Budget = escalateRunBudget(resolvedProvisionalBase, {
     taskPolicy,
     attempt,
     changedFiles: workspaceState.changedFiles || [],
@@ -3932,6 +4115,15 @@ async function runRoutedAgent(
   let reusableVerification: any = null;
   let contextCacheHit = false;
   let contextPerformance: any = null;
+  // V16.18 two-stage context pipeline. Recorded for telemetry and the run
+  // journal so a light run cannot silently claim full intelligence (or the
+  // reverse). `FULL_CONTEXT` is the honest default until the light gate passes.
+  let contextStage: string = "FULL_CONTEXT";
+  let contextStageReasons: string[] = [];
+  // V16.18: the built pack is hoisted to function scope so the deterministic
+  // decision capsule can read the bounded discovery result without widening the
+  // `pack` binding inside the context-build branch.
+  let contextPackForCapsule: any = null;
   const contextBuildStartedAt = Date.now();
   await PARENT_RUNTIME_HOOKS.emit("context.before-build", {
     agent,
@@ -3968,22 +4160,73 @@ async function runRoutedAgent(
     const cacheableContext =
       workspaceState.cacheable === true &&
       workspaceFingerprint !== "unknown";
-    let pack = cacheableContext ? CONTEXT_PACK_CACHE.get(cacheKey) : null;
+    // V16.18 two-stage context pipeline. A lightweight/provisional run builds
+    // the LIGHT stage first (declared + changed files, nearest instructions,
+    // bounded search, bounded failure delta). Only when that evidence is
+    // insufficient does the run pay for the FULL intelligence (semantic index,
+    // hierarchy, repository graph, verified memory, capability fabric). The
+    // stage is a spend decision, never a capability removal, and the light
+    // gate fails OPEN toward escalation: an inconclusive light stage escalates.
+    const lightStageEligible =
+      v16_6?.executionProfile === "FAST" &&
+      attempt === 1 &&
+      !["high", "critical"].includes(String(taskPolicy.risk || "").toLowerCase()) &&
+      taskPolicy.mode !== "long-horizon" &&
+      !browserRequested;
+    // Only FULL_CONTEXT packs are cached, and only a run that needs FULL reads
+    // the cache. A LIGHT-eligible run always builds its cheap LIGHT stage fresh
+    // (~30ms) instead of risking a FULL pack (wasted tokens) or storing a LIGHT
+    // pack a later FULL run could mistake for full intelligence.
+    let pack = cacheableContext && !lightStageEligible ? CONTEXT_PACK_CACHE.get(cacheKey) : null;
     contextCacheHit = Boolean(pack);
     if (!pack) {
-      pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
-        policy: runtimePolicy,
-        role,
-        facts: {
-          longContext: taskPolicy.mode === "long-horizon",
-          browser: browserRequested,
-          vision: visualEvidenceNeeded(task),
-        },
-        changedFiles: workspaceState.changedFiles || [],
-        workspaceFingerprint:
-          workspaceState.cacheable === true ? workspaceFingerprint : undefined,
-      });
-      if (cacheableContext) {
+      if (lightStageEligible) {
+        const light = await buildLightTaskContext(cwd, taskRecord(task), {
+          policy: runtimePolicy,
+          role,
+          changedFiles: workspaceState.changedFiles || [],
+          workspaceFingerprint:
+            workspaceState.cacheable === true ? workspaceFingerprint : undefined,
+          recentFailure: recentFailure || undefined,
+          facts: {
+            longContext: false,
+            browser: false,
+            vision: visualEvidenceNeeded(task),
+          },
+        }).catch(() => null);
+        const lightGate = light
+          ? lightContextInsufficient(light, {
+              highRiskDomain: ["auth-security", "payment", "database", "api-contract"]
+                .some((domain) => (taskPolicy.domains || []).includes(domain)),
+              needsVerificationDetail: role.startsWith("ues-verifier"),
+              crossSubsystem: Number(v16_6?.taskSignals?.domains?.length || 0) > 1,
+            })
+          : { insufficient: true, reasons: ["light-context-unavailable"], stage: "FULL_CONTEXT" };
+        if (light) {
+          contextStage = lightGate.insufficient ? "FULL_CONTEXT" : "LIGHT_CONTEXT";
+          contextStageReasons = lightGate.reasons || [];
+          if (!lightGate.insufficient) pack = light;
+        } else {
+          contextStage = "FULL_CONTEXT";
+          contextStageReasons = ["light-context-unavailable"];
+        }
+      }
+      if (!pack) {
+        contextStage = "FULL_CONTEXT";
+        pack = await buildAdaptiveTaskContext(cwd, taskRecord(task), {
+          policy: runtimePolicy,
+          role,
+          facts: {
+            longContext: taskPolicy.mode === "long-horizon",
+            browser: browserRequested,
+            vision: visualEvidenceNeeded(task),
+          },
+          changedFiles: workspaceState.changedFiles || [],
+          workspaceFingerprint:
+            workspaceState.cacheable === true ? workspaceFingerprint : undefined,
+        });
+      }
+      if (cacheableContext && contextStage === "FULL_CONTEXT" && (pack as any)?.stage !== "LIGHT_CONTEXT") {
         rememberContextPack(cacheKey, pack);
         // Memory usage/accounting may update UES runtime metadata while building
         // this pack. Store the same immutable pack under the post-build aux
@@ -4040,6 +4283,7 @@ async function runRoutedAgent(
 
     contextQuality = pack.contextQuality;
     contextPerformance = pack.performance || null;
+    contextPackForCapsule = pack;
     enrichedTask = [
       task,
       "",
@@ -4079,6 +4323,58 @@ async function runRoutedAgent(
     }
   }
   const contextBuildMs = Date.now() - contextBuildStartedAt;
+  // V16.18 weak-model decision capsule. Deterministic and cheap: it is built
+  // ONLY from state the runtime already holds (task text, the bounded discovery
+  // result, the changed-file hint, the bounded failure delta) and it is attached
+  // only to a LIGHT/FAST turn, where a weak model has the least slack for
+  // re-discovery. It adds no plan, no authority and no reasoning budget, and it
+  // never invents a fact: a section with no evidence renders as UNKNOWN.
+  let decisionCapsule: any = null;
+  if (taskPolicy.executionProfile === "fast" || contextStage === "LIGHT_CONTEXT") {
+    decisionCapsule = buildDecisionCapsule({
+      goal: task.slice(0, 400),
+      knownFacts: [
+        role === "verifier" ? "Local verifier is the only PASS authority." : "",
+        contextStage === "LIGHT_CONTEXT" ? "Scope grounded by bounded discovery." : "",
+        Array.isArray(workspaceState.changedFiles) && workspaceState.changedFiles.length
+          ? `Current change set: ${workspaceState.changedFiles.slice(0, 5).map((row: any) => String(row?.path || row)).join(", ")}`
+          : "",
+      ].filter(Boolean),
+      knownFiles: (contextPackForCapsule?.contextManifest?.declared || [])
+        .concat((contextPackForCapsule?.contextManifest?.matches || []).slice(0, 5).map((row: any) => String(row.path)))
+        .slice(0, 8),
+      currentFailure: recentFailure ? failureDelta(recentFailure, { maxChars: 600 }) : "",
+      unknowns: [
+        contextStage === "LIGHT_CONTEXT" ? "Anything outside the bounded excerpt set is unread." : "",
+        Array.isArray(contextStageReasons) && contextStageReasons.length
+          ? `Context stage FULL_CONTEXT because: ${contextStageReasons.slice(0, 3).join(", ")}`
+          : "",
+      ].filter(Boolean),
+      currentAction:
+        role === "verifier"
+          ? "Independently verify the stated acceptance criteria against fresh evidence."
+          : "Implement the narrowest edit supported by the evidence, then verify it.",
+      verification: [String(taskPolicy.verification || "targeted"), String(budgetDecision?.strategy || "")].filter(Boolean),
+      doNotRepeat: [
+        attempt > 1 ? "Do not replay the previous attempt's edit." : "",
+        "Do not inventory the whole repository.",
+        "Do not re-read unchanged files without a named evidence gap.",
+      ].filter(Boolean),
+      attempt,
+      profile: taskPolicy.executionProfile,
+    });
+  }
+  // V16.18: the context stage travels with the run, so telemetry and the journal
+  // can prove whether a run paid for the full intelligence or stayed light --
+  // and why. Never fabricated: an unresolved stage is FULL_CONTEXT.
+  const contextStageRecord = {
+    stage: contextStage,
+    policy: CONTEXT_PIPELINE_POLICY_NAME,
+    lightAdmitted: contextStage === "LIGHT_CONTEXT",
+    reasons: contextStageReasons,
+    buildMs: contextBuildMs,
+    performance: contextPerformance || null,
+  };
   await PARENT_RUNTIME_HOOKS.emit("context.after-build", {
     agent,
     role,
@@ -4088,7 +4384,12 @@ async function runRoutedAgent(
     contextBuildMs,
     contextError: contextError || null,
     bounded: true,
+    contextStage: contextStageRecord,
   }, { cwd }).catch(() => null);
+
+  if (decisionCapsule?.text) {
+    enrichedTask += renderDecisionCapsule(decisionCapsule);
+  }
 
   if (modelProfile.roleContextABI) {
     const abi = modelProfile.roleContextABI;
@@ -7770,7 +8071,7 @@ export default function (pi: ExtensionAPI) {
     MCP_HEALTH.clear();
     abortActiveCliChildren();
     await stopAllServices().catch(() => []);
-    await shutdownLspPool().catch(() => ({ stopped: 0, remaining: 0 }));
+    await shutdownLspPool();
     await RPC_POOL.stopAll().catch(() => {});
     for (const dir of [...ACTIVE_TASK_SANDBOXES.keys()]) {
       const ownerRoot = await taskSandboxOwnerRoot(dir).catch(() => null);
@@ -9098,7 +9399,18 @@ export default function (pi: ExtensionAPI) {
       try {
       const inheritedModel = ctx.model ? `${ctx.model.provider}/${ctx.model.id}` : undefined;
       const inheritedThinking = ctx.thinkingLevel as string | undefined;
-      const controllerWorkspaceState = captureWorkspaceStateV2(cwd);
+      // V16.18: ONE run-scoped workspace-state generation. Admission, the
+      // orchestration budget, the context build, the cache key, the advisor
+      // packet, telemetry, hygiene, the planner and the verification boundary all
+      // read the SAME immutable observation, and a real mutation invalidates it
+      // exactly once (see `invalidateRunWorkspaceState` / `runWorkspaceStateFor`).
+      // A read-only turn never re-captures; a mutation boundary captures exactly
+      // one fresh generation. The snapshot itself is the proven
+      // `captureWorkspaceStateV2()` output and its correctness is unchanged.
+      const runWorkspaceOwner = createRunWorkspaceStateOwner({ root: cwd });
+      setActiveRunWorkspaceOwner(runWorkspaceOwner);
+      const controllerWorkspaceState = runWorkspaceOwner.current("controller-run-start")?.raw
+        || captureWorkspaceStateV2(cwd);
       const inheritedDirty = captureInheritedDirtyState(cwd, {
         workspaceState: controllerWorkspaceState,
       });
@@ -9143,7 +9455,9 @@ export default function (pi: ExtensionAPI) {
       const traceID = String((params as any).__traceID || createTraceID("ues-execute"));
       runScopedTraceID = traceID;
       const controllerWorkspaceFingerprint = String(
-        runtimeWorkspaceSnapshot(cwd, { workspaceState: controllerWorkspaceState }).fingerprint || "unknown",
+        runWorkspaceOwner.peek()?.fingerprint
+        || runtimeWorkspaceSnapshot(cwd, { workspaceState: controllerWorkspaceState }).fingerprint
+        || "unknown",
       );
       const journalAdmission = await createRunJournal(cwd, {
         runId: traceID,
@@ -9501,6 +9815,41 @@ export default function (pi: ExtensionAPI) {
       let structuredPlan: any = null;
       let durableWork: any = null;
       const directLane = directLaneDecision(params.task, policy, executionContract);
+      // V16.18 planner value gate. `requirePlanCheck` stays the owner of WHEN a
+      // plan is needed; this gate only removes the planner turn for a change the
+      // task policy AND the runtime evidence both declare bounded, and it can
+      // never remove a safety floor (risk, long-horizon, explicit phases,
+      // architecture evidence, ambiguous ownership, repeated implementation
+      // failure). Deterministic, evidence-only, and reported in the run journal.
+      const plannerGate = plannerValueGate({
+        taskPolicy: policy,
+        role: "executor",
+        attempt: 1,
+        phases: executionContract.phases || [],
+        candidateFiles: Number.isFinite(Number(runBudgetV16_6?.provisionalFastDiscovery?.observed?.candidateFiles))
+          ? Number(runBudgetV16_6?.provisionalFastDiscovery?.observed?.candidateFiles)
+          : undefined,
+        subsystems: Number.isFinite(Number(runBudgetV16_6?.provisionalFastDiscovery?.observed?.subsystems))
+          ? Number(runBudgetV16_6?.provisionalFastDiscovery?.observed?.subsystems)
+          : undefined,
+      });
+      const plannerRequired = policy.requirePlanCheck && !directLane.eligible && plannerGate.required;
+      if (policy.requirePlanCheck && !directLane.eligible && !plannerGate.required) {
+        await appendRunJournalEvent(cwd, traceID, "planning.value-gate", {
+          reason: plannerGate.reasons,
+          floors: plannerGate.floors,
+          skips: plannerGate.skips,
+          basis: plannerGate.basis,
+          preservesVerification: true,
+        }).catch(() => null);
+        onUpdate?.({
+          content: [{
+            type: "text",
+            text: "UES V16.18 planner value gate: bounded task executes directly; verification gates remain active",
+          }],
+          details: { mode: "execute", phase: "planning-value-gate", plannerGate, traceID },
+        });
+      }
       if (policy.requirePlanCheck && directLane.eligible) {
         await appendRunJournalEvent(cwd, traceID, "planning.direct-lane", {
           reason: directLane.reason,
@@ -9635,7 +9984,10 @@ export default function (pi: ExtensionAPI) {
           // HEAD, the real diff, per-file content, the evidence fingerprint, the
           // full packet digest, role/phase/mode, provider/model and the
           // normalized question + constraints. New evidence now means a miss.
-          const cacheInputs = workspaceDecisionInputs(cwd);
+          // V16.18 single owner: the consult-cache identity binds to the LIVE
+          // post-write generation (not the run-start snapshot), so a stale
+          // pre-edit identity can never replay a pre-edit answer after a write.
+           const cacheInputs = workspaceDecisionInputs(cwd, runWorkspaceStateFor(cwd));
           const cacheLookup = deepSeekCache && turnsAllowed && deepSeekRuntime?.consultCache?.consultOnce
             ? deepSeekRuntime.consultCache.consultOnce(deepSeekCache, {
               workspaceId: cacheInputs.workspaceId,
@@ -9718,7 +10070,7 @@ export default function (pi: ExtensionAPI) {
           // old call passed only task/notes/constraints, so the lane derived
           // `knownFiles: []` (`packetFiles: 0`) and the local verifier rejected
           // every answer as `no-local-grounding`. This is computed ONCE, from
-          // runtime state the controller already owns, and shared with the
+          // the LIVE generation the run already owns, and shared with the
           // consult so the packet and the verifier see the same facts.
           const consultGrounding = localGroundingForConsult({
             task: params.task,
@@ -9728,22 +10080,47 @@ export default function (pi: ExtensionAPI) {
           });
           if (turnsAllowed && !cacheLookup.cached) {
             try {
-              consultation = await webLane.consult({
-                task: params.task,
-                notes: [pendingResumeCapsuleText, failureDeltaText || "", advisorPacketText].filter(Boolean).join("\n\n"),
-                constraints: executionContract?.mustNot || [],
-                verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
-                affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
-                // V16.8: the verified Git root for this run. The decision barrier
-                // binds every grounded file against it and discards advice whose
-                // targets it cannot prove (see createRunWebLane).
-                workspaceRoot: cwd,
-                // V16.7.1 P0: real repository facts, so a DeepSeek claim can be
-                // bound PRESENT/ABSENT instead of being rejected as ungrounded.
-                ...(consultGrounding.knownFiles.length ? { knownFiles: consultGrounding.knownFiles } : {}),
-                ...(consultGrounding.relevantFiles.length ? { relevantFiles: consultGrounding.relevantFiles } : {}),
-                requestId: dispatchedContext.consultId,
-              });
+              // V16.18 global resource governor. The advisor is a MODEL_CHILD
+              // unit like any other child model, so it may not stack on top of a
+              // full child fleet + test runner + LSP pool. The wait is BOUNDED
+              // and a refusal FAILS OPEN to local execution (AUTO mode), which is
+              // exactly the contract §15 already requires: an advisor that cannot
+              // run must never block the coding task. The lease is released on
+              // every exit path, including the throw below.
+              consultation = await runUnderResourceLease(
+                RESOURCE_CLASS.MODEL_CHILD,
+                () => webLane.consult({
+                  task: params.task,
+                  notes: [pendingResumeCapsuleText, failureDeltaText || "", advisorPacketText].filter(Boolean).join("\n\n"),
+                  constraints: executionContract?.mustNot || [],
+                  verification: (structuredPlan && taskVerificationCommands(structuredPlan)) || [],
+                  affectedSubsystems: Number((structuredPlan as any)?.subsystems || 0),
+                  // V16.8: the verified Git root for this run. The decision barrier
+                  // binds every grounded file against it and discards advice whose
+                  // targets it cannot prove (see createRunWebLane).
+                  workspaceRoot: cwd,
+                  // V16.7.1 P0: real repository facts, so a DeepSeek claim can be
+                  // bound PRESENT/ABSENT instead of being rejected as ungrounded.
+                  ...(consultGrounding.knownFiles.length ? { knownFiles: consultGrounding.knownFiles } : {}),
+                  ...(consultGrounding.relevantFiles.length ? { relevantFiles: consultGrounding.relevantFiles } : {}),
+                  requestId: dispatchedContext.consultId,
+                }),
+                { taskId: `advisor:${traceID}`, timeoutMs: 20_000, meta: { phase: "execute" } },
+              );
+              if (consultation === RESOURCE_LEASE_REFUSED) {
+                // Fail open: journal the refusal, then continue locally. FORCE
+                // keeps its existing fail-loudly contract through the same
+                // unavailable path used for a provider error.
+                consultationErrorReason = "resource-lease-refused:model-child";
+                await appendRunJournalEvent(cwd, traceID, "advisor.resource-lease-refused", {
+                  class: RESOURCE_CLASS.MODEL_CHILD,
+                  reason: consultationErrorReason,
+                  failOpen: webLane.mode !== "force",
+                }).catch(() => null);
+                consultation = webLane.mode === "force"
+                  ? forceUnavailableConsultation(webLane, consultationErrorReason, dispatchedContext.consultId)
+                  : null;
+              }
             } catch (error) {
               // V16.7.1: never swallow to `null`. Journal a structured, secret-free
               // reason, then honor the mode: AUTO falls back to local (null), FORCE
@@ -10040,8 +10417,8 @@ export default function (pi: ExtensionAPI) {
             ledger: sharedContextLedger,
             maxRenderedChars: Number(runBudgetV16_6?.capsuleChars || 4_000),
             sources: {
-              diff: () => boundedWorkspaceDiff(cwd, 16_000),
-              "repo-summary": () => (controllerWorkspaceState?.changedFiles || []).slice(0, 40)
+              diff: () => boundedWorkspaceDiff(cwd, 16_000, runWorkspaceStateFor(cwd)),
+              "repo-summary": () => (runWorkspaceStateFor(cwd).changedFiles || []).slice(0, 40)
                 .map((row: any) => String(row?.path || row || ""))
                 .join("\n"),
               "verifier-output": () => recentFailure || "",
@@ -10076,8 +10453,10 @@ export default function (pi: ExtensionAPI) {
         // BEFORE the verifier runs, so the verifier never sees an unreviewed
         // patch as the first opinion. It still cannot decide PASS: the text is
         // untrusted external evidence attached to the verifier task.
+        // V16.18 single owner: the reviewed diff is the LIVE post-implementation
+        // generation, not the run-start snapshot.
         let webPatchReviewText = "";
-        const patchDiff = boundedWorkspaceDiff(cwd, 6_000);
+        const patchDiff = boundedWorkspaceDiff(cwd, 6_000, runWorkspaceStateFor(cwd));
         const patchReviewAllowed =
           webLane &&
           agent === "ues-verifier" &&
@@ -10135,12 +10514,12 @@ export default function (pi: ExtensionAPI) {
           // V16.7.1 P0 grounding fix: the patch review consults about the
           // CURRENT diff, so the real changed files ARE its local evidence. The
           // old call supplied none, so the review was always `advice-rejected`
-          // for lack of grounding. Reuse the controller's workspace snapshot
-          // (no rescan) plus the plan scope.
+          // for lack of grounding. Reads the LIVE generation (no extra capture
+          // beyond the single owned refresh) plus the plan scope.
           const patchGrounding = localGroundingForConsult({
             task: params.task,
             plan: structuredPlan,
-            changedFiles: (controllerWorkspaceState?.changedFiles || []).map((row: any) => row?.path || row),
+            changedFiles: (runWorkspaceStateFor(cwd)?.changedFiles || []).map((row: any) => row?.path || row),
             root: cwd,
           });
           // V16.7.1: a thrown patch-review consultation is journaled with a
@@ -10273,8 +10652,15 @@ export default function (pi: ExtensionAPI) {
         // (NEW against an empty epoch namespace) instead of reusing a stale
         // `evidence_id`. A failed/aborted writer turn does not bump: nothing is
         // assumed to have landed.
-        if (sharedContextLedger && WRITE_AGENTS.has(agent) && !result?.stopReason && result?.exitCode !== 130) {
-          sharedContextLedger.bumpEpoch(`post-write:${agent}`);
+        if (WRITE_AGENTS.has(agent) && !result?.stopReason && result?.exitCode !== 130) {
+          if (sharedContextLedger) sharedContextLedger.bumpEpoch(`post-write:${agent}`);
+          // V16.18 Post-write invalidation of the run workspace generation. The
+          // bytes this writer committed can no longer be described by the
+          // generation the advisor/cache/planner were shown. Invalidate ONCE;
+          // the next reader performs exactly one fresh capture instead of every
+          // consumer paying its own. Runs even when the ledger is absent: the
+          // stale-generation hazard is independent of the evidence-ledger wiring.
+          invalidateRunWorkspaceState(`post-write:${agent}`);
         }
         await appendRunJournalEvent(cwd, traceID, "agent.completed", {
           agent,
@@ -10540,7 +10926,7 @@ export default function (pi: ExtensionAPI) {
         recentFailure = diagnosis.output;
       }
 
-      planningGate: if (policy.requirePlanCheck && !directLane.eligible) {
+      planningGate: if (plannerRequired) {
         const planInstruction = [
           params.task,
           "",
@@ -11492,8 +11878,8 @@ export default function (pi: ExtensionAPI) {
         // every turn.
         let webFollowUpText = "";
         if (webLane && attempt > 1 && recentFailure) {
-          // V16.4 fresh evidence BEFORE a follow-up. The local side snapshots
-          // the CURRENT repository state (real diff + real verification
+          // V16.4 fresh evidence BEFORE a follow-up. The local side reads the
+          // LIVE post-write generation (real diff + real verification
           // evidence) and the follow-up is refused when that refresh failed or
           // proved nothing changed.
           const liveDiff = boundedWorkspaceDiff(cwd);
@@ -11506,7 +11892,7 @@ export default function (pi: ExtensionAPI) {
           const knownFilesForFollowUp = localGroundingForConsult({
             task: params.task,
             plan: structuredPlan,
-            changedFiles: (controllerWorkspaceState?.changedFiles || []).map((row: any) => row?.path || row),
+            changedFiles: (runWorkspaceStateFor(cwd)?.changedFiles || []).map((row: any) => row?.path || row),
             root: cwd,
           }).knownFiles;
           // V16.6 canonical turn budget for follow-ups too. The lane's own
@@ -11691,7 +12077,10 @@ export default function (pi: ExtensionAPI) {
         let verification: RunResult;
         let fastGate: any = null;
         if (fastBoundedLane) {
-          const snapshot = runtimeWorkspaceSnapshot(cwd);
+          // V16.18 single owner: the pre-verification boundary reads the live
+          // post-implementation generation (one refresh, never a duplicate
+          // capture) so the receipts/static probe bind to current truth.
+          const snapshot = runtimeWorkspaceSnapshot(cwd, { workspaceState: runWorkspaceStateFor(cwd) });
           const receipts = await listReusableVerification(cwd, {
             limit: 12,
             maxAgeMs: 10 * 60_000,
@@ -11897,7 +12286,7 @@ export default function (pi: ExtensionAPI) {
           }
         }
 
-        const completionSnapshot = runtimeWorkspaceSnapshot(cwd);
+        const completionSnapshot = runtimeWorkspaceSnapshot(cwd, { workspaceState: runWorkspaceStateFor(cwd) });
         const completionReceipts = await listReusableVerification(cwd, {
           limit: 24,
           maxAgeMs: 10 * 60_000,
@@ -12057,6 +12446,9 @@ export default function (pi: ExtensionAPI) {
         if (runScopedTraceID) {
           await releaseRunScopedResources(cwd, runScopedTraceID);
         }
+        // V16.18: the run-scoped workspace owner dies with the run. A later run
+        // must never be able to read a previous run's generation.
+        clearActiveRunWorkspaceOwner();
       }
     },
   };
@@ -12074,6 +12466,12 @@ export default function (pi: ExtensionAPI) {
         "Child runtime: " + CHILD_RUNTIME,
         "Adaptive context: " + (ADAPTIVE_CONTEXT_ENABLED ? "on" : "off"),
         "Unified workspace snapshot V2: on",
+        "V16.18 run-scoped workspace state: on (one immutable generation per run; refreshed once at a mutation boundary)",
+        "V16.18 two-stage context pipeline: on (LIGHT_CONTEXT -> FULL_CONTEXT, escalates on insufficient evidence)",
+        "V16.18 provisional fast discovery: on (unknown scope starts light and must resolve on evidence)",
+        "V16.18 global resource governor: on (" + RESOURCE_GOVERNOR_CLASSES.join(", ") + ")",
+        "V16.18 planner value gate: on (a bounded direct edit does not buy an architect turn)",
+        "V16.18 lazy LSP hydration: on (the language-server stack hydrates on first real diagnostic only)",
         "Parallel context preparation: on",
         "Git-index affected-test inventory: on",
         "Parallel verification evidence I/O: on",

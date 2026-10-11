@@ -20,6 +20,7 @@ import {
   classifyExecutionComplexity,
   computeOrchestrationBudget,
   describeOrchestrationBudget,
+  escalateProvisionalDiscovery,
   refineOrchestrationBudget,
 } from "../lib/orchestration-budget-v16-6.mjs"
 import {
@@ -59,11 +60,38 @@ test("A2: a bounded single low-risk change earns FAST", () => {
 })
 
 test("A3: absence of a measured diff is NOT evidence of a tiny task", () => {
+  // V16.18 (adaptive efficiency): UNKNOWN SCOPE IS NEUTRAL, NOT BROAD. The old
+  // budget turned "affectedFiles = undefined" into the BALANCED default, so the
+  // first turn paid STANDARD spend before anyone had looked at the repository.
+  // Unknown now opens a BOUNDED PROVISIONAL DISCOVERY lane at the FAST ceiling:
+  //   * it is explicitly labelled provisional and UNRESOLVED, so nothing may
+  //     claim the task is tiny (the record carries scopeKnownAtStart:false);
+  //   * the classification still refuses to call it "easy";
+  //   * the lane is an OBLIGATION: `escalateProvisionalDiscovery()` must be fed
+  //     the observed facts, and insufficient evidence re-decides to BALANCED.
+  // The safety property is unchanged: high/critical risk, long horizon,
+  // repeated verifier failure and every other floor still win below.
   const budget = computeOrchestrationBudget({
     taskPolicy: { risk: "low", executionProfile: "standard" },
     affectedFiles: undefined,
   })
-  assert.equal(budget.executionProfile, EXECUTION_PROFILE.BALANCED)
+  assert.equal(budget.executionProfile, EXECUTION_PROFILE.FAST)
+  assert.equal(budget.provisionalFastDiscovery.active, true)
+  assert.equal(budget.provisionalFastDiscovery.resolved, false)
+  assert.equal(budget.provisionalFastDiscovery.scopeKnownAtStart, false)
+  assert.notEqual(budget.taskComplexity, "easy", "unknown scope is never claimed tiny")
+  assert.notEqual(budget.delegationMode, "bounded-delegation")
+  assert.equal(budget.deepSeekMode, "off")
+  // Unknown scope is not a licence to skip evidence: the lane must resolve.
+  const insufficient = escalateProvisionalDiscovery(budget, {
+    candidateFiles: -1,
+    subsystems: -1,
+    discoveryOperations: 5,
+    insufficient: true,
+  })
+  assert.equal(insufficient.executionProfile, EXECUTION_PROFILE.BALANCED)
+  assert.equal(insufficient.provisionalFastDiscovery.resolved, true)
+  assert.equal(insufficient.provisionalFastDiscovery.outcome, "escalated-balanced")
 })
 
 test("A4: task text alone can never reach DEEP", () => {
@@ -72,7 +100,11 @@ test("A4: task text alone can never reach DEEP", () => {
     "redesign the database schema, rewrite the API contract and restructure every module.",
   ].join(" ")
   const budget = computeOrchestrationBudget({ taskPolicy: { risk: "low" }, taskText: loudTaskText })
-  assert.equal(budget.executionProfile, EXECUTION_PROFILE.BALANCED)
+  // V16.18: dramatic wording alone buys the FAST ceiling, never DEEP and never
+  // BALANCED spend. (In production the same wording reaches `task-policy` first,
+  // which classifies it long-horizon/high-risk; that floor is asserted in A6.)
+  assert.equal(budget.executionProfile, EXECUTION_PROFILE.FAST)
+  assert.ok(!["BALANCED", "DEEP"].includes(budget.executionProfile))
   const complexity = classifyExecutionComplexity({ taskText: loudTaskText, risk: "low" })
   assert.ok(complexity.evidenceScore <= 1)
 })
@@ -139,7 +171,10 @@ test("A9: refinement escalates only", () => {
 })
 
 test("A10: spending more needs an evidence floor, less is always allowed", () => {
-  const budget = computeOrchestrationBudget({ taskPolicy: { risk: "low" }, affectedFiles: 2 })
+  // A KNOWN 4-file scope is not unknown scope: no discovery is outstanding, so
+  // no provisional floor exists and BALANCED stays a preference, not an
+  // escalation.
+  const budget = computeOrchestrationBudget({ taskPolicy: { risk: "low" }, affectedFiles: 4 })
   assert.deepEqual(budget.profileFloors, [], "no floor: BALANCED is a preference, not an escalation")
 
   // No floor -> the run keeps the profile the task policy already chose.

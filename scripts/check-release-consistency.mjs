@@ -694,6 +694,27 @@ export function checkReleaseConsistency(root = DEFAULT_ROOT) {
     if (scripts["bench:v16.17"] !== "node scripts/bench-v16-17-execution-core.mjs") {
       errors.push("package.json: missing V16.17 execution-core benchmark command")
     }
+    if (!String(scripts["release:verify"] || "").includes("npm run eval:v16.18")) {
+      errors.push("package.json: release:verify must include eval:v16.18")
+    }
+    if (!pkg.files.includes("docs/V16.18-ADAPTIVE-FULL-POWER-OPTIMIZATION.md")) {
+      errors.push("package.json: V16.18 adaptive full-power optimization documentation must be packed")
+    }
+    const focusedV1618 = String(scripts["eval:v16.18"] || "").trim().split(/\s+/).filter(Boolean)
+    const requiredV1618Tests = [
+      "test/adaptive-efficiency-v16-18.test.mjs",
+      "test/source-integrity-v16-18.test.mjs",
+    ]
+    if (
+      focusedV1618[0] !== "node" ||
+      focusedV1618[1] !== "scripts/run-test-suite.mjs" ||
+      !requiredV1618Tests.every((file) => focusedV1618.includes(file))
+    ) {
+      errors.push("package.json: eval:v16.18 must use the bounded runner and include every V16.18 adaptive-efficiency suite")
+    }
+    if (scripts["bench:v16.18"] !== "node scripts/bench-v16-18-adaptive-efficiency.mjs") {
+      errors.push("package.json: missing V16.18 adaptive-efficiency benchmark command")
+    }
     // An eval script naming a test file that does not exist would be silently
     // dropped by the bounded runner, leaving the release claiming a suite nobody
     // ran. Every test file an eval script names must exist on disk.
